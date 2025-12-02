@@ -203,7 +203,7 @@ def fetch_node_sdk_data() -> dict[str, Any]:
     # `posthog-node` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
     # We fetch the latest version from both repos and join them together.
     posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-node@"])
-    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-node-"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-node-v"])
 
     # Shouldn't happen, but just in case
     if not posthog_js:
@@ -225,7 +225,7 @@ def fetch_react_native_sdk_data() -> dict[str, Any]:
     # `posthog-react-native` was originally developed on the `posthog-js-lite` repo, but was later moved to the `posthog-js` monorepo
     # We fetch the latest version from both repos and join them together.
     posthog_js = fetch_sdk_data_from_releases("PostHog/posthog-js", tag_prefixes=["posthog-react-native@"])
-    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-react-native-"])
+    posthog_js_lite = fetch_sdk_data_from_releases("PostHog/posthog-js-lite", tag_prefixes=["posthog-react-native-v"])
 
     # Shouldn't happen, but just in case
     if not posthog_js:
@@ -243,7 +243,8 @@ def fetch_react_native_sdk_data() -> dict[str, Any]:
 
 def fetch_flutter_sdk_data() -> dict[str, Any]:
     """Fetch Flutter SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-flutter")
+    # First attempt to cut the trailing `v` prefix and then just fallback to the full tag
+    return fetch_sdk_data_from_releases("PostHog/posthog-flutter", tag_prefixes=["v", ""])
 
 
 def fetch_ios_sdk_data() -> dict[str, Any]:

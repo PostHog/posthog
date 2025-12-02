@@ -99,7 +99,7 @@ class TestFetchWebSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "1.298.1" in result["releaseDates"]
         assert result["releaseDates"]["1.298.1"] == "2025-11-26T13:26:47Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
     @patch("dags.sdk_doctor.github_sdk_versions.requests.get")
     def test_fetch_web_sdk_data_request_failure(self, mock_get):
@@ -127,7 +127,7 @@ class TestFetchPythonSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "7.0.1" in result["releaseDates"]
         assert result["releaseDates"]["7.0.1"] == "2025-11-15T12:43:55Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchNodeSdkData(TestFetchSdkDataBase):
@@ -143,7 +143,10 @@ class TestFetchNodeSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "5.14.0" in result["releaseDates"]
         assert result["releaseDates"]["5.14.0"] == "2025-11-24T10:24:59Z"
-        assert mock_get.call_count == 3  # Paginated to second page + 1 for `posthog-js-lite`
+        assert mock_get.call_count == 3  # Assert that it attempted to paginate + 1 for `posthog-js-lite`
+
+        # `posthog-js-lite` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
 class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
@@ -159,7 +162,10 @@ class TestFetchReactNativeSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "4.14.0" in result["releaseDates"]
         assert result["releaseDates"]["4.14.0"] == "2025-11-26T13:26:49Z"
-        assert mock_get.call_count == 3  # Paginated to second page + 1 for `posthog-js-lite`
+        assert mock_get.call_count == 3  # Assert that it attempted to paginate + 1 for `posthog-js-lite`
+
+        # `posthog-js-lite` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
 class TestFetchFlutterSdkData(TestFetchSdkDataBase):
@@ -175,7 +181,10 @@ class TestFetchFlutterSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "5.9.0" in result["releaseDates"]
         assert result["releaseDates"]["5.9.0"] == "2025-11-05T13:22:41Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
+
+        # `flutter` included a leading `v` prefix on some tags, let's make sure it's removed
+        assert not any(version.startswith("v") for version in result["releaseDates"].keys())
 
 
 class TestFetchIosSdkData(TestFetchSdkDataBase):
@@ -191,7 +200,7 @@ class TestFetchIosSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "3.35.0" in result["releaseDates"]
         assert result["releaseDates"]["3.35.0"] == "2025-11-07T16:22:45Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchAndroidSdkData(TestFetchSdkDataBase):
@@ -207,7 +216,7 @@ class TestFetchAndroidSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "3.26.0" in result["releaseDates"]
         assert result["releaseDates"]["3.26.0"] == "2025-11-05T20:29:02Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchGoSdkData(TestFetchSdkDataBase):
@@ -223,7 +232,7 @@ class TestFetchGoSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "1.6.13" in result["releaseDates"]
         assert result["releaseDates"]["1.6.13"] == "2025-11-21T21:58:29Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchPhpSdkData(TestFetchSdkDataBase):
@@ -239,7 +248,7 @@ class TestFetchPhpSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "3.7.2" in result["releaseDates"]
         assert result["releaseDates"]["3.7.2"] == "2025-10-23T00:40:34Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchRubySdkData(TestFetchSdkDataBase):
@@ -255,7 +264,7 @@ class TestFetchRubySdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "3.3.3" in result["releaseDates"]
         assert result["releaseDates"]["3.3.3"] == "2025-10-22T17:40:15Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchElixirSdkData(TestFetchSdkDataBase):
@@ -271,7 +280,7 @@ class TestFetchElixirSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "2.1.0" in result["releaseDates"]
         assert result["releaseDates"]["2.1.0"] == "2025-11-25T18:54:57Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate
 
 
 class TestFetchDotnetSdkData(TestFetchSdkDataBase):
@@ -287,4 +296,4 @@ class TestFetchDotnetSdkData(TestFetchSdkDataBase):
         assert len(result["releaseDates"]) > 0
         assert "2.2.2" in result["releaseDates"]
         assert result["releaseDates"]["2.2.2"] == "2025-11-21T17:27:02Z"
-        assert mock_get.call_count == 2  # Paginated to second page
+        assert mock_get.call_count == 2  # Assert that it attempted to paginate

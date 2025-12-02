@@ -1,3 +1,4 @@
+from .ashby.source import AshbySource
 from .bigquery.source import BigQuerySource
 from .bing_ads.source import BingAdsSource
 from .braze.source import BrazeSource
@@ -33,6 +34,7 @@ from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
 __all__ = [
+    "AshbySource",
     "SupabaseSource",
     "CustomerIOSource",
     "GithubSource",
