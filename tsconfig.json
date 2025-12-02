@@ -46,7 +46,7 @@
         "products/**/manifest.tsx",
         "common/esbuilder/*",
         "common/storybook/*",
-        "docs/**/*"
+        "docs/onboarding/**/*"
     ],
     "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {
