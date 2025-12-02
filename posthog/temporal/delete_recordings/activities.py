@@ -121,7 +121,9 @@ async def group_recording_blocks(input: RecordingWithBlocks) -> list[RecordingBl
 
         start_byte, end_byte = int(match.group(1)), int(match.group(2))
 
-        block_group: RecordingBlockGroup = block_map.get(path, RecordingBlockGroup(input.recording, path, []))
+        block_group: RecordingBlockGroup = block_map.get(
+            path, RecordingBlockGroup(recording=input.recording, path=path, ranges=[])
+        )
         block_group.ranges.append((start_byte, end_byte))
         block_map[path] = block_group
 
