@@ -15,6 +15,7 @@ import { usePrevious } from 'lib/hooks/usePrevious'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
+import { isEmail } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -104,7 +105,6 @@ export function Login(): JSX.Element {
     // Trigger precheck for password manager autofill/paste (detected by large character delta)
     useEffect(() => {
         const charDelta = login.email.length - (prevEmail?.length ?? 0)
-        const isAutofill = charDelta > 1
         const isAutofill = charDelta > 1
 
         if (isAutofill && isEmail(login.email, { requireTLD: true }) && precheckResponse.status === 'pending') {
