@@ -247,7 +247,7 @@ class SelectQueryType(Type):
     tables: dict[str, TableOrSelectType] = field(default_factory=dict)
     ctes: dict[str, CTE] = field(default_factory=dict)
     # all from and join subqueries without aliases
-    anonymous_tables: list[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
+    anonymous_tables: Sequence[Union["SelectQueryType", "SelectSetQueryType"]] = field(default_factory=list)
     # the parent select query, if this is a lambda
     parent: Optional[Union["SelectQueryType", "SelectSetQueryType"]] = None
     # whether this type is related to a lambda scope
@@ -283,7 +283,7 @@ class SelectQueryType(Type):
 
 @dataclass(kw_only=True)
 class SelectSetQueryType(Type):
-    types: list[Union["SelectQueryType", "SelectSetQueryType"]]
+    types: Sequence[Union["SelectQueryType", "SelectSetQueryType"]]
 
     def get_alias_for_table_type(self, table_type: TableOrSelectType) -> Optional[str]:
         return self.types[0].get_alias_for_table_type(table_type)
@@ -437,7 +437,7 @@ class ArrayType(ConstantType):
 @dataclass(kw_only=True)
 class TupleType(ConstantType):
     data_type: ConstantDataType = field(default="tuple", init=False)
-    item_types: list[ConstantType]
+    item_types: Sequence[ConstantType]
     repeat: bool = False
 
     def print_type(self) -> str:
@@ -447,8 +447,8 @@ class TupleType(ConstantType):
 @dataclass(kw_only=True)
 class CallType(Type):
     name: str
-    arg_types: list[ConstantType]
-    param_types: Optional[list[ConstantType]] = None
+    arg_types: Sequence[ConstantType]
+    param_types: Optional[Sequence[ConstantType]] = None
     return_type: ConstantType
 
     def resolve_constant_type(self, context: HogQLContext) -> ConstantType:
@@ -551,7 +551,7 @@ class UnresolvedFieldType(Type):
 
 @dataclass(kw_only=True)
 class PropertyType(Type):
-    chain: list[str | int]
+    chain: Sequence[str | int]
     field_type: FieldType
 
     # The property has been moved into a field we query from a joined subquery
@@ -611,12 +611,12 @@ class ArithmeticOperation(Expr):
 @dataclass(kw_only=True)
 class And(Expr):
     type: Optional[ConstantType] = None
-    exprs: list[Expr]
+    exprs: Sequence[Expr]
 
 
 @dataclass(kw_only=True)
 class Or(Expr):
-    exprs: list[Expr]
+    exprs: Sequence[Expr]
     type: Optional[ConstantType] = None
 
 
@@ -693,12 +693,12 @@ class ArrayAccess(Expr):
 
 @dataclass(kw_only=True)
 class Array(Expr):
-    exprs: list[Expr]
+    exprs: Sequence[Expr]
 
 
 @dataclass(kw_only=True)
 class Dict(Expr):
-    items: list[tuple[Expr, Expr]]
+    items: Sequence[tuple[Expr, Expr]]
 
 
 @dataclass(kw_only=True)
@@ -710,12 +710,12 @@ class TupleAccess(Expr):
 
 @dataclass(kw_only=True)
 class Tuple(Expr):
-    exprs: list[Expr]
+    exprs: Sequence[Expr]
 
 
 @dataclass(kw_only=True)
 class Lambda(Expr):
-    args: list[str]
+    args: Sequence[str]
     expr: Expr | Block
 
 
@@ -726,7 +726,7 @@ class Constant(Expr):
 
 @dataclass(kw_only=True)
 class Field(Expr):
-    chain: list[str | int]
+    chain: Sequence[str | int]
     from_asterisk: bool = False
 
 
@@ -735,7 +735,7 @@ class Placeholder(Expr):
     expr: Expr
 
     @property
-    def chain(self) -> list[str | int] | None:
+    def chain(self) -> Sequence[str | int] | None:
         expr = self.expr
         while isinstance(expr, Alias):
             expr = expr.expr
@@ -750,8 +750,8 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     """Function name"""
-    args: list[Expr]
-    params: Optional[list[Expr]] = None
+    args: Sequence[Expr]
+    params: Optional[Sequence[Expr]] = None
     """
     Parameters apply to some aggregate functions, see ClickHouse docs:
     https://clickhouse.com/docs/en/sql-reference/aggregate-functions/parametric-functions
@@ -762,7 +762,7 @@ class Call(Expr):
 @dataclass(kw_only=True)
 class ExprCall(Expr):
     expr: Expr
-    args: list[Expr]
+    args: Sequence[Expr]
 
 
 @dataclass(kw_only=True)
@@ -778,7 +778,7 @@ class JoinExpr(Expr):
 
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", "SelectSetQuery", "Placeholder", "HogQLXTag", "Field"]] = None
-    table_args: Optional[list[Expr]] = None
+    table_args: Optional[Sequence[Expr]] = None
     alias: Optional[str] = None
     table_final: Optional[bool] = None
     constraint: Optional[JoinConstraint] = None
@@ -794,8 +794,8 @@ class WindowFrameExpr(Expr):
 
 @dataclass(kw_only=True)
 class WindowExpr(Expr):
-    partition_by: Optional[list[Expr]] = None
-    order_by: Optional[list[OrderExpr]] = None
+    partition_by: Optional[Sequence[Expr]] = None
+    order_by: Optional[Sequence[OrderExpr]] = None
     frame_method: Optional[Literal["ROWS", "RANGE"]] = None
     frame_start: Optional[WindowFrameExpr] = None
     frame_end: Optional[WindowFrameExpr] = None
@@ -804,8 +804,8 @@ class WindowExpr(Expr):
 @dataclass(kw_only=True)
 class WindowFunction(Expr):
     name: str
-    args: Optional[list[Expr]] = None
-    exprs: Optional[list[Expr]] = None
+    args: Optional[Sequence[Expr]] = None
+    exprs: Optional[Sequence[Expr]] = None
     over_expr: Optional[WindowExpr] = None
     over_identifier: Optional[str] = None
 
@@ -813,7 +813,7 @@ class WindowFunction(Expr):
 @dataclass(kw_only=True)
 class LimitByExpr(Expr):
     n: Expr
-    exprs: list[Expr]
+    exprs: Sequence[Expr]
     offset_value: Optional[Expr] = None
 
 
@@ -822,17 +822,17 @@ class SelectQuery(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[SelectQueryType] = None
     ctes: Optional[dict[str, CTE]] = None
-    select: list[Expr]
+    select: Sequence[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
     array_join_op: Optional[str] = None
-    array_join_list: Optional[list[Expr]] = None
+    array_join_list: Optional[Sequence[Expr]] = None
     window_exprs: Optional[dict[str, WindowExpr]] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
-    group_by: Optional[list[Expr]] = None
-    order_by: Optional[list[OrderExpr]] = None
+    group_by: Optional[Sequence[Expr]] = None
+    order_by: Optional[Sequence[OrderExpr]] = None
     limit: Optional[Expr] = None
     limit_by: Optional[LimitByExpr] = None
     limit_with_ties: Optional[bool] = None
@@ -885,7 +885,7 @@ class SelectSetNode(AST):
 class SelectSetQuery(Expr):
     type: Optional[SelectSetQueryType] = None
     initial_select_query: Union["SelectQuery", "SelectSetQuery"]
-    subsequent_select_queries: list[SelectSetNode]
+    subsequent_select_queries: Sequence[SelectSetNode]
 
     def select_queries(self):
         return [self.initial_select_query] + [node.select_query for node in self.subsequent_select_queries]
@@ -929,7 +929,7 @@ class HogQLXAttribute(AST):
 @dataclass(kw_only=True)
 class HogQLXTag(Expr):
     kind: str
-    attributes: list[HogQLXAttribute]
+    attributes: Sequence[HogQLXAttribute]
 
     def to_dict(self):
         return {
