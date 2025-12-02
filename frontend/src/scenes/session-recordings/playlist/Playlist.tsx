@@ -265,7 +265,7 @@ export function Playlist({
                             size="small"
                             className="mt-2"
                         >
-                            Summarize above recordings{' '}
+                            Summarize above recordings
                             <LemonTag type="warning" size="small" className="ml-auto uppercase">
                                 Beta
                             </LemonTag>
