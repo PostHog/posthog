@@ -13,11 +13,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { AppMetricsSparkline } from 'lib/components/AppMetrics/AppMetricsSparkline'
+import { MemberSelect } from 'lib/components/MemberSelect'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionType } from '~/types'
@@ -91,6 +93,21 @@ export function HogFunctionList({
                             }
                             description={hogFunction.description}
                         />
+                    )
+                },
+            },
+            {
+                title: 'Created by',
+                width: 0,
+                render: (_, hogFunction) => {
+                    if (!hogFunction.created_by) {
+                        return <span className="text-muted">Unknown</span>
+                    }
+                    return (
+                        <div className="flex items-center gap-2">
+                            <ProfilePicture user={hogFunction.created_by} size="sm" />
+                            <span>{hogFunction.created_by.first_name || hogFunction.created_by.email}</span>
+                        </div>
                     )
                 },
             },
@@ -225,6 +242,13 @@ export function HogFunctionList({
                     </Link>
                 ) : null}
                 <div className="flex-1" />
+                <div className="flex items-center gap-2">
+                    <span>Created by:</span>
+                    <MemberSelect
+                        value={filters.createdBy || null}
+                        onChange={(user) => setFilters({ createdBy: user?.uuid || null })}
+                    />
+                </div>
                 <LemonCheckbox
                     label="Show paused"
                     bordered

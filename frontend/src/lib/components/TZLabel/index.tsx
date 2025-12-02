@@ -32,6 +32,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     className?: string
     title?: string
     children?: JSX.Element
+    showNow?: boolean
+    showToday?: boolean
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -139,6 +141,8 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     {
         time,
         showSeconds,
+        showNow = true,
+        showToday = true,
         formatDate,
         formatTime,
         showPopover = true,
@@ -154,9 +158,9 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     const format = useCallback(() => {
         return formatDate || formatTime
-            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
+            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime, { showNow, showToday })
             : parsedTime.fromNow()
-    }, [formatDate, formatTime, parsedTime])
+    }, [formatDate, formatTime, parsedTime, showNow, showToday])
 
     const [formattedContent, setFormattedContent] = useState(format())
 

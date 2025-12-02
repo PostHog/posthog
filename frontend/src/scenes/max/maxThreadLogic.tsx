@@ -152,6 +152,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setThread: (thread: ThreadMessage[]) => ({ thread }),
         setMessageStatus: (index: number, status: MessageStatus) => ({ index, status }),
         retryLastMessage: true,
+        resetRetryCount: true,
+        resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
         setTraceId: (traceId: string) => ({ traceId }),
@@ -264,6 +266,24 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             {
                 stopGeneration: () => true,
                 setCancelLoading: (_, { cancelLoading }) => cancelLoading,
+            },
+        ],
+
+        retryCount: [
+            0,
+            {
+                retryLastMessage: (state) => state + 1,
+                resetThread: () => 0,
+                resetRetryCount: () => 0,
+            },
+        ],
+
+        cancelCount: [
+            0,
+            {
+                stopGeneration: (state) => state + 1,
+                resetThread: () => 0,
+                resetCancelCount: () => 0,
             },
         ],
     })),
@@ -400,7 +420,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                         }
 
                         if (e.status === 429) {
-                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for now. Please try again ${e.formattedRetryAfter}.`
+                            relevantErrorMessage.content = `You've reached PostHog AI's usage limit for the moment. Please try again ${e.formattedRetryAfter}.`
+                        }
+
+                        if (e.status === 402) {
+                            relevantErrorMessage.content =
+                                'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.'
                         }
 
                         if (e.status && e.status >= 500) {

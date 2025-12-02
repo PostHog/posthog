@@ -5,7 +5,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -94,7 +93,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
-        logic: [liveEventsTableLogic({ tabId: 'onboarding', showLiveStreamErrorToast: false })],
     })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
@@ -319,6 +317,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({

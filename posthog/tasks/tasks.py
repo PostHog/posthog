@@ -1,4 +1,5 @@
 import time
+import datetime
 from typing import Optional
 from uuid import UUID
 
@@ -527,7 +528,7 @@ def clean_stale_partials() -> None:
     """Clean stale (meaning older than 7 days) partial social auth sessions."""
     from social_django.models import Partial
 
-    Partial.objects.filter(timestamp__lt=timezone.now() - timezone.timedelta(7)).delete()
+    Partial.objects.filter(timestamp__lt=timezone.now() - datetime.timedelta(7)).delete()
 
 
 @shared_task(ignore_result=True)
@@ -803,20 +804,6 @@ def check_flags_to_rollback() -> None:
         check_flags_to_rollback()
     except ImportError:
         pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_single_recording_v2
-
-    persist_single_recording_v2(id, team_id)
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings_v2() -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_finished_recordings_v2
-
-    persist_finished_recordings_v2()
 
 
 @shared_task(

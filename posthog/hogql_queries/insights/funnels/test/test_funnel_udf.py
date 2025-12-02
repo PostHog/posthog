@@ -18,7 +18,6 @@ from posthog.schema import (
 )
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelOrderType
-from posthog.hogql_queries.insights.funnels import Funnel
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_group_test_factory,
@@ -67,7 +66,7 @@ class TestFunnelGroupBreakdownUDF(
 
 
 @patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
-class TestFOSSFunnelUDF(funnel_test_factory(Funnel, _create_event, _create_person)):  # type: ignore
+class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
     def test_assert_flag_is_on(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
