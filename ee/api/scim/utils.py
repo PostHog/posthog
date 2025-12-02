@@ -1,4 +1,8 @@
+from rest_framework.request import Request
+
 from posthog.models.organization_domain import OrganizationDomain
+
+from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 from .auth import generate_scim_token
 
@@ -47,3 +51,21 @@ def get_scim_base_url(domain: OrganizationDomain, request=None) -> str:
 
     base_url = settings.SITE_URL
     return f"{base_url}/scim/v2/{domain.id}"
+
+
+def detect_identity_provider(request: Request) -> SCIMProvisionedUser.IdentityProvider:
+    """
+    Detect identity provider from request User-Agent header.
+    """
+    user_agent = request.META.get("HTTP_USER_AGENT", "").lower()
+
+    if "okta" in user_agent:
+        return SCIMProvisionedUser.IdentityProvider.OKTA
+    elif "entra" in user_agent or "microsoft" in user_agent:
+        return SCIMProvisionedUser.IdentityProvider.ENTRA_ID
+    elif "google" in user_agent:
+        return SCIMProvisionedUser.IdentityProvider.GOOGLE
+    elif "onelogin" in user_agent:
+        return SCIMProvisionedUser.IdentityProvider.ONELOGIN
+
+    return SCIMProvisionedUser.IdentityProvider.OTHER

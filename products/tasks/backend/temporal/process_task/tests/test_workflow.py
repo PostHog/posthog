@@ -53,7 +53,7 @@ class TestProcessTaskWorkflow:
     - Proper cleanup on success and failure
     """
 
-    async def _run_workflow(self, task_id: str, mock_task_command: str = "echo 'task complete'") -> ProcessTaskOutput:
+    async def _run_workflow(self, run_id: str, mock_task_command: str = "echo 'task complete'") -> ProcessTaskOutput:
         workflow_id = str(uuid.uuid4())
 
         with (
@@ -92,7 +92,7 @@ class TestProcessTaskWorkflow:
             ):
                 result = await env.client.execute_workflow(
                     ProcessTaskWorkflow.run,
-                    task_id,
+                    run_id,
                     id=workflow_id,
                     task_queue=settings.TASKS_TASK_QUEUE,
                     retry_policy=RetryPolicy(maximum_attempts=1),
@@ -133,11 +133,11 @@ class TestProcessTaskWorkflow:
             if sandbox:
                 sandbox.destroy()
 
-    async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task, github_integration):
+    async def test_workflow_with_existing_snapshot_reuses_snapshot(self, test_task_run, github_integration):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task.id)
+            result = await self._run_workflow(test_task_run.id)
 
             assert result.success is True
             assert result.task_result is not None
@@ -153,11 +153,11 @@ class TestProcessTaskWorkflow:
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_creates_snapshot_for_new_repository(self, test_task, github_integration):
+    async def test_workflow_creates_snapshot_for_new_repository(self, test_task_run, github_integration):
         created_snapshots = []
 
         try:
-            result = await self._run_workflow(test_task.id)
+            result = await self._run_workflow(test_task_run.id)
 
             assert result.success is True
             assert result.task_result is not None
@@ -185,13 +185,13 @@ class TestProcessTaskWorkflow:
                 except Exception:
                     pass
 
-    async def test_workflow_executes_task_in_sandbox(self, test_task, github_integration):
+    async def test_workflow_executes_task_in_sandbox(self, test_task_run, github_integration):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         custom_message = f"workflow_test_{uuid.uuid4().hex[:8]}"
 
         try:
-            result = await self._run_workflow(test_task.id, mock_task_command=f"echo '{custom_message}'")
+            result = await self._run_workflow(test_task_run.id, mock_task_command=f"echo '{custom_message}'")
 
             assert result.success is True
             assert result.task_result is not None
@@ -201,11 +201,11 @@ class TestProcessTaskWorkflow:
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_cleans_up_sandbox_on_success(self, test_task, github_integration):
+    async def test_workflow_cleans_up_sandbox_on_success(self, test_task_run, github_integration):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task.id)
+            result = await self._run_workflow(test_task_run.id)
 
             assert result.success is True
             assert result.task_result is not None
@@ -220,11 +220,11 @@ class TestProcessTaskWorkflow:
         finally:
             await sync_to_async(snapshot.delete)()
 
-    async def test_workflow_cleans_up_sandbox_on_failure(self, test_task, github_integration):
+    async def test_workflow_cleans_up_sandbox_on_failure(self, test_task_run, github_integration):
         snapshot = await sync_to_async(self._create_test_snapshot)(github_integration)
 
         try:
-            result = await self._run_workflow(test_task.id, mock_task_command="exit 1")
+            result = await self._run_workflow(test_task_run.id, mock_task_command="exit 1")
 
             assert result.success is False
             assert result.error is not None
@@ -251,11 +251,11 @@ class TestProcessTaskWorkflow:
         assert result.error is not None
         assert "activity task failed" in result.error.lower() or "failed" in result.error.lower()
 
-    async def test_workflow_full_cycle_no_snapshot(self, test_task, github_integration):
+    async def test_workflow_full_cycle_no_snapshot(self, test_task_run, github_integration):
         created_snapshots = []
 
         try:
-            result = await self._run_workflow(test_task.id)
+            result = await self._run_workflow(test_task_run.id)
 
             assert result.success is True
             assert result.task_result is not None
@@ -273,7 +273,7 @@ class TestProcessTaskWorkflow:
 
             created_snapshots.append(latest_snapshot)
 
-            result2 = await self._run_workflow(test_task.id)
+            result2 = await self._run_workflow(test_task_run.id)
 
             assert result2.success is True
             assert result2.task_result is not None

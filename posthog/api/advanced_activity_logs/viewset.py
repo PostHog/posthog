@@ -248,6 +248,8 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         if lookback_date:
             queryset = queryset.filter(created_at__gte=lookback_date)
 
+        queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
+
         return queryset.order_by("-created_at")
 
     def get_serializer_class(self):
