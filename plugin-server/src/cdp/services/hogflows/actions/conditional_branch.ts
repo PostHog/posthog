@@ -62,13 +62,6 @@ export async function checkConditions(
             filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
         })
 
-        logger.info('Checking condition filters', {
-            filters: condition.filters,
-            filterGlobals: invocation.filterGlobals,
-            variables: invocation.state.variables,
-            filterResults,
-        })
-
         if (filterResults.match) {
             return {
                 nextAction: findNextAction(invocation.hogFlow, action.id, index),
