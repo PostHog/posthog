@@ -105,21 +105,16 @@ export class SessionBatchManager {
      */
     public async flush(): Promise<void> {
         logger.info('🔁', 'session_batch_manager_flushing', { batchSize: this.currentBatch.size })
-        try {
-            await this.currentBatch.flush()
-        } finally {
-            // Always create a new batch even if flush fails
-            // This prevents getting stuck retrying a corrupted batch
-            this.currentBatch = new SessionBatchRecorder(
-                this.offsetManager,
-                this.fileStorage,
-                this.metadataStore,
-                this.consoleLogStore,
-                this.metadataSwitchoverDate,
-                this.maxEventsPerSessionPerBatch
-            )
-            this.lastFlushTime = Date.now()
-        }
+        await this.currentBatch.flush()
+        this.currentBatch = new SessionBatchRecorder(
+            this.offsetManager,
+            this.fileStorage,
+            this.metadataStore,
+            this.consoleLogStore,
+            this.metadataSwitchoverDate,
+            this.maxEventsPerSessionPerBatch
+        )
+        this.lastFlushTime = Date.now()
     }
 
     /**
