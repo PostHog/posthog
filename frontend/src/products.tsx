@@ -344,7 +344,7 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         name: 'Logs',
         activityScope: 'Logs',
-        layout: 'app-full-scene-height',
+        layout: 'app-container',
         iconType: 'logs',
         description: 'Monitor and analyze your logs to understand and fix issues.',
         defaultDocsPath: '/docs/logs',
