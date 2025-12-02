@@ -22,6 +22,10 @@ ALLOWED_VERCEL_PATHS = frozenset(
     ]
 )
 
+ALLOWED_VERCEL_PATH_PREFIXES = (
+    "/billing/invoices/",  # GET /billing/invoices/{invoiceId}
+)
+
 VERCEL_API_BASE_URL = "https://api.vercel.com"
 REQUEST_TIMEOUT_SECONDS = 30
 
@@ -43,7 +47,10 @@ class VercelProxyRequestSerializer(serializers.Serializer):
         if ".." in normalized:
             raise serializers.ValidationError("Path traversal not allowed")
 
-        if normalized not in ALLOWED_VERCEL_PATHS:
+        is_allowed = normalized in ALLOWED_VERCEL_PATHS or any(
+            normalized.startswith(prefix) for prefix in ALLOWED_VERCEL_PATH_PREFIXES
+        )
+        if not is_allowed:
             raise serializers.ValidationError(
                 f"Path '{normalized}' is not in the allowlist of permitted Vercel API paths"
             )
