@@ -10,7 +10,8 @@ from langchain_core.messages import (
     BaseMessage as LangchainBaseMessage,
 )
 from langgraph.graph import END, START
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler, field_validator
+from pydantic_core import CoreSchema, core_schema
 
 from posthog.schema import (
     AgentMode,
@@ -129,6 +130,19 @@ class ReplaceMessages(Generic[T], list[T]):
     """
     Replaces the existing messages with the new messages.
     """
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type: Any, handler: GetCoreSchemaHandler) -> CoreSchema:
+        def validate_replace_messages(value: Any) -> "ReplaceMessages[T]":
+            if isinstance(value, ReplaceMessages):
+                return value
+            # Don't accept plain lists - let the union fall through to Sequence
+            raise ValueError(f"Expected ReplaceMessages, got {type(value)}")
+
+        return core_schema.no_info_plain_validator_function(
+            validate_replace_messages,
+            serialization=core_schema.plain_serializer_function_ser_schema(list, info_arg=False),
+        )
 
 
 def add_and_merge_messages(
@@ -272,8 +286,8 @@ class BaseStateWithMessages(BaseState):
     @field_validator("messages", mode="after")
     @classmethod
     def convert_visualization_messages_to_artifacts(
-        cls, messages: Sequence[AssistantMessageUnion]
-    ) -> Sequence[AssistantMessageUnion]:
+        cls, messages: Sequence[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]
+    ) -> Sequence[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]:
         """
         Convert legacy VisualizationMessage to ArtifactRefMessage with State source.
         The original VisualizationMessage is kept in state for content lookup.
@@ -295,12 +309,19 @@ class BaseStateWithMessages(BaseState):
                     # Create ArtifactRefMessage that references the VisualizationMessage
                     converted.append(
                         ArtifactRefMessage(
-                            id=message.id,  # TRICKY: Keep this ID stable, so we don't save artifacts multiple times.
+                            id=str(
+                                uuid.uuid4()
+                            ),  # TRICKY: Keep this ID unique, so we don't deduplicate artifacts and visualization messages.
                             content_type=ArtifactContentType.VISUALIZATION,
                             artifact_id=message.id,  # References the VisualizationMessage ID
                             source=ArtifactSource.STATE,
                         )
                     )
+
+        # Preserve the ReplaceMessages wrapper if present
+        if isinstance(messages, ReplaceMessages):
+            return ReplaceMessages(converted)
+
         return converted
 
     @property
@@ -443,7 +464,8 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    pass
+    # This must be kept here, so we don't loose type annotation for the ReplaceMessages type.
+    messages: ReplaceMessages[AssistantMessageUnion] | list[AssistantMessageUnion] = Field(default=[])
 
 
 class AssistantNodeName(StrEnum):
