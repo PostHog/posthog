@@ -59,10 +59,10 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
                     const updatedFilter = await api.quickFilters.update(id, payload)
                     lemonToast.success('Quick filter updated successfully')
                     posthog.capture(QuickFiltersEvents.QuickFilterUpdated, {
-                        name: payload.name,
-                        property_name: payload.property_name,
-                        type: payload.type,
-                        options: payload.options,
+                        ...(payload.name && { name: payload.name }),
+                        ...(payload.property_name && { property_name: payload.property_name }),
+                        ...(payload.type && { type: payload.type }),
+                        ...(payload.options && { options: payload.options }),
                         context: props.context,
                     })
                     return values.quickFilters.map((f: QuickFilter) => (f.id === id ? updatedFilter : f))
