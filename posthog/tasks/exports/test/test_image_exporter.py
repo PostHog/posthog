@@ -94,6 +94,8 @@ class TestImageExporter(APIBaseTest):
 
     @patch("posthog.tasks.exports.image_exporter.process_query_dict")
     def test_dashboard_export_calculates_all_insights(self, mock_process_query: Any, *args: Any) -> None:
+        mock_process_query.return_value = {"cache_key": "test_cache_key", "result": []}
+
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
         insight_count = 3
 
