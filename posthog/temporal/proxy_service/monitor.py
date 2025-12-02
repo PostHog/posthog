@@ -215,6 +215,7 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem
         ctx = ssl.create_default_context()
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         with ctx.wrap_socket(socket.socket(), server_hostname=proxy_record.domain) as s:
             s.connect((proxy_record.domain, 443))
             cert = s.getpeercert()
