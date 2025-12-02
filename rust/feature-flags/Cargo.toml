@@ -71,3 +71,4 @@ reqwest = { workspace = true }
 futures = "0.3.30"
 test-case = "3.3.1"
 common-s3 = { path = "../common/s3" }
+serde-pickle = "1.2.0"

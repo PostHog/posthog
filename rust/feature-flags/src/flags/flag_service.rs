@@ -2,13 +2,12 @@ use crate::{
     api::errors::FlagError,
     flags::flag_models::FeatureFlagList,
     metrics::consts::{
-        DB_TEAM_READS_COUNTER, TEAM_CACHE_ERRORS_COUNTER, TEAM_CACHE_HIT_COUNTER,
-        TOKEN_VALIDATION_ERRORS_COUNTER,
+        DB_TEAM_READS_COUNTER, TEAM_CACHE_HIT_COUNTER, TOKEN_VALIDATION_ERRORS_COUNTER,
     },
     team::team_models::Team,
 };
 use common_database::PostgresReader;
-use common_hypercache::HyperCacheReader;
+use common_hypercache::{CacheSource, HyperCacheReader, KeyType};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
 use common_types::TeamId;
@@ -23,26 +22,27 @@ pub struct FlagResult {
 
 /// Service layer for handling feature flag operations
 pub struct FlagService {
-    /// Shared Redis client for team cache operations
-    shared_redis_client: Arc<dyn RedisClient + Send + Sync>,
+    /// Shared Redis client (kept for potential future use)
+    _shared_redis_client: Arc<dyn RedisClient + Send + Sync>,
     pg_client: PostgresReader,
-    team_cache_ttl_seconds: u64,
     /// HyperCache reader for fetching flags from Redis/S3
-    hypercache_reader: HyperCacheReader,
+    flags_hypercache_reader: HyperCacheReader,
+    /// HyperCache reader for fetching team metadata from Redis/S3
+    team_hypercache_reader: HyperCacheReader,
 }
 
 impl FlagService {
     pub fn new(
         shared_redis_client: Arc<dyn RedisClient + Send + Sync>,
         pg_client: PostgresReader,
-        team_cache_ttl_seconds: u64,
-        hypercache_reader: HyperCacheReader,
+        flags_hypercache_reader: HyperCacheReader,
+        team_hypercache_reader: HyperCacheReader,
     ) -> Self {
         Self {
-            shared_redis_client,
+            _shared_redis_client: shared_redis_client,
             pg_client,
-            team_cache_ttl_seconds,
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         }
     }
 
@@ -64,36 +64,34 @@ impl FlagService {
         }
     }
 
-    /// Fetches the team from the cache or the database.
-    /// If the team is not found in the cache, it will be fetched from the database and stored in the cache.
-    /// Returns the team if found, otherwise an error.
+    /// Fetches the team from HyperCache or the database.
+    ///
+    /// Uses team_metadata HyperCache (Redis → S3 → PostgreSQL fallback).
+    /// This is a read-only cache - Django handles cache writes.
     pub async fn get_team_from_cache_or_pg(&self, token: &str) -> Result<Team, FlagError> {
-        let (team_result, cache_hit) =
-            match Team::from_redis(self.shared_redis_client.clone(), token).await {
-                Ok(team) => (Ok(team), true),
-                Err(_) => match Team::from_pg(self.pg_client.clone(), token).await {
-                    Ok(team) => {
-                        inc(DB_TEAM_READS_COUNTER, &[], 1);
-                        // If we have the team in postgres, but not redis, update redis so we're faster next time
-                        if let Err(e) = Team::update_redis_cache(
-                            self.shared_redis_client.clone(),
-                            &team,
-                            Some(self.team_cache_ttl_seconds),
-                        )
-                        .await
-                        {
-                            tracing::warn!("Failed to update Redis cache: {}", e);
-                            inc(
-                                TEAM_CACHE_ERRORS_COUNTER,
-                                &[("reason".to_string(), "redis_update_failed".to_string())],
-                                1,
-                            );
-                        }
-                        (Ok(team), false)
-                    }
-                    Err(e) => (Err(e), false),
-                },
-            };
+        let key = KeyType::string(token);
+        let pg_client = self.pg_client.clone();
+        let token_owned = token.to_string();
+
+        let (data, source) = self
+            .team_hypercache_reader
+            .get_with_source_or_fallback(&key, || async move {
+                // Fallback: load from PostgreSQL and convert to JSON Value
+                let team = Team::from_pg(pg_client, &token_owned).await?;
+                inc(DB_TEAM_READS_COUNTER, &[], 1);
+
+                // Convert team to JSON value for consistency with cache format
+                let value = serde_json::to_value(&team).map_err(|e| {
+                    tracing::error!("Failed to serialize team from PG: {}", e);
+                    FlagError::Internal(format!("Failed to serialize team: {e}"))
+                })?;
+                Ok::<Option<serde_json::Value>, FlagError>(Some(value))
+            })
+            .await?;
+
+        // Parse the result (from cache or fallback)
+        let team = Team::from_hypercache_value(data)?;
+        let cache_hit = !matches!(source, CacheSource::Fallback);
 
         inc(
             TEAM_CACHE_HIT_COUNTER,
@@ -101,7 +99,7 @@ impl FlagService {
             1,
         );
 
-        team_result
+        Ok(team)
     }
 
     /// Fetches the flags from the hypercache or falls back to the database.
@@ -115,11 +113,11 @@ impl FlagService {
         &self,
         team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
-        let key = common_hypercache::KeyType::int(team_id);
+        let key = KeyType::int(team_id);
         let pg_client = self.pg_client.clone();
 
         let (data, source) = self
-            .hypercache_reader
+            .flags_hypercache_reader
             .get_with_source_or_fallback(&key, || async move {
                 // Fallback: load from PostgreSQL and convert to JSON Value
                 let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
@@ -138,7 +136,7 @@ impl FlagService {
 
         // Parse the result (from cache or fallback)
         let flags = FeatureFlagList::parse_hypercache_value(data, team_id)?;
-        let was_cache_hit = !matches!(source, common_hypercache::CacheSource::Fallback);
+        let was_cache_hit = !matches!(source, CacheSource::Fallback);
 
         Ok(FlagResult {
             flag_list: FeatureFlagList { flags },
@@ -160,7 +158,7 @@ mod tests {
         utils::test_utils::{
             insert_new_team_in_redis, setup_hypercache_reader,
             setup_hypercache_reader_with_mock_redis, setup_pg_reader_client, setup_redis_client,
-            TestContext,
+            setup_team_hypercache_reader, TestContext,
         },
     };
 
@@ -176,7 +174,8 @@ mod tests {
     async fn test_verify_token() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
-        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let flags_hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -184,22 +183,11 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             pg_client.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
-        // Test valid token in Redis
-        let result = flag_service.verify_token(&team.api_token).await;
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), team.api_token);
-
-        // Test valid token in PostgreSQL (simulate Redis miss)
-        // First, remove the team from Redis
-        redis_client
-            .del(format!("team:{}", team.api_token))
-            .await
-            .expect("Failed to remove team from Redis");
-
+        // Test valid token in HyperCache
         let result = flag_service.verify_token(&team.api_token).await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), team.api_token);
@@ -207,17 +195,14 @@ mod tests {
         // Test invalid token
         let result = flag_service.verify_token("invalid_token").await;
         assert!(matches!(result, Err(FlagError::TokenValidationError)));
-
-        // Verify that the team was re-added to Redis after PostgreSQL hit
-        let redis_team = Team::from_redis(redis_client.clone(), &team.api_token).await;
-        assert!(redis_team.is_ok());
     }
 
     #[tokio::test]
     async fn test_get_team_from_cache_or_pg() {
         let redis_client = setup_redis_client(None).await;
         let pg_client = setup_pg_reader_client(None).await;
-        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let flags_hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let team = insert_new_team_in_redis(redis_client.clone())
             .await
             .expect("Failed to insert new team in Redis");
@@ -225,41 +210,44 @@ mod tests {
         let flag_service = FlagService::new(
             redis_client.clone(),
             pg_client.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
-        // Test fetching from Redis
+        // Test fetching from HyperCache
         let result = flag_service
             .get_team_from_cache_or_pg(&team.api_token)
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id, team.id);
+    }
 
-        // Test fetching from PostgreSQL (simulate Redis miss)
-        // First, remove the team from Redis
-        redis_client
-            .del(format!("team:{}", team.api_token))
+    #[tokio::test]
+    async fn test_get_team_from_pg_fallback() {
+        let redis_client = setup_redis_client(None).await;
+        let flags_hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
+
+        // Insert a team in PG but not in HyperCache
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
             .await
-            .expect("Failed to remove team from Redis");
+            .expect("Failed to insert team in pg");
 
-        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
         let flag_service = FlagService::new(
             redis_client.clone(),
-            pg_client.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            context.non_persons_reader.clone(),
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
+        // Test fetching from PostgreSQL (cache miss)
         let result = flag_service
             .get_team_from_cache_or_pg(&team.api_token)
             .await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().id, team.id);
-
-        // Verify that the team was re-added to Redis
-        let redis_team = Team::from_redis(redis_client.clone(), &team.api_token).await;
-        assert!(redis_team.is_ok());
     }
 
     #[tokio::test]
@@ -363,12 +351,13 @@ mod tests {
             .await
             .expect("Failed to insert mock flags in hypercache");
 
-        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let flags_hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let flag_service = FlagService::new(
             redis_client.clone(),
             pg_client.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
         // Test fetching from hypercache
@@ -428,8 +417,8 @@ mod tests {
     #[tokio::test]
     async fn test_get_flags_falls_back_to_pg_on_hypercache_miss() {
         let redis_client = setup_redis_client(None).await;
-        let pg_client = setup_pg_reader_client(None).await;
-        let hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let flags_hypercache_reader = setup_hypercache_reader(redis_client.clone()).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
         let context = TestContext::new(None).await;
         let team = context
             .insert_new_team(None)
@@ -440,9 +429,9 @@ mod tests {
 
         let flag_service = FlagService::new(
             redis_client.clone(),
-            pg_client.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            context.non_persons_reader.clone(),
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
         // Should fall back to PostgreSQL and succeed (returns empty list for new team)
@@ -470,13 +459,16 @@ mod tests {
         );
 
         let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
-        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let flags_hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        // Use a real Redis client for team hypercache since we're only mocking flags cache
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
 
         let flag_service = FlagService::new(
             redis_client,
             context.non_persons_reader.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -508,13 +500,16 @@ mod tests {
         );
 
         let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
-        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        let flags_hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
+        // Use a real Redis client for team hypercache since we're only mocking flags cache
+        let team_redis_client = setup_redis_client(None).await;
+        let team_hypercache_reader = setup_team_hypercache_reader(team_redis_client).await;
 
         let flag_service = FlagService::new(
             redis_client,
             context.non_persons_reader.clone(),
-            432000, // team_cache_ttl_seconds
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
         let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
@@ -523,62 +518,5 @@ mod tests {
         assert!(result.is_ok());
         let flag_result = result.unwrap();
         assert!(!flag_result.was_cache_hit);
-    }
-
-    #[tokio::test]
-    async fn test_team_cache_ttl_is_used() {
-        use common_redis::{CustomRedisError, MockRedisClient, MockRedisValue};
-
-        let context = TestContext::new(None).await;
-        let team = context
-            .insert_new_team(None)
-            .await
-            .expect("Failed to insert team");
-
-        // Set up mock redis client to return NotFound (cache miss) and track setex calls
-        let mut mock_client = MockRedisClient::new();
-        mock_client.get_ret(&team.api_token, Err(CustomRedisError::NotFound));
-
-        let redis_client: Arc<dyn RedisClient + Send + Sync> = Arc::new(mock_client.clone());
-        let hypercache_reader = setup_hypercache_reader_with_mock_redis(redis_client.clone());
-
-        // Test with custom TTL values
-        let custom_team_ttl = 7200u64; // 2 hours
-
-        let flag_service = FlagService::new(
-            redis_client,
-            context.non_persons_reader.clone(),
-            custom_team_ttl,
-            hypercache_reader,
-        );
-
-        // Trigger team cache operation
-        let _result = flag_service
-            .get_team_from_cache_or_pg(&team.api_token)
-            .await;
-
-        // Verify setex was called with the custom team TTL
-        let client_calls = mock_client.get_calls();
-        let setex_calls: Vec<_> = client_calls
-            .iter()
-            .filter(|call| call.op == "setex")
-            .collect();
-
-        assert!(!setex_calls.is_empty(), "Expected setex to be called");
-
-        // Verify the TTL value used matches our custom config
-        let team_setex_call = setex_calls
-            .iter()
-            .find(|call| call.key.contains(&team.api_token))
-            .expect("Expected setex call for team token");
-
-        if let MockRedisValue::StringWithTTL(_, ttl) = &team_setex_call.value {
-            assert_eq!(
-                *ttl, custom_team_ttl,
-                "Expected team cache TTL to be {custom_team_ttl} but got {ttl}",
-            );
-        } else {
-            panic!("Expected setex call to have TTL value");
-        }
     }
 }

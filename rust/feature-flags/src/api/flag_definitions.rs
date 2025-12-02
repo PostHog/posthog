@@ -1,7 +1,7 @@
 use crate::{
     api::{auth, errors::FlagError},
     router::State as AppState,
-    team::{team_models::Team, team_operations},
+    team::team_models::Team,
 };
 use axum::{
     debug_handler,
@@ -98,23 +98,13 @@ fn handle_non_get_method(method: &Method) -> Response {
     }
 }
 
-/// Fetches a team by its API token
-/// Tries Redis cache first, then falls back to PostgreSQL
+/// Fetches a team by its API token from PostgreSQL
 async fn fetch_team_by_token(state: &AppState, token: &str) -> Result<Team, FlagError> {
     let pg_reader = state.database_pools.non_persons_reader.clone();
-    let token_str = token.to_string();
 
-    team_operations::fetch_team_from_redis_with_fallback(
-        state.redis_client.clone(),
-        token,
-        Some(state.config.team_cache_ttl_seconds),
-        || async move {
-            Team::from_pg(pg_reader, &token_str)
-                .await
-                .map_err(|_| FlagError::TokenValidationError)
-        },
-    )
-    .await
+    Team::from_pg(pg_reader, token)
+        .await
+        .map_err(|_| FlagError::TokenValidationError)
 }
 
 /// Retrieves the cached response using HyperCache (Redis + S3 fallback)

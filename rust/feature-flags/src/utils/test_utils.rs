@@ -4,7 +4,7 @@ use crate::{
     config::{Config, DEFAULT_TEST_CONFIG},
     flags::flag_models::{FeatureFlag, FeatureFlagRow, FlagFilters, FlagPropertyGroup},
     properties::property_models::{OperatorType, PropertyFilter, PropertyType},
-    team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX},
+    team::team_models::Team,
 };
 use anyhow::Error;
 use axum::async_trait;
@@ -28,6 +28,12 @@ pub fn random_string(prefix: &str, length: usize) -> String {
     format!("{prefix}{suffix}")
 }
 
+/// Generate the HyperCache key for team metadata.
+/// Format: posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json
+pub fn team_token_hypercache_key(api_token: &str) -> String {
+    format!("posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json")
+}
+
 pub async fn insert_new_team_in_redis(
     client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Result<Team, Error> {
@@ -43,12 +49,12 @@ pub async fn insert_new_team_in_redis(
     };
 
     let serialized_team = serde_json::to_string(&team)?;
-    client
-        .set(
-            format!("{}{}", TEAM_TOKEN_CACHE_PREFIX, team.api_token.clone()),
-            serialized_team,
-        )
-        .await?;
+    // Use HyperCache format: posthog:1:cache/team_tokens/{api_token}/team_metadata/full_metadata.json
+    let cache_key = format!(
+        "posthog:1:cache/team_tokens/{}/team_metadata/full_metadata.json",
+        team.api_token
+    );
+    client.set(cache_key, serialized_team).await?;
 
     Ok(team)
 }
@@ -119,7 +125,7 @@ pub async fn setup_redis_client(url: Option<String>) -> Arc<dyn RedisClientTrait
     Arc::new(client)
 }
 
-/// Create a HyperCacheReader for tests using the provided Redis client.
+/// Create a HyperCacheReader for flags using the provided Redis client.
 /// Uses default test configuration for S3 (which won't be used in most tests
 /// since Redis should have the data).
 pub async fn setup_hypercache_reader(
@@ -134,6 +140,23 @@ pub async fn setup_hypercache_reader(
     HyperCacheReader::new(redis_client, config)
         .await
         .expect("Failed to create HyperCacheReader")
+}
+
+/// Create a HyperCacheReader for team_metadata using the provided Redis client.
+/// Uses token_based=true for token-based lookups.
+pub async fn setup_team_hypercache_reader(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+) -> HyperCacheReader {
+    let mut config = HyperCacheConfig::new(
+        "team_metadata".to_string(),
+        "full_metadata.json".to_string(),
+        "us-east-1".to_string(),
+        "posthog".to_string(),
+    );
+    config.token_based = true;
+    HyperCacheReader::new(redis_client, config)
+        .await
+        .expect("Failed to create team HyperCacheReader")
 }
 
 /// Create a HyperCacheReader for tests using a mock Redis client (synchronous).

@@ -3,8 +3,6 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::types::{Json, Uuid};
 
-pub const TEAM_TOKEN_CACHE_PREFIX: &str = "posthog:1:team_token:";
-
 #[derive(Clone, Debug, Default, Deserialize, Serialize, sqlx::FromRow)]
 pub struct Team {
     pub id: TeamId,

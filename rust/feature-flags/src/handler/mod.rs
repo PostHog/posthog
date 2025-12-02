@@ -103,7 +103,7 @@ async fn process_request_inner(
             .clone()
             .unwrap_or_else(|| context.state.redis_client.clone());
 
-        let mut hypercache_config = HyperCacheConfig::new(
+        let mut flags_hypercache_config = HyperCacheConfig::new(
             "feature_flags".to_string(),
             "flags.json".to_string(),
             context.state.config.object_storage_region.clone(),
@@ -111,23 +111,47 @@ async fn process_request_inner(
         );
 
         if !context.state.config.object_storage_endpoint.is_empty() {
-            hypercache_config.s3_endpoint =
+            flags_hypercache_config.s3_endpoint =
                 Some(context.state.config.object_storage_endpoint.clone());
         }
 
-        let hypercache_reader =
-            common_hypercache::HyperCacheReader::new(flags_redis_client, hypercache_config)
+        let flags_hypercache_reader = common_hypercache::HyperCacheReader::new(
+            flags_redis_client.clone(),
+            flags_hypercache_config,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!("Failed to create flags HyperCacheReader: {:?}", e);
+            FlagError::ClientFacing(ClientFacingError::ServiceUnavailable)
+        })?;
+
+        // Create HyperCacheReader for team metadata (token-based lookup)
+        let mut team_hypercache_config = HyperCacheConfig::new(
+            "team_metadata".to_string(),
+            "full_metadata.json".to_string(),
+            context.state.config.object_storage_region.clone(),
+            context.state.config.object_storage_bucket.clone(),
+        );
+        team_hypercache_config.token_based = true;
+
+        if !context.state.config.object_storage_endpoint.is_empty() {
+            team_hypercache_config.s3_endpoint =
+                Some(context.state.config.object_storage_endpoint.clone());
+        }
+
+        let team_hypercache_reader =
+            common_hypercache::HyperCacheReader::new(flags_redis_client, team_hypercache_config)
                 .await
                 .map_err(|e| {
-                    tracing::error!("Failed to create HyperCacheReader: {:?}", e);
+                    tracing::error!("Failed to create team HyperCacheReader: {:?}", e);
                     FlagError::ClientFacing(ClientFacingError::ServiceUnavailable)
                 })?;
 
         let flag_service = FlagService::new(
             context.state.redis_client.clone(),
             context.state.database_pools.non_persons_reader.clone(),
-            context.state.config.team_cache_ttl_seconds,
-            hypercache_reader,
+            flags_hypercache_reader,
+            team_hypercache_reader,
         );
 
         let (original_distinct_id, verified_token, request) =

@@ -4,7 +4,8 @@ use std::time::Duration;
 
 use common_database::get_pool;
 use common_redis::MockRedisClient;
-use feature_flags::team::team_models::{Team, TEAM_TOKEN_CACHE_PREFIX};
+use feature_flags::team::team_models::Team;
+use feature_flags::utils::test_utils::team_token_hypercache_key;
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
@@ -48,11 +49,10 @@ impl ServerHandle {
             limited_tokens.clone(),
         );
 
-        // Add handling for token verification
+        // Add handling for token verification using HyperCache format
         for (token, team_id) in valid_tokens {
-            println!(
-                "Setting up mock for token: {token} with key: {TEAM_TOKEN_CACHE_PREFIX}{token}"
-            );
+            let cache_key = team_token_hypercache_key(&token);
+            println!("Setting up mock for token: {token} with key: {cache_key}");
 
             // Create a minimal valid Team object
             let team = Team {
@@ -64,12 +64,12 @@ impl ServerHandle {
                 ..Default::default()
             };
 
-            // Serialize to JSON
+            // Serialize to JSON, then Pickle-encode it (matching HyperCache format)
             let team_json = serde_json::to_string(&team).unwrap();
             println!("Team JSON for mock: {team_json}");
+            let pickled_bytes = serde_pickle::ser::to_vec(&team_json, Default::default()).unwrap();
 
-            mock_client =
-                mock_client.get_ret(&format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), Ok(team_json));
+            mock_client = mock_client.get_raw_bytes_ret(&cache_key, Ok(pickled_bytes));
         }
 
         tokio::spawn(async move {
