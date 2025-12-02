@@ -1,0 +1,438 @@
+"""
+Widget API endpoints for the Conversations product.
+
+These endpoints are public (authenticated via public token) and used by the posthog-js widget.
+"""
+
+import re
+import html
+import hashlib
+from typing import Optional
+
+from django.core.cache import cache
+from django.db.models import Q
+
+from rest_framework import status
+from rest_framework.authentication import BaseAuthentication
+from rest_framework.exceptions import AuthenticationFailed, ValidationError
+from rest_framework.permissions import AllowAny
+from rest_framework.request import Request
+from rest_framework.response import Response
+from rest_framework.throttling import SimpleRateThrottle
+from rest_framework.views import APIView
+
+from posthog.models import Team
+from posthog.models.comment import Comment
+
+from products.conversations.backend.models import Ticket
+
+# Widget-specific throttle classes
+
+
+class WidgetUserBurstThrottle(SimpleRateThrottle):
+    """Rate limit per distinct_id or IP for POST/GET requests."""
+
+    scope = "widget_user_burst"
+    rate = "30/minute"
+
+    def get_cache_key(self, request, view):
+        # Throttle by distinct_id if available, otherwise by IP
+        distinct_id = request.data.get("distinct_id") or request.query_params.get("distinct_id")
+        if distinct_id:
+            ident = hashlib.sha256(distinct_id.encode()).hexdigest()
+        else:
+            ident = self.get_ident(request)
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetTeamThrottle(SimpleRateThrottle):
+    """Rate limit per team token."""
+
+    scope = "widget_team"
+    rate = "1000/hour"
+
+    def get_cache_key(self, request, view):
+        # Throttle by team token
+        token = request.headers.get("X-Conversations-Token", "")
+        ident = hashlib.sha256(token.encode()).hexdigest()
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class WidgetAuthentication(BaseAuthentication):
+    """
+    Authenticate widget requests via conversations_public_token.
+    This provides team-level authentication only. User-level scoping
+    is enforced via distinct_id validation in each endpoint.
+    """
+
+    def authenticate(self, request: Request) -> tuple[None, Team]:
+        """
+        Returns (None, team) on success.
+        No user object since this is public widget auth.
+        """
+        token = request.headers.get("X-Conversations-Token")
+        if not token:
+            raise AuthenticationFailed("X-Conversations-Token header required")
+
+        try:
+            team = Team.objects.get(conversations_public_token=token, conversations_enabled=True)
+        except Team.DoesNotExist:
+            raise AuthenticationFailed("Invalid token or conversations not enabled")
+
+        return (None, team)
+
+
+# Validation helpers
+
+
+def validate_distinct_id(distinct_id: Optional[str]) -> str:
+    """
+    Validate distinct_id format and entropy.
+    Raises ValidationError if invalid.
+    """
+    if not distinct_id:
+        raise ValidationError("distinct_id is required")
+
+    if len(distinct_id) > 200:
+        raise ValidationError("distinct_id too long (max 200 chars)")
+
+    # Reject low-entropy sequential IDs that might be used for enumeration
+    if re.match(r"^(user|test|temp)\d+$", distinct_id.lower()):
+        raise ValidationError("Invalid distinct_id format")
+
+    # Require minimum length for anonymous IDs (unless it's an email)
+    if len(distinct_id) < 16 and "@" not in distinct_id:
+        raise ValidationError("distinct_id too short")
+
+    return distinct_id
+
+
+def sanitize_message_content(content: str) -> str:
+    """
+    Sanitize message content.
+    For MVP: strip/escape all HTML.
+    Post-MVP: could use allowlist with bleach library.
+    """
+    if not content:
+        raise ValidationError("message content is required")
+
+    if len(content) > 5000:
+        raise ValidationError("Message too long (max 5000 chars)")
+
+    # Escape HTML for safety
+    return html.escape(content.strip())
+
+
+def validate_traits(traits: dict) -> dict:
+    """Validate customer traits dictionary."""
+    if not isinstance(traits, dict):
+        raise ValidationError("traits must be a dictionary")
+
+    validated = {}
+    for key, value in traits.items():
+        # Only allow string values for MVP
+        if not isinstance(value, str | int | float | bool | None):
+            continue
+
+        # Convert to string and validate length
+        str_value = str(value) if value is not None else None
+        if str_value and len(str_value) > 500:
+            raise ValidationError(f"Trait value too long for {key} (max 500 chars)")
+
+        validated[key] = str_value
+
+    return validated
+
+
+def validate_origin(request: Request, team: Team) -> bool:
+    """
+    Validate request origin to prevent token reuse on unauthorized domains.
+    For MVP: just log suspicious origins.
+    Post-MVP: team.allowed_widget_domains field and strict enforcement.
+    """
+    origin = request.headers.get("Origin") or request.headers.get("Referer")
+
+    if not origin:
+        # Allow requests without origin (mobile apps, etc.)
+        return True
+
+    # TODO: Add team.allowed_widget_domains field and check:
+    # allowed_domains = team.allowed_widget_domains or []
+    # if allowed_domains and not any(origin.startswith(d) for d in allowed_domains):
+    #     return False
+
+    return True
+
+
+def check_suspicious_activity(request: Request, team: Team, distinct_id: str, content: str) -> bool:
+    """
+    Detect suspicious activity patterns.
+    Returns True if activity seems suspicious (but doesn't block for MVP).
+    """
+    # Get client IP
+    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    if x_forwarded_for:
+        ip = x_forwarded_for.split(",")[0]
+    else:
+        ip = request.META.get("REMOTE_ADDR")
+
+    cache_key_prefix = f"conversations:suspicious:{team.id}"
+
+    # Track distinct_ids per IP
+    distinct_ids_key = f"{cache_key_prefix}:ip:{ip}:distinct_ids"
+    distinct_ids = cache.get(distinct_ids_key, set())
+    distinct_ids.add(distinct_id)
+    cache.set(distinct_ids_key, distinct_ids, timeout=3600)
+
+    if len(distinct_ids) > 10:
+        # Suspicious: same IP creating many distinct_ids
+        return True
+
+    # Check for spam (same content across multiple distinct_ids)
+    content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
+    spam_key = f"{cache_key_prefix}:content:{content_hash}"
+    spam_count = cache.get(spam_key, 0) + 1
+    cache.set(spam_key, spam_count, timeout=3600)
+
+    if spam_count > 5:
+        # Suspicious: same message sent multiple times
+        return True
+
+    return False
+
+
+# API Views
+
+
+class WidgetMessageView(APIView):
+    """
+    POST /api/conversations/widget/message
+    Create a new message in a ticket (or create ticket if first message).
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+
+    def post(self, request: Request) -> Response:
+        """Handle incoming message from widget."""
+
+        team: Team = request.auth
+
+        # Check honeypot field (bots fill this)
+        if request.data.get("_hp"):
+            return Response({"error": "Invalid request"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validate origin
+        if not validate_origin(request, team):
+            return Response({"error": "Origin not allowed"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            # Validate and extract data
+            distinct_id = validate_distinct_id(request.data.get("distinct_id"))
+            message_content = sanitize_message_content(request.data.get("message", ""))
+            traits = validate_traits(request.data.get("traits", {}))
+            ticket_id = request.data.get("ticket_id")  # Optional: for adding to existing ticket
+
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check for suspicious activity (log but don't block for MVP)
+        if check_suspicious_activity(request, team, distinct_id, message_content):
+            # TODO: Log to monitoring system
+            pass
+
+        # Find or create ticket
+        if ticket_id:
+            # Adding to existing ticket
+            try:
+                ticket = Ticket.objects.get(id=ticket_id, team=team)
+
+                # CRITICAL: Verify ticket belongs to this distinct_id
+                if ticket.distinct_id != distinct_id:
+                    return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+                # Update traits if provided
+                if traits:
+                    ticket.anonymous_traits.update(traits)
+                    ticket.save(update_fields=["anonymous_traits", "updated_at"])
+
+            except Ticket.DoesNotExist:
+                return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+        else:
+            # Create new ticket
+            ticket, created = Ticket.objects.get_or_create(
+                team=team,
+                distinct_id=distinct_id,
+                channel_source="widget",
+                defaults={"status": "new", "anonymous_traits": traits},
+            )
+
+            # Update traits if ticket already existed
+            if not created and traits:
+                ticket.anonymous_traits.update(traits)
+                ticket.save(update_fields=["anonymous_traits", "updated_at"])
+
+        # Create message
+        comment = Comment.objects.create(
+            team=team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=message_content,
+            item_context={"author_type": "customer", "distinct_id": distinct_id, "is_private": False},
+        )
+
+        return Response(
+            {
+                "ticket_id": str(ticket.id),
+                "message_id": str(comment.id),
+                "ticket_status": ticket.status,
+                "created_at": comment.created_at.isoformat(),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class WidgetMessagesView(APIView):
+    """
+    GET /api/conversations/widget/messages/<ticket_id>
+    Fetch messages for a specific ticket.
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+
+    def get(self, request: Request, ticket_id: str) -> Response:
+        """Get messages for a ticket."""
+
+        team: Team = request.auth
+
+        try:
+            distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get ticket
+        try:
+            ticket = Ticket.objects.get(id=ticket_id, team=team)
+        except Ticket.DoesNotExist:
+            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # CRITICAL: Verify the ticket belongs to this distinct_id
+        if ticket.distinct_id != distinct_id:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Get query parameters
+        after = request.query_params.get("after")  # ISO timestamp
+        limit = min(int(request.query_params.get("limit", 100)), 500)  # Max 500
+
+        # Build query
+        messages_query = Comment.objects.filter(
+            team=team, scope="conversations_ticket", item_id=str(ticket_id), deleted=False
+        )
+
+        # Filter by timestamp if provided
+        if after:
+            messages_query = messages_query.filter(created_at__gt=after)
+
+        # Only return non-private messages to widget
+        messages_query = messages_query.filter(Q(item_context__is_private=False) | Q(item_context__is_private=None))
+
+        # Order and limit
+        messages = messages_query.order_by("created_at")[:limit]
+
+        # Serialize messages
+        message_list = []
+        for m in messages:
+            author_type = m.item_context.get("author_type", "customer") if m.item_context else "customer"
+
+            # Get author name
+            if m.created_by:
+                author_name = m.created_by.first_name or m.created_by.email
+            elif author_type == "customer":
+                author_name = ticket.anonymous_traits.get("name") or ticket.anonymous_traits.get("email") or "You"
+            elif author_type == "AI":
+                author_name = "PostHog Assistant"
+            else:
+                author_name = "Support"
+
+            message_list.append(
+                {
+                    "id": str(m.id),
+                    "content": m.content,
+                    "author_type": author_type,
+                    "author_name": author_name,
+                    "created_at": m.created_at.isoformat(),
+                    "is_private": m.item_context.get("is_private", False) if m.item_context else False,
+                }
+            )
+
+        return Response(
+            {
+                "ticket_id": str(ticket.id),
+                "ticket_status": ticket.status,
+                "messages": message_list,
+                "has_more": len(messages) == limit,  # Hint if there are more messages
+            }
+        )
+
+
+class WidgetTicketsView(APIView):
+    """
+    GET /api/conversations/widget/tickets
+    List all tickets for current distinct_id (for conversation history).
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+
+    def get(self, request: Request) -> Response:
+        """List tickets for a distinct_id."""
+
+        team: Team = request.auth
+
+        try:
+            distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Query parameters
+        status_filter = request.query_params.get("status")
+        limit = min(int(request.query_params.get("limit", 10)), 50)  # Max 50
+        offset = int(request.query_params.get("offset", 0))
+
+        # Build query
+        tickets_query = Ticket.objects.filter(team=team, distinct_id=distinct_id)
+
+        if status_filter:
+            tickets_query = tickets_query.filter(status=status_filter)
+
+        # Order and paginate
+        tickets = tickets_query.order_by("-created_at")[offset : offset + limit]
+        total_count = tickets_query.count()
+
+        # Get message data for each ticket
+        ticket_list = []
+        for ticket in tickets:
+            # Get message count and last message
+            comments = Comment.objects.filter(
+                team=team, scope="conversations_ticket", item_id=str(ticket.id), deleted=False
+            ).order_by("-created_at")
+
+            message_count = comments.count()
+            last_comment = comments.first()
+
+            ticket_list.append(
+                {
+                    "id": str(ticket.id),
+                    "status": ticket.status,
+                    "last_message": last_comment.content if last_comment else None,
+                    "last_message_at": last_comment.created_at.isoformat() if last_comment else None,
+                    "message_count": message_count,
+                    "created_at": ticket.created_at.isoformat(),
+                }
+            )
+
+        return Response({"count": total_count, "results": ticket_list})

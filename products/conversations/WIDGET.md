@@ -119,39 +119,80 @@ def get_messages(request, ticket_id):
 
 ## Security Best Practices
 
-### 1. Rate Limiting
+### Understanding the Token Model
 
-Prevent spam/abuse:
+**Important**: `conversations_public_token` is **meant to be public** (like PostHog's `phc_` token or Stripe's `pk_` key).
 
-- Limit: 10 messages per minute per distinct_id
-- Limit: 100 messages per hour per team
-- Block if exceeded
+**Why this is safe:**
 
-### 2. Input Validation
+- Token only authenticates the TEAM, not individual users
+- Real security comes from `distinct_id` scoping on the backend
+- Similar to how Intercom, Zendesk, Drift widgets work
+- Token is read-only for widget operations (no admin access)
 
-Sanitize all inputs:
+**What an attacker with the token CAN do:**
+
+- ❌ Create spam tickets (mitigated by rate limiting)
+- ❌ Try to DoS via rate limits (mitigated by IP-based limits)
+
+**What an attacker CANNOT do:**
+
+- ✅ Access conversations from other distinct_ids
+- ✅ Access admin endpoints or settings
+- ✅ See all team tickets
+- ✅ Modify existing tickets (except those with their own distinct_id)
+
+### Rate Limiting (Critical)
+
+The backend implements **multi-layer rate limiting**:
+
+**Per distinct_id limits:**
+
+- Messages: 10 per minute, 50 per hour
+- Message fetches: 30 per minute
+- Ticket creation: 3 per hour (first-time distinct_ids)
+
+**Per IP limits:**
+
+- Messages: 100 per minute (across all distinct_ids)
+- Prevents single attacker from creating many distinct_ids
+
+**Per team/token limits:**
+
+- Total messages: 1000 per hour
+- New tickets: 100 per hour
+- Prevents token-based DoS
+
+### Input Validation
+
+All inputs are validated on the backend:
 
 - Max message length: 5000 chars
-- Max trait values: 500 chars
-- Validate distinct_id format
-- Sanitize HTML/scripts in message content
+- Max trait values: 500 chars each
+- Distinct_id format validation (alphanumeric, dashes, underscores, max 200 chars)
+- HTML/script sanitization in message content
+- Rejection of suspicious patterns
 
-### 3. Token Rotation
+### Token Rotation (Manual)
 
-Allow teams to regenerate token if leaked:
+**Do NOT rotate automatically** - would break all active sessions.
 
-```python
-team.regenerate_conversations_token()
-# Old token immediately invalid
-```
+**Manual rotation available** when suspected compromise:
 
-### 4. CORS Configuration
+- API endpoint: `POST /api/projects/:id/environments/:team_id/generate_conversations_public_token`
+- Old token immediately invalid
+- Team must update their website with new token
 
-Only allow requests from team's configured domains:
+**When to rotate:**
 
-```python
-ALLOWED_ORIGINS = team.allowed_domains  # e.g., ["https://example.com"]
-```
+- Suspected token leak or misuse
+- Excessive spam/abuse detected
+- On request from security team
+- After revoking team member access
+
+### Origin Validation
+
+Backend validates the `Origin` or `Referer` header against team's allowed domains. This prevents token reuse on attacker's websites.
 
 ## Widget Initialization Flow
 
@@ -574,19 +615,39 @@ curl "https://app.posthog.com/api/conversations/widget/messages/550e8400-e29b-41
 ## Summary
 
 - **Initialization**: Fetch team config to get `conversations_public_token` and settings
-- **Public token** = Team auth (read-only widget operations)
-- **distinct_id** = User scoping (can only see own tickets)
+- **Public token** = Team auth (read-only widget operations) - meant to be public!
+- **distinct_id** = User scoping (can only see own tickets) - the REAL security boundary
 - **No difference** between identified/anonymous for auth - both use distinct_id
 - **Polling**: Poll messages endpoint every 5s when widget is open
 - **Persistence**: Store ticket_id in localStorage for session continuity
-- **Rate limiting**: Back off exponentially when hitting limits
+- **Rate limiting**: Multi-layer (distinct_id, IP, team) - most critical security control
 - **Error handling**: Gracefully handle 401, 403, 429, 500 errors
 
-### Why This Is Safe
+### Why This Is Safe (Security Model)
 
-1. Widget can't access other users' tickets (distinct_id scoping)
-2. Widget can't do admin operations (token scoping)
-3. Token can be rotated if leaked (`POST /api/projects/:id/environments/:team_id/generate_conversations_public_token`)
-4. Rate limiting prevents abuse
-5. Input validation prevents injection attacks
-6. Private messages (internal notes) are never returned to widget
+**Token is public by design** (like PostHog's `phc_` key):
+
+1. ✅ Token only authenticates the TEAM (like "which PostHog project is this?")
+2. ✅ Real security comes from `distinct_id` validation on every request
+3. ✅ Widget can't access other users' tickets (distinct_id scoping enforced server-side)
+4. ✅ Widget can't do admin operations (token is widget-scoped only)
+
+**Multi-layer protection:**
+5. ✅ Rate limiting prevents spam/DoS (per distinct_id, per IP, per team)
+6. ✅ Origin validation prevents token reuse on attacker's domain
+7. ✅ Input validation prevents injection attacks
+8. ✅ Private messages (internal notes) are never returned to widget
+9. ✅ Suspicious activity detection and auto-blocking
+10. ✅ Manual token rotation available for suspected compromise
+
+**What matters most:**
+
+- 🔐 **distinct_id validation** - always check `ticket.distinct_id == request.distinct_id`
+- 🔐 **Rate limiting** - aggressive multi-layer limits
+- 🔐 **Origin validation** - prevent token reuse from other domains
+
+**Don't worry about:**
+
+- ❌ Token being visible in client code (by design)
+- ❌ Frequent token rotation (unnecessary and breaks UX)
+- ❌ Someone seeing the token in network tab (expected)

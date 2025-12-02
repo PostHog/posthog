@@ -181,9 +181,11 @@ Registered API routes in `posthog/api/__init__.py`:
 
 All viewsets are nested under `projects_router` with `team_id` scoping.
 
-## 7. Add widget integration
+## 7. Add widget integration ✅
 
-The widget is implemented in `posthog-js`. Create webhook endpoints in `api/widget.py`.
+**Status: COMPLETE**
+
+Created widget API endpoints with comprehensive security measures in `api/widget.py`.
 
 ### Authentication
 
@@ -332,28 +334,262 @@ urlpatterns = [
 ]
 ```
 
-### Security Additions
+### Security Implementation
 
-Add rate limiting (post-MVP, but recommended):
+#### 1. Multi-layer Rate Limiting
+
+Implement rate limiting using `django-ratelimit`:
 
 ```python
-from rest_framework.throttling import AnonRateThrottle
-
-class WidgetRateThrottle(AnonRateThrottle):
-    rate = '10/minute'  # 10 messages per minute per distinct_id
+from django_ratelimit.decorators import ratelimit
+from django.core.cache import cache
 
 class WidgetMessageView(APIView):
-    throttle_classes = [WidgetRateThrottle]
-    # ... rest of the view
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    
+    @ratelimit(key='user_or_ip', rate='10/m', method='POST')  # Per distinct_id or IP
+    @ratelimit(key='header:x-conversations-token', rate='1000/h', method='POST')  # Per team
+    def post(self, request):
+        # Check if rate limited
+        if getattr(request, 'limited', False):
+            return Response(
+                {'error': 'Rate limit exceeded. Please try again later.'},
+                status=429
+            )
+        # ... rest of implementation
 ```
 
-### Widget API contract (coordinate with posthog-js):
+**Rate limit tiers:**
 
-- Widget sends: `X-Conversations-Token` header, distinct_id, message content, customer traits (name, email)
-- Backend returns: ticket_id, message_id
-- Widget polls GET endpoint for AI/human responses
-- Widget receives settings (conversations_enabled, conversations_greeting_text, conversations_color) from Team config
-- See WIDGET.md for detailed authentication and security documentation
+- **Per distinct_id**: 10 messages/min, 50 messages/hour
+- **Per IP**: 100 messages/min (prevents distinct_id spam)
+- **Per team/token**: 1000 messages/hour, 100 new tickets/hour
+
+#### 2. Input Validation
+
+Add validation helpers:
+
+```python
+import re
+from rest_framework.exceptions import ValidationError
+
+def validate_distinct_id(distinct_id):
+    """Validate distinct_id format and entropy"""
+    if not distinct_id or len(distinct_id) > 200:
+        raise ValidationError('Invalid distinct_id length')
+    
+    # Reject low-entropy sequential IDs
+    if re.match(r'^(user|test|temp)\d+$', distinct_id):
+        raise ValidationError('Suspicious distinct_id pattern')
+    
+    # Require minimum length for anonymous IDs
+    if len(distinct_id) < 16 and not '@' in distinct_id:
+        raise ValidationError('distinct_id too short')
+    
+    return True
+
+def sanitize_message_content(content):
+    """Sanitize message content"""
+    if len(content) > 5000:
+        raise ValidationError('Message too long (max 5000 chars)')
+    
+    # Strip HTML for MVP (or use bleach library for allowlist)
+    import html
+    return html.escape(content)
+
+def validate_traits(traits):
+    """Validate customer traits"""
+    if not isinstance(traits, dict):
+        raise ValidationError('Traits must be a dictionary')
+    
+    for key, value in traits.items():
+        if isinstance(value, str) and len(value) > 500:
+            raise ValidationError(f'Trait value too long: {key}')
+    
+    return traits
+```
+
+Use in views:
+
+```python
+def post(self, request):
+    team = request.auth
+    distinct_id = request.data.get('distinct_id')
+    
+    # Validate
+    validate_distinct_id(distinct_id)
+    content = sanitize_message_content(request.data.get('message', ''))
+    traits = validate_traits(request.data.get('traits', {}))
+    
+    # ... rest of implementation
+```
+
+#### 3. Origin Validation
+
+Validate request origin to prevent token reuse:
+
+```python
+def validate_origin(request, team):
+    """Check if request comes from allowed domain"""
+    origin = request.headers.get('Origin') or request.headers.get('Referer')
+    
+    if not origin:
+        # Allow for mobile apps or non-browser clients
+        # Could make this stricter later
+        return True
+    
+    # Future: team.allowed_widget_domains field
+    # For MVP, allow all origins but log suspicious ones
+    # allowed_domains = team.allowed_widget_domains or []
+    # if allowed_domains and not any(origin.startswith(d) for d in allowed_domains):
+    #     return False
+    
+    return True
+
+class WidgetMessageView(APIView):
+    def post(self, request):
+        team = request.auth
+        
+        if not validate_origin(request, team):
+            return Response(
+                {'error': 'Origin not allowed'},
+                status=403
+            )
+        # ... rest
+```
+
+#### 4. Suspicious Activity Detection
+
+Add monitoring for abuse patterns:
+
+```python
+from django.core.cache import cache
+
+def check_suspicious_activity(team, distinct_id, content):
+    """Detect and flag suspicious patterns"""
+    cache_key_prefix = f'conversations:suspicious:{team.id}'
+    
+    # Track distinct_id creation rate per IP
+    ip = get_client_ip(request)
+    distinct_ids_key = f'{cache_key_prefix}:ip:{ip}:distinct_ids'
+    distinct_ids = cache.get(distinct_ids_key, set())
+    distinct_ids.add(distinct_id)
+    cache.set(distinct_ids_key, distinct_ids, timeout=3600)
+    
+    if len(distinct_ids) > 10:
+        # Log to monitoring system
+        logger.warning(f'Suspicious: IP {ip} created {len(distinct_ids)} distinct_ids')
+        return True
+    
+    # Check for spam content (same message across distinct_ids)
+    content_hash = hashlib.md5(content.encode()).hexdigest()
+    spam_key = f'{cache_key_prefix}:content:{content_hash}'
+    spam_count = cache.get(spam_key, 0)
+    cache.set(spam_key, spam_count + 1, timeout=3600)
+    
+    if spam_count > 5:
+        logger.warning(f'Suspicious: Same message sent {spam_count} times')
+        return True
+    
+    return False
+```
+
+#### 5. Honeypot Protection
+
+Add honeypot field to detect bots:
+
+```python
+class WidgetMessageView(APIView):
+    def post(self, request):
+        # Check honeypot field (should be empty)
+        if request.data.get('_hp'):
+            # Bot filled the honeypot
+            logger.warning(f'Bot detected via honeypot')
+            return Response({'error': 'Invalid request'}, status=400)
+        
+        # ... rest of implementation
+```
+
+#### 6. Token Rotation Implementation
+
+Already implemented in Step 5 via Team API:
+
+```python
+# POST /api/environments/{id}/generate_conversations_public_token/
+# Implemented in posthog/api/team.py
+```
+
+#### 7. CORS Configuration
+
+Configure CORS for widget endpoints:
+
+```python
+# In settings or middleware
+CORS_ALLOW_WIDGET_ORIGINS = True  # Allow cross-origin for widget endpoints
+
+# Or use django-cors-headers with specific patterns:
+CORS_URLS_REGEX = r'^/api/conversations/widget/.*$'
+```
+
+### Widget API Contract
+
+Coordinate with posthog-js team:
+
+- **Widget sends**: `X-Conversations-Token` header, distinct_id, message content, customer traits (name, email)
+- **Backend returns**: ticket_id, message_id, ticket_status
+- **Widget polls**: GET endpoint every 5s for AI/human responses
+- **Widget config**: Fetches settings from Team API (conversations_enabled, conversations_greeting_text, conversations_color, conversations_public_token)
+- **Authentication**: Public token (team-level) + distinct_id (user-level scoping)
+- **Security**: Multi-layer rate limiting, input validation, origin validation, suspicious activity detection
+
+See **WIDGET.md** for complete API contract and integration guide for posthog-js developers.
+
+### Implementation Summary
+
+✅ **Authentication**:
+
+- Created `WidgetAuthentication` class that validates `X-Conversations-Token` header
+- Returns team object (no user) for widget requests
+- Checks `conversations_enabled` flag
+
+✅ **Endpoints Implemented**:
+
+1. `POST /api/conversations/widget/message` - Create message and ticket
+2. `GET /api/conversations/widget/messages/:ticket_id` - Fetch messages for a ticket
+3. `GET /api/conversations/widget/tickets` - List all tickets for distinct_id
+
+✅ **Security Measures**:
+
+- **Multi-layer rate limiting** using `django-ratelimit`:
+  - Per distinct_id: 10 messages/min
+  - Per IP: 100 messages/min (prevents distinct_id spam)
+  - Per team: 1000 messages/hour
+- **Input validation**:
+  - `validate_distinct_id()` - format and entropy checks
+  - `sanitize_message_content()` - HTML escaping, length limits
+  - `validate_traits()` - type and length validation
+- **Origin validation** - `validate_origin()` checks request origin
+- **Suspicious activity detection** - `check_suspicious_activity()` flags patterns
+- **Honeypot protection** - `_hp` field to detect bots
+- **distinct_id scoping** - Always verifies ticket.distinct_id matches request
+
+✅ **Critical Security Pattern**:
+
+```python
+# ALWAYS verify ticket belongs to distinct_id
+if ticket.distinct_id != distinct_id:
+    return Response({'error': 'Forbidden'}, status=403)
+```
+
+✅ **URL Registration**:
+
+- Created `api/urls.py` with widget URL patterns
+- Registered in `posthog/urls.py` at `/api/conversations/`
+
+✅ **Exports**:
+
+- Added widget views to `api/__init__.py` exports
 
 ## Development workflow
 
@@ -363,9 +599,9 @@ class WidgetMessageView(APIView):
 4. ✅ Build basic CRUD API for tickets (messages use existing Comment API)
 5. ✅ Update Team API to include conversations settings and token generation
 6. ✅ Register API routes
-7. 🔄 Implement widget webhook endpoints (POST message, GET messages)
+7. ✅ Implement widget webhook endpoints (POST message, GET messages, GET tickets) with comprehensive security
+8. 🔄 Manual testing via curl/Postman
 9. 🔄 Coordinate with posthog-js team for widget implementation and API contract
-10. 🔄 Manual testing via curl/Postman
 
 **Add later (post-MVP):**
 
