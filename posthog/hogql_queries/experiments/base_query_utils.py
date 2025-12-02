@@ -471,7 +471,7 @@ def get_source_events_query(
                     exprs=[
                         *get_source_time_window(
                             date_range_query,
-                            left=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                            left=ast.Field(chain=[source.timestamp_field]),
                             conversion_window=conversion_window,
                             conversion_window_unit=conversion_window_unit,
                         ),
