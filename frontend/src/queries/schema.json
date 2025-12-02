@@ -23,75 +23,6 @@
             "required": ["actionId"],
             "type": "object"
         },
-        "ActionFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "days": {
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "math": {
-                    "type": "string"
-                },
-                "math_group_type_index": {
-                    "anyOf": [
-                        {
-                            "type": "integer"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "math_hogql": {
-                    "type": ["string", "null"]
-                },
-                "math_property": {
-                    "type": ["string", "null"]
-                },
-                "math_property_type": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/TaxonomicFilterGroupType"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ]
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
-                "order": {
-                    "type": "number"
-                },
-                "properties": {
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["id", "type"],
-            "type": "object"
-        },
         "ActionsNode": {
             "additionalProperties": false,
             "properties": {
@@ -701,9 +632,6 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/AnyPropertyFilter"
-                },
-                {
-                    "$ref": "#/definitions/ActionFilter"
                 },
                 {
                     "$ref": "#/definitions/PropertyGroupFilter"
@@ -11238,34 +11166,6 @@
                     "type": "object"
                 }
             },
-            "type": "object"
-        },
-        "EntityFilter": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": ["string", "null"]
-                },
-                "id": {
-                    "type": ["string", "number", "null"]
-                },
-                "index": {
-                    "type": "number"
-                },
-                "name": {
-                    "type": ["string", "null"]
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
-                "order": {
-                    "type": "number"
-                },
-                "type": {
-                    "$ref": "#/definitions/EntityType"
-                }
-            },
-            "required": ["id"],
             "type": "object"
         },
         "EntityNode": {
