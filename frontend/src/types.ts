@@ -3096,8 +3096,13 @@ export interface SurveyDisplayConditions {
             name: string
         }[]
     } | null
+    /** events that trigger surveys */
     events: {
         repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    /** events that cancel "pending" (time-delayed) surveys */
+    cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
 }
