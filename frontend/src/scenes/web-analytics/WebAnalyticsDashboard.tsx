@@ -21,6 +21,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
@@ -43,7 +44,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, OnboardingStepKey } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -56,8 +57,9 @@ import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
     const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
-
+    const { currentTeam } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div
@@ -66,20 +68,42 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
             )}
         >
-            {tiles.map((tile, i) => {
-                if (tile.kind === 'query') {
-                    return <QueryTileItem key={i} tile={tile} />
-                } else if (tile.kind === 'tabs') {
-                    return <TabsTileItem key={i} tile={tile} />
-                } else if (tile.kind === 'replay') {
-                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
-                } else if (tile.kind === 'error_tracking') {
-                    return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
-                } else if (tile.kind === 'section') {
-                    return <SectionTileItem key={i} tile={tile} />
-                }
-                return null
-            })}
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING] && !currentTeam?.ingested_event ? (
+                <ProductIntroduction
+                    className="col-span-full w-full"
+                    productName="Web Analytics"
+                    productKey={ProductKey.WEB_ANALYTICS}
+                    thingName="event"
+                    isEmpty={true}
+                    titleOverride="Nothing to investigate yet!"
+                    description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                    docsURL="https://posthog.com/docs/web-analytics/installation"
+                    actionElementOverride={
+                        <LemonButton
+                            type="primary"
+                            to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                            data-attr="web-analytics-onboarding"
+                        >
+                            Open installation guide
+                        </LemonButton>
+                    }
+                />
+            ) : (
+                tiles.map((tile, i) => {
+                    if (tile.kind === 'query') {
+                        return <QueryTileItem key={i} tile={tile} />
+                    } else if (tile.kind === 'tabs') {
+                        return <TabsTileItem key={i} tile={tile} />
+                    } else if (tile.kind === 'replay') {
+                        return <WebAnalyticsRecordingsTile key={i} tile={tile} />
+                    } else if (tile.kind === 'error_tracking') {
+                        return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
+                    } else if (tile.kind === 'section') {
+                        return <SectionTileItem key={i} tile={tile} />
+                    }
+                    return null
+                })
+            )}
         </div>
     )
 }

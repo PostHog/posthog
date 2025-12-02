@@ -12,9 +12,20 @@ from products.tasks.backend.temporal.process_task.activities.check_snapshot_exis
     CheckSnapshotExistsForRepositoryOutput,
     check_snapshot_exists_for_repository,
 )
+from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
 class TestCheckSnapshotExistsForRepositoryActivity:
+    def _create_context(self, github_integration, repository) -> TaskProcessingContext:
+        return TaskProcessingContext(
+            task_id="test-task-id",
+            run_id="test-run-id",
+            team_id=github_integration.team_id,
+            github_integration_id=github_integration.id,
+            repository=repository,
+            distinct_id="test-distinct-id",
+        )
+
     def _create_snapshot(
         self, github_integration, repos, status=SandboxSnapshot.Status.COMPLETE, external_id="test-snap-123"
     ):
@@ -33,9 +44,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         snapshot = self._create_snapshot(github_integration, repos=["test-owner/test-repo", "other-owner/other-repo"])
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="test-owner/test-repo"
-            )
+            context = self._create_context(github_integration, "test-owner/test-repo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -46,9 +56,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
 
     @pytest.mark.django_db
     def test_check_snapshot_exists_for_repository_not_found(self, activity_environment, github_integration):
-        input_data = CheckSnapshotExistsForRepositoryInput(
-            github_integration_id=github_integration.id, repository="nonexistent/repo"
-        )
+        context = self._create_context(github_integration, "nonexistent/repo")
+        input_data = CheckSnapshotExistsForRepositoryInput(context=context)
         result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
         assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -62,9 +71,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         )
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="test-owner/test-repo"
-            )
+            context = self._create_context(github_integration, "test-owner/test-repo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -91,9 +99,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         )
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="test-owner/test-repo"
-            )
+            context = self._create_context(github_integration, "test-owner/test-repo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -124,9 +131,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         )
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="test-owner/test-repo"
-            )
+            context = self._create_context(github_integration, "test-owner/test-repo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -141,9 +147,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         snapshot = self._create_snapshot(github_integration, repos=["TestOwner/TestRepo"])
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="testowner/testrepo"
-            )
+            context = self._create_context(github_integration, "testowner/testrepo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
@@ -165,9 +170,8 @@ class TestCheckSnapshotExistsForRepositoryActivity:
         snapshot = self._create_snapshot(other_integration, repos=["test-owner/test-repo"])
 
         try:
-            input_data = CheckSnapshotExistsForRepositoryInput(
-                github_integration_id=github_integration.id, repository="test-owner/test-repo"
-            )
+            context = self._create_context(github_integration, "test-owner/test-repo")
+            input_data = CheckSnapshotExistsForRepositoryInput(context=context)
             result = async_to_sync(activity_environment.run)(check_snapshot_exists_for_repository, input_data)
 
             assert isinstance(result, CheckSnapshotExistsForRepositoryOutput)
