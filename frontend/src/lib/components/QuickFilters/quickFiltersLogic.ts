@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -7,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { QuickFilter } from '~/types'
 
+import { QuickFiltersEvents } from './consts'
 import type { quickFiltersLogicType } from './quickFiltersLogicType'
 
 export interface QuickFiltersLogicProps {
@@ -42,12 +44,27 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
                         ...payload,
                         contexts: [props.context],
                     })
+
                     lemonToast.success('Quick filter created successfully')
+                    posthog.capture(QuickFiltersEvents.QuickFilterCreated, {
+                        name: payload.name,
+                        property_name: payload.property_name,
+                        type: payload.type,
+                        options: payload.options,
+                        context: props.context,
+                    })
                     return [newFilter, ...values.quickFilters]
                 },
                 updateFilter: async ({ id, payload }) => {
                     const updatedFilter = await api.quickFilters.update(id, payload)
                     lemonToast.success('Quick filter updated successfully')
+                    posthog.capture(QuickFiltersEvents.QuickFilterUpdated, {
+                        ...(payload.name && { name: payload.name }),
+                        ...(payload.property_name && { property_name: payload.property_name }),
+                        ...(payload.type && { type: payload.type }),
+                        ...(payload.options && { options: payload.options }),
+                        context: props.context,
+                    })
                     return values.quickFilters.map((f: QuickFilter) => (f.id === id ? updatedFilter : f))
                 },
                 deleteFilter: async ({ id }) => {
