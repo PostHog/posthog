@@ -10,6 +10,7 @@ from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
@@ -41,6 +42,12 @@ def team(organization):
     yield team
 
     team.delete()
+
+
+@pytest.fixture
+def test_team(team):
+    """Alias for team fixture."""
+    return team
 
 
 @pytest.fixture
@@ -117,6 +124,16 @@ def task_context(test_task, test_task_run) -> TaskProcessingContext:
         github_integration_id=test_task.github_integration_id,
         repository=test_task.repository,
         distinct_id=test_task.created_by.distinct_id or "test-distinct-id",
+    )
+
+
+@pytest.fixture
+def snapshot_context(github_integration, team) -> SnapshotContext:
+    """Create a SnapshotContext for testing."""
+    return SnapshotContext(
+        github_integration_id=github_integration.id,
+        repository="posthog/posthog-js",
+        team_id=team.id,
     )
 
 
