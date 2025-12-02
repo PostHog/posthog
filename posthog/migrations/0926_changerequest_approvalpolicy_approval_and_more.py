@@ -67,7 +67,7 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
                     ),
                 ),
-                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
                 ("expires_at", models.DateTimeField()),
                 ("applied_at", models.DateTimeField(blank=True, null=True)),
@@ -86,15 +86,6 @@ class Migration(migrations.Migration):
                 (
                     "organization",
                     models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.organization"),
-                ),
-                (
-                    "requested_by",
-                    models.ForeignKey(
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        related_name="change_requests_created",
-                        to=settings.AUTH_USER_MODEL,
-                    ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
@@ -122,7 +113,7 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
                     ),
                 ),
-                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
                 (
                     "expires_after",
@@ -166,9 +157,8 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL, to=settings.AUTH_USER_MODEL, null=True, blank=True
                     ),
                 ),
-                ("created_at", models.DateTimeField(auto_now_add=True, null=True, blank=True)),
+                ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True, null=True, blank=True)),
-                ("actor", models.ForeignKey(on_delete=django.db.models.deletion.PROTECT, to=settings.AUTH_USER_MODEL)),
                 (
                     "change_request",
                     models.ForeignKey(
