@@ -9,6 +9,7 @@ from posthoganalytics import capture_exception
 
 from posthog.schema import (
     AgentMode,
+    AssistantMessage,
     ContextMessage,
     FunnelsQuery,
     HogQLQuery,
@@ -44,6 +45,7 @@ from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessa
 from .prompts import (
     CONTEXT_INITIAL_MODE_PROMPT,
     CONTEXT_MODE_PROMPT,
+    CONTEXT_MODE_SWITCH_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
@@ -390,12 +392,9 @@ class AssistantContextManager(AssistantContextMixin):
         are_modes_enabled = has_agent_modes_feature_flag(self._team, self._user)
 
         prompts: list[str] = []
-        if (
-            are_modes_enabled
-            and find_start_message_idx(state.messages, state.start_id) == 0
-            and (mode_prompt := self._get_mode_prompt(state.agent_mode))
-        ):
-            prompts.append(mode_prompt)
+        if are_modes_enabled:
+            if mode_prompt := self._get_mode_prompt_if_needed(state):
+                prompts.append(mode_prompt)
         if contextual_tools := await self._get_contextual_tools_prompt():
             prompts.append(contextual_tools)
         if ui_context := await self._format_ui_context(self.get_ui_context(state)):
@@ -431,9 +430,52 @@ class AssistantContextManager(AssistantContextMixin):
         # Insert context messages right before the start message
         return insert_messages_before_start(state.messages, context_messages, start_id=state.start_id)
 
-    def _get_mode_prompt(self, mode: AgentMode | None) -> str:
+    def _get_mode_prompt_if_needed(self, state: BaseStateWithMessages) -> str | None:
+        """
+        Returns a mode prompt if one should be injected.
+        - On first turn: inject initial mode prompt
+        - On subsequent turns: inject switch prompt if mode changed
+        """
+        current_mode = state.agent_mode_or_default
+        is_first_message = find_start_message_idx(state.messages, state.start_id) == 0
+
+        if is_first_message:
+            return self._format_mode_prompt(current_mode, is_initial=True)
+
+        previous_mode = self._get_previous_mode_from_messages(state.messages)
+        if previous_mode and previous_mode != current_mode:
+            return self._format_mode_prompt(current_mode, is_initial=False)
+
+        return None
+
+    def _get_previous_mode_from_messages(self, messages: Sequence[AssistantMessageUnion]) -> AgentMode | None:
+        """
+        Extracts the most recent mode from existing messages.
+        Checks ContextMessages for mode prompts and AssistantMessages for switch_mode tool calls.
+        """
+        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
+
+        for message in reversed(messages):
+            # Check for switch_mode tool calls
+            if isinstance(message, AssistantMessage) and message.tool_calls:
+                for tool_call in message.tool_calls:
+                    if tool_call.name == SWITCH_MODE_TOOL_NAME:
+                        new_mode = tool_call.args.get("new_mode") if tool_call.args else None
+                        if new_mode and new_mode in AgentMode.__members__.values():
+                            return AgentMode(new_mode)
+            # Check for mode context messages
+            if isinstance(message, ContextMessage):
+                for mode in AgentMode:
+                    if f"{CONTEXT_INITIAL_MODE_PROMPT} {mode.value}." in message.content:
+                        return mode
+                    if f"{CONTEXT_MODE_SWITCH_PROMPT} {mode.value}." in message.content:
+                        return mode
+        return None
+
+    def _format_mode_prompt(self, mode: AgentMode, *, is_initial: bool) -> str:
+        mode_prompt = CONTEXT_INITIAL_MODE_PROMPT if is_initial else CONTEXT_MODE_SWITCH_PROMPT
         return format_prompt_string(
             CONTEXT_MODE_PROMPT,
-            initial_mode_prompt=CONTEXT_INITIAL_MODE_PROMPT,
-            mode=mode.value if mode else AgentMode.PRODUCT_ANALYTICS.value,
+            mode_prompt=mode_prompt,
+            mode=mode.value,
         )

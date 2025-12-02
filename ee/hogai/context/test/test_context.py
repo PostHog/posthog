@@ -10,6 +10,7 @@ from parameterized import parameterized
 from posthog.schema import (
     AgentMode,
     AssistantMessage,
+    AssistantToolCall,
     ContextMessage,
     DashboardFilter,
     EntityType,
@@ -37,6 +38,7 @@ from posthog.models.organization import OrganizationMembership
 
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 class TestAssistantContextManager(ClickhouseTestMixin, BaseTest):
@@ -658,4 +660,123 @@ Query results: 42 events
             self.assertEqual(len(result), 2)
             assert isinstance(result[0], ContextMessage)
             self.assertIn("Your initial mode is", result[0].content)
+            self.assertIn("product_analytics", result[0].content)
             self.assertIsInstance(result[1], HumanMessage)
+
+    async def test_get_context_prompts_with_agent_mode_switch(self):
+        """Test that mode switch prompt is added when mode changes mid-conversation"""
+        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
+            state = AssistantState(
+                messages=[
+                    ContextMessage(
+                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+                    ),
+                    HumanMessage(content="First message", id="1"),
+                    AssistantMessage(content="Response", id="2"),
+                    HumanMessage(content="Second message", id="3"),
+                ],
+                start_id="3",
+                agent_mode=AgentMode.SQL,  # Mode changed from product_analytics to SQL
+            )
+
+            result = await self.context_manager.get_state_messages_with_context(state)
+
+            assert result is not None
+            # Should have added a mode switch context message before the start message
+            self.assertEqual(len(result), 5)
+            assert isinstance(result[3], ContextMessage)
+            self.assertIn("Your mode has been switched to", result[3].content)
+            self.assertIn("sql", result[3].content)
+
+    async def test_get_context_prompts_no_mode_switch_when_same_mode(self):
+        """Test that no mode prompt is added when mode hasn't changed"""
+        with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
+            state = AssistantState(
+                messages=[
+                    ContextMessage(
+                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+                    ),
+                    HumanMessage(content="First message", id="1"),
+                    AssistantMessage(content="Response", id="2"),
+                    HumanMessage(content="Second message", id="3"),
+                ],
+                start_id="3",
+                agent_mode=AgentMode.PRODUCT_ANALYTICS,  # Same mode as initial
+            )
+
+            result = await self.context_manager.get_state_messages_with_context(state)
+
+            # Should return None since no context needs to be added
+            self.assertIsNone(result)
+
+    def test_get_previous_mode_from_messages_initial(self):
+        """Test extraction of initial mode from context messages"""
+        messages: list[AssistantMessageUnion] = [
+            ContextMessage(content="<system_reminder>Your initial mode is sql.</system_reminder>", id="0"),
+            HumanMessage(content="Test", id="1"),
+        ]
+
+        result = self.context_manager._get_previous_mode_from_messages(messages)
+
+        self.assertEqual(result, AgentMode.SQL)
+
+    def test_get_previous_mode_from_messages_switched(self):
+        """Test extraction of switched mode from context messages"""
+        messages: list[AssistantMessageUnion] = [
+            ContextMessage(
+                content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+            ),
+            HumanMessage(content="First message", id="1"),
+            ContextMessage(content="<system_reminder>Your mode has been switched to sql.</system_reminder>", id="2"),
+            HumanMessage(content="Second message", id="3"),
+        ]
+
+        # Should return the most recent mode (sql, from the switch)
+        result = self.context_manager._get_previous_mode_from_messages(messages)
+
+        self.assertEqual(result, AgentMode.SQL)
+
+    def test_get_previous_mode_from_messages_switch_mode_tool_call(self):
+        """Test extraction of mode from switch_mode tool call"""
+        messages: list[AssistantMessageUnion] = [
+            ContextMessage(
+                content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+            ),
+            HumanMessage(content="First message", id="1"),
+            AssistantMessage(
+                content="Switching to SQL mode",
+                id="2",
+                tool_calls=[AssistantToolCall(id="tc1", name="switch_mode", args={"new_mode": "sql"})],
+            ),
+            HumanMessage(content="Second message", id="3"),
+        ]
+
+        # Should return sql from the switch_mode tool call
+        result = self.context_manager._get_previous_mode_from_messages(messages)
+
+        self.assertEqual(result, AgentMode.SQL)
+
+    def test_get_previous_mode_from_messages_no_mode(self):
+        """Test extraction returns None when no mode context exists"""
+        messages: list[AssistantMessageUnion] = [
+            HumanMessage(content="Test", id="1"),
+            AssistantMessage(content="Response", id="2"),
+        ]
+
+        result = self.context_manager._get_previous_mode_from_messages(messages)
+
+        self.assertIsNone(result)
+
+    def test_format_mode_prompt_initial(self):
+        """Test formatting of initial mode prompt"""
+        result = self.context_manager._format_mode_prompt(AgentMode.PRODUCT_ANALYTICS, is_initial=True)
+
+        self.assertIn("Your initial mode is", result)
+        self.assertIn("product_analytics", result)
+
+    def test_format_mode_prompt_switch(self):
+        """Test formatting of mode switch prompt"""
+        result = self.context_manager._format_mode_prompt(AgentMode.SQL, is_initial=False)
+
+        self.assertIn("Your mode has been switched to", result)
+        self.assertIn("sql", result)

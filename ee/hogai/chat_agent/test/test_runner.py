@@ -16,11 +16,11 @@ class TestChatAgentRunner(BaseTest):
         with patch("ee.hogai.chat_agent.runner.AssistantGraph.compile_full_graph", return_value=MagicMock()):
             return ChatAgentRunner(team=self.team, conversation=self.conversation, user=self.user, **kwargs)
 
-    def test_default_agent_mode_when_missing(self):
+    def test_selected_agent_mode_when_missing(self):
         runner = self._create_runner()
-        self.assertIsNone(runner._default_agent_mode)
+        self.assertIsNone(runner._selected_agent_mode)
         runner = self._create_runner(agent_mode=AgentMode.SQL)
-        self.assertEqual(runner._default_agent_mode, AgentMode.SQL)
+        self.assertEqual(runner._selected_agent_mode, AgentMode.SQL)
 
     def test_get_initial_state_without_agent_mode(self):
         """Test that agent_mode is not set in initial state when not explicitly provided."""

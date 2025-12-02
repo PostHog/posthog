@@ -169,6 +169,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         reconnectToStream: true,
         streamConversation: (
             streamData: {
+                agent_mode: AgentMode | null
                 content: string | null
                 conversation?: string
                 contextual_tools?: Record<string, any>
@@ -309,7 +310,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     })),
 
     listeners((logic) => ({
-        streamConversation: async ({ streamData, generationAttempt }, breakpoint) => {
+        streamConversation: async (
+            { streamData: { agent_mode: agentMode, ...streamData }, generationAttempt },
+            breakpoint
+        ) => {
             const { actions, values, cache, mount, props } = logic as BuiltLogic<maxThreadLogicType>
             // Set active streaming threads, so we know streaming is active
             const releaseStreamingLock = mount() // lock the logic - don't unmount before we're done streaming
@@ -343,8 +347,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     apiData.deep_research_mode = true
                 }
 
-                if (values.agentMode) {
-                    apiData.agent_mode = values.agentMode
+                if (agentMode) {
+                    apiData.agent_mode = agentMode
                 }
 
                 const response = await api.conversations.stream(apiData, {
@@ -389,6 +393,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             conversation: streamData.conversation,
                             contextual_tools: streamData.contextual_tools,
                             ui_context: streamData.ui_context,
+                            agent_mode: streamData.agent_mode,
                         },
                         generationAttempt + 1
                     )
@@ -487,6 +492,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
             }
+            const agentMode = values.agentMode
+
             // Clear the question
             actions.setQuestion('')
             // For a new conversations, set the frontend conversation ID
@@ -495,6 +502,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } else {
                 const updatedConversation = {
                     ...values.conversation,
+                    agent_mode: agentMode || values.conversation?.agent_mode,
                     status: ConversationStatus.InProgress,
                     updated_at: dayjs().toISOString(),
                 }
@@ -506,6 +514,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
             actions.streamConversation(
                 {
+                    agent_mode: agentMode,
                     content: prompt,
                     contextual_tools: Object.fromEntries(values.tools.map((tool) => [tool.identifier, tool.context])),
                     ui_context: values.compiledContext || undefined,
@@ -544,7 +553,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (cache.generationController) {
                 return
             }
-            actions.streamConversation({ conversation: id, content: null }, 0)
+            actions.streamConversation({ conversation: id, content: null, agent_mode: values.agentMode }, 0)
         },
 
         retryLastMessage: () => {

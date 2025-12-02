@@ -53,7 +53,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
 class ChatAgentRunner(BaseAgentRunner):
     _state: Optional[AssistantState]
     _initial_state: Optional[AssistantState | PartialAssistantState]
-    _default_agent_mode: AgentMode | None
+    _selected_agent_mode: AgentMode | None
 
     def __init__(
         self,
@@ -88,7 +88,7 @@ class ChatAgentRunner(BaseAgentRunner):
                 verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
             ),
         )
-        self._default_agent_mode = agent_mode
+        self._selected_agent_mode = agent_mode
 
     def get_initial_state(self) -> AssistantState:
         if self._latest_message:
@@ -100,11 +100,12 @@ class ChatAgentRunner(BaseAgentRunner):
                 rag_context=None,
             )
             # Only set the agent mode if it was explicitly set.
-            if self._default_agent_mode:
-                new_state.agent_mode = self._default_agent_mode
+            if self._selected_agent_mode:
+                new_state.agent_mode = self._selected_agent_mode
             return new_state
-        else:
-            return AssistantState(messages=[])
+
+        # When resuming, do not set the mode. It should start from the same mode as the previous generation.
+        return AssistantState(messages=[])
 
     def get_resumed_state(self) -> PartialAssistantState:
         if not self._latest_message:
@@ -113,8 +114,8 @@ class ChatAgentRunner(BaseAgentRunner):
             messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
         )
         # Only set the agent mode if it was explicitly set.
-        if self._default_agent_mode:
-            new_state.agent_mode = self._default_agent_mode
+        if self._selected_agent_mode:
+            new_state.agent_mode = self._selected_agent_mode
         return new_state
 
     async def astream(
