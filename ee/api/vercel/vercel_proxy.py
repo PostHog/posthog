@@ -1,3 +1,4 @@
+import urllib.parse
 from typing import Any, cast
 
 from django.conf import settings
@@ -9,11 +10,19 @@ from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import BillingServiceAuthentication, BillingServiceUser
 
 logger = structlog.get_logger(__name__)
+
+ALLOWED_VERCEL_PATHS = frozenset(
+    [
+        "/billing/invoices",
+        "/billing/usage",
+    ]
+)
 
 VERCEL_API_BASE_URL = "https://api.vercel.com"
 REQUEST_TIMEOUT_SECONDS = 30
@@ -29,6 +38,23 @@ class VercelProxyRequestSerializer(serializers.Serializer):
         help_text="HTTP method to use",
     )
     body = serializers.JSONField(required=False, default=dict, help_text="Request body to send to Vercel")
+
+    def validate_path(self, value: str) -> str:
+        # Normalize URL-encoded characters to prevent bypass
+        normalized = urllib.parse.unquote(value)
+
+        if not normalized.startswith("/"):
+            raise serializers.ValidationError("Path must start with '/'")
+
+        if ".." in normalized:
+            raise serializers.ValidationError("Path traversal not allowed")
+
+        if normalized not in ALLOWED_VERCEL_PATHS:
+            raise serializers.ValidationError(
+                f"Path '{normalized}' is not in the allowlist of permitted Vercel API paths"
+            )
+
+        return normalized
 
 
 def _extract_access_token(integration: OrganizationIntegration) -> str:
@@ -84,6 +110,7 @@ def _proxy_to_eu(request_data: dict, auth_header: str) -> Response:
         return Response(data=data, status=response.status_code)
 
     except requests.exceptions.RequestException as e:
+        capture_exception(e)
         logger.exception(
             "Failed to proxy billing request to EU region",
             url=target_url,
@@ -97,8 +124,6 @@ def _proxy_to_eu(request_data: dict, auth_header: str) -> Response:
 
 def forward_to_vercel(config_id: str, access_token: str, path: str, method: str, body: dict) -> requests.Response:
     """Forward request to Vercel API."""
-    if not path.startswith("/") or ".." in path:
-        raise ValueError(f"Invalid path format: {path}")
     url = f"{VERCEL_API_BASE_URL}/v1/installations/{config_id}{path}"
 
     headers = {
@@ -192,7 +217,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
 
         try:
             access_token = _extract_access_token(integration)
-        except ValueError:
+        except ValueError as e:
+            capture_exception(e)
             logger.exception(
                 "Failed to extract Vercel access token",
                 organization_id=organization_id,
@@ -218,7 +244,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 method=method,
                 body=body,
             )
-        except requests.RequestException:
+        except requests.RequestException as e:
+            capture_exception(e)
             logger.exception(
                 "Vercel API proxy request failed",
                 config_id=config_id,

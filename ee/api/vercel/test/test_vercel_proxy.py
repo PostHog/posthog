@@ -267,6 +267,58 @@ class TestVercelProxyAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "method" in response.json()
 
+    def test_proxy_rejects_path_not_in_allowlist(self, mock_license):
+        mock_license.return_value = self.license
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {
+                "path": "/some/other/path",
+                "method": "POST",
+                "body": {},
+            },
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "path" in response.json()
+        assert "allowlist" in str(response.json()["path"])
+
+    def test_proxy_rejects_path_traversal(self, mock_license):
+        mock_license.return_value = self.license
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {
+                "path": "/billing/../../../etc/passwd",
+                "method": "GET",
+                "body": {},
+            },
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "path" in response.json()
+
+    def test_proxy_rejects_url_encoded_path_traversal(self, mock_license):
+        mock_license.return_value = self.license
+
+        response = self.unauthenticated_client.post(
+            "/api/vercel/proxy/",
+            {
+                "path": "/billing/%2e%2e/%2e%2e/etc/passwd",
+                "method": "GET",
+                "body": {},
+            },
+            format="json",
+            **self._get_auth_headers(),
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "path" in response.json()
+
     @patch("ee.api.vercel.vercel_proxy.forward_to_vercel")
     def test_proxy_handles_network_errors(self, mock_forward, mock_license):
         import requests as req
