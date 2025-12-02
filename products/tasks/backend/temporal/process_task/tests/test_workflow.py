@@ -11,6 +11,7 @@ from unittest.mock import patch
 from django.conf import settings
 
 from asgiref.sync import sync_to_async
+from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker

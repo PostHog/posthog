@@ -14,8 +14,8 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.models import SandboxSnapshot, Task
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
+from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import _create_oauth_access_token
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
 
 from .get_task_processing_context import TaskProcessingContext
@@ -96,7 +96,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             )
 
         try:
-            access_token = _create_oauth_access_token(task)
+            access_token = create_oauth_access_token(task)
         except Exception as e:
             raise OAuthTokenError(
                 f"Failed to create OAuth access token for task {ctx.task_id}",
