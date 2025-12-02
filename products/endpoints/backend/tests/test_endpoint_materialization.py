@@ -219,8 +219,16 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # The API wraps validation errors in a generic message
         self.assertIn("Failed to update endpoint", response.json()["detail"])
 
-    def test_cannot_materialize_non_hogql_query(self):
-        """Test that only HogQL queries can be materialized."""
+    def test_can_materialize_trends_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            properties={"$browser": "Chrome"},
+        )
+
         endpoint = Endpoint.objects.create(
             name="test_trends_query",
             team=self.team,
@@ -242,8 +250,231 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             format="json",
         )
 
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        response_data = response.json()
+        self.assertTrue(response_data["is_materialized"])
+
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.name, endpoint.name)
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        self.assertIsInstance(saved_query.query["query"], str)
+        self.assertIn("SELECT", saved_query.query["query"].upper())
+        self.assertTrue(saved_query.is_materialized)
+
+    def test_can_materialize_lifecycle_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+
+        endpoint = Endpoint.objects.create(
+            name="test_lifecycle_query",
+            team=self.team,
+            query={
+                "kind": "LifecycleQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-7d"},
+                "interval": "day",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+        self.assertIsInstance(saved_query.query["query"], str)
+
+    def test_can_materialize_stickiness_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+
+        endpoint = Endpoint.objects.create(
+            name="test_stickiness_query",
+            team=self.team,
+            query={
+                "kind": "StickinessQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "dateRange": {"date_from": "-7d"},
+                "interval": "day",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_funnels_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="step1",
+            distinct_id="user1",
+        )
+
+        endpoint = Endpoint.objects.create(
+            name="test_funnels_query",
+            team=self.team,
+            query={
+                "kind": "FunnelsQuery",
+                "series": [
+                    {"kind": "EventsNode", "event": "step1"},
+                    {"kind": "EventsNode", "event": "step2"},
+                ],
+                "dateRange": {"date_from": "-7d"},
+                "interval": "day",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_retention_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+
+        endpoint = Endpoint.objects.create(
+            name="test_retention_query",
+            team=self.team,
+            query={
+                "kind": "RetentionQuery",
+                "retentionFilter": {
+                    "retentionType": "retention_first_time",
+                    "targetEntity": {"kind": "EventsNode", "event": "$pageview"},
+                    "returningEntity": {"kind": "EventsNode", "event": "$pageview"},
+                },
+                "dateRange": {"date_from": "-7d"},
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_can_materialize_paths_query(self):
+        from posthog.test.base import _create_event
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+        )
+
+        endpoint = Endpoint.objects.create(
+            name="test_paths_query",
+            team=self.team,
+            query={
+                "kind": "PathsQuery",
+                "dateRange": {"date_from": "-7d"},
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_12HOUR,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        endpoint.refresh_from_db()
+        self.assertIsNotNone(endpoint.saved_query)
+        saved_query = endpoint.saved_query
+        assert saved_query is not None
+        self.assertEqual(saved_query.query["kind"], "HogQLQuery")
+
+    def test_cannot_materialize_unsupported_query(self):
+        endpoint = Endpoint.objects.create(
+            name="test_unsupported_query",
+            team=self.team,
+            query={
+                "kind": "UnknownQuery",
+                "some_field": "some_value",
+            },
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_24HOUR,
+            },
+            format="json",
+        )
+
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        # The API wraps validation errors in a generic message
         self.assertIn("Failed to update endpoint", response.json()["detail"])
 
     def test_materialization_status_in_response(self):
