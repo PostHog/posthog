@@ -30,8 +30,8 @@ export const HogFlowTaxonomicFilters = ({
                     fullWidth
                     icon={<IconCode />}
                     onClick={() =>
-                        onChange(`variables.${variable.key}`, {
-                            key: `variables.${variable.key}`,
+                        onChange(variable.key, {
+                            key: variable.key,
                             name: variable.key,
                             propertyFilterType: PropertyFilterType.WorkflowVariable,
                             taxonomicFilterGroup: TaxonomicFilterGroupType.WorkflowVariables,

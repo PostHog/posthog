@@ -452,6 +452,7 @@ def property_to_expr(
         or property.type == "error_tracking_issue"
         or property.type == "log"
         or property.type == "revenue_analytics"
+        or property.type == "workflow_variable"
     ):
         if (
             (scope == "person" and property.type != "person")
@@ -517,6 +518,8 @@ def property_to_expr(
             chain = ["attributes"]
         elif property.type == "revenue_analytics":
             *chain, property.key = property.key.split(".")
+        elif property.type == "workflow_variable":
+            chain = ["variables"]
         else:
             chain = ["properties"]
 
