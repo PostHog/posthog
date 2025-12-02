@@ -724,6 +724,43 @@ class _Printer(Visitor[str]):
     def visit_order_expr(self, node: ast.OrderExpr):
         return f"{self.visit(node.expr)} {node.order}"
 
+    def __optimize_in_with_string_values(
+        self, values: list[ast.Expr], property_source: PrintableMaterializedPropertyGroupItem
+    ) -> str | None:
+        """
+        Optimizes an IN comparison against a list of values for property group bloom filter usage.
+        Returns the optimized expression string, or None if optimization is not possible.
+        """
+        # Bail on the optimisation if any value is not a Constant, is the empty string, is NULL, or is not a string
+        for v in values:
+            if not isinstance(v, ast.Constant):
+                return None
+            if v.value == "" or v.value is None or not isinstance(v.value, str):
+                return None
+
+        # IN with an empty set of values is always false
+        if len(values) == 0:
+            return "0"
+
+        # A problem we run into here is that an expression like
+        # in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test'))
+        # does not hit the bloom filter on the key, so we need to modify the expression so that it does
+
+        # If only one value, switch to equality operator. Expressions like this will hit the bloom filter for both keys and values:
+        # events.properties_group_feature_flags['$feature/onboarding-use-case-selection'] = 'control'
+        if len(values) == 1:
+            return f"equals({property_source.value_expr}, {self.visit(values[0])})"
+
+        # With transform_null_in=1 in SETTINGS (which we have by default), if there are several values, we need to
+        # include a check for whether the key exists to hit the keys bloom filter.
+        # Unlike the version WITHOUT mapKeys above, the following expression WILL hit the bloom filter:
+        # and(has(mapKeys(properties_group_feature_flags), '$feature/onboarding-use-case-selection'),
+        #     in(events.properties_group_feature_flags['$feature/onboarding-use-case-selection'], ('control', 'test')))
+        # Note that we could add a mapValues to this to use the values bloom filter
+        # TODO to profile whether we should add mapValues. Probably no for flags, yes for properties.
+        values_tuple = ", ".join(self.visit(v) for v in values)
+        return f"and({property_source.has_expr}, in({property_source.value_expr}, tuple({values_tuple})))"
+
     def __get_optimized_property_group_compare_operation(self, node: ast.CompareOperation) -> str | None:
         """
         Returns a printed expression corresponding to the provided compare operation, if one of the operands is part of
@@ -816,37 +853,15 @@ class _Printer(Visitor[str]):
 
             if isinstance(node.right, ast.Constant):
                 if node.right.value is None:
-                    return "0"
-                elif node.right.value == "":
+                    # we can't optimize here, as the unoptimized version returns true if the key doesn't exist OR the value is null
+                    return None
+                if node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
                 elif isinstance(node.right.type, ast.StringType):
-                    return f"in({property_source.value_expr}, {self.visit(node.right)})"
-            elif isinstance(node.right, ast.Tuple):
-                # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
-                # (strings) can be passed through as-is
-                default_value_expr: ast.Constant | None = None
-                for expr in node.right.exprs[:]:
-                    if not isinstance(expr, ast.Constant):
-                        return None  # only optimize constants for now, see above
-                    if expr.value is None:
-                        node.right.exprs.remove(expr)
-                    elif expr.value == "":
-                        default_value_expr = expr
-                        node.right.exprs.remove(expr)
-                    elif not isinstance(expr.type, ast.StringType):
-                        return None
-                if len(node.right.exprs) > 0:
-                    # TODO: Check to see if it'd be faster to do equality comparison here instead?
-                    printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
-                    if default_value_expr is not None:
-                        printed_expr = f"or({printed_expr}, and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)})))"
-                elif default_value_expr is not None:
-                    printed_expr = f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(default_value_expr)}))"
-                else:
-                    printed_expr = "0"
-                return printed_expr
+                    return f"equals({property_source.value_expr}, {self.visit(node.right)})"
+            elif isinstance(node.right, ast.Tuple) or isinstance(node.right, ast.Array):
+                return self.__optimize_in_with_string_values(node.right.exprs, property_source)
             else:
                 # TODO: Alias types are not resolved here (similarly to equality operations above) so some expressions
                 # are not optimized that possibly could be if we took that additional step to determine whether or not
