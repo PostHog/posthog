@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from '../../../frontend/src/scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const LiteLLMInstallation = (): JSX.Element => {
     const { Steps, Step, CodeBlock, ProductScreenshot, OSButton, Markdown, Blockquote, dedent, snippets } =

@@ -1,19 +1,19 @@
-import { EmbeddingEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/embedding-event'
-import { GenerationEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/generation-event'
-import { SpanEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/span-event'
-import { TraceEvent } from 'shared-docs/onboarding/llm-analytics/_snippets/trace-event'
-import { AnthropicInstallation } from 'shared-docs/onboarding/llm-analytics/anthropic'
-import { GoogleInstallation } from 'shared-docs/onboarding/llm-analytics/google'
-import { LangChainInstallation } from 'shared-docs/onboarding/llm-analytics/langchain'
-import { LiteLLMInstallation } from 'shared-docs/onboarding/llm-analytics/litellm'
-import { ManualInstallation } from 'shared-docs/onboarding/llm-analytics/manual'
-import { OpenAIInstallation } from 'shared-docs/onboarding/llm-analytics/openai'
-import { OpenRouterInstallation } from 'shared-docs/onboarding/llm-analytics/openrouter'
-import { VercelAIInstallation } from 'shared-docs/onboarding/llm-analytics/vercel-ai'
-
 import { OnboardingDocsContentWrapper } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
+
+import { EmbeddingEvent } from '../../../../../../docs/onboarding/llm-analytics/_snippets/embedding-event'
+import { GenerationEvent } from '../../../../../../docs/onboarding/llm-analytics/_snippets/generation-event'
+import { SpanEvent } from '../../../../../../docs/onboarding/llm-analytics/_snippets/span-event'
+import { TraceEvent } from '../../../../../../docs/onboarding/llm-analytics/_snippets/trace-event'
+import { AnthropicInstallation } from '../../../../../../docs/onboarding/llm-analytics/anthropic'
+import { GoogleInstallation } from '../../../../../../docs/onboarding/llm-analytics/google'
+import { LangChainInstallation } from '../../../../../../docs/onboarding/llm-analytics/langchain'
+import { LiteLLMInstallation } from '../../../../../../docs/onboarding/llm-analytics/litellm'
+import { ManualInstallation } from '../../../../../../docs/onboarding/llm-analytics/manual'
+import { OpenAIInstallation } from '../../../../../../docs/onboarding/llm-analytics/openai'
+import { OpenRouterInstallation } from '../../../../../../docs/onboarding/llm-analytics/openrouter'
+import { VercelAIInstallation } from '../../../../../../docs/onboarding/llm-analytics/vercel-ai'
 
 function LLMManualInstructions(): JSX.Element {
     const snippets = {

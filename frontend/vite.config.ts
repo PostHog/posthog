@@ -60,7 +60,6 @@ export default defineConfig(({ mode }) => {
                 // Just for Vite: we copy public assets to src/assets, we need to alias it to the correct path
                 public: resolve(__dirname, 'src/assets'),
                 products: resolve(__dirname, '../products'),
-                'shared-docs': resolve(__dirname, '../docs'),
                 // Node.js polyfills for browser compatibility
                 buffer: 'buffer',
             },

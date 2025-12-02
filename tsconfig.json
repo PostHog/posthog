@@ -10,8 +10,7 @@
             "storybook/*": ["../.storybook/*"],
             "~/*": ["src/*"],
             "public/*": ["public/*"],
-            "products/*": ["../products/*"],
-            "shared-docs/*": ["../docs/*"]
+            "products/*": ["../products/*"]
         },
         // https://www.sitepoint.com/react-with-typescript-best-practices/
         "allowJs": true, // Allow JavaScript files to be compiled
