@@ -11,6 +11,7 @@ from unittest import mock
 from unittest.mock import patch
 
 from django.conf import settings
+from django.test.utils import override_settings
 
 import pyarrow as pa
 from temporalio.testing import ActivityEnvironment
@@ -463,6 +464,7 @@ def assert_exported_rows_match_persons_to_export(exported_rows: list[dict], pers
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
 @pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+@pytest.mark.parametrize("limited_export", [False, True])
 async def test_insert_into_stage_activity_for_persons_model(
     interval,
     activity_environment,
@@ -473,10 +475,16 @@ async def test_insert_into_stage_activity_for_persons_model(
     test_person_properties,
     clickhouse_client,
     model: BatchExportModel,
+    limited_export: bool,
 ):
-    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage.
+    """Test that the insert_into_internal_stage_activity produces expected data in the internal stage for the persons
+    model.
 
-    In particular, we test that the query we issue to ClickHouse exports the expected number of records.
+    We perform a thorough test to ensure we're exporting the exact persons and distinct_ids we expect.
+
+    We also test the 'limited export' mode, where we only export distinct_ids that have been created or updated in the
+    data interval. (For context, we have certain cases where some customers have a large number of distinct_ids associated with a
+    person, and we want to ensure that we're not exporting too many records.)
     """
 
     # first generate 3 persons with timestamps inside of the data interval
@@ -503,6 +511,8 @@ async def test_insert_into_stage_activity_for_persons_model(
     # now we generate some more data:
     # 1. we update the version of one person:
     #   - this should result in a single record being exported for the person, distinct_id pair
+    #   - that is, unless we're in limited export mode, in which case we shouldn't expect any records to be exported, as
+    #       this distinct_id is not new
     # 2. we create a new distinct id for the second person:
     #   - this should result in a single record being exported for the person, distinct_id pair
     #   - note that the existing distinct_id shouldn't be exported as well, since it's associated with the person
@@ -525,17 +535,23 @@ async def test_insert_into_stage_activity_for_persons_model(
         clickhouse_client=clickhouse_client,
         timestamp=next_data_interval_start + dt.timedelta(seconds=1),
     )
-    new_persons_to_export = [
-        # since we have a new version of person_1 we should expect to export any distinct_ids associated with it
-        PersonToExport(
-            team_id=person_1["team_id"],
-            person_id=person_1["person_id"],
-            person_version=person_1_v2["version"],
-            distinct_id=person_1["distinct_id"],
-            person_distinct_id_version=person_1["person_distinct_id_version"],
-            properties=person_1_v2["properties"],
-            _timestamp=dt.datetime.fromisoformat(person_1_v2["_timestamp"]),
-        ),
+
+    new_persons_to_export = []
+    if not limited_export:
+        new_persons_to_export.append(
+            # since we have a new version of person_1 we should expect to export any distinct_ids associated with it
+            # unless we're in limited export mode
+            PersonToExport(
+                team_id=person_1["team_id"],
+                person_id=person_1["person_id"],
+                person_version=person_1_v2["version"],
+                distinct_id=person_1["distinct_id"],
+                person_distinct_id_version=person_1["person_distinct_id_version"],
+                properties=person_1_v2["properties"],
+                _timestamp=dt.datetime.fromisoformat(person_1_v2["_timestamp"]),
+            )
+        )
+    new_persons_to_export.append(
         # since we have a new distinct_id for person_2 we should expect to export it, but not the existing distinct_id
         PersonToExport(
             team_id=person_2["team_id"],
@@ -545,8 +561,8 @@ async def test_insert_into_stage_activity_for_persons_model(
             person_distinct_id_version=person_2_new_distinct_id["version"],
             properties=person_2["properties"],
             _timestamp=dt.datetime.fromisoformat(person_2_new_distinct_id["_timestamp"]),
-        ),
-    ]
+        )
+    )
     # person 3 should not be exported, since it's not in the data interval
     # create a new person with 2 new distinct_ids associated with it
     new_persons_to_export.extend(
@@ -561,19 +577,26 @@ async def test_insert_into_stage_activity_for_persons_model(
             count_distinct_ids_per_person=2,
         )
     )
-    # we should expect to export 4 records:
-    # 1. the new version of person_1
-    # 2. the new distinct_id for person_2
-    # 3 & 4. the new person with 2 new distinct_ids
-    assert len(new_persons_to_export) == 4
+    if not limited_export:
+        # we should expect to export 4 records:
+        # 1. the new version of person_1
+        # 2. the new distinct_id for person_2
+        # 3 & 4. the new person with 2 new distinct_ids
+        assert len(new_persons_to_export) == 4
+    else:
+        # we should expect to export 3 records:
+        # 1. the new distinct_id for person_2
+        # 2 & 3. the new person with 2 new distinct_ids
+        assert len(new_persons_to_export) == 3
 
     # update the interval and re-run the activity
-    records_exported = await _run_activity(
-        activity_environment=activity_environment,
-        minio_client=minio_client,
-        team_id=ateam.pk,
-        data_interval_start=next_data_interval_start,
-        data_interval_end=next_data_interval_end,
-        model=model,
-    )
+    with override_settings(BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS=[str(ateam.pk)] if limited_export else []):
+        records_exported = await _run_activity(
+            activity_environment=activity_environment,
+            minio_client=minio_client,
+            team_id=ateam.pk,
+            data_interval_start=next_data_interval_start,
+            data_interval_end=next_data_interval_end,
+            model=model,
+        )
     assert_exported_rows_match_persons_to_export(records_exported, new_persons_to_export)
