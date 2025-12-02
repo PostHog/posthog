@@ -54,9 +54,48 @@ echo "0" > $CLICKHOUSE_STATUS
 ) & # ClickHouse migrations can run in parallel to Postgres ones
 CLICKHOUSE_PID=$!
 
-# Run postgres migrations
-python manage.py migrate
-if [ $? -ne 0 ]; then
+# Run postgres migrations with lock timeout and retry logic
+# This allows short-locking migrations to succeed even under load
+MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
+MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
+MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
+MIGRATE_LOCK_TIMEOUT=${MIGRATE_LOCK_TIMEOUT:-2000}  # 2 seconds
+
+MIGRATE_ATTEMPT=1
+MIGRATE_SUCCESS=false
+MIGRATE_START_TIME=$(date +%s.%N)
+
+while [ $MIGRATE_ATTEMPT -le $MIGRATE_MAX_RETRIES ]; do
+    echo "[migrate] Django migration attempt $MIGRATE_ATTEMPT/$MIGRATE_MAX_RETRIES (lock_timeout=${MIGRATE_LOCK_TIMEOUT}ms)"
+
+    # PGOPTIONS sets lock_timeout for this command only
+    if PGOPTIONS="-c lock_timeout=${MIGRATE_LOCK_TIMEOUT}" python manage.py migrate --noinput; then
+        MIGRATE_SUCCESS=true
+        break
+    fi
+
+    echo "[migrate] Django migration failed"
+
+    if [ $MIGRATE_ATTEMPT -ge $MIGRATE_MAX_RETRIES ]; then
+        echo "[migrate] max retries reached, aborting"
+        break
+    fi
+
+    echo "[migrate] waiting ${MIGRATE_RETRY_DELAY}s before retry..."
+    sleep $MIGRATE_RETRY_DELAY
+
+    MIGRATE_RETRY_DELAY=$((MIGRATE_RETRY_DELAY * MIGRATE_BACKOFF))
+    MIGRATE_ATTEMPT=$((MIGRATE_ATTEMPT + 1))
+done
+
+MIGRATE_END_TIME=$(date +%s.%N)
+MIGRATE_DURATION=$(python3 -c "print($MIGRATE_END_TIME - $MIGRATE_START_TIME)")
+
+# Report migration metrics to pushgateway (if configured)
+if [ "$MIGRATE_SUCCESS" = "true" ]; then
+    python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION --success || true
+else
+    python manage.py report_migration_metric --attempts=$MIGRATE_ATTEMPT --duration=$MIGRATE_DURATION || true
     echo "Error in postgres migrations, killing background process and exiting."
     kill $CLICKHOUSE_PID 2>/dev/null || true
     rm $CLICKHOUSE_STATUS

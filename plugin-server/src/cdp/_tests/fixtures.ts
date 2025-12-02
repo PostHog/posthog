@@ -293,10 +293,10 @@ export const createCohortMembershipEvent = (
     overrides: Partial<CohortMembershipChange> = {}
 ): CohortMembershipChange => {
     return {
-        personId: new UUIDT().toString(),
-        cohortId: 1,
-        teamId: 1,
-        cohort_membership_changed: 'entered',
+        person_id: new UUIDT().toString(),
+        cohort_id: 1,
+        team_id: 1,
+        status: 'entered',
         ...overrides,
     }
 }
