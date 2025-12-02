@@ -636,7 +636,7 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
         comment = Comment.objects.select_related("created_by", "team").get(id=comment_id)
 
         if not is_email_available(with_absolute_urls=True):
-            logger.warn("Skipping discussions mentioned email: email service not available")
+            logger.warning("Skipping discussions mentioned email: email service not available")
             return
 
         team = comment.team
@@ -644,11 +644,11 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
         memberships_to_email = get_members_to_notify(team, NotificationSetting.DISCUSSIONS_MENTIONED.value)
 
         if not commenter:
-            logger.warn("Skipping discussions mentioned email: no commenter")
+            logger.warning("Skipping discussions mentioned email: no commenter")
             return
 
         if not memberships_to_email:
-            logger.warn("Skipping discussions mentioned email: no members mentioned")
+            logger.warning("Skipping discussions mentioned email: no members mentioned")
             return
 
         # Filter the memberships list to only include users mentioned
@@ -657,6 +657,10 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             for membership in memberships_to_email
             if (membership.user.id in mentioned_user_ids and membership.user != commenter)
         ]
+
+        if not memberships_to_email:
+            logger.warn("Skipping discussions mentioned email: no valid recipients after filtering")
+            return
 
         href = f"{settings.SITE_URL}{slug}"
 
