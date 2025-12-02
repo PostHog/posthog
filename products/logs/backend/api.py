@@ -189,6 +189,7 @@ FROM (
     AND attribute_key LIKE %(search)s
     GROUP BY team_id, attribute_key
     ORDER BY sum(attribute_count) desc, attribute_key asc
+    LIMIT 50
 )
 """,
             args={"search": f"%{search}%", "team_id": self.team.id},
@@ -228,6 +229,7 @@ FROM (
     AND attribute_value LIKE %(search)s
     GROUP BY team_id, attribute_value
     ORDER BY sum(attribute_count) desc, attribute_value asc
+    LIMIT 50
 )
 """,
             args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
