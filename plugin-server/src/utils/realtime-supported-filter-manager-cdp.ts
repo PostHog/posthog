@@ -36,13 +36,12 @@ export class RealtimeSupportedFilterManagerCDP {
         })
     }
 
-    public async getRealtimeSupportedFiltersForTeam(teamId: number): Promise<RealtimeSupportedFilter[]> {
+    public async getRealtimeSupportedFiltersForTeam(teamId: number): Promise<RealtimeSupportedFiltersByType> {
         const filters = await this.lazyLoader.get(String(teamId))
         if (!filters) {
-            return []
+            return { behavioral: [], person_property: [] }
         }
-        // Flatten both behavioral and person_property filters into a single array
-        return [...filters.behavioral, ...filters.person_property]
+        return filters
     }
 
     public async getRealtimeSupportedFiltersForTeams(

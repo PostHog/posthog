@@ -103,15 +103,13 @@ async def precalculate_person_properties_activity(inputs: PrecalculatePersonProp
             heartbeater.details = (f"Fetching batch at offset {current_offset} (batch_size={current_batch_size})",)
 
             # Query person table for current batch
-            # Use argMax to get the latest version of each person and filter out deleted persons
             persons_query = """
                 SELECT
                     id,
-                    argMax(properties, _timestamp) as properties
-                FROM person
+                    properties
+                FROM person FINAL
                 WHERE team_id = %(team_id)s
-                GROUP BY id
-                HAVING max(is_deleted) = 0
+                  AND is_deleted = 0
                 ORDER BY id
                 LIMIT %(limit)s
                 OFFSET %(offset)s
