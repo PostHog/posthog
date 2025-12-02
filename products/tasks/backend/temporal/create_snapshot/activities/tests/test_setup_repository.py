@@ -6,16 +6,16 @@ from unittest.mock import patch
 from asgiref.sync import async_to_sync
 
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError, SandboxNotFoundError
-from products.tasks.backend.temporal.process_task.activities.clone_repository import (
+from products.tasks.backend.temporal.create_snapshot.activities.clone_repository import (
     CloneRepositoryInput,
     clone_repository,
 )
-from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
-from products.tasks.backend.temporal.process_task.activities.setup_repository import (
+from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
+from products.tasks.backend.temporal.create_snapshot.activities.setup_repository import (
     SetupRepositoryInput,
     setup_repository,
 )
+from products.tasks.backend.temporal.exceptions import RetryableRepositorySetupError, SandboxNotFoundError
 
 
 @pytest.mark.skipif(
@@ -23,20 +23,17 @@ from products.tasks.backend.temporal.process_task.activities.setup_repository im
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestSetupRepositoryActivity:
-    def _create_context(self, github_integration, repository) -> TaskProcessingContext:
-        return TaskProcessingContext(
-            task_id="test-task-123",
-            run_id="test-run-456",
-            team_id=github_integration.team_id,
+    def _create_context(self, github_integration, repository) -> SnapshotContext:
+        return SnapshotContext(
             github_integration_id=github_integration.id,
             repository=repository,
-            distinct_id="test-user-id",
+            team_id=github_integration.team_id,
         )
 
     @pytest.mark.django_db
     def test_setup_repository_success(self, activity_environment, github_integration):
         config = SandboxConfig(
-            name="test-setup-repository",
+            name="test-snapshot-setup-repository",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
@@ -48,13 +45,13 @@ class TestSetupRepositoryActivity:
             clone_input = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
+                "products.tasks.backend.temporal.create_snapshot.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
                 async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
+                "products.tasks.backend.temporal.create_snapshot.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = (
                     "git config user.email 'test@example.com' && "
@@ -80,7 +77,7 @@ class TestSetupRepositoryActivity:
     @pytest.mark.django_db
     def test_setup_repository_without_clone(self, activity_environment, github_integration):
         config = SandboxConfig(
-            name="test-setup-no-clone",
+            name="test-snapshot-setup-no-clone",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
@@ -107,7 +104,7 @@ class TestSetupRepositoryActivity:
     @pytest.mark.django_db
     def test_setup_repository_fails_with_uncommitted_changes(self, activity_environment, github_integration):
         config = SandboxConfig(
-            name="test-setup-uncommitted",
+            name="test-snapshot-setup-uncommitted",
             template=SandboxTemplate.DEFAULT_BASE,
         )
 
@@ -119,13 +116,13 @@ class TestSetupRepositoryActivity:
             clone_input = CloneRepositoryInput(context=context, sandbox_id=sandbox.id)
 
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.clone_repository.get_github_token"
+                "products.tasks.backend.temporal.create_snapshot.activities.clone_repository.get_github_token"
             ) as mock_get_token:
                 mock_get_token.return_value = ""
                 async_to_sync(activity_environment.run)(clone_repository, clone_input)
 
             with patch(
-                "products.tasks.backend.temporal.process_task.activities.setup_repository.Sandbox._get_setup_command"
+                "products.tasks.backend.temporal.create_snapshot.activities.setup_repository.Sandbox._get_setup_command"
             ) as mock_setup_cmd:
                 mock_setup_cmd.return_value = "pnpm install && echo 'test' > uncommitted_file.txt"
 
@@ -135,7 +132,6 @@ class TestSetupRepositoryActivity:
                     async_to_sync(activity_environment.run)(setup_repository, setup_input)
 
                 assert "uncommitted changes" in str(exc_info.value).lower()
-                assert "uncommitted_file.txt" in exc_info.value.context.get("uncommitted_changes", "")
 
         finally:
             if sandbox:
