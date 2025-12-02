@@ -1629,6 +1629,7 @@ export type LifecycleFilter = {
     stacked?: boolean
 }
 
+// See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
 export type RefreshType =
     | 'async'
     | 'async_except_on_cache_miss'
@@ -2761,6 +2762,10 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
+    /** Reason for custom product suggestion (from UserProductList) */
+    reason?: UserProductListReason
+    /** Custom reason text for custom product suggestion (from UserProductList) */
+    reasonText?: string | null
 }
 
 export interface FileSystemViewLogEntry {
@@ -4493,6 +4498,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Ashby',
     'Supabase',
     'CustomerIO',
     'Github',
