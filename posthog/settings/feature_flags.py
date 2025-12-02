@@ -10,7 +10,6 @@ from posthog.settings.utils import get_from_env, get_list
 PERSISTED_FEATURE_FLAGS = [
     *get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")),
     "simplify-actions",
-    "ingestion-warnings-enabled",
     "persons-hogql-query",
     "datanode-concurrency-limit",
     "session-table-property-filters",

@@ -149,7 +149,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
 // or if you're running flox + mprocs you can also run the `sync-feature-flags` process
 export const FEATURE_FLAGS = {
-    INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE

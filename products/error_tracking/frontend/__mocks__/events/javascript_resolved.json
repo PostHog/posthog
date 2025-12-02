@@ -311,7 +311,6 @@
         "$feature/query_running_time": true,
         "$feature/insight-funnels-use-udf": true,
         "$feature/recordings-blobby-v2-replay": true,
-        "$feature/ingestion-warnings-enabled": true,
         "$feature/web-analytics-data-warehouse-revenue-settings": true,
         "$screen_width": 1728,
         "$feature/hogql-dashboard-async": true,
@@ -360,7 +359,6 @@
         "$feature/data-modeling": true,
         "usage_limit.data_warehouse": 1000000,
         "$active_feature_flags": [
-            "ingestion-warnings-enabled",
             "debug-react-renders",
             "auto-rollback-feature-flags",
             "onboarding-v2-demo",

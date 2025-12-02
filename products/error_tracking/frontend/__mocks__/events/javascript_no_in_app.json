@@ -202,7 +202,6 @@
         "$group_2": "http://localhost:8010",
         "$group_3": "cus_S1FJGJmSDsqyJ1",
         "$active_feature_flags": [
-            "ingestion-warnings-enabled",
             "debug-react-renders",
             "auto-rollback-feature-flags",
             "onboarding-v2-demo",
@@ -348,7 +347,6 @@
         "$feature/hog-transformation-custom-hog-code": true,
         "$sdk_debug_replay_internal_buffer_length": 0,
         "$feature/environments": true,
-        "$feature/ingestion-warnings-enabled": true,
         "distinct_id": "GwcdJMUX1sAvdedyOy4AWu3DFPn5mshjtbIaeaBS5E3",
         "current_amount_usd.platform_and_support": null,
         "current_usage.integrations": 0,

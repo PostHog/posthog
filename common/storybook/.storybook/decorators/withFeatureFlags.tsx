@@ -11,7 +11,6 @@ declare module '@storybook/types' {
 /** Sync with posthog/settings/feature_flags.py */
 const PERSISTED_FEATURE_FLAGS = [
     'simplify-actions',
-    'ingestion-warnings-enabled',
     'persons-hogql-query',
     'datanode-concurrency-limit',
     'session-table-property-filters',
