@@ -32,19 +32,12 @@ export const manifest: ProductManifest = {
             name: 'Endpoint',
             activityScope: 'Endpoint',
         },
-        EndpointNew: {
-            import: () => import('./frontend/EndpointScene'),
-            projectBased: true,
-            name: 'EndpointNew',
-            activityScope: 'Endpoint',
-        },
     },
     routes: {
         '/endpoints': ['EndpointsScene', 'endpoints'],
         // EndpointsScene stays first as scene for Usage!
         '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
         '/endpoints/:name': ['EndpointScene', 'endpoint'],
-        '/endpoints/new': ['EndpointNew', 'endpointNew'],
     },
     urls: {
         endpoints: (): string => '/endpoints',

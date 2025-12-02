@@ -37,7 +37,7 @@ export function PinnedFolder(): JSX.Element {
 
     const { featureFlags } = useValues(featureFlagLogic)
     const isCustomProductsSidebarEnabled =
-        featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] || pinnedFolder === 'custom-products://'
+        featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test' || pinnedFolder === 'custom-products://'
 
     const showDefaultHeader = !['products://', 'data://', 'custom-products://'].includes(pinnedFolder)
 
