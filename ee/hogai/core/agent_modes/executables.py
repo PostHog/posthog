@@ -228,9 +228,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(
-            [*tools, {"type": "web_search_20250305", "name": "web_search", "max_uses": 5}], parallel_tool_calls=True
-        )
+        return base_model.bind_tools(tools, parallel_tool_calls=True)
 
     def _construct_messages(
         self,

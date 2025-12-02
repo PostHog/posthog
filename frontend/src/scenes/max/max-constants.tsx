@@ -102,6 +102,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
             }
             return toolCall.args.query ? `Searching the web for **${toolCall.args.query}**...` : 'Searching the web...'
         },
+        flag: FEATURE_FLAGS.PHAI_WEB_SEARCH,
     },
     session_summarization: {
         name: 'Summarize sessions',

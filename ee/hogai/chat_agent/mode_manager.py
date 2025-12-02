@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Awaitable
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langchain_core.prompts import ChatPromptTemplate
@@ -28,7 +29,7 @@ from ee.hogai.chat_agent.prompts import (
 )
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.core.agent_modes.factory import AgentModeDefinition
-from ee.hogai.core.agent_modes.feature_flags import has_agent_modes_feature_flag
+from ee.hogai.core.agent_modes.feature_flags import has_agent_modes_feature_flag, has_web_search_feature_flag
 from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
@@ -44,14 +45,14 @@ from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Remove with the full modes release
-LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
+LEGACY_DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
     TodoWriteTool,
 ]
 
-DEFAULT_TOOLS: list[type["MaxTool"]] = [
+DEFAULT_TOOLS: list[type[MaxTool]] = [
     ReadTaxonomyTool,
     ReadDataTool,
     SearchTool,
@@ -62,13 +63,13 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
 
 class ChatAgentToolkit(AgentToolkit):
     @property
-    def tools(self) -> list[type["MaxTool"]]:
+    def tools(self) -> list[type[MaxTool]]:
         return DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        available_tools = await super().get_tools(state, config)
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool | dict[str, Any]]:
+        available_tools: list[MaxTool | dict[str, Any]] = await super().get_tools(state, config)
 
         tool_names = self._context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[MaxTool]] = []
@@ -93,6 +94,9 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
+
+        if has_web_search_feature_flag(self._team, self._user):
+            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools
 
