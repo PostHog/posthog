@@ -1,7 +1,7 @@
 """
 Team metadata HyperCache - Full team object caching using existing HyperCache infrastructure.
 
-This module provides dedicated caching of complete Team objects (38 fields) using the
+This module provides dedicated caching of complete Team objects (39 fields) using the
 existing HyperCache system which handles Redis + S3 backup automatically.
 
 Memory Usage Estimation:
@@ -95,6 +95,7 @@ TEAM_METADATA_FIELDS = [
     "onboarding_tasks",
     "ingested_event",
     "person_processing_opt_out",
+    "extra_settings",
     "session_recording_opt_in",
     "session_recording_sample_rate",
     "session_recording_minimum_duration_milliseconds",

@@ -15,18 +15,17 @@ from products.tasks.backend.temporal.exceptions import (
     SnapshotNotReadyError,
     TaskNotFoundError,
 )
-from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_setup import _create_personal_api_key
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
+
+from .get_task_processing_context import TaskProcessingContext
 
 
 @dataclass
 class CreateSandboxFromSnapshotInput:
+    context: TaskProcessingContext
     snapshot_id: str
-    task_id: str
-    distinct_id: str
-    team_id: int
-    github_integration_id: int
 
 
 @dataclass
@@ -39,14 +38,15 @@ class CreateSandboxFromSnapshotOutput:
 @asyncify
 def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> CreateSandboxFromSnapshotOutput:
     """Create a sandbox from a snapshot for task execution with injected environment variables."""
+    ctx = input.context
 
     with log_activity_execution(
         "create_sandbox_from_snapshot",
-        distinct_id=input.distinct_id,
-        task_id=input.task_id,
         snapshot_id=input.snapshot_id,
-        github_integration_id=input.github_integration_id,
+        **ctx.to_log_context(),
     ):
+        emit_agent_log(ctx.run_id, "info", "Creating development environment from snapshot")
+
         try:
             snapshot = SandboxSnapshot.objects.get(id=input.snapshot_id)
         except SandboxSnapshot.DoesNotExist as e:
@@ -62,19 +62,19 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             )
 
         try:
-            task = Task.objects.select_related("created_by").get(id=input.task_id)
+            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id}, cause=e)
+            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
         try:
-            github_token = get_github_token(input.github_integration_id) or ""
+            github_token = get_github_token(ctx.github_integration_id) or ""
         except Exception as e:
             raise GitHubAuthenticationError(
-                f"Failed to get GitHub token for integration {input.github_integration_id}",
+                f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                 {
-                    "github_integration_id": input.github_integration_id,
-                    "task_id": input.task_id,
-                    "team_id": input.team_id,
+                    "github_integration_id": ctx.github_integration_id,
+                    "task_id": ctx.task_id,
+                    "team_id": ctx.team_id,
                     "error": str(e),
                 },
                 cause=e,
@@ -84,8 +84,8 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             api_key_value, personal_api_key = _create_personal_api_key(task)
         except Exception as e:
             raise PersonalAPIKeyError(
-                f"Failed to create personal API key for task {input.task_id}",
-                {"task_id": input.task_id, "team_id": input.team_id, "error": str(e)},
+                f"Failed to create personal API key for task {ctx.task_id}",
+                {"task_id": ctx.task_id, "team_id": ctx.team_id, "error": str(e)},
                 cause=e,
             )
 
@@ -93,15 +93,15 @@ def create_sandbox_from_snapshot(input: CreateSandboxFromSnapshotInput) -> Creat
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": api_key_value,
             "POSTHOG_API_URL": settings.SITE_URL,
-            "POSTHOG_PROJECT_ID": str(input.team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
         }
 
         config = SandboxConfig(
-            name=get_sandbox_name_for_task(input.task_id),
+            name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id),
-            metadata={"task_id": str(input.task_id)},
+            metadata={"task_id": ctx.task_id},
         )
 
         sandbox = Sandbox.create(config)
