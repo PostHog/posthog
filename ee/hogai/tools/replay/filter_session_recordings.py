@@ -148,6 +148,7 @@ class FilterSessionRecordingsTool(MaxTool):
 
         When on the replay page, the tool will update the filters in the page.
         """).strip()
+    context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
