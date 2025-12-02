@@ -272,6 +272,42 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         self.assertIsInstance(res["messages"][1], ArtifactRefMessage)
         self.assertEqual(cast(ArtifactRefMessage, res["messages"][1]).artifact_id, "viz-replaced")
 
+    async def test_artifact_ref_messages_are_only_created_once_for_each_visualization_message(self):
+        """
+        Test that artifact ref messages are only created once for each visualization message.
+        The first generation should save the artifact ref message. The subsequent generations must not create a new artifact ref message.
+        """
+        graph = StateGraph(AssistantState)
+        graph.add_node(
+            "node",
+            lambda state: PartialAssistantState(messages=ReplaceMessages(state.messages)),
+        )
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+
+        for _ in range(3):
+            # The first generation should create and save ArtifactRefMessage
+            # The second and third generations should not create a new ArtifactRefMessage.
+            res = await compiled_graph.ainvoke(
+                {
+                    "messages": [
+                        VisualizationMessage(
+                            id="viz-123", query="test query", answer=TrendsQuery(series=[]), plan="test plan"
+                        ),
+                    ]
+                }
+            )
+
+            # Should be replaced, not merged
+            self.assertEqual(len(res["messages"]), 2)
+            viz, artifact = res["messages"]
+            assert isinstance(viz, VisualizationMessage)
+            assert isinstance(artifact, ArtifactRefMessage)
+            self.assertEqual(viz.id, "viz-123")
+            self.assertEqual(artifact.artifact_id, "viz-123")
+            self.assertNotEqual(viz.id, artifact.id)
+
 
 class TestUnwrapVisualizationArtifactContent(BaseTest):
     def test_returns_content_for_visualization_artifact_message(self):
