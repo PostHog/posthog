@@ -398,5 +398,12 @@ class Command(BaseCommand):
                     )
 
                 # _something_ is preventing clean exit after worker shutdown
-                logger.info("Temporal Worker has shut down, hard exiting")
-                os._exit(0)
+                logger.info("Temporal Worker has shut down, starting hard exit timer of 5 mins")
+
+                def hard_exit():
+                    logger.info("Hard exiting")
+                    os._exit(0)
+
+                timer = threading.Timer(60 * 5, hard_exit)
+                timer.daemon = True
+                timer.start()
