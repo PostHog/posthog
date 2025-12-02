@@ -276,6 +276,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
+    PERSON_PROPERTIES_UPDATE_ALL: boolean // when true, all property changes trigger person updates (disables filtering of eventToPersonProperties and geoip)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     // Topic for async person merge processing
