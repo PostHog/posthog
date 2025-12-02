@@ -34,6 +34,7 @@ import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLog
 import { Metadata } from '../../components/IssueMetadata'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
+import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -64,41 +65,43 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     }, [issueId])
 
     return (
-        <ErrorTrackingSetupPrompt>
-            <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                {issue && (
-                    <>
-                        <div className="px-4">
-                            <SceneTitleSection
-                                canEdit
-                                name={issue.name}
-                                onNameChange={updateName}
-                                description={null}
-                                resourceType={{ type: 'error_tracking' }}
-                                actions={
-                                    <div className="flex items-center gap-1">
-                                        <IssueAssigneeSelect
-                                            assignee={issue.assignee}
-                                            onChange={updateAssignee}
-                                            disabled={issue.status != 'active'}
-                                        />
-                                        <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-                                    </div>
-                                }
-                            />
-                        </div>
-                        <ErrorTrackingIssueScenePanel issue={issue} />
-
-                        <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
-                            <div className="flex flex-1 h-full w-full">
-                                <LeftHandColumn />
-                                <RightHandColumn />
+        <StyleVariables>
+            <ErrorTrackingSetupPrompt>
+                <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
+                    {issue && (
+                        <>
+                            <div className="px-4">
+                                <SceneTitleSection
+                                    canEdit
+                                    name={issue.name}
+                                    onNameChange={updateName}
+                                    description={null}
+                                    resourceType={{ type: 'error_tracking' }}
+                                    actions={
+                                        <div className="flex items-center gap-1">
+                                            <IssueAssigneeSelect
+                                                assignee={issue.assignee}
+                                                onChange={updateAssignee}
+                                                disabled={issue.status != 'active'}
+                                            />
+                                            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                        </div>
+                                    }
+                                />
                             </div>
-                        </div>
-                    </>
-                )}
-            </BindLogic>
-        </ErrorTrackingSetupPrompt>
+                            <ErrorTrackingIssueScenePanel issue={issue} />
+
+                            <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                <div className="flex flex-1 h-full w-full">
+                                    <LeftHandColumn />
+                                    <RightHandColumn />
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </BindLogic>
+            </ErrorTrackingSetupPrompt>
+        </StyleVariables>
     )
 }
 

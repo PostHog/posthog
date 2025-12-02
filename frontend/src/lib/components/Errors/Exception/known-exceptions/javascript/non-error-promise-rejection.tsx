@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { defineKnownException } from '../registry'
-import { KnownErrorBanner } from './base'
+import { KnownExceptionBanner } from './base'
 
 defineKnownException({
     match(exception) {
@@ -9,7 +9,7 @@ defineKnownException({
     },
     render() {
         return (
-            <KnownErrorBanner>
+            <KnownExceptionBanner>
                 This issue occurs when non Error objects are provided to Promise rejections. When you do this a stack
                 trace is not captured as part of the caught exception.{' '}
                 <Link
@@ -19,7 +19,7 @@ defineKnownException({
                     Read our docs
                 </Link>{' '}
                 to learn how to get the full exception context.
-            </KnownErrorBanner>
+            </KnownExceptionBanner>
         )
     },
 })

@@ -1,8 +1,14 @@
+import { useMemo } from 'react'
 import { match } from 'ts-pattern'
 
 import { ErrorTrackingException, ErrorTrackingStackFrame } from '../types'
+import { KnownException, KnownExceptionRegistry } from './known-exceptions'
 
-type StackTraceRenderer = (frames: ErrorTrackingStackFrame[], exception: ErrorTrackingException) => React.ReactNode
+type StackTraceRenderer = (
+    frames: ErrorTrackingStackFrame[],
+    exception: ErrorTrackingException,
+    knownException?: KnownException
+) => React.ReactNode
 
 export type ExceptionRendererProps = {
     className?: string
@@ -10,9 +16,9 @@ export type ExceptionRendererProps = {
     frameFilter?: (frame: ErrorTrackingStackFrame) => boolean
     renderExceptionHeader: (exception: ErrorTrackingException) => React.ReactNode
 
-    renderEmptyTrace: (exception: ErrorTrackingException) => React.ReactNode
+    renderEmptyTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
     renderResolvedTrace: StackTraceRenderer
-    renderFilteredTrace: (exception: ErrorTrackingException) => React.ReactNode
+    renderFilteredTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
 }
 
 export function ExceptionRenderer({
@@ -24,6 +30,7 @@ export function ExceptionRenderer({
     renderResolvedTrace,
     renderFilteredTrace,
 }: ExceptionRendererProps): JSX.Element {
+    const knownException = useMemo(() => KnownExceptionRegistry.match(exception), [exception])
     return (
         <div className={className}>
             <div>{renderExceptionHeader(exception)}</div>
@@ -31,7 +38,7 @@ export function ExceptionRenderer({
                 {match(exception.stacktrace)
                     .when(
                         (stack) => stack === null || stack === undefined || stack.frames.length === 0,
-                        () => renderEmptyTrace(exception)
+                        () => renderEmptyTrace(exception, knownException)
                     )
                     .when(
                         (stack) => stack!.type === 'resolved',
@@ -40,9 +47,9 @@ export function ExceptionRenderer({
                             return match(frames)
                                 .when(
                                     (frames) => Array.isArray(frames) && frames.length > 0,
-                                    (frames) => renderResolvedTrace(frames, exception)
+                                    (frames) => renderResolvedTrace(frames, exception, knownException)
                                 )
-                                .otherwise(() => renderFilteredTrace(exception))
+                                .otherwise(() => renderFilteredTrace(exception, knownException))
                         }
                     )
                     .when(

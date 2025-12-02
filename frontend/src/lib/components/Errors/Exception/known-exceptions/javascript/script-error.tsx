@@ -1,15 +1,15 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { defineKnownException } from '../registry'
-import { KnownErrorBanner } from './base'
+import { KnownExceptionBanner } from './base'
 
 defineKnownException({
     match(exception) {
-        return exception.type === 'SyntaxError'
+        return exception.value === 'Script error' && exception.type === 'Error'
     },
     render() {
         return (
-            <KnownErrorBanner>
+            <KnownExceptionBanner>
                 This error occurs when JavaScript exceptions are thrown from a third-party script but details are hidden
                 due to cross-origin restrictions.{' '}
                 <Link
@@ -19,7 +19,7 @@ defineKnownException({
                     Read our docs
                 </Link>{' '}
                 to learn how to get the full exception context.
-            </KnownErrorBanner>
+            </KnownExceptionBanner>
         )
     },
 })

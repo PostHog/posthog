@@ -10,17 +10,6 @@ export class KnownExceptionRegistry {
     static match(exception: ErrorTrackingException): KnownException | undefined {
         return this.knownExceptionList.find((knownException) => knownException.match(exception))
     }
-
-    static matchFirst(exceptionList: ErrorTrackingException[]): KnownException | undefined {
-        for (const exception of exceptionList) {
-            const knownException = this.match(exception)
-            if (knownException) {
-                return knownException
-            }
-        }
-
-        return undefined
-    }
 }
 
 export const knownExceptionRegistry = KnownExceptionRegistry

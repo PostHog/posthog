@@ -74,7 +74,9 @@ export function CollapsibleExceptionList({
                                     )}
                                 />
                             )}
-                            renderEmptyTrace={(exception) => <EmptyStackTrace exception={exception} />}
+                            renderEmptyTrace={(exception, known) => (
+                                <EmptyStackTrace exception={exception} knownException={known} />
+                            )}
                         />
                     )
                 }}

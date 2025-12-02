@@ -46,7 +46,9 @@ export function RawExceptionList({
                                     renderFrame={(frame, record) => <RawFrame frame={frame} record={record} />}
                                 />
                             )}
-                            renderEmptyTrace={(exception) => <EmptyStackTrace exception={exception} />}
+                            renderEmptyTrace={(exception, known) => (
+                                <EmptyStackTrace exception={exception} knownException={known} />
+                            )}
                         />
                     )
                 }}

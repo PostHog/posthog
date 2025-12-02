@@ -1,7 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { defineKnownException } from '../registry'
-import { KnownErrorBanner } from './base'
+import { KnownExceptionBanner } from './base'
 
 defineKnownException({
     match(exception) {
@@ -10,7 +10,7 @@ defineKnownException({
     render(exception) {
         const errorCode = exception.value.match(/React(?:\.js)?(?: DOM)?(?: production)? error #(\d+)/i)
         return (
-            <KnownErrorBanner>
+            <KnownExceptionBanner>
                 React minifies error messages as part of its production build process to reduce bundle size, and does
                 not include a stack trace. You can visit the{' '}
                 <Link to={`https://react.dev/errors/${errorCode}`} target="_blank">
@@ -24,7 +24,7 @@ defineKnownException({
                     read our docs
                 </Link>{' '}
                 to learn how you might be able to debug this issue.
-            </KnownErrorBanner>
+            </KnownExceptionBanner>
         )
     },
 })

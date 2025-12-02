@@ -24,7 +24,7 @@ const meta: Meta = {
             sceneLogic.mount()
             return (
                 <StyleVariables>
-                    <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
+                    <LemonCard hoverEffect={false} className="p-2 w-[900px]">
                         <Story />
                     </LemonCard>
                 </StyleVariables>
@@ -126,7 +126,7 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
             {eventNames.map((name: TestEventName) => {
                 return (
                     <ExceptionLogicWrapper key={name} eventName={name}>
-                        <LemonCard hoverEffect={false} className="px-3 py-2">
+                        <LemonCard hoverEffect={false} className="p-2">
                             {children}
                         </LemonCard>
                     </ExceptionLogicWrapper>
