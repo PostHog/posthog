@@ -1,6 +1,9 @@
 @import '../styles/global';
 
+/* stylelint-disable order/order */
 @layer base {
+    @import '../styles/screen-sizes';
+
     body.ExporterBody {
         overflow: initial;
     }
@@ -61,7 +64,4 @@
             padding: 0;
         }
     }
-
-    @import '../styles/screen-sizes';
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
 }

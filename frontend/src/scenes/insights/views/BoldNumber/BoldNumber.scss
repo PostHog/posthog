@@ -1,4 +1,7 @@
+/* stylelint-disable order/order */
 @layer base {
+    @import '../../../../styles/screen-sizes';
+
     .BoldNumber {
         display: flex;
         flex: 1;
@@ -38,7 +41,4 @@
         color: var(--color-text-secondary);
         cursor: default;
     }
-
-    @import '../../../../styles/screen-sizes';
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
 }

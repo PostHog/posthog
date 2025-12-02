@@ -1,4 +1,7 @@
+/* stylelint-disable order/order */
 @layer base {
+    @import '../../styles/screen-sizes';
+
     .saved-insights {
         .new-insight-dropdown-btn {
             height: 40px;
@@ -52,7 +55,4 @@
             grid-template-columns: repeat(3, 1fr);
         }
     }
-
-    @import '../../styles/screen-sizes';
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
 }

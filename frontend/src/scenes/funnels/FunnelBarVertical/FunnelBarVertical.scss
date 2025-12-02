@@ -1,4 +1,7 @@
+/* stylelint-disable order/order */
 @layer base {
+    @import '../../../styles/screen-sizes';
+
     .FunnelBarVertical {
         position: relative;
         flex: 1;
@@ -236,7 +239,4 @@
             padding-bottom: 0.25rem;
         }
     }
-
-    @import '../../../styles/screen-sizes';
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
 }
