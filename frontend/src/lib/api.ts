@@ -2540,7 +2540,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
