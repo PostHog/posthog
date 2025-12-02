@@ -38,12 +38,14 @@ def remove_legacy_notification_key(apps, schema_editor):
     User = apps.get_model("posthog", "User")
     users_with_legacy_key = User.objects.filter(partial_notification_settings__has_key="batch_export_run_failure")
 
-    for user in users_with_legacy_key:
+    for user in users_with_legacy_key.iterator():
         del user.partial_notification_settings["batch_export_run_failure"]
         user.save(update_fields=["partial_notification_settings"])
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
         ("posthog", "0927_changerequest_approvalpolicy_approval_and_more"),
     ]
