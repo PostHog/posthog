@@ -74,10 +74,10 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
-                TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            hideBehavioralCohorts
             metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     )
