@@ -202,6 +202,11 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         self.assertIsInstance(original_viz, VisualizationMessage)
         self.assertIsInstance(artifact_msg, ArtifactRefMessage)
 
+        # Artifact ref ID must be unique and different from viz message ID to avoid deduplication
+        assert isinstance(artifact_msg, ArtifactRefMessage)
+        self.assertEqual(artifact_msg.artifact_id, "viz-123")
+        self.assertNotEqual(artifact_msg.id, original_viz.id)
+
     def test_does_not_convert_visualization_message_without_id(self):
         viz_message = VisualizationMessage(
             query="test query",
@@ -229,6 +234,12 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         self.assertEqual(state.messages[0], assistant_msg)
         self.assertIsInstance(state.messages[1], VisualizationMessage)
         self.assertIsInstance(state.messages[2], ArtifactRefMessage)
+
+        # Artifact ref ID must be unique and different from viz message ID
+        artifact_msg = state.messages[2]
+        assert isinstance(artifact_msg, ArtifactRefMessage)
+        self.assertEqual(artifact_msg.artifact_id, "viz-456")
+        self.assertNotEqual(artifact_msg.id, viz_message.id)
 
     async def test_preserves_replace_messages_wrapper_in_graph(self):
         """Test that ReplaceMessages wrapper is preserved when visualization messages are converted."""
@@ -271,6 +282,8 @@ class TestConvertVisualizationMessagesToArtifacts(BaseTest):
         self.assertEqual(cast(VisualizationMessage, res["messages"][0]).id, "viz-replaced")
         self.assertIsInstance(res["messages"][1], ArtifactRefMessage)
         self.assertEqual(cast(ArtifactRefMessage, res["messages"][1]).artifact_id, "viz-replaced")
+        # Artifact ref ID must be unique and different from viz message ID
+        self.assertNotEqual(res["messages"][1].id, res["messages"][0].id)
 
     async def test_artifact_ref_messages_are_only_created_once_for_each_visualization_message(self):
         """
