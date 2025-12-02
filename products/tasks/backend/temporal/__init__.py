@@ -7,7 +7,7 @@ from .process_task.activities import (
     create_snapshot,
     execute_task_in_sandbox,
     get_sandbox_for_setup,
-    get_task_details,
+    get_task_processing_context,
     setup_repository,
     track_workflow_event,
 )
@@ -18,7 +18,7 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    get_task_details,
+    get_task_processing_context,
     check_snapshot_exists_for_repository,
     get_sandbox_for_setup,
     clone_repository,

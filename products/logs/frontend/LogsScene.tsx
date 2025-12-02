@@ -120,7 +120,7 @@ export function LogsScene(): JSX.Element {
                 action={{ children: 'Send feedback', id: 'logs-feedback-button' }}
             >
                 <p>
-                    Logs is in alpha and things will change as we figure out what works. Right now you have 7-day
+                    Logs is in beta and things will change as we figure out what works. Right now you have 7-day
                     retention with ingestion rate limits. Tell us what you need, what's broken, or if you're hitting
                     limits, we want to hear from you.
                 </p>
