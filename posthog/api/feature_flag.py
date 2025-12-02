@@ -48,6 +48,7 @@ from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.activity_logging.model_activity import ImpersonatedContext
+from posthog.models.activity_logging.serializers import ActivityLogSerializer
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_all_cohort_dependencies
 from posthog.models.experiment import Experiment
@@ -1979,7 +1980,7 @@ class FeatureFlagViewSet(
                 response=inline_serializer(
                     name="FeatureFlagActivitiesPageResponse",
                     fields={
-                        "results": serializers.ListSerializer(child=serializers.DictField()),
+                        "results": ActivityLogSerializer(many=True),
                         "next": serializers.URLField(allow_null=True),
                         "previous": serializers.URLField(allow_null=True),
                         "total_count": serializers.IntegerField(),
@@ -2055,7 +2056,7 @@ class FeatureFlagViewSet(
                 response=inline_serializer(
                     name="FeatureFlagActivityPageResponse",
                     fields={
-                        "results": serializers.ListSerializer(child=serializers.DictField()),
+                        "results": ActivityLogSerializer(many=True),
                         "next": serializers.URLField(allow_null=True),
                         "previous": serializers.URLField(allow_null=True),
                         "total_count": serializers.IntegerField(),
