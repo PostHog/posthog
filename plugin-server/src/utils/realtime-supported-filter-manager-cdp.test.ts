@@ -551,16 +551,16 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             await createCohort(postgres, team2Id, 'Team 2 Cohort', filters2)
 
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
-            expect(result[String(teamId)]).toHaveLength(1)
-            expect(result[String(teamId)]![0].conditionHash).toBe('team1_hash')
-            expect(result[String(team2Id)]).toHaveLength(1)
-            expect(result[String(team2Id)]![0].conditionHash).toBe('team2_hash')
+            expect(result[String(teamId)].behavioral).toHaveLength(1)
+            expect(result[String(teamId)].behavioral[0].conditionHash).toBe('team1_hash')
+            expect(result[String(team2Id)].behavioral).toHaveLength(1)
+            expect(result[String(team2Id)].behavioral[0].conditionHash).toBe('team2_hash')
         })
 
         it('returns empty arrays for teams with no realtime cohorts', async () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, 99999])
-            expect(result[String(teamId)]).toEqual([])
-            expect(result['99999']).toEqual([])
+            expect(result[String(teamId)]).toEqual({ behavioral: [], person_property: [] })
+            expect(result['99999']).toEqual({ behavioral: [], person_property: [] })
         })
 
         it('efficiently loads multiple teams with single database call', async () => {
@@ -603,10 +603,10 @@ describe('RealtimeSupportedFilterManagerCDP()', () => {
             const result = await realtimeSupportedFilterManager.getRealtimeSupportedFiltersForTeams([teamId, team2Id])
 
             // Should be deduplicated - only one filter per team even though they have same hash
-            expect(result[String(teamId)]).toHaveLength(1)
-            expect(result[String(team2Id)]).toHaveLength(1)
-            expect(result[String(teamId)]![0].conditionHash).toBe(sharedHash)
-            expect(result[String(team2Id)]![0].conditionHash).toBe(sharedHash)
+            expect(result[String(teamId)].behavioral).toHaveLength(1)
+            expect(result[String(team2Id)].behavioral).toHaveLength(1)
+            expect(result[String(teamId)].behavioral[0].conditionHash).toBe(sharedHash)
+            expect(result[String(team2Id)].behavioral[0].conditionHash).toBe(sharedHash)
         })
     })
 

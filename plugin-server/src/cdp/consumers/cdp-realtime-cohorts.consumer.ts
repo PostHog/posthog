@@ -200,11 +200,12 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
             // Step 3: Process each team's events with their realtime supported filters
             for (const [teamId, teamEvents] of Array.from(eventsByTeam.entries())) {
                 try {
-                    const allFilters = filtersByTeam[String(teamId)] || []
+                    const filters = filtersByTeam[String(teamId)]
+                    if (!filters) {
+                        continue
+                    }
 
-                    // Split filters by type
-                    const behavioralFilters = allFilters.filter((f) => f.filter_type === 'behavioral')
-                    const personPropertyFilters = allFilters.filter((f) => f.filter_type === 'person_property')
+                    const { behavioral: behavioralFilters, person_property: personPropertyFilters } = filters
 
                     if (behavioralFilters.length === 0 && personPropertyFilters.length === 0) {
                         // Skip teams with no filters
