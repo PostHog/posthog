@@ -35,7 +35,7 @@ Makes building new sources a breeze, we now have other teams building sources (s
 
 ##### 1 - OOMs
 
-We have a problem with pods OOMing. This mostly happens on incremental jobs when we're merging data into a deltalake table on S3. Merging of the data occurs on the pod and it'll load the whole table (or a specific partition), rewrite the necessary files and then rewrite them out to S3. Some of these tabes/partitions can be very big, and the merging operation isn't cheap - its generally recommended to have 10-20x of the compressed file size available in memory for merging (e.g. a 1GB compressed table will require 10-20 GB of memory). Our deltalake library, delta-rs, do some optimizations, but it's often not enough. Because of this, the pod will load too much data and the pod will OOM, causing all the jobs running on the pod to retry.
+We have a problem with pods OOMing. This mostly happens on incremental jobs when we're merging data into a deltalake table on S3. Merging of the data occurs on the pod and it'll load the whole table (or a specific partition), rewrite the necessary files and then rewrite them out to S3. Some of these tables/partitions can be very big, and the merging operation isn't cheap - its generally recommended to have 10-20x of the compressed file size available in memory for merging (e.g. a 1GB compressed table will require 10-20 GB of memory). Our deltalake library, delta-rs, do some optimizations, but it's often not enough. Because of this, the pod will load too much data and the pod will OOM, causing all the jobs running on the pod to retry.
 
 ##### 2 - Wide tables
 
