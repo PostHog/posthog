@@ -702,13 +702,14 @@ export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A',
-    options: { showNow?: boolean; showToday?: boolean } = {}
+    options: { showNow?: boolean; showToday?: boolean; showYesterday?: boolean } = {}
 ): string {
     const defaultOptions = {
         showNow: true,
         showToday: true,
+        showYesterday: true,
     }
-    const { showNow, showToday } = { ...defaultOptions, ...options }
+    const { showNow, showToday, showYesterday } = { ...defaultOptions, ...options }
     if (!date) {
         return 'Never'
     }
@@ -721,12 +722,12 @@ export function humanFriendlyDetailedTime(
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
         if (showToday) {
-            formatString = `[Today] ${formatTime}`
+            formatString = `[Today] ${formatTime}`
         } else {
-            formatString = formatTime
+            formatString = `${formatDate} ${formatTime}`
         }
-    } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+    } else if (showYesterday && parsedDate.isSame(yesterday, 'd')) {
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
