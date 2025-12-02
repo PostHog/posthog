@@ -90,7 +90,12 @@ from .web_experiment import WebExperiment
 
 from .oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
+from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
+
 __all__ = [
+    "Approval",
+    "ApprovalPolicy",
+    "ChangeRequest",
     "AlertConfiguration",
     "Action",
     "ActionStep",
