@@ -53,6 +53,7 @@ ffmpeg.pkg-path = "ffmpeg"
 [vars]
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
+FLAGS_REDIS_URL = "redis://localhost:6379/1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
 RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
