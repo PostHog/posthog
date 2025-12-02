@@ -1991,11 +1991,6 @@ class _Printer(Visitor[str]):
             return f"SETTINGS {', '.join(pairs)}"
         return None
 
-    @staticmethod
-    def print_clickhouse_settings(s):
-        printer = _Printer(dialect="clickhouse", context=HogQLContext())
-        return printer._print_settings(s)
-
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
         order_by: list[ast.OrderExpr] | None = None
