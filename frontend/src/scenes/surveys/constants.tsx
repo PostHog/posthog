@@ -637,11 +637,6 @@ export enum SURVEY_CREATED_SOURCE {
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
 }
 
-export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
-    TEST = 'test', // new experience
-    CONTROL = 'control', // current state
-}
-
 export enum SURVEY_FORM_INPUT_IDS {
     WAIT_PERIOD_INPUT = 'survey-wait-period-input',
 }
