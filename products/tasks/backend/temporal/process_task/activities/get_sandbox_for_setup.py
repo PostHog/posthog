@@ -20,13 +20,12 @@ from products.tasks.backend.temporal.exceptions import (
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_name_for_task
 
+from .get_task_processing_context import TaskProcessingContext
+
 
 @dataclass
 class GetSandboxForSetupInput:
-    github_integration_id: int
-    team_id: int
-    task_id: str
-    distinct_id: str
+    context: TaskProcessingContext
 
 
 @dataclass
@@ -83,27 +82,27 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
     Get sandbox for setup with injected environment variables. Searches for existing snapshot to use as base,
     otherwise uses default template. Returns sandbox_id and personal_api_key_id when sandbox is running.
     """
+    ctx = input.context
+
     with log_activity_execution(
         "get_sandbox_for_setup",
-        distinct_id=input.distinct_id,
-        task_id=input.task_id,
-        github_integration_id=input.github_integration_id,
+        **ctx.to_log_context(),
     ):
-        snapshot = SandboxSnapshot.get_latest_snapshot_for_integration(input.github_integration_id)
+        snapshot = SandboxSnapshot.get_latest_snapshot_for_integration(ctx.github_integration_id)
 
         try:
-            task = Task.objects.select_related("created_by").get(id=input.task_id)
+            task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
-            raise TaskNotFoundError(f"Task {input.task_id} not found", {"task_id": input.task_id}, cause=e)
+            raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
         try:
-            github_token = get_github_token(input.github_integration_id) or ""
+            github_token = get_github_token(ctx.github_integration_id) or ""
         except Exception as e:
             raise GitHubAuthenticationError(
-                f"Failed to get GitHub token for integration {input.github_integration_id}",
+                f"Failed to get GitHub token for integration {ctx.github_integration_id}",
                 {
-                    "github_integration_id": input.github_integration_id,
-                    "task_id": input.task_id,
+                    "github_integration_id": ctx.github_integration_id,
+                    "task_id": ctx.task_id,
                     "error": str(e),
                 },
                 cause=e,
@@ -113,8 +112,8 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
             api_key_value, personal_api_key = _create_personal_api_key(task)
         except Exception as e:
             raise PersonalAPIKeyError(
-                f"Failed to create personal API key for task {input.task_id}",
-                {"task_id": input.task_id, "error": str(e)},
+                f"Failed to create personal API key for task {ctx.task_id}",
+                {"task_id": ctx.task_id, "error": str(e)},
                 cause=e,
             )
 
@@ -122,15 +121,15 @@ def get_sandbox_for_setup(input: GetSandboxForSetupInput) -> GetSandboxForSetupO
             "GITHUB_TOKEN": github_token,
             "POSTHOG_PERSONAL_API_KEY": api_key_value,
             "POSTHOG_API_URL": settings.SITE_URL,
-            "POSTHOG_PROJECT_ID": str(input.team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
         }
 
         config = SandboxConfig(
-            name=get_sandbox_name_for_task(input.task_id),
+            name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables=environment_variables,
             snapshot_id=str(snapshot.id) if snapshot else None,
-            metadata={"task_id": str(input.task_id)},
+            metadata={"task_id": ctx.task_id},
         )
 
         sandbox = Sandbox.create(config)

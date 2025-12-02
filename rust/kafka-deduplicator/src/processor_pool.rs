@@ -289,7 +289,7 @@ mod tests {
             if let Some(fail_offset) = self.fail_on_offset {
                 if offset == fail_offset {
                     self.failed_count.fetch_add(1, Ordering::SeqCst);
-                    return Err(anyhow::anyhow!("Simulated failure at offset {}", offset));
+                    return Err(anyhow::anyhow!("Simulated failure at offset {offset}"));
                 }
             }
 

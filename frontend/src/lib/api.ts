@@ -2540,7 +2540,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
@@ -3322,10 +3322,6 @@ const api = {
             data: Partial<SessionRecordingUpdateType>
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).update({ data })
-        },
-
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
