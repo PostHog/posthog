@@ -34,7 +34,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.utils.exceptions import GenerationCanceled, LLMProviderError
+from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, GenerationCanceled
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
@@ -240,10 +240,22 @@ class BaseAgentRunner(ABC):
                         id=str(uuid4()),
                     ),
                 )
-            except LLMProviderError as e:
+            except LLM_API_EXCEPTIONS as e:
                 # Reset the state for LLM provider errors
                 await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                logger.warning("LLM provider error in assistant stream", error=str(e), provider=e.provider)
+                # This is safe since partition always returns a tuple of three elements no matter the matching
+                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+                logger.exception("llm_provider_error", error=str(e), provider=provider)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_provider_error",
+                        "provider": provider,
+                        "tag": "max_ai",
+                    },
+                )
                 yield (
                     AssistantEventType.MESSAGE,
                     FailureMessage(
