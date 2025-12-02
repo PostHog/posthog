@@ -236,6 +236,7 @@
             padding-bottom: 0.25rem;
         }
     }
-    /* stylelint-disable-next-line no-invalid-position-at-import-rule */
+
     @import '../../../styles/screen-sizes';
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
 }
