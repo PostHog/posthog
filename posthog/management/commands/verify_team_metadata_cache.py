@@ -78,8 +78,12 @@ class Command(BaseHyperCacheCommand):
                 "details": "No cached data found",
             }
 
-        # Get DB data and compare
-        db_data = self._get_db_data(team)
+        # Get DB data from batch_data if available, otherwise serialize from team object
+        if batch_data and team.id in batch_data:
+            db_data = batch_data[team.id]
+        else:
+            db_data = self._get_db_data(team)
+
         match, diffs = self._compare_data(db_data, cached_data)
 
         if match:
