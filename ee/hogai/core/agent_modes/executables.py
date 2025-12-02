@@ -1,6 +1,6 @@
 import asyncio
 from collections.abc import Mapping, Sequence
-from typing import Literal, TypeVar, cast
+from typing import Literal, NoReturn, TypeVar, cast
 from uuid import uuid4
 
 import structlog
@@ -43,6 +43,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.exceptions import LLM_API_EXCEPTIONS, LLM_PROVIDER_ERROR_COUNTER, LLMProviderError
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -117,6 +118,36 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         self._window_manager = AnthropicConversationCompactionManager()
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        try:
+            return await self._arun_internal(state, config)
+        except LLM_API_EXCEPTIONS as e:
+            self._handle_llm_provider_error(e, config)
+
+    def _handle_llm_provider_error(self, error: Exception, config: RunnableConfig) -> NoReturn:
+        """Handle LLM provider API errors, capturing metrics and raising LLMProviderError."""
+        distinct_id = (config.get("configurable") or {}).get("distinct_id")
+        # This is safe since partition always returns a tuple of three elements no matter the matching
+        provider = type(error).__module__.partition(".")[0] or "unknown_provider"
+
+        LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
+
+        logger.exception("llm_provider_error", error=str(error), provider=provider)
+        capture_exception(
+            error,
+            distinct_id=distinct_id,
+            properties={
+                "error_type": "llm_provider_error",
+                "provider": provider,
+                "tag": "max_ai",
+            },
+        )
+        raise LLMProviderError(
+            str(error),
+            original_error=error,
+            provider=provider,
+        ) from error
+
+    async def _arun_internal(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         toolkit_manager = self._toolkit_manager_class(
             team=self._team, user=self._user, context_manager=self.context_manager
         )

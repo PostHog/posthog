@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import openai
+import anthropic
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     HumanMessage as LangchainHumanMessage,
@@ -25,6 +27,7 @@ from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
 from ee.hogai.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolError, MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.tools.read_taxonomy import ReadEvents
+from ee.hogai.utils.exceptions import LLMProviderError
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantNodeName, NodePath
@@ -644,6 +647,66 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
         )
+
+    @parameterized.expand(
+        [
+            (
+                "anthropic_billing",
+                anthropic.BadRequestError(
+                    message="Your credit balance is too low to access the Anthropic API.",
+                    response=MagicMock(status_code=400),
+                    body={"type": "error", "error": {"type": "invalid_request_error"}},
+                ),
+                "anthropic",
+            ),
+            (
+                "openai_quota",
+                openai.RateLimitError(
+                    message="You exceeded your current quota.",
+                    response=MagicMock(status_code=429),
+                    body=None,
+                ),
+                "openai",
+            ),
+            (
+                "anthropic_other_error",
+                anthropic.BadRequestError(
+                    message="Invalid request format",
+                    response=MagicMock(status_code=400),
+                    body={"type": "error"},
+                ),
+                "anthropic",
+            ),
+        ]
+    )
+    async def test_llm_api_errors_are_handled_gracefully(self, name, error, expected_provider):
+        """Test that LLM API errors are caught, metrics are captured, and LLMProviderError is raised."""
+        mock_model = MagicMock()
+        mock_model.ainvoke = AsyncMock(side_effect=error)
+
+        with (
+            patch(
+                "ee.hogai.core.agent_modes.executables.AgentExecutable._get_model",
+                return_value=mock_model,
+            ),
+            patch("ee.hogai.core.agent_modes.executables.capture_exception") as mock_capture,
+        ):
+            node = _create_agent_node(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Hello")])
+            config = RunnableConfig(configurable={"distinct_id": "test-user"})
+
+            with self.assertRaises(LLMProviderError) as context:
+                await node.arun(state, config)
+
+            # Verify the exception has correct provider
+            self.assertEqual(context.exception.provider, expected_provider)
+            self.assertIsNotNone(context.exception.original_error)
+
+            # Verify metrics were captured
+            mock_capture.assert_called_once()
+            captured_props = mock_capture.call_args.kwargs["properties"]
+            self.assertEqual(captured_props["error_type"], "llm_provider_error")
+            self.assertEqual(captured_props["provider"], expected_provider)
 
 
 class TestRootNodeTools(BaseTest):

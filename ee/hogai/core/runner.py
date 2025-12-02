@@ -34,7 +34,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import get_instance_region
 
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.utils.exceptions import GenerationCanceled
+from ee.hogai.utils.exceptions import GenerationCanceled, LLMProviderError
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import validate_state_update
 from ee.hogai.utils.types.base import (
@@ -237,6 +237,17 @@ class BaseAgentRunner(ABC):
                     AssistantEventType.MESSAGE,
                     FailureMessage(
                         content="The assistant has reached the maximum number of steps. You can explicitly ask to continue.",
+                        id=str(uuid4()),
+                    ),
+                )
+            except LLMProviderError as e:
+                # Reset the state for LLM provider errors
+                await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                logger.warning("LLM provider error in assistant stream", error=str(e), provider=e.provider)
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
                         id=str(uuid4()),
                     ),
                 )
