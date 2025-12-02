@@ -97,6 +97,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         max_length=50,
         choices=BUCKETING_IDENTIFIER_CHOICES,
         default="distinct_id",
+        null=True,
+        blank=True,
         help_text="Identifier used for bucketing users into rollout and variants",
     )
 
