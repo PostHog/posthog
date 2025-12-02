@@ -27,6 +27,7 @@ import {
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel } from '~/types'
 
+import { EnhancedToolCall } from './Thread'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
@@ -64,6 +65,32 @@ export function isNotebookUpdateMessage(
     message: RootAssistantMessage | undefined | null
 ): message is NotebookUpdateMessage {
     return message?.type === AssistantMessageType.Notebook
+}
+
+export function isMultiQuestionFormMessage(
+    message: RootAssistantMessage | undefined | null
+): message is AssistantMessage & { tool_calls: EnhancedToolCall[] } {
+    return (
+        isAssistantMessage(message) &&
+        !!message.tool_calls &&
+        message.tool_calls.some((toolCall) => toolCall.name === 'create_form')
+    )
+}
+
+export function threadEndsWithMultiQuestionForm(messages: RootAssistantMessage[]): boolean {
+    if (messages.length < 1) {
+        return false
+    }
+    const lastMessage = messages[messages.length - 1]
+
+    // The form is waiting for user input when the last message is an AssistantMessage with a create_form tool call.
+    // The create_form tool raises NodeInterrupt(None) which doesn't produce any message, so the thread
+    // ends with the AssistantMessage containing the tool call.
+    if (isMultiQuestionFormMessage(lastMessage)) {
+        return true
+    }
+
+    return false
 }
 
 export function castAssistantQuery(

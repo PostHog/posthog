@@ -421,6 +421,83 @@ describe('maxThreadLogic', () => {
                 expect.any(Object)
             )
         })
+
+        it('sends form_answers in ui_context when provided', async () => {
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            const formAnswers = { q1: 'answer1', q2: 'answer2' }
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Form response', false, { form_answers: formAnswers })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Form response',
+                    ui_context: expect.objectContaining({
+                        form_answers: formAnswers,
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('merges form_answers with existing compiled context', async () => {
+            const streamSpy = mockStream()
+
+            // Add context data to maxContextLogic
+            maxContextLogicInstance.actions.addOrUpdateContextDashboard({
+                id: 1,
+                name: 'Test Dashboard',
+                description: 'Test description',
+                tiles: [],
+            } as any)
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            const formAnswers = { q1: 'answer1' }
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Form with context', false, { form_answers: formAnswers })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Form with context',
+                    ui_context: expect.objectContaining({
+                        dashboards: expect.any(Object),
+                        form_answers: formAnswers,
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('handles empty form_answers object', async () => {
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Empty form', false, { form_answers: {} })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Empty form',
+                    ui_context: expect.objectContaining({
+                        form_answers: {},
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
     })
 
     describe('traceId functionality', () => {
@@ -1343,6 +1420,154 @@ describe('maxThreadLogic', () => {
                 logic.actions.resetThread()
             }).toMatchValues({
                 cancelCount: 0,
+            })
+        })
+    })
+
+    describe('multiQuestionFormPending selector', () => {
+        it('returns true when thread ends with AssistantMessage containing create_form tool call', async () => {
+            // With NodeInterrupt(None), no ToolCall message is created - the thread ends with the AssistantMessage
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer these questions:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [{ id: 'q1', question: 'What is your name?' }] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: true,
+            })
+        })
+
+        it('returns false when thread is empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+
+        it('returns false when last message is a ToolCall response (not a create_form tool call)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using a different tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'other-tool-tc-1',
+                                name: 'search',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Search results',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: 'other-tool-tc-1',
+                        ui_payload: { search: {} },
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+
+        it('returns false when last message is an assistant message without tool calls', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Thanks for your answers!',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+    })
+
+    describe('submissionDisabledReason selector', () => {
+        it('returns "Please answer the questions above" when multiQuestionFormPending is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                submissionDisabledReason: 'Please answer the questions above',
+            })
+        })
+    })
+
+    describe('inputDisabled selector', () => {
+        it('returns true when multiQuestionFormPending is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                inputDisabled: true,
             })
         })
     })

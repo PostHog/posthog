@@ -78,6 +78,27 @@ export interface AssistantForm {
     options: AssistantFormOption[]
 }
 
+export interface MultiQuestionFormQuestionOption {
+    /** The value to use when this option is selected */
+    value: string
+}
+
+export interface MultiQuestionFormQuestion {
+    /** Unique identifier for this question */
+    id: string
+    /** The question text to display */
+    question: string
+    /** Available answer options */
+    options: MultiQuestionFormQuestionOption[]
+    /** Whether to show a "Type your answer" option (default: true) */
+    allow_custom_answer?: boolean
+}
+
+export interface MultiQuestionForm {
+    /** The questions to ask */
+    questions: MultiQuestionFormQuestion[]
+}
+
 export interface AssistantMessageMetadata {
     form?: AssistantForm
     thinking?: Record<string, unknown>[]
@@ -298,6 +319,7 @@ export type AssistantTool =
     | 'switch_mode'
     | 'summarize_sessions'
     | 'create_insight'
+    | 'create_form'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
