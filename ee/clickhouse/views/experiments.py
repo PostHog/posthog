@@ -788,6 +788,7 @@ class EnterpriseExperimentsViewSet(
         - created_by_id: Filter by creator user ID
         - order: Sort order field
         - evaluation_runtime: Filter by evaluation runtime
+        - has_evaluation_tags: Filter by presence of evaluation tags ("true" or "false")
         """
         # validate limit and offset
         try:
@@ -837,6 +838,18 @@ class EnterpriseExperimentsViewSet(
         evaluation_runtime = request.query_params.get("evaluation_runtime")
         if evaluation_runtime:
             queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        # Apply has_evaluation_tags filter
+        has_evaluation_tags = request.query_params.get("has_evaluation_tags")
+        if has_evaluation_tags is not None:
+            from django.db.models import Count
+
+            filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
+            queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
 
         # Ordering
         order = request.query_params.get("order")

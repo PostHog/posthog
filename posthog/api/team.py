@@ -179,6 +179,7 @@ TEAM_CONFIG_FIELDS = (
     "feature_flag_confirmation_enabled",
     "feature_flag_confirmation_message",
     "default_evaluation_environments_enabled",
+    "require_evaluation_environment_tags",
     "capture_dead_clicks",
     "default_data_theme",
     "revenue_analytics_config",

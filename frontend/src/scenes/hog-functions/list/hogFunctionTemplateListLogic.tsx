@@ -253,8 +253,8 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                     const filters =
                         configurationOverrides || subTemplate?.filters
                             ? {
-                                  ...(subTemplate?.filters ?? {}),
-                                  ...(configurationOverrides ?? {}),
+                                  ...subTemplate?.filters,
+                                  ...configurationOverrides,
                               }
                             : undefined
 

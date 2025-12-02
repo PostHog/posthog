@@ -206,6 +206,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     default_evaluation_environments_enabled: false,
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
+    require_evaluation_environment_tags: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
