@@ -992,6 +992,13 @@ export const getErrorsForFields = (
             return
         }
 
+        if (field.name === 'google_ads_customer_id') {
+            if (!/^[0-9]{3}-[0-9]{3}-[0-9]{4}$/.test(valueObj[field.name])) {
+                errorsObj[field.name] =
+                    'Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format.'
+            }
+        }
+
         if (field.type === 'select') {
             const hasOptionFields = !!field.options.filter((n) => (n.fields?.length ?? 0) > 0).length
 

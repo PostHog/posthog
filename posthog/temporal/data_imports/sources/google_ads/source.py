@@ -37,6 +37,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             "UNAUTHENTICATED": None,
             "ACCESS_TOKEN_SCOPE_INSUFFICIENT": None,
             "Account has been deleted": None,
+            "INVALID_CUSTOMER_ID": None,
         }
 
     # TODO: clean up google ads source to not have two auth config options
@@ -100,11 +101,11 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                 list[FieldType],
                 [
                     SourceFieldInputConfig(
-                        name="customer_id",
+                        name="google_ads_customer_id",
                         label="Customer ID",
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
-                        placeholder="",
+                        placeholder="123-456-7890",
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
