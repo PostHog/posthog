@@ -5,12 +5,13 @@ import pytest
 
 from temporalio.testing import ActivityEnvironment
 
-from posthog.models import Integration, Organization, OrganizationMembership, Team, User
+from posthog.models import Integration, OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.temporal.common.logger import configure_logger
 
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.create_snapshot.activities.get_snapshot_context import SnapshotContext
+from products.tasks.backend.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 
@@ -18,6 +19,20 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 def activity_environment():
     """Return a testing temporal ActivityEnvironment."""
     return ActivityEnvironment()
+
+
+@pytest.fixture
+def array_oauth_app():
+    """Create the Array OAuth application for tests."""
+    app, _ = OAuthApplication.objects.get_or_create(
+        client_id=ARRAY_APP_CLIENT_ID_DEV,
+        defaults={
+            "name": "Array Test App",
+            "client_type": OAuthApplication.CLIENT_PUBLIC,
+            "authorization_grant_type": OAuthApplication.GRANT_AUTHORIZATION_CODE,
+        },
+    )
+    yield app
 
 
 @pytest.fixture
@@ -82,7 +97,7 @@ def github_integration(team):
 
 
 @pytest.fixture
-def test_task(team, user, github_integration):
+def test_task(team, user, github_integration, _array_oauth_app):
     """Create a test task."""
 
     task = Task.objects.create(
