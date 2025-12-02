@@ -904,7 +904,9 @@ class FeatureFlagSerializer(
         # updates were already occurring outside of a transaction.
 
         # Handle evaluation tags (uses initial_data like TaggedItemSerializerMixin does)
-        self._attempt_set_evaluation_tags(self.initial_data.get("evaluation_tags"), instance)
+        # Only update if explicitly provided in request, otherwise preserve existing tags
+        if "evaluation_tags" in self.initial_data:
+            self._attempt_set_evaluation_tags(self.initial_data.get("evaluation_tags"), instance)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
