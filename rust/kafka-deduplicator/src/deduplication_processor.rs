@@ -443,7 +443,7 @@ impl DeduplicationProcessor {
         &self,
         raw_event: RawEvent,
         original_payload: Vec<u8>,
-        original_headers: OwnedHeaders,
+        original_headers: Option<&OwnedHeaders>,
         ctx: MessageContext<'_>,
     ) -> Result<bool> {
         // Get the store for this partition
@@ -508,7 +508,7 @@ impl DeduplicationProcessor {
                     .publish_event(
                         producer,
                         &original_payload,
-                        Some(&original_headers),
+                        original_headers,
                         ctx.key,
                         output_topic,
                     )
@@ -552,10 +552,7 @@ impl DeduplicationProcessor {
                     key, output_topic, e
                 );
                 Err(anyhow::anyhow!(
-                    "Failed to publish event with key '{}' to topic '{}': {}",
-                    key,
-                    output_topic,
-                    e
+                    "Failed to publish event with key '{key}' to topic '{output_topic}': {e}"
                 ))
             }
         }
@@ -641,11 +638,7 @@ impl MessageProcessor for DeduplicationProcessor {
                     topic, partition, offset, e
                 );
                 return Err(anyhow::anyhow!(
-                    "Failed to parse RawEvent from data field at {}:{} offset {}: {}",
-                    topic,
-                    partition,
-                    offset,
-                    e
+                    "Failed to parse RawEvent from data field at {topic}:{partition} offset {offset}: {e}"
                 ));
             }
         };
@@ -677,7 +670,7 @@ impl MessageProcessor for DeduplicationProcessor {
 
         // Process the event through deduplication, passing the original payload and headers for publishing
         match self
-            .process_raw_event(raw_event, orig_payload, orig_headers, ctx)
+            .process_raw_event(raw_event, orig_payload.to_vec(), orig_headers, ctx)
             .await
         {
             Ok(published) => {
