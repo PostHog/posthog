@@ -23,6 +23,9 @@ def get_llma_events_cte(date_start: str, date_end: str) -> str:
     This two-step approach (first find teams, then filter events) allows ClickHouse
     to use the sorting key (team_id, timestamp) more efficiently.
 
+    Uses SAMPLE 0.1 (10%) as a safety mechanism to limit query scope.
+    TODO: Remove SAMPLE once query performance is validated in production.
+
     Provides:
     - llma_events: AI events filtered to teams with AI activity
     - llma_pageview_events: Pageview events filtered to teams viewing LLM analytics pages
@@ -34,14 +37,14 @@ def get_llma_events_cte(date_start: str, date_end: str) -> str:
 
     return f"""teams_with_ai_events AS (
     SELECT DISTINCT team_id
-    FROM events
+    FROM events SAMPLE 0.1
     WHERE event IN ({event_types_sql})
       AND timestamp >= toDateTime('{date_start}', 'UTC')
       AND timestamp < toDateTime('{date_end}', 'UTC')
 ),
 llma_events AS (
     SELECT *
-    FROM events
+    FROM events SAMPLE 0.1
     WHERE team_id IN (SELECT team_id FROM teams_with_ai_events)
       AND event IN ({event_types_sql})
       AND timestamp >= toDateTime('{date_start}', 'UTC')
@@ -49,7 +52,7 @@ llma_events AS (
 ),
 teams_with_llma_pageviews AS (
     SELECT DISTINCT team_id
-    FROM events
+    FROM events SAMPLE 0.1
     WHERE event = '$pageview'
       AND timestamp >= toDateTime('{date_start}', 'UTC')
       AND timestamp < toDateTime('{date_end}', 'UTC')
@@ -57,7 +60,7 @@ teams_with_llma_pageviews AS (
 ),
 llma_pageview_events AS (
     SELECT *
-    FROM events
+    FROM events SAMPLE 0.1
     WHERE team_id IN (SELECT team_id FROM teams_with_llma_pageviews)
       AND event = '$pageview'
       AND timestamp >= toDateTime('{date_start}', 'UTC')
