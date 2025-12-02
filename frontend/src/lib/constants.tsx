@@ -242,7 +242,6 @@ export const FEATURE_FLAGS = {
     ERROR_TRACKING_RELATED_ISSUES: 'error-tracking-related-issues', // owner: #team-error-tracking
     WEB_ANALYTICS_MARKETING: 'marketing-analytics', // owner: @jabahamondes #team-web-analytics
     WEB_ANALYTICS_TILE_TOGGLES: 'web-analytics-tile-toggles', // owner: @lricoy #team-web-analytics
-    GET_HOG_TEMPLATES_FROM_DB: 'get-hog-templates-from-db', // owner: @meikel #team-
     SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
     LINKS: 'links', // owner: @marconlp #team-link
     GAME_CENTER: 'game-center', // owner: everybody
