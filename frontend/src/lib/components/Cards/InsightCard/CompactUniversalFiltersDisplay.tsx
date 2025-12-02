@@ -18,6 +18,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionFilter,
+    AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterBaseValue,
     PropertyGroupFilter,
@@ -101,6 +102,7 @@ export function CompactUniversalFiltersDisplay({
                         </div>
                     )
                 }
+                const propertyFilter = filterOrGroup as AnyPropertyFilter
 
                 // Property filter
                 return (
@@ -110,31 +112,31 @@ export function CompactUniversalFiltersDisplay({
                             {index > 0 ? (
                                 <strong>{groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
                             ) : null}
-                            {isCohortPropertyFilter(filterOrGroup) ? (
+                            {isCohortPropertyFilter(propertyFilter) ? (
                                 <>
                                     {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
                                     <span className="SeriesDisplay__raw-name">
                                         {formatPropertyLabel(
-                                            filterOrGroup,
+                                            propertyFilter,
                                             cohortsById,
                                             (s) =>
-                                                formatPropertyValueForDisplay(filterOrGroup.key, s)?.toString() || '?'
+                                                formatPropertyValueForDisplay(propertyFilter.key, s)?.toString() || '?'
                                         )}
                                     </span>
                                 </>
                             ) : (
                                 <>
                                     {isFirstFilterOverall && !embedded
-                                        ? capitalizeFirstLetter(filterOrGroup.type || 'event')
-                                        : filterOrGroup.type || 'event'}
+                                        ? capitalizeFirstLetter(propertyFilter.type || 'event')
+                                        : propertyFilter.type || 'event'}
                                     's
                                     <span className="SeriesDisplay__raw-name">
-                                        {isAnyPropertyfilter(filterOrGroup) && filterOrGroup.key && (
+                                        {isAnyPropertyfilter(propertyFilter) && propertyFilter.key && (
                                             <PropertyKeyInfo
-                                                value={filterOrGroup.key}
+                                                value={propertyFilter.key}
                                                 type={
                                                     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
-                                                        filterOrGroup.type
+                                                        propertyFilter.type
                                                     ]
                                                 }
                                             />
@@ -143,24 +145,24 @@ export function CompactUniversalFiltersDisplay({
                                     <em>
                                         {
                                             allOperatorsMapping[
-                                                (isPropertyFilterWithOperator(filterOrGroup) &&
-                                                    filterOrGroup.operator) ||
+                                                (isPropertyFilterWithOperator(propertyFilter) &&
+                                                    propertyFilter.operator) ||
                                                     'exact'
                                             ]
                                         }
                                     </em>{' '}
-                                    {isAnyPropertyfilter(filterOrGroup) &&
-                                        (Array.isArray(filterOrGroup.value) ? (
-                                            filterOrGroup.value.map((subValue, index) => (
+                                    {isAnyPropertyfilter(propertyFilter) &&
+                                        (Array.isArray(propertyFilter.value) ? (
+                                            propertyFilter.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
                                                     <code className="SeriesDisplay__value">{subValue}</code>
                                                     {index <
-                                                        (filterOrGroup.value as PropertyFilterBaseValue[]).length - 1 &&
-                                                        ' or '}
+                                                        (propertyFilter.value as PropertyFilterBaseValue[]).length -
+                                                            1 && ' or '}
                                                 </React.Fragment>
                                             ))
-                                        ) : filterOrGroup.value != undefined ? (
-                                            <code className="SeriesDisplay__value">{filterOrGroup.value}</code>
+                                        ) : propertyFilter.value != undefined ? (
+                                            <code className="SeriesDisplay__value">{propertyFilter.value}</code>
                                         ) : null)}
                                 </>
                             )}
