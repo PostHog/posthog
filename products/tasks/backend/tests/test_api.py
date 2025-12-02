@@ -2,6 +2,7 @@ import json
 
 from unittest.mock import MagicMock, patch
 
+from django.db import connection
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -13,7 +14,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 
 
 class BaseTaskAPITest(TestCase):
@@ -695,3 +696,252 @@ class TestTasksAPIPermissions(BaseTaskAPITest):
                 status.HTTP_403_FORBIDDEN,
                 f"Expected 403 but got {response.status_code} for {scope} on {method} {url}",
             )
+
+
+class TestSandboxEnvironmentAPI(BaseTaskAPITest):
+    def test_create_environment(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "network_access_level": "full",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["name"], "Test Environment")
+        self.assertEqual(data["network_access_level"], "full")
+        self.assertTrue(data["private"])
+        self.assertEqual(data["environment_variable_keys"], [])
+
+    def test_create_environment_with_env_vars(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "environment_variables": {
+                    "API_KEY": "sk-live-123456",
+                    "SECRET_TOKEN": "my-secret",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertIn("API_KEY", data["environment_variable_keys"])
+        self.assertIn("SECRET_TOKEN", data["environment_variable_keys"])
+        self.assertNotIn("environment_variables", data)
+        self.assertNotIn("sk-live-123456", json.dumps(data))
+
+    def test_create_environment_with_custom_domains(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Custom Network",
+                "network_access_level": "custom",
+                "allowed_domains": ["api.stripe.com", "api.sendgrid.com"],
+                "include_default_domains": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["network_access_level"], "custom")
+        self.assertEqual(data["allowed_domains"], ["api.stripe.com", "api.sendgrid.com"])
+        self.assertTrue(data["include_default_domains"])
+
+    def test_create_custom_network_without_domains_fails(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "network_access_level": "custom",
+                "allowed_domains": [],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("simple", "example.com"),
+            ("subdomain", "api.stripe.com"),
+            ("deep_subdomain", "api.v2.example.com"),
+            ("with_port", "localhost:8080"),
+            ("ip_address", "192.168.1.1"),
+            ("ip_with_port", "192.168.1.1:3000"),
+        ]
+    )
+    def test_valid_domain_formats(self, _name, domain):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "network_access_level": "custom",
+                "allowed_domains": [domain],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("https_protocol", "https://example.com"),
+            ("http_protocol", "http://example.com"),
+            ("file_protocol", "file://etc/passwd"),
+            ("ftp_protocol", "ftp://files.example.com"),
+            ("with_path", "example.com/api/v1"),
+            ("with_query", "example.com?key=value"),
+            ("with_fragment", "example.com#section"),
+        ]
+    )
+    def test_invalid_domain_formats(self, _name, domain):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "network_access_level": "custom",
+                "allowed_domains": [domain],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "allowed_domains")
+
+    def test_create_environment_validates_env_var_keys(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "environment_variables": {
+                    "INVALID-KEY": "value",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_environments_shows_own_and_team_environments(self):
+        SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="My Private Env", private=True)
+        SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="My Team Env", private=False)
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        SandboxEnvironment.objects.create(
+            team=self.team, created_by=other_user, name="Other User Private", private=True
+        )
+        SandboxEnvironment.objects.create(team=self.team, created_by=other_user, name="Other User Team", private=False)
+
+        response = self.client.get("/api/projects/@current/sandbox_environments/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        names = [e["name"] for e in data["results"]]
+
+        self.assertIn("My Private Env", names)
+        self.assertIn("My Team Env", names)
+        self.assertNotIn("Other User Private", names)
+        self.assertIn("Other User Team", names)
+
+    def test_list_environments_exclude_team(self):
+        SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="My Private Env", private=True)
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        SandboxEnvironment.objects.create(team=self.team, created_by=other_user, name="Other User Team", private=False)
+
+        response = self.client.get("/api/projects/@current/sandbox_environments/?include_team=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        names = [e["name"] for e in data["results"]]
+
+        self.assertIn("My Private Env", names)
+        self.assertNotIn("Other User Team", names)
+
+    def test_update_own_private_environment(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team, created_by=self.user, name="Original Name", private=True
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/sandbox_environments/{env.id}/",
+            {"name": "Updated Name"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Updated Name")
+
+    def test_cannot_update_other_user_private_environment(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        env = SandboxEnvironment.objects.create(
+            team=self.team, created_by=other_user, name="Other User Env", private=True
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/sandbox_environments/{env.id}/",
+            {"name": "Hacked Name"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_can_update_other_user_team_environment(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        env = SandboxEnvironment.objects.create(team=self.team, created_by=other_user, name="Team Env", private=False)
+
+        response = self.client.patch(
+            f"/api/projects/@current/sandbox_environments/{env.id}/",
+            {"name": "Updated Team Env"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["name"], "Updated Team Env")
+
+    def test_delete_own_private_environment(self):
+        env = SandboxEnvironment.objects.create(team=self.team, created_by=self.user, name="To Delete", private=True)
+
+        response = self.client.delete(f"/api/projects/@current/sandbox_environments/{env.id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(SandboxEnvironment.objects.filter(id=env.id).count(), 0)
+
+    def test_cannot_delete_other_user_private_environment(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        env = SandboxEnvironment.objects.create(
+            team=self.team, created_by=other_user, name="Other User Env", private=True
+        )
+
+        response = self.client.delete(f"/api/projects/@current/sandbox_environments/{env.id}/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_env_vars_stored_encrypted(self):
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {
+                "name": "Test Environment",
+                "environment_variables": {
+                    "SECRET": "my-secret-value-12345",
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        env = SandboxEnvironment.objects.get(id=response.json()["id"])
+        self.assertEqual(env.environment_variables["SECRET"], "my-secret-value-12345")
+
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT environment_variables FROM posthog_sandbox_environment WHERE id = %s",
+                [str(env.id)],
+            )
+            raw_value = cursor.fetchone()[0]
+        self.assertNotIn("my-secret-value-12345", raw_value)
+
+    def test_filter_by_repository(self):
+        SandboxEnvironment.objects.create(
+            team=self.team, created_by=self.user, name="PostHog Env", repositories=["posthog/posthog"]
+        )
+        SandboxEnvironment.objects.create(
+            team=self.team, created_by=self.user, name="Other Env", repositories=["other/repo"]
+        )
+
+        response = self.client.get("/api/projects/@current/sandbox_environments/?repository=posthog/posthog")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data["results"]), 1)
+        self.assertEqual(data["results"][0]["name"], "PostHog Env")

@@ -6,7 +6,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.integration import Integration
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskRun
 from .services.title_generator import generate_task_title
 
 
@@ -254,4 +254,112 @@ class TaskListQuerySerializer(serializers.Serializer):
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
     repository = serializers.CharField(
         required=False, help_text="Filter by repository name (can include org/repo format)"
+    )
+
+
+class SandboxEnvironmentSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    environment_variable_keys = serializers.SerializerMethodField(
+        help_text="List of environment variable keys (values are never exposed)"
+    )
+
+    class Meta:
+        model = SandboxEnvironment
+        fields = [
+            "id",
+            "name",
+            "network_access_level",
+            "allowed_domains",
+            "include_default_domains",
+            "repositories",
+            "environment_variable_keys",
+            "private",
+            "created_by",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "environment_variable_keys",
+        ]
+
+    def get_environment_variable_keys(self, obj: SandboxEnvironment) -> list[str]:
+        if obj.environment_variables:
+            return list(obj.environment_variables.keys())
+        return []
+
+    def validate_allowed_domains(self, value):
+        if not value:
+            return value
+
+        for domain in value:
+            if not domain or not isinstance(domain, str):
+                raise serializers.ValidationError(f"Invalid domain: {domain}")
+            domain = domain.strip()
+            if not domain:
+                raise serializers.ValidationError("Empty domain is not allowed")
+            if "://" in domain:
+                raise serializers.ValidationError(f"Domain must not include protocol: {domain}")
+            if "/" in domain or "?" in domain or "#" in domain:
+                raise serializers.ValidationError(f"Domain must not include path, query, or fragment: {domain}")
+
+        return [d.strip().lower() for d in value]
+
+    def validate(self, attrs):
+        network_access_level = attrs.get("network_access_level", getattr(self.instance, "network_access_level", None))
+        allowed_domains = attrs.get("allowed_domains", getattr(self.instance, "allowed_domains", []))
+
+        if network_access_level == SandboxEnvironment.NetworkAccessLevel.CUSTOM:
+            if not allowed_domains:
+                raise serializers.ValidationError(
+                    {"allowed_domains": "At least one domain is required for custom network access"}
+                )
+
+        return attrs
+
+    def create(self, validated_data):
+        validated_data["team"] = self.context["team"]
+
+        if "request" in self.context and hasattr(self.context["request"], "user"):
+            validated_data["created_by"] = self.context["request"].user
+
+        return super().create(validated_data)
+
+
+class SandboxEnvironmentWriteSerializer(SandboxEnvironmentSerializer):
+    """Serializer for creating/updating sandbox environments with environment variables"""
+
+    environment_variables = serializers.DictField(
+        child=serializers.CharField(),
+        required=False,
+        write_only=True,
+        help_text="Dictionary of environment variables (key-value pairs)",
+    )
+
+    class Meta(SandboxEnvironmentSerializer.Meta):
+        fields = [*SandboxEnvironmentSerializer.Meta.fields, "environment_variables"]
+
+    def validate_environment_variables(self, value):
+        if not value:
+            return value
+
+        for key in value.keys():
+            if not SandboxEnvironment.is_valid_env_var_key(key):
+                raise serializers.ValidationError(
+                    f"Invalid environment variable key: '{key}'. "
+                    "Keys must start with a letter or underscore and contain only alphanumeric characters and underscores."
+                )
+
+        return value
+
+
+class SandboxEnvironmentListQuerySerializer(serializers.Serializer):
+    """Query parameters for listing sandbox environments"""
+
+    repository = serializers.CharField(required=False, help_text="Filter by repository (org/repo format)")
+    include_team = serializers.BooleanField(
+        required=False, default=True, help_text="Include team-wide (non-private) environments"
     )

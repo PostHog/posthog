@@ -4,6 +4,7 @@ import logging
 import traceback
 from typing import cast
 
+from django.db.models import Q
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
@@ -20,9 +21,12 @@ from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentic
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 from posthog.storage import object_storage
 
-from .models import Task, TaskRun
+from .models import SandboxEnvironment, Task, TaskRun
 from .serializers import (
     ErrorResponseSerializer,
+    SandboxEnvironmentListQuerySerializer,
+    SandboxEnvironmentSerializer,
+    SandboxEnvironmentWriteSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -443,3 +447,128 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         expires_in = 3600
         serializer = TaskRunArtifactPresignResponseSerializer({"url": url, "expires_in": expires_in})
         return Response(serializer.data)
+
+
+@extend_schema(tags=["sandbox-environments"])
+class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """
+    API for managing sandbox environments within a project.
+    Sandbox environments configure network access and secrets for task execution.
+    """
+
+    serializer_class = SandboxEnvironmentSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    scope_object = "task"
+    queryset = SandboxEnvironment.objects.all()
+    posthog_feature_flag = {
+        "tasks": [
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+        ]
+    }
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+
+    def get_serializer_class(self):
+        if self.action in ["create", "update", "partial_update"]:
+            return SandboxEnvironmentWriteSerializer
+        return SandboxEnvironmentSerializer
+
+    @validated_request(
+        query_serializer=SandboxEnvironmentListQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=SandboxEnvironmentSerializer(many=True), description="List of environments"),
+        },
+        summary="List sandbox environments",
+        description="Get a list of sandbox environments for the current project. Returns environments created by the current user plus team-wide (non-private) environments.",
+    )
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=SandboxEnvironmentWriteSerializer,
+        responses={
+            201: OpenApiResponse(response=SandboxEnvironmentSerializer, description="Created environment"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid data"),
+        },
+        summary="Create sandbox environment",
+        description="Create a new sandbox environment with network access settings and encrypted environment variables.",
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            200: OpenApiResponse(response=SandboxEnvironmentSerializer, description="Environment details"),
+            404: OpenApiResponse(description="Environment not found"),
+        },
+        summary="Retrieve sandbox environment",
+        description="Get details of a specific sandbox environment.",
+    )
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    @validated_request(
+        request_serializer=SandboxEnvironmentWriteSerializer,
+        responses={
+            200: OpenApiResponse(response=SandboxEnvironmentSerializer, description="Updated environment"),
+            400: OpenApiResponse(response=ErrorResponseSerializer, description="Invalid data"),
+            404: OpenApiResponse(description="Environment not found"),
+        },
+        summary="Update sandbox environment",
+        description="Update a sandbox environment. Only the creator can update private environments.",
+    )
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
+    @validated_request(
+        responses={
+            204: OpenApiResponse(description="Environment deleted"),
+            404: OpenApiResponse(description="Environment not found"),
+        },
+        summary="Delete sandbox environment",
+        description="Delete a sandbox environment. Only the creator can delete private environments.",
+    )
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)
+
+    def safely_get_queryset(self, queryset):
+        user = self.request.user
+        qs = queryset.filter(team=self.team)
+
+        # For list, filter by privacy: show user's own + team-wide (non-private)
+        if self.action == "list":
+            include_team = self.request.query_params.get("include_team", "true").lower() == "true"
+
+            if include_team:
+                qs = qs.filter(Q(created_by=user) | Q(private=False))
+            else:
+                qs = qs.filter(created_by=user)
+
+            # Filter by repository if specified
+            repository = self.request.query_params.get("repository")
+            if repository:
+                qs = qs.filter(repositories__contains=[repository.lower()])
+
+        return qs.order_by("-created_at")
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
+
+    def perform_create(self, serializer):
+        serializer.save(team=self.team, created_by=self.request.user)
+
+    def check_object_permissions(self, request, obj):
+        super().check_object_permissions(request, obj)
+
+        # For modify/delete operations on private environments, only creator can access
+        if self.action in ["update", "partial_update", "destroy"]:
+            if obj.private and obj.created_by != request.user:
+                self.permission_denied(
+                    request,
+                    message="You do not have permission to modify this private environment.",
+                )
