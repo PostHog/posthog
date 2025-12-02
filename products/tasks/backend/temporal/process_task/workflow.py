@@ -184,6 +184,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             ),
             id=workflow_id,
             task_queue=settings.TASKS_TASK_QUEUE,
-            parent_close_policy=ParentClosePolicy.ABANDON,
+            parent_close_policy=ParentClosePolicy.ABANDON,  # This will allow the snapshot workflow to continue even if the task workflow fails or closes
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
