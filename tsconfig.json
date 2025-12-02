@@ -8,7 +8,6 @@
             "@posthog/lemon-ui/*": ["@posthog/lemon-ui/src/*"],
             "@posthog/icons": ["node_modules/@posthog/icons"],
             "storybook/*": ["../.storybook/*"],
-            "@posthog/ee/exports": ["../ee/exports", "@posthog/ee/exports"],
             "~/*": ["src/*"],
             "public/*": ["public/*"],
             "products/*": ["../products/*"]
@@ -43,7 +42,6 @@
         "frontend/**/*",
         ".storybook/**/*",
         "playwright/**/*",
-        "ee/frontend/**/*",
         "products/**/frontend/**/*",
         "products/**/manifest.tsx",
         "common/esbuilder/*",

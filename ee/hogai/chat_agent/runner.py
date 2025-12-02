@@ -44,7 +44,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
     AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT,
     AssistantNodeName.ROOT,
     AssistantNodeName.ROOT_TOOLS,
-    AssistantNodeName.USAGE_COMMAND_HANDLER,
+    AssistantNodeName.SLASH_COMMAND_HANDLER,
     TaxonomyNodeName.TOOLS_NODE,
     TaxonomyNodeName.TASK_EXECUTOR,
 }
@@ -135,5 +135,6 @@ class ChatAgentRunner(BaseAgentRunner):
                 "output": output,
                 "response": visualization_response,
                 "is_new_conversation": self._is_new_conversation,
+                "$session_id": self._session_id,
             },
         )

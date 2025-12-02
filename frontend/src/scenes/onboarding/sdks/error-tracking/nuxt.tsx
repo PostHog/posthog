@@ -9,7 +9,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SDK_DEFAULTS_DATE } from '../sdk-install-instructions/constants'
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 import { JSInstallSnippet } from '../sdk-install-instructions/js-web'
 import { JSManualCapture } from './FinalSteps'
 
@@ -170,8 +171,8 @@ const nuxtModuleConfig = (apiKey: string, host: string, teamId: string): string 
   modules: ['@posthog/nuxt'],
 
   // Enable source maps generation in both vue and nitro
-  sourcemap: { 
-    client: 'hidden' 
+  sourcemap: {
+    client: 'hidden'
   },
   nitro: {
     rollupConfig: {
@@ -217,8 +218,8 @@ export default defineEventHandler(async (event) => {
 
   const posthog = new PostHog(
     runtimeConfig.public.posthogPublicKey,
-    { 
-      host: runtimeConfig.public.posthogHost, 
+    {
+      host: runtimeConfig.public.posthogHost,
     }
   );
 

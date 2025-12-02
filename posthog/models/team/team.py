@@ -235,6 +235,12 @@ class CookielessServerHashMode(models.IntegerChoices):
     STATEFUL = 2, "Stateful"
 
 
+class BusinessModel(models.TextChoices):
+    B2B = "b2b", "B2B"
+    B2C = "b2c", "B2C"
+    OTHER = "other", "Other"
+
+
 class SessionRecordingRetentionPeriod(models.TextChoices):
     THIRTY_DAYS = "30d", "30 Days"
     NINETY_DAYS = "90d", "90 Days"
@@ -449,8 +455,8 @@ class Team(UUIDTClassicModel):
 
     default_data_theme = models.IntegerField(null=True, blank=True)
 
-    # Generic field for storing any team-specific context that is more temporary in nature and thus
-    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # Generic field for storing any team-specific context
+    # that likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
@@ -518,6 +524,14 @@ class Team(UUIDTClassicModel):
         null=True,
         blank=True,
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
+    )
+
+    business_model = models.CharField(
+        max_length=10,
+        choices=BusinessModel.choices,
+        null=True,
+        blank=True,
+        help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
     )
 
     @cached_property

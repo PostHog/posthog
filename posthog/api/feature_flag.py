@@ -42,6 +42,7 @@ from posthog.helpers.encrypted_flag_payloads import (
     encrypt_flag_payloads,
     get_decrypted_flag_payloads,
 )
+from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -83,12 +84,6 @@ LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
     "Local evaluation API requests",
     labelnames=["send_cohorts"],
-)
-
-FEATURE_FLAG_EVALUATION_FALLBACK_COUNTER = Counter(
-    "feature_flag_evaluation_reasons_fallback_total",
-    "The number of times we've fallen back to Python evaluation for feature flag evaluation reasons",
-    labelnames=["team_id"],
 )
 
 # Reusable session for proxying to the flags service with connection pooling
@@ -396,6 +391,7 @@ class FeatureFlagSerializer(
             "has_encrypted_payloads",
             "status",
             "evaluation_runtime",
+            "bucketing_identifier",
             "last_called_at",
             "_create_in_folder",
             "_should_create_usage_dashboard",
@@ -1119,6 +1115,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
             "has_encrypted_payloads",
             "version",
             "evaluation_runtime",
+            "bucketing_identifier",
             "evaluation_tags",
         ]
 
@@ -1200,6 +1197,8 @@ def _evaluate_flags_with_fallback(
         OR
         tuple[dict, dict, dict, bool]: Python evaluation result (flags, reasons, payloads, errors)
     """
+    logger = logging.getLogger(__name__)
+
     try:
         return _proxy_to_flags_service(
             token=team.api_token,
@@ -1210,8 +1209,10 @@ def _evaluate_flags_with_fallback(
         # The metric we're capturing here is a "tombstone" metric; i.e. we shouldn't ever expect this to happen in production.
         # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
         # TODO remove this fallback once we're confident that the proxying works great.
-        FEATURE_FLAG_EVALUATION_FALLBACK_COUNTER.labels(team_id=team.id).inc()
-        logging.getLogger(__name__).warning(f"Failed to proxy to flags service, falling back to Python: {e}")
+        TOMBSTONE_COUNTER.labels(
+            namespace="feature_flag", operation="proxy_to_flags_service", component="python_fallback"
+        ).inc()
+        logger.warning(f"Failed to proxy to flags service, falling back to Python: {e}")
 
         return get_all_feature_flags(team, distinct_id, groups)
 

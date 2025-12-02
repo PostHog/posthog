@@ -1252,4 +1252,98 @@ describe('maxThreadLogic', () => {
             expect(enhancedToolCalls?.[0].updates).toEqual([])
         })
     })
+
+    describe('retryCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.retryCount).toBe(0)
+        })
+
+        it('increments on retryLastMessage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetRetryCount', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetRetryCount()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+    })
+
+    describe('cancelCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.cancelCount).toBe(0)
+        })
+
+        it('increments on stopGeneration', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetCancelCount', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetCancelCount()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
+        })
+    })
 })

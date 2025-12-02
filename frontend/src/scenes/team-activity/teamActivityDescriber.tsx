@@ -428,6 +428,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     anonymize_ips: createBooleanToggleHandler('anonymizing IP addresses'),
     slack_incoming_webhook: createSimpleValueHandler('Slack incoming webhook'),
     timezone: createSimpleValueHandler('timezone', { useEmphasis: true }),
+    business_model: createSimpleValueHandler('business model'),
     data_attributes: createArrayChangeHandler('data attributes'),
     live_events_columns: createArrayChangeHandler('live events columns'),
     app_urls: createArrayChangeHandler('app URLs'),
