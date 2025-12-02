@@ -342,7 +342,6 @@
         "$group_2": "http://localhost:8010",
         "$group_3": "cus_S1FJGJmSDsqyJ1",
         "$active_feature_flags": [
-            "funnels-cue-opt-out-7301",
             "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",
@@ -649,7 +648,6 @@
         "$feature/web-analytics-for-mobile": true,
         "$feature/experiments-interval-timeseries": true,
         "$feature/apps-and-exports-ui": true,
-        "$feature/funnels-cue-opt-out-7301": true,
         "$feature/support-form-in-onboarding": true,
         "$feature/session-recordings-playlist-count-column": true,
         "current_amount_usd.data_warehouse": null,

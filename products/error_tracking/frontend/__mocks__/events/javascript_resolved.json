@@ -146,7 +146,6 @@
         "$replay_script_config": null,
         "$session_entry_url": "http://localhost:8010/",
         "$feature/artificial-hog": true,
-        "$feature/funnels-cue-opt-out-7301": true,
         "$feature/hog-functions-linked": true,
         "$initial_person_info": {
             "r": "http://localhost:8010/project/1/error_tracking/6cd1357d-2314-43db-a81f-9a7bf04f59a8",
@@ -362,7 +361,6 @@
         "$feature/data-modeling": true,
         "usage_limit.data_warehouse": 1000000,
         "$active_feature_flags": [
-            "funnels-cue-opt-out-7301",
             "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",

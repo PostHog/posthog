@@ -190,7 +190,6 @@
         "$user_id": "GwcdJMUX1sAvdedyOy4AWu3DFPn5mshjtbIaeaBS5E3",
         "$feature/surveys-custom-fonts": true,
         "$feature/personless-events-not-supported": true,
-        "$feature/funnels-cue-opt-out-7301": true,
         "$feature/ff-dashboard-templates": true,
         "$feature/redirect-insight-creation-product-analytics-onboarding": true,
         "$feature/settings-sessions-v2-join": true,
@@ -216,7 +215,6 @@
         "$feature/experiment-stats-v2": true,
         "$feature/hedgehog-skin-spiderhog": true,
         "$active_feature_flags": [
-            "funnels-cue-opt-out-7301",
             "historical-exports-v2",
             "ingestion-warnings-enabled",
             "debug-react-renders",
