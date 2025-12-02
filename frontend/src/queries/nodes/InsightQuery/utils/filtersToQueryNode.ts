@@ -18,13 +18,13 @@ import {
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
-    EntityGroupNode,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightNodeKind,
     InsightQueryNode,
     InsightsQueryBase,
@@ -107,8 +107,8 @@ export const legacyEntityToNode = (
     entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode | GroupNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | GroupNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -128,7 +128,7 @@ export const legacyEntityToNode = (
             ...shared,
             operator: entity.operator || undefined,
             values: entity.values || [],
-        } as EntityGroupNode
+        } as GroupNode
     }
 
     if (includeProperties) {
@@ -194,7 +194,7 @@ export const legacyEntityToNode = (
     } else if (entity.type === EntityTypes.GROUPS) {
         return setLatestVersionsOnQuery(
             objectCleanWithEmpty({
-                kind: NodeKind.EntityGroupNode,
+                kind: NodeKind.GroupNode,
                 id: entity.id, // TODO: Check if ID is needed, as it empty str
                 ...shared,
             })
@@ -226,7 +226,7 @@ export const actionsAndEventsToSeries = (
     { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode)[] => {
+): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] => {
     const series: any = [
         ...(actions || []),
         ...(events || []),

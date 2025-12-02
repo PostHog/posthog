@@ -29,8 +29,8 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../../../teamLogic'
+import { ActionFilterGroup } from './ActionFilterGroup/ActionFilterGroup'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { EntityGroupNode } from './ActionFilterRow/EntityGroupNode'
 import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
@@ -239,7 +239,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                         >
                             {localFilters.map((filter, index) =>
                                 isTrendsContext && filter.type === EntityTypes.GROUPS ? (
-                                    <EntityGroupNode
+                                    <ActionFilterGroup
                                         key={filter.uuid}
                                         logic={logic}
                                         filter={filter}

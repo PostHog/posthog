@@ -2134,7 +2134,7 @@ class MultipleBreakdownType(StrEnum):
 
 class NodeKind(StrEnum):
     EVENTS_NODE = "EventsNode"
-    ENTITY_GROUP_NODE = "EntityGroupNode"
+    GROUP_NODE = "GroupNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
     EVENTS_QUERY = "EventsQuery"
@@ -13039,7 +13039,7 @@ class DocumentSimilarityQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class EntityGroupNode(BaseModel):
+class GroupNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -13071,7 +13071,7 @@ class EntityGroupNode(BaseModel):
         default=None,
         description="Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
     )
-    kind: Literal["EntityGroupNode"] = "EntityGroupNode"
+    kind: Literal["GroupNode"] = "GroupNode"
     limit: Optional[int] = None
     math: Optional[
         Union[

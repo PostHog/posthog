@@ -1,4 +1,4 @@
-import './EntityGroupNode.scss'
+import './ActionFilterGroup.scss'
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -14,11 +14,11 @@ import { uuid } from 'lib/utils'
 
 import { EntityTypes, FilterLogicalOperator } from '~/types'
 
+import { ActionFilterRow, MathAvailability, MathSelector } from '../ActionFilterRow/ActionFilterRow'
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
-import { ActionFilterRow, MathAvailability, MathSelector } from './ActionFilterRow'
 
-interface EntityGroupNodeProps {
+interface ActionFilterGroupProps {
     logic: BuiltLogic<entityFilterLogicType>
     filter: LocalFilter
     index: number
@@ -37,7 +37,7 @@ interface EntityGroupNodeProps {
     trendsDisplayCategory?: any
 }
 
-export function EntityGroupNode({
+export function ActionFilterGroup({
     logic,
     filter,
     index,
@@ -51,7 +51,7 @@ export function EntityGroupNode({
     dataWarehousePopoverFields,
     excludedProperties,
     trendsDisplayCategory,
-}: EntityGroupNodeProps): JSX.Element {
+}: ActionFilterGroupProps): JSX.Element {
     const { updateFilter: updateSeriesFilter, removeLocalFilter, splitLocalFilter } = useActions(logic)
 
     // Ensure nested filters have order set for entityFilterVisible tracking.
@@ -160,7 +160,7 @@ export function EntityGroupNode({
 
     return (
         <li
-            className="EntityGroupNode relative"
+            className="ActionFilterGroup relative"
             ref={setNodeRef}
             {...attributes}
             style={{
@@ -169,11 +169,11 @@ export function EntityGroupNode({
                 transition,
             }}
         >
-            <div className="EntityGroupNode__wrapper">
+            <div className="ActionFilterGroup__wrapper">
                 {/* Top row: Series indicator, Operator, Aggregation */}
-                <div className="EntityGroupNode__header-row">
+                <div className="ActionFilterGroup__header-row">
                     {showSeriesIndicator && (
-                        <div className="EntityGroupNode__series-indicator">
+                        <div className="ActionFilterGroup__series-indicator">
                             {seriesIndicatorType === 'numeric' ? (
                                 <span>{index + 1}</span>
                             ) : (
@@ -182,9 +182,9 @@ export function EntityGroupNode({
                         </div>
                     )}
 
-                    <div className="EntityGroupNode__header-controls">
-                        <div className="EntityGroupNode__control-group">
-                            <span className="EntityGroupNode__control-label">Operator:</span>
+                    <div className="ActionFilterGroup__header-controls">
+                        <div className="ActionFilterGroup__control-group">
+                            <span className="ActionFilterGroup__control-label">Operator:</span>
                             <LemonSelect
                                 size="small"
                                 value={filter.operator || FilterLogicalOperator.Or}
@@ -205,8 +205,8 @@ export function EntityGroupNode({
                                 data-attr={`group-operator-selector-${index}`}
                             />
                         </div>
-                        <div className="EntityGroupNode__control-group">
-                            <span className="EntityGroupNode__control-label">Math:</span>
+                        <div className="ActionFilterGroup__control-group">
+                            <span className="ActionFilterGroup__control-label">Math:</span>
                             <MathSelector
                                 size="small"
                                 math={filter.math}
@@ -226,7 +226,7 @@ export function EntityGroupNode({
                                     size="small"
                                     icon={<IconTrash />}
                                     onClick={() => removeLocalFilter({ index })}
-                                    className="EntityGroupNode__delete-btn"
+                                    className="ActionFilterGroup__delete-btn"
                                     data-attr={`group-filter-delete-${index}`}
                                 />
                             </Tooltip>
@@ -235,7 +235,7 @@ export function EntityGroupNode({
                                     size="small"
                                     icon={<IconUndo />}
                                     onClick={() => splitLocalFilter(index)}
-                                    className="EntityGroupNode__split-btn"
+                                    className="ActionFilterGroup__split-btn"
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
@@ -244,7 +244,7 @@ export function EntityGroupNode({
                 </div>
 
                 {/* Events section - render each value as ActionFilterRow */}
-                <ul className="EntityGroupNode__events-section">
+                <ul className="ActionFilterGroup__events-section">
                     {values.map((eventFilter, eventIndex) => (
                         <div key={eventFilter.uuid || eventIndex}>
                             <ActionFilterRow
@@ -268,12 +268,12 @@ export function EntityGroupNode({
                                 excludedProperties={excludedProperties}
                             />
                             {eventIndex < values.length - 1 && (
-                                <div className="EntityGroupNode__operator-separator">
-                                    <div className="EntityGroupNode__operator-line EntityGroupNode__operator-line--left" />
-                                    <div className="EntityGroupNode__operator-text">
+                                <div className="ActionFilterGroup__operator-separator">
+                                    <div className="ActionFilterGroup__operator-line ActionFilterGroup__operator-line--left" />
+                                    <div className="ActionFilterGroup__operator-text">
                                         {filter.operator || FilterLogicalOperator.Or}
                                     </div>
-                                    <div className="EntityGroupNode__operator-line EntityGroupNode__operator-line--right" />
+                                    <div className="ActionFilterGroup__operator-line ActionFilterGroup__operator-line--right" />
                                 </div>
                             )}
                         </div>
@@ -282,7 +282,7 @@ export function EntityGroupNode({
 
                 {/* Add event button with popover */}
                 {!readOnly && values.length < 10 && (
-                    <div className="EntityGroupNode__add-event-wrapper">
+                    <div className="ActionFilterGroup__add-event-wrapper">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}
                             groupType={TaxonomicFilterGroupType.Events}

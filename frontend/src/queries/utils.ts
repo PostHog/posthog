@@ -13,7 +13,6 @@ import {
     DataWarehouseNode,
     DatabaseSchemaQuery,
     DateRange,
-    EntityGroupNode,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
     EventsNode,
@@ -23,6 +22,7 @@ import {
     ExperimentTrendsQuery,
     FunnelsQuery,
     GoalLine,
+    GroupNode,
     GroupsQuery,
     HogQLASTQuery,
     HogQLMetadata,
@@ -98,8 +98,8 @@ export function isEventsNode(node?: Record<string, any> | null): node is EventsN
     return node?.kind === NodeKind.EventsNode
 }
 
-export function isEntityGroupNode(node?: Record<string, any> | null): node is EntityGroupNode {
-    return node?.kind === NodeKind.EntityGroupNode
+export function isGroupNode(node?: Record<string, any> | null): node is GroupNode {
+    return node?.kind === NodeKind.GroupNode
 }
 
 export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {

@@ -6,9 +6,9 @@ import {
     BreakdownFilter,
     CompareFilter,
     DataWarehouseNode,
-    EntityGroupNode,
     EventsNode,
     FunnelsFilterLegacy,
+    GroupNode,
     InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
@@ -21,9 +21,9 @@ import {
 import {
     isActionsNode,
     isDataWarehouseNode,
-    isEntityGroupNode,
     isEventsNode,
     isFunnelsQuery,
+    isGroupNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
@@ -40,12 +40,10 @@ type FilterTypeActionsAndEvents = {
     groups?: ActionFilter[]
 }
 
-const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode): any => {
-    if (isEntityGroupNode(node)) {
+const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode): any => {
+    if (isGroupNode(node)) {
         return null
     }
-
-    // return isDataWarehouseNode(node) ? node.table_name : (!isActionsNode(node) ? node.event : node.id) || null
 
     if (isDataWarehouseNode(node)) {
         return node.table_name
@@ -59,13 +57,13 @@ const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | Entity
 }
 
 export const seriesNodeToFilter = (
-    node: EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode,
+    node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
     index?: number
 ): ActionFilter => {
     const entity: ActionFilter = objectClean({
         type: isDataWarehouseNode(node)
             ? EntityTypes.DATA_WAREHOUSE
-            : isEntityGroupNode(node)
+            : isGroupNode(node)
               ? EntityTypes.GROUPS
               : isActionsNode(node)
                 ? EntityTypes.ACTIONS
@@ -90,7 +88,7 @@ export const seriesNodeToFilter = (
                   distinct_id_field: node.distinct_id_field,
               }
             : {}),
-        ...(isEntityGroupNode(node)
+        ...(isGroupNode(node)
             ? {
                   operator: node.operator,
                   values: node.values || [],
@@ -102,7 +100,7 @@ export const seriesNodeToFilter = (
 }
 
 export const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode | EntityGroupNode)[]
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
@@ -117,7 +115,7 @@ export const seriesToActionsAndEvents = (
             actions.push(entity)
         } else if (isDataWarehouseNode(node)) {
             data_warehouse.push(entity)
-        } else if (isEntityGroupNode(node)) {
+        } else if (isGroupNode(node)) {
             groups.push(entity)
         } else {
             new_entity.push(entity)
