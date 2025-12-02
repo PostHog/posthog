@@ -159,15 +159,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
                 const source = query.source
 
-                // Clean up Web Analytics queries by removing invalid fields that might have been saved
-                if (isWebStatsTableQuery(source) || isWebOverviewQuery(source)) {
-                    const { series, breakdownFilter, ...cleanSource } = source as typeof source & {
-                        series?: unknown
-                        breakdownFilter?: unknown
-                    }
-                    return cleanSource as typeof source
-                }
-
                 return source
             },
         ],
@@ -629,7 +620,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
             const filterProperty = filterKeyForQuery(values.localQuerySource)
             actions.updateQuerySource({
-                [filterProperty]: { ...values.localQuerySource[filterProperty], ...insightFilter },
+                [filterProperty]: { ...querySource[filterProperty], ...insightFilter },
             })
         },
 
@@ -710,6 +701,11 @@ const handleQuerySourceUpdateSideEffects = (
     currentState: InsightQueryNode,
     isIntervalManuallySet: boolean
 ): QuerySourceUpdate => {
+    // Web analytics queries don't need side effect handling
+    if (isWebAnalyticsInsightQuery(currentState)) {
+        return update
+    }
+
     const mergedUpdate = { ...update } as InsightQueryNode
 
     const maybeChangedSeries = (update as TrendsQuery).series || null

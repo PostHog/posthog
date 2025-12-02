@@ -1986,11 +1986,11 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     samplingFactor?: number | null
     filterTestAccounts?: boolean
     includeRevenue?: boolean
-    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    /** @deprecated For Product Analytics UI compatibility only - not used in Web Analytics query execution */
     interval?: IntervalType
-    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    /** @deprecated Groups aggregation - not used in Web Analytics but required for type compatibility */
     aggregation_group_type_index?: integer | null
-    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    /** @deprecated Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
     dataColorTheme?: number | null
     orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
@@ -3198,7 +3198,6 @@ export type InsightFilterProperty =
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
-    | 'properties'
 
 export type InsightFilter =
     | TrendsFilter
@@ -3208,7 +3207,6 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
-    | WebAnalyticsPropertyFilters
 
 export type Day = integer
 
