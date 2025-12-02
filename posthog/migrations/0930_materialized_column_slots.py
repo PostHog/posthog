@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0928_add_team_require_evaluation_tags"),
+        ("posthog", "0929_remove_legacy_batch_export_notification_setting"),
     ]
 
     operations = [
