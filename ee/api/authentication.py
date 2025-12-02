@@ -440,9 +440,13 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
         try:
             payload = self._validate_jwt_token(token)
-        except jwt.ExpiredSignatureError:
+        except jwt.ExpiredSignatureError as e:
+            capture_exception(e)
+            logger.warning("Billing service token expired")
             raise AuthenticationFailed("Token has expired")
-        except jwt.InvalidAudienceError:
+        except jwt.InvalidAudienceError as e:
+            capture_exception(e)
+            logger.warning("Billing service token has invalid audience")
             raise AuthenticationFailed("Invalid token audience")
         except jwt.InvalidTokenError as e:
             capture_exception(e)

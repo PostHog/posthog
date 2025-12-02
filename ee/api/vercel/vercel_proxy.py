@@ -144,6 +144,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
 
     def _call_vercel(self, config_id: str | None, access_token: str, path: str, method: str, body: dict) -> Response:
         if not config_id:
+            capture_exception(ValueError("Vercel integration has no config_id"))
+            logger.error("Vercel integration missing config_id")
             return Response(
                 {"error": "Invalid Vercel integration configuration"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
