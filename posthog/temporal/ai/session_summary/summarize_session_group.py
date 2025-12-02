@@ -69,7 +69,7 @@ from ee.hogai.session_summaries.session.summarize_session import (
 )
 from ee.hogai.session_summaries.session_group.patterns import EnrichedSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import logging_session_ids
-from ee.models.session_summaries import SingleSessionSummary
+from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
@@ -530,7 +530,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
         return session_ids_with_patterns_extracted
 
     @temporalio.workflow.run
-    async def run(self, inputs: SessionGroupSummaryInputs) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
+    async def run(self, inputs: SessionGroupSummaryInputs) -> str:
         self._total_sessions = len(inputs.session_ids)
         # Get events data from the DB (or cache)
         self._current_status.append("Fetching session data from the database")
@@ -625,9 +625,16 @@ async def _start_session_group_summary_workflow(
         patterns_keys: list[str] = await handle.query("get_raw_patterns_extraction_keys")
         # Workflow completed - get and yield the final result
         if workflow_description.status == WorkflowExecutionStatus.COMPLETED:
-            result_raw: list = await handle.result()
-            patterns_dict, summary_id = result_raw
-            patterns = EnrichedSessionGroupSummaryPatternsList(**patterns_dict)
+            summary_id: str = await handle.result()
+            # Fetch the summary from DB by id
+            try:
+                session_group_summary = await SessionGroupSummary.objects.aget(id=summary_id)
+            except SessionGroupSummary.DoesNotExist:
+                msg = f"SessionGroupSummary with id {summary_id} not found in DB after workflow {workflow_id} completed"
+                logger.exception(msg, workflow_id=workflow_id, summary_id=summary_id, signals_type="session-summaries")
+                raise ApplicationError(msg)
+            # Parse the summary JSON into EnrichedSessionGroupSummaryPatternsList
+            patterns = EnrichedSessionGroupSummaryPatternsList.model_validate_json(session_group_summary.summary)
             yield (
                 SessionSummaryStreamUpdate.FINAL_RESULT,
                 (patterns, summary_id),
