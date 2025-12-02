@@ -161,7 +161,7 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
             if not is_valid:
                 return (
                     False,
-                    f"{accessible_customers.resource_names} Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
+                    f"Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
                 )
             return True, None
         except Exception as e:
