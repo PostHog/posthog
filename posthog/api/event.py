@@ -254,11 +254,13 @@ class EventViewSet(
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
                 headers = {"X-PostHog-Warn": "https://posthog.com/docs/events_list-upcoming-changes"}
-            if deprecate_offset and offset:
-                headers["X-PostHog-Warn"] = (
-                    "offset is deprecated. "
-                    "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-                )
+            elif deprecate_offset and offset:
+                headers = {
+                    "X-PostHog-Warn": (
+                        "offset is deprecated. "
+                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                    )
+                }
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:
