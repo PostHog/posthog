@@ -1706,13 +1706,13 @@ class FeatureFlagViewSet(
         authentication_classes=[TemporaryTokenAuthentication, ProjectSecretAPIKeyAuthentication],
         permission_classes=[ProjectSecretAPITokenPermission],
     )
-    def local_evaluation(self, request: request.Request, validated_data, **kwargs) -> Response:
+    def local_evaluation(self, request: request.Request, **kwargs) -> Response:
         # **kwargs is required because DRF passes parent_lookup_project_id from nested router
         start_time = time.time()
         logger = logging.getLogger(__name__)
 
         # Use validated boolean value from serializer
-        include_cohorts = validated_data.get("send_cohorts", False)
+        include_cohorts = request.validated_query_data.get("send_cohorts", False)
 
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
@@ -1977,7 +1977,7 @@ class FeatureFlagViewSet(
         responses={
             200: OpenApiResponse(
                 response=inline_serializer(
-                    name="ActivityPageResponse",
+                    name="FeatureFlagActivitiesPageResponse",
                     fields={
                         "results": serializers.ListSerializer(child=serializers.DictField()),
                         "next": serializers.URLField(allow_null=True),
@@ -2053,7 +2053,7 @@ class FeatureFlagViewSet(
         responses={
             200: OpenApiResponse(
                 response=inline_serializer(
-                    name="ActivityPageResponse",
+                    name="FeatureFlagActivityPageResponse",
                     fields={
                         "results": serializers.ListSerializer(child=serializers.DictField()),
                         "next": serializers.URLField(allow_null=True),
