@@ -70,6 +70,11 @@ export const couponLogic = kea<couponLogicType>([
                     })
                 } catch (error: any) {
                     lemonToast.error(error.detail || 'Failed to claim coupon')
+                    posthog.capture('billing coupon claim failed', {
+                        campaign: props.campaign,
+                        code: formValues.code,
+                        error: error.detail || 'Unknown error',
+                    })
                     throw error
                 }
             },
