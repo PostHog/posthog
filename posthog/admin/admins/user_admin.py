@@ -83,7 +83,7 @@ class UserAdmin(DjangoUserAdmin):
     list_display_links = ("id", "email")
     list_filter = ("is_staff", "is_active", "groups")
     list_select_related = ("current_team", "current_organization")
-    search_fields = ("email", "first_name", "last_name")
+    search_fields = ("id", "uuid", "email", "first_name", "last_name")
     readonly_fields = [
         "id",
         "current_team",

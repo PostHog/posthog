@@ -6,7 +6,6 @@ from django.urls import path, reverse
 from django.utils.html import escapejs, format_html
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
-from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.models import Team
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
@@ -46,10 +45,11 @@ class TeamAdmin(admin.ModelAdmin):
         "updated_at",
         "internal_properties",
         "remote_config_cache_actions",
+        "user_product_list_link",
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [TeamMarketingAnalyticsConfigInline]
     fieldsets = [
         (
             None,
@@ -60,6 +60,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "uuid",
                     "organization",
                     "project",
+                    "user_product_list_link",
                     "internal_properties",
                     "remote_config_cache_actions",
                 ],
@@ -161,6 +162,16 @@ class TeamAdmin(admin.ModelAdmin):
                 team.project.name,
             )
         return "-"
+
+    @admin.display(description="User product list")
+    def user_product_list_link(self, team: Team):
+        if not team.pk:
+            return "-"
+        from posthog.models.file_system.user_product_list import UserProductList
+
+        count = UserProductList.objects.filter(team=team).count()
+        url = reverse("admin:posthog_userproductlist_changelist") + f"?team__id__exact={team.pk}"
+        return format_html('<a href="{}">{} entries</a>', url, count)
 
     @admin.display(description="PostHog system internal properties")
     def internal_properties(self, team: Team):
