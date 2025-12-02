@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
@@ -42,10 +42,20 @@ export function StacktraceTab({
     ...props
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType } =
+        useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool()
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId, exceptionType)
+
+    useEffect(() => {
+        if (!loading) {
+            if (hasStacktrace && !hasInAppFrames) {
+                setShowAllFrames(true)
+            }
+        }
+    }, [loading, hasStacktrace, hasInAppFrames, setShowAllFrames])
 
     return (
         <TabsPrimitiveContent {...props}>

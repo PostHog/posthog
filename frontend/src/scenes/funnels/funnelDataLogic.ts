@@ -12,11 +12,11 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
-    FunnelAPIResponse,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -28,6 +28,7 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
+    InsightModel,
     InsightType,
     StepOrderValue,
     TrendResult,
@@ -47,6 +48,20 @@ import {
 } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
+
+function isFunnelsQueryOrLegacyFilter(
+    insightData: Partial<InsightModel> | null | undefined,
+    querySource: InsightQueryNode | null
+): boolean {
+    /**
+     * TODO: Remove legacy filter check once all tests are migrated to query-based format.
+     * There are still multiple tests relying on the legacy format in funnelDataLogic.test.ts.
+     */
+    if (insightData?.filters?.insight === InsightType.FUNNELS) {
+        return true
+    }
+    return isFunnelsQuery(querySource)
+}
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
     path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
@@ -152,9 +167,27 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         results: [
-            (s) => [s.insightData],
-            (insightData: FunnelAPIResponse | null): FunnelResultType => {
+            (s) => [s.insightData, s.vizQuerySource, s.querySource],
+            (insightData, vizQuerySource, querySource): FunnelResultType => {
+                // Web analytics queries should not be processed as funnels, even though their response
+                // structure may look similar. InsightVizDisplay unconditionally mounts funnelDataLogic,
+                // so we need explicit guards to prevent web analytics data from being misinterpreted.
+                if (isWebStatsTableQuery(vizQuerySource) || isWebOverviewQuery(vizQuerySource)) {
+                    return []
+                }
+
                 // TODO: after hooking up data manager, check that we have a funnels result here
+                // We check both the legacy filter approach (insightData.filters.insight) and the new
+                // query-based approach (querySource.kind) because tests still use the legacy approach.
+                // This pattern matches the checks in the 'steps' and 'hasFunnelResults' selectors.
+                if (
+                    insightData?.filters?.insight !== InsightType.FUNNELS &&
+                    querySource &&
+                    querySource?.kind !== NodeKind.FunnelsQuery
+                ) {
+                    return []
+                }
+
                 if (insightData?.result) {
                     if (isBreakdownFunnelResults(insightData.result) && insightData.result?.[0]?.[0]?.breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
@@ -173,20 +206,23 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         steps: [
-            (s) => [s.insightData, s.querySource, s.breakdownFilter, s.results, s.isTimeToConvertFunnel],
+            (s) => [
+                s.insightData,
+                s.vizQuerySource,
+                s.querySource,
+                s.breakdownFilter,
+                s.results,
+                s.isTimeToConvertFunnel,
+            ],
             (
                 insightData,
+                _vizQuerySource,
                 querySource,
                 breakdownFilter,
                 results,
                 isTimeToConvertFunnel
             ): FunnelStepWithNestedBreakdown[] => {
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return []
                 }
 
@@ -213,12 +249,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             ): FunnelStepWithConversionMetrics[] => {
                 const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
                 // Get optional steps from series (1-indexed)
-                const optionalSteps =
-                    querySource?.kind === NodeKind.FunnelsQuery
-                        ? querySource.series
-                              .map((_, i: number) => i + 1)
-                              .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
-                        : []
+                const optionalSteps = querySource
+                    ? querySource.series
+                          .map((_, i: number) => i + 1)
+                          .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
+                    : []
                 return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
         ],
@@ -321,12 +356,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         hasFunnelResults: [
             (s) => [s.insightData, s.funnelsFilter, s.steps, s.histogramGraphData, s.querySource],
             (insightData, funnelsFilter, steps, histogramGraphData, querySource) => {
-                if (
-                    // TODO: Ideally we don't check filters anymore, but tests are still using this
-                    insightData?.filters?.insight !== InsightType.FUNNELS &&
-                    querySource &&
-                    querySource?.kind !== NodeKind.FunnelsQuery
-                ) {
+                if (!isFunnelsQueryOrLegacyFilter(insightData, querySource)) {
                     return false
                 }
 
