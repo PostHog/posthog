@@ -1564,8 +1564,8 @@ describe('BatchWritingPersonStore', () => {
 
             // Update person with only filtered properties (existing properties being updated)
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                { ...person, properties: { $browser: 'Firefox', utm_source: 'twitter' } },
-                { $browser: 'Chrome', utm_source: 'google' },
+                { ...person, properties: { $browser: 'Firefox', $app_build: '100' } },
+                { $browser: 'Chrome', $app_build: '200' },
                 [],
                 {},
                 'test'
@@ -1588,7 +1588,7 @@ describe('BatchWritingPersonStore', () => {
                 property: '$browser',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: 'utm_source',
+                property: '$app_build',
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
@@ -1744,8 +1744,8 @@ describe('BatchWritingPersonStore', () => {
 
             // Update person with only filtered properties but with force_update=true (simulating $identify/$set events)
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                { ...person, properties: { $browser: 'Firefox', utm_source: 'twitter' } },
-                { $browser: 'Chrome', utm_source: 'google' },
+                { ...person, properties: { $browser: 'Firefox', $app_build: '100' } },
+                { $browser: 'Chrome', $app_build: '200' },
                 [],
                 {},
                 'test',
@@ -1768,7 +1768,7 @@ describe('BatchWritingPersonStore', () => {
             // personPropertyKeyUpdateCounter should be called for the updated properties
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'utm_source' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$app_build' })
         })
 
         it('integration: multiple events with only filtered properties should not trigger database write', async () => {
@@ -1780,7 +1780,7 @@ describe('BatchWritingPersonStore', () => {
                 ...person,
                 properties: {
                     $browser: 'Firefox',
-                    utm_source: 'twitter',
+                    $app_build: '100',
                     $geoip_city_name: 'New York',
                 },
             }
@@ -1794,10 +1794,10 @@ describe('BatchWritingPersonStore', () => {
                 'test'
             )
 
-            // Event 2: Update UTM source
+            // Event 2: Update app build
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { utm_source: 'google' },
+                { $app_build: '200' },
                 [],
                 {},
                 'test'
@@ -1829,7 +1829,7 @@ describe('BatchWritingPersonStore', () => {
                 property: '$browser',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: 'utm_source',
+                property: '$app_build',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
                 property: '$geoip_city_name',
@@ -1847,7 +1847,7 @@ describe('BatchWritingPersonStore', () => {
                 ...person,
                 properties: {
                     $browser: 'Firefox',
-                    utm_source: 'twitter',
+                    $app_build: '100',
                     $os: 'Windows',
                     name: 'Jane',
                 },
@@ -1862,10 +1862,10 @@ describe('BatchWritingPersonStore', () => {
                 'test'
             )
 
-            // Event 2: Update UTM source (filtered)
+            // Event 2: Update app build (filtered)
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { utm_source: 'google' },
+                { $app_build: '200' },
                 [],
                 {},
                 'test'
@@ -1897,7 +1897,7 @@ describe('BatchWritingPersonStore', () => {
                 expect.objectContaining({
                     properties: {
                         $browser: 'Chrome',
-                        utm_source: 'google',
+                        $app_build: '200',
                         $os: 'macOS',
                         name: 'John',
                     },
@@ -1917,7 +1917,7 @@ describe('BatchWritingPersonStore', () => {
             // personPropertyKeyUpdateCounter should be called for all 4 properties
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(4)
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'utm_source' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$app_build' })
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$os' })
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: 'other' })
         })
@@ -2045,7 +2045,7 @@ describe('BatchWritingPersonStore', () => {
                 ...person,
                 properties: {
                     $browser: 'Firefox',
-                    utm_source: 'twitter',
+                    $app_build: '100',
                 },
             }
 
@@ -2062,7 +2062,7 @@ describe('BatchWritingPersonStore', () => {
             // Event 2: Another normal event with filtered properties
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { utm_source: 'google' },
+                { $app_build: '200' },
                 [],
                 {},
                 'test'
@@ -2097,7 +2097,7 @@ describe('BatchWritingPersonStore', () => {
                 property: '$browser',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: 'utm_source',
+                property: '$app_build',
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
