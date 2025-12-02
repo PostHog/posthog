@@ -1,11 +1,13 @@
 """
-Helper functions for triggering person property precalculation workflows.
+Helper functions for triggering precalculated person properties backfill workflows.
 
 Called when a realtime cohort with person property filters is created or updated.
 """
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.temporal.messaging.precalculate_person_properties_workflow_coordinator import PersonPropertyFilter
+from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
+    PersonPropertyFilter,
+)
 
 
 def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:

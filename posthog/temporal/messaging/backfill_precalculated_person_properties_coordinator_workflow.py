@@ -12,10 +12,10 @@ import temporalio.workflow
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.precalculate_person_properties_workflow import (
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+    BackfillPrecalculatedPersonPropertiesInputs,
+    BackfillPrecalculatedPersonPropertiesWorkflow,
     PersonPropertyFilter,
-    PrecalculatePersonPropertiesWorkflow,
-    PrecalculatePersonPropertiesWorkflowInputs,
 )
 
 LOGGER = get_logger(__name__)
@@ -25,14 +25,14 @@ class ChildWorkflowConfig(TypedDict):
     """Type definition for child workflow configuration."""
 
     id: str
-    inputs: PrecalculatePersonPropertiesWorkflowInputs
+    inputs: BackfillPrecalculatedPersonPropertiesInputs
     offset: int
     limit: int
     index: int
 
 
 @dataclasses.dataclass
-class PrecalculatePersonPropertiesCoordinatorWorkflowInputs:
+class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     """Inputs for the coordinator workflow that spawns child workflows."""
 
     team_id: int
@@ -64,7 +64,9 @@ class PersonCountResult:
 
 
 @temporalio.activity.defn
-async def get_person_count_activity(inputs: PrecalculatePersonPropertiesCoordinatorWorkflowInputs) -> PersonCountResult:
+async def get_person_count_activity(
+    inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
+) -> PersonCountResult:
     """Get the total count of non-deleted persons for the team."""
 
     query = """
@@ -88,17 +90,17 @@ async def get_person_count_activity(inputs: PrecalculatePersonPropertiesCoordina
     return PersonCountResult(count=0)
 
 
-@temporalio.workflow.defn(name="precalculate-person-properties-coordinator")
-class PrecalculatePersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
+@temporalio.workflow.defn(name="backfill-precalculated-person-properties-coordinator")
+class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
     """Coordinator workflow that spawns multiple child workflows for parallel person processing."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> PrecalculatePersonPropertiesCoordinatorWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
         """Parse inputs from the management command CLI."""
         raise NotImplementedError("Use start_workflow() to trigger this workflow programmatically")
 
     @temporalio.workflow.run
-    async def run(self, inputs: PrecalculatePersonPropertiesCoordinatorWorkflowInputs) -> None:
+    async def run(self, inputs: BackfillPrecalculatedPersonPropertiesCoordinatorInputs) -> None:
         """Run the coordinator workflow that spawns child workflows."""
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(
@@ -139,7 +141,7 @@ class PrecalculatePersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             workflow_configs.append(
                 ChildWorkflowConfig(
                     id=f"{temporalio.workflow.info().workflow_id}-child-{i}",
-                    inputs=PrecalculatePersonPropertiesWorkflowInputs(
+                    inputs=BackfillPrecalculatedPersonPropertiesInputs(
                         team_id=inputs.team_id,
                         cohort_id=inputs.cohort_id,
                         filters=inputs.filters,
@@ -176,7 +178,7 @@ class PrecalculatePersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
             start_tasks = []
             for config in batch_configs:
                 task = temporalio.workflow.start_child_workflow(
-                    PrecalculatePersonPropertiesWorkflow.run,
+                    BackfillPrecalculatedPersonPropertiesWorkflow.run,
                     config["inputs"],
                     id=config["id"],
                     task_queue=settings.MESSAGING_TASK_QUEUE,

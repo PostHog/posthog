@@ -1,10 +1,10 @@
-from posthog.temporal.messaging.precalculate_person_properties_workflow import (
-    PrecalculatePersonPropertiesWorkflow,
-    precalculate_person_properties_activity,
-)
-from posthog.temporal.messaging.precalculate_person_properties_workflow_coordinator import (
-    PrecalculatePersonPropertiesCoordinatorWorkflow,
+from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
+    BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
     get_person_count_activity,
+)
+from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
+    BackfillPrecalculatedPersonPropertiesWorkflow,
+    backfill_precalculated_person_properties_activity,
 )
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
@@ -16,14 +16,14 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator
 )
 
 WORKFLOWS = [
-    PrecalculatePersonPropertiesWorkflow,
-    PrecalculatePersonPropertiesCoordinatorWorkflow,
+    BackfillPrecalculatedPersonPropertiesWorkflow,
+    BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow,
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationCoordinatorWorkflow,
 ]
 ACTIVITIES = [
     get_person_count_activity,
     get_realtime_cohort_calculation_count_activity,
-    precalculate_person_properties_activity,
+    backfill_precalculated_person_properties_activity,
     process_realtime_cohort_calculation_activity,
 ]

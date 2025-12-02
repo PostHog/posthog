@@ -12,8 +12,8 @@ from posthog.models import Cohort
 from posthog.models.cohort.cohort import CohortType
 from posthog.models.cohort.precalculate_person_properties import extract_person_property_filters
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.messaging.precalculate_person_properties_workflow_coordinator import (
-    PrecalculatePersonPropertiesCoordinatorWorkflowInputs,
+from posthog.temporal.messaging.backfill_precalculated_person_properties_coordinator_workflow import (
+    BackfillPrecalculatedPersonPropertiesCoordinatorInputs,
 )
 
 logger = structlog.get_logger(__name__)
@@ -25,16 +25,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument(
-            "--cohort-id",
-            type=int,
-            required=True,
-            help="Cohort ID to backfill person properties for",
-        )
-        parser.add_argument(
             "--team-id",
             type=int,
             required=True,
-            help="Team ID for the cohort",
+            help="Team ID to backfill person properties for",
+        )
+        parser.add_argument(
+            "--cohort-id",
+            type=int,
+            required=False,
+            help="Optional: Specific cohort ID to backfill. If not provided, backfills all realtime cohorts for the team",
         )
         parser.add_argument(
             "--parallelism",
@@ -62,63 +62,98 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        cohort_id = options["cohort_id"]
         team_id = options["team_id"]
+        cohort_id = options.get("cohort_id")
         parallelism = options["parallelism"]
         batch_size = options["batch_size"]
         workflows_per_batch = options["workflows_per_batch"]
         batch_delay_minutes = options["batch_delay_minutes"]
 
-        # Validate cohort exists and is realtime
-        try:
-            cohort = Cohort.objects.get(id=cohort_id, team_id=team_id)
-        except Cohort.DoesNotExist:
-            self.stdout.write(self.style.ERROR(f"Cohort {cohort_id} not found for team {team_id}"))
-            return
-
-        if cohort.cohort_type != CohortType.REALTIME:
-            self.stdout.write(
-                self.style.ERROR(f"Cohort {cohort_id} is not a realtime cohort (type: {cohort.cohort_type})")
+        # Get cohorts to process
+        if cohort_id:
+            # Single cohort mode
+            try:
+                cohorts = [Cohort.objects.get(id=cohort_id, team_id=team_id)]
+            except Cohort.DoesNotExist:
+                self.stdout.write(self.style.ERROR(f"Cohort {cohort_id} not found for team {team_id}"))
+                return
+        else:
+            # All realtime cohorts for team
+            cohorts = list(
+                Cohort.objects.filter(
+                    team_id=team_id,
+                    cohort_type=CohortType.REALTIME,
+                    deleted=False,
+                ).order_by("id")
             )
-            return
+            if not cohorts:
+                self.stdout.write(self.style.WARNING(f"No realtime cohorts found for team {team_id}"))
+                return
 
-        # Extract person property filters
-        filters = extract_person_property_filters(cohort)
-        if not filters:
+        self.stdout.write(self.style.SUCCESS(f"Found {len(cohorts)} realtime cohort(s) to process for team {team_id}"))
+
+        # Process each cohort
+        workflow_ids = []
+        for cohort in cohorts:
+            if cohort.cohort_type != CohortType.REALTIME:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipping cohort {cohort.id}: not a realtime cohort (type: {cohort.cohort_type})"
+                    )
+                )
+                continue
+
+            # Extract person property filters
+            filters = extract_person_property_filters(cohort)
+            if not filters:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"Skipping cohort {cohort.id}: no person property filters with conditionHash and bytecode"
+                    )
+                )
+                continue
+
             self.stdout.write(
-                self.style.WARNING(f"Cohort {cohort_id} has no person property filters with conditionHash and bytecode")
+                self.style.SUCCESS(f"Processing cohort {cohort.id}: found {len(filters)} person property filters")
             )
-            return
+            for f in filters:
+                self.stdout.write(f"  - conditionHash: {f.condition_hash}")
 
-        self.stdout.write(self.style.SUCCESS(f"Found {len(filters)} person property filters for cohort {cohort_id}"))
-        for f in filters:
-            self.stdout.write(f"  - conditionHash: {f.condition_hash}")
+            logger.info(
+                "Starting person properties backfill coordinator",
+                cohort_id=cohort.id,
+                team_id=team_id,
+                filter_count=len(filters),
+                parallelism=parallelism,
+                batch_size=batch_size,
+                workflows_per_batch=workflows_per_batch,
+                batch_delay_minutes=batch_delay_minutes,
+            )
 
-        logger.info(
-            "Starting person properties backfill coordinator",
-            cohort_id=cohort_id,
-            team_id=team_id,
-            filter_count=len(filters),
-            parallelism=parallelism,
-            batch_size=batch_size,
-            workflows_per_batch=workflows_per_batch,
-            batch_delay_minutes=batch_delay_minutes,
-        )
+            workflow_id = self.run_temporal_workflow(
+                cohort=cohort,
+                filters=filters,
+                parallelism=parallelism,
+                batch_size=batch_size,
+                workflows_per_batch=workflows_per_batch,
+                batch_delay_minutes=batch_delay_minutes,
+            )
 
-        workflow_id = self.run_temporal_workflow(
-            cohort=cohort,
-            filters=filters,
-            parallelism=parallelism,
-            batch_size=batch_size,
-            workflows_per_batch=workflows_per_batch,
-            batch_delay_minutes=batch_delay_minutes,
-        )
+            workflow_ids.append((cohort.id, workflow_id))
+            self.stdout.write(
+                self.style.SUCCESS(
+                    f"Cohort {cohort.id}: Coordinator workflow '{workflow_id}' scheduled {parallelism} child workflows"
+                )
+            )
 
+        self.stdout.write(self.style.SUCCESS(f"\nSuccessfully started {len(workflow_ids)} coordinator workflow(s)"))
+        for cohort_id, workflow_id in workflow_ids:
+            self.stdout.write(f"  Cohort {cohort_id}: {workflow_id}")
         self.stdout.write(
-            self.style.SUCCESS(f"Coordinator workflow '{workflow_id}' scheduled {parallelism} child workflows")
+            "\nChild workflows are running in the background. Check Temporal UI for progress and results."
         )
-        self.stdout.write("Child workflows are running in the background. Check Temporal UI for progress and results.")
-        self.stdout.write(f"Temporal UI: http://localhost:8233/namespaces/default/workflows/{workflow_id}")
+        if workflow_ids:
+            self.stdout.write(f"Temporal UI: http://localhost:8233/namespaces/default/workflows")
 
     def run_temporal_workflow(
         self,
@@ -136,7 +171,7 @@ class Command(BaseCommand):
             client = await async_connect()
 
             # Create coordinator workflow inputs
-            inputs = PrecalculatePersonPropertiesCoordinatorWorkflowInputs(
+            inputs = BackfillPrecalculatedPersonPropertiesCoordinatorInputs(
                 team_id=cohort.team_id,
                 cohort_id=cohort.id,
                 filters=filters,
@@ -147,14 +182,14 @@ class Command(BaseCommand):
             )
 
             # Generate unique workflow ID
-            workflow_id = f"precalculate-person-properties-{cohort.id}-{cohort.team_id}-{int(time.time())}"
+            workflow_id = f"backfill-precalculated-person-properties-{cohort.id}-{cohort.team_id}-{int(time.time())}"
 
             logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
 
             try:
                 # Start the coordinator workflow (fire-and-forget)
                 await client.start_workflow(
-                    "precalculate-person-properties-coordinator",
+                    "backfill-precalculated-person-properties-coordinator",
                     inputs,
                     id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,

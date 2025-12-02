@@ -43,8 +43,8 @@ class PersonPropertyFilter:
 
 
 @dataclasses.dataclass
-class PrecalculatePersonPropertiesWorkflowInputs:
-    """Inputs for the person properties precalculation workflow."""
+class BackfillPrecalculatedPersonPropertiesInputs:
+    """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
     cohort_id: int
@@ -66,9 +66,11 @@ class PrecalculatePersonPropertiesWorkflowInputs:
 
 
 @temporalio.activity.defn
-async def precalculate_person_properties_activity(inputs: PrecalculatePersonPropertiesWorkflowInputs) -> None:
+async def backfill_precalculated_person_properties_activity(
+    inputs: BackfillPrecalculatedPersonPropertiesInputs,
+) -> None:
     """
-    Precalculate person properties for a batch of persons.
+    Backfill precalculated person properties for a batch of persons.
 
     Queries the current state of persons from the persons table and evaluates them
     against the provided filters, writing results to the precalculated_person_properties table.
@@ -225,19 +227,19 @@ async def precalculate_person_properties_activity(inputs: PrecalculatePersonProp
         )
 
 
-@temporalio.workflow.defn(name="precalculate-person-properties")
-class PrecalculatePersonPropertiesWorkflow(PostHogWorkflow):
-    """Workflow that precalculates person properties for a cohort."""
+@temporalio.workflow.defn(name="backfill-precalculated-person-properties")
+class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
+    """Workflow that backfills precalculated person properties for a cohort."""
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> PrecalculatePersonPropertiesWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesInputs:
         """Parse inputs from the management command CLI."""
         # This would be called programmatically, not from CLI
         raise NotImplementedError("Use start_workflow() to trigger this workflow programmatically")
 
     @temporalio.workflow.run
-    async def run(self, inputs: PrecalculatePersonPropertiesWorkflowInputs) -> None:
-        """Run the workflow to precalculate person properties."""
+    async def run(self, inputs: BackfillPrecalculatedPersonPropertiesInputs) -> None:
+        """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(
             f"Starting person properties precalculation for cohort {inputs.cohort_id} "
@@ -246,7 +248,7 @@ class PrecalculatePersonPropertiesWorkflow(PostHogWorkflow):
 
         # Process the batch of persons
         await temporalio.workflow.execute_activity(
-            precalculate_person_properties_activity,
+            backfill_precalculated_person_properties_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(hours=2),  # Long timeout for large batches
             heartbeat_timeout=dt.timedelta(minutes=5),
@@ -257,4 +259,4 @@ class PrecalculatePersonPropertiesWorkflow(PostHogWorkflow):
             ),
         )
 
-        workflow_logger.info("Person properties precalculation workflow completed")
+        workflow_logger.info("Precalculated person properties backfill workflow completed")
