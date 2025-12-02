@@ -908,6 +908,15 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         response = self.client.delete(f"/api/projects/@current/sandbox_environments/{env.id}/")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_cannot_retrieve_other_user_private_environment(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        env = SandboxEnvironment.objects.create(
+            team=self.team, created_by=other_user, name="Other User Env", private=True
+        )
+
+        response = self.client.get(f"/api/projects/@current/sandbox_environments/{env.id}/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_env_vars_stored_encrypted(self):
         response = self.client.post(
             "/api/projects/@current/sandbox_environments/",
