@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Sequence
 from enum import Enum, auto
 from typing import Optional, TypeGuard, Union
 
@@ -145,7 +146,7 @@ class FunnelEventQuery:
             tables_to_steps[table_name].append((step_index, node))
 
         def _build_events_table_query(
-            table_name: str, steps: list[tuple[int, EventsNode | ActionsNode]]
+            table_name: str, steps: Sequence[tuple[int, EventsNode | ActionsNode]]
         ) -> ast.SelectQuery:
             all_step_cols = self._get_funnel_cols(SourceTableKind.EVENTS, table_name)
 
@@ -181,7 +182,7 @@ class FunnelEventQuery:
             return stmt
 
         def _build_data_warehouse_table_query(
-            table_name: str, steps: list[tuple[int, DataWarehouseNode]]
+            table_name: str, steps: Sequence[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
             # TODO: Implement where conditions for data warehouse sources
             node = steps[0][1]
@@ -253,7 +254,7 @@ class FunnelEventQuery:
 
     def _get_funnel_cols(
         self, source_kind: SourceTableKind, table_name: str, node: Optional[DataWarehouseNode] = None
-    ) -> tuple[list[ast.Expr]]:
+    ) -> list[ast.Expr]:
         cols: list[ast.Expr] = []
 
         # extra fields
@@ -358,7 +359,7 @@ class FunnelEventQuery:
             return ast.And(exprs=filters)
         return filters[0]
 
-    def _get_steps_conditions(self, source_kind: SourceTableKind, steps: list[tuple[int, EntityNode]]) -> ast.Expr:
+    def _get_steps_conditions(self, source_kind: SourceTableKind, steps: Sequence[tuple[int, EntityNode]]) -> ast.Expr:
         step_conditions: list[ast.Expr] = []
 
         for index, step in steps:
