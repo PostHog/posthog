@@ -19,9 +19,16 @@ def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter
 
     Returns a list of PersonPropertyFilter objects suitable for passing to the workflow.
     """
-    filters = []
+    filters: list[PersonPropertyFilter] = []
 
-    for group in cohort.filters.get("properties", {}).get("values", []):
+    if not cohort.filters:
+        return filters
+
+    properties = cohort.filters.get("properties")
+    if not properties:
+        return filters
+
+    for group in properties.get("values", []):
         for prop in group.get("values", []):
             # Only process person property filters
             if prop.get("type") != "person":
