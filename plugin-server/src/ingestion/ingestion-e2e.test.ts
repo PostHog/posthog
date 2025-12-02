@@ -722,6 +722,68 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
+    testWithTeamIngester(
+        'PERSON_PROPERTIES_UPDATE_ALL flag enables updates for normally filtered properties',
+        { pluginServerConfig: { PERSON_PROPERTIES_UPDATE_ALL: true } },
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+
+            // With PERSON_PROPERTIES_UPDATE_ALL=true, even normal pageview events should update
+            // filtered properties like $browser, $geoip_*, etc.
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    // Event 1: Normal pageview that creates the person with initial properties
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: { $browser: 'Chrome', $geoip_city_name: 'New York' },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    // Event 2: Another normal pageview with updated filtered properties
+                    // With the flag enabled, these should trigger a person update
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: { $browser: 'Safari', $geoip_city_name: 'San Francisco' },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                ])
+            )
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(2)
+
+                // Event 0 (first pageview): Should have initial properties
+                expect(events[0].person_properties).toEqual({
+                    $browser: 'Chrome',
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_city_name: 'New York',
+                })
+
+                // Event 1 (second pageview): Should have UPDATED properties
+                // This is the key difference - without the flag, these would still show the old values
+                expect(events[1].person_properties).toEqual({
+                    $browser: 'Safari',
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_city_name: 'San Francisco',
+                })
+
+                // Verify the final state of the person in the database reflects the updates
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $browser: 'Safari',
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_city_name: 'San Francisco',
+                })
+            })
+        }
+    )
+
     testWithTeamIngester('can handle events with $process_person_profile=false', {}, async (ingester, hub, team) => {
         const distinctId = new UUIDT().toString()
         const timestamp = DateTime.now().toMillis()
