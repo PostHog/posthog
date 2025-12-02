@@ -733,6 +733,8 @@ MB_50_IN_BYTES = 50 * 1000 * 1000
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     """A HogQL table given by a HogQL query."""
 
+    await logger.adebug("Configuring hogql_table")
+
     query_node = parse_select(query)
     assert query_node is not None
 
@@ -781,6 +783,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     async with get_client() as client:
         query_typings: list[tuple[str, str, tuple[str, tuple[ast.Constant, ...]] | None]] = []
         has_type_to_convert = False
+
+        await logger.adebug(f"Running describe query: {table_describe_query}")
 
         async with client.apost_query(
             query=table_describe_query, query_parameters=context.values, query_id=str(uuid.uuid4())
