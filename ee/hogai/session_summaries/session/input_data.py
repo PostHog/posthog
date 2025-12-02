@@ -10,7 +10,7 @@ from posthog.session_recordings.constants import COLUMNS_TO_REMOVE_FROM_LLM_CONT
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
-from ee.hogai.session_summaries.constants import EVENTS_BEFORE_REPLAY_START_THRESHOLD_MS
+from ee.hogai.session_summaries.constants import SESSION_EVENTS_REPLAY_CUTOFF_MS
 from ee.hogai.session_summaries.local.input_data import (
     _get_production_session_events_locally,
     _get_production_session_metadata_locally,
@@ -213,7 +213,7 @@ def add_context_and_filter_events(
                 logger.error(msg, signals_type="session-summaries", session_id=session_id)
                 raise ValueError(msg)
             ms_since_start = calculate_time_since_start(event_timestamp, session_start_time)
-            if ms_since_start <= EVENTS_BEFORE_REPLAY_START_THRESHOLD_MS:
+            if ms_since_start <= SESSION_EVENTS_REPLAY_CUTOFF_MS:
                 continue
             past_replay_start = True
         updated_event: list[str | datetime.datetime | list[str] | None] = list(event)

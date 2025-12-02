@@ -17,7 +17,7 @@ HALLUCINATED_EVENTS_MIN_RATIO = 0.15  # If more than 15% of events in the summar
 GROUP_SUMMARIES_MIN_SESSIONS = 5
 # Don't include events that are happened before or after the replay started, or at the very start/end,
 # as we can't verify them with videos confidently,iterate if we find a better way to generate Replay videos
-EVENTS_BEFORE_AFTER_REPLAY_START_THRESHOLD_MS = 5000
+SESSION_EVENTS_REPLAY_CUTOFF_MS = 5000
 
 # Temporal
 SESSION_SUMMARIES_DB_DATA_REDIS_TTL = 60 * 60 * 24  # How long to store the DB data in Redis within Temporal jobs
