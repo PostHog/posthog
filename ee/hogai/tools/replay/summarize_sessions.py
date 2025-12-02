@@ -227,23 +227,6 @@ class SummarizeSessionsToolArgs(BaseModel):
         * If there's not enough context to generated the summary name - keep it an empty string ("")
         """.strip()
     )
-    session_summarization_limit: int = Field(
-        description="""
-        - The maximum number of sessions to summarize
-        - This will be used to apply to DB query to limit the results.
-        - Extract the limit from the user's query if present. Set to -1 if not present.
-        - IMPORTANT: Extract the limit only if the user's query explicitly mentions a number of sessions to summarize.
-        - Examples:
-          * 'summarize all sessions from yesterday' -> limit: -1
-          * 'summarize last 100 sessions' -> limit: 100
-          * 'summarize these sessions' -> limit: -1
-          * 'summarize first 10 of these sessions' -> limit: 10
-          * 'summarize the sessions of the users with at least 10 events' -> limit: -1
-          * 'summarize the sessions of the last 30 days' -> limit: -1
-          * 'summarize last 500 sessions of the MacOS users from US' -> limit: 500
-          * and similar
-        """.strip()
-    )
 
 
 class SummarizeSessionsTool(MaxTool):
@@ -281,7 +264,7 @@ class SummarizeSessionsTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, search_query: MaxRecordingUniversalFilters, summary_title: str, session_summarization_limit: int
+        self, search_query: MaxRecordingUniversalFilters, summary_title: str
     ) -> tuple[str, ToolMessagesArtifact | None]:
         # Stream filters to the user at the start
         self._stream_filters(search_query)
@@ -290,14 +273,17 @@ class SummarizeSessionsTool(MaxTool):
         recordings_query = self._convert_max_filters_to_recordings_query(search_query)
 
         # Determine query limit
-        query_limit = session_summarization_limit
-        if not query_limit or query_limit <= 0 or query_limit > MAX_SESSIONS_TO_SUMMARIZE:
+        if (
+            not recordings_query.limit
+            or recordings_query.limit <= 0
+            or recordings_query.limit > MAX_SESSIONS_TO_SUMMARIZE
+        ):
             # If no limit provided (none or negative) or too large - use the default limit
-            query_limit = MAX_SESSIONS_TO_SUMMARIZE
+            recordings_query.limit = MAX_SESSIONS_TO_SUMMARIZE
 
         # Get session IDs
         session_ids = await database_sync_to_async(self._get_session_ids_with_filters, thread_sensitive=False)(
-            recordings_query, query_limit
+            recordings_query
         )
 
         # No sessions found
@@ -414,6 +400,7 @@ class SummarizeSessionsTool(MaxTool):
             date_to=replay_filters.date_to,
             properties=properties,
             filter_test_accounts=replay_filters.filter_test_accounts,
+            limit=replay_filters.limit,
             order=replay_filters.order,
             # Handle duration filters - preserve the original key (e.g., "active_seconds" or "duration")
             having_predicates=(
@@ -427,15 +414,14 @@ class SummarizeSessionsTool(MaxTool):
         )
         return recordings_query
 
-    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery, limit: int) -> list[str] | None:
+    def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
-        replay_filters.limit = limit
         try:
             query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None, limit=limit
+                team=self._team, query=replay_filters, hogql_query_modifiers=None
             )
             results = query_runner.run()
         except Exception as e:

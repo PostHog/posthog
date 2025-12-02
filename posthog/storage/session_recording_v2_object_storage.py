@@ -79,15 +79,6 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        """Returns a tuple of (target_key, error_message)"""
-        pass
-
-    @abc.abstractmethod
-    def is_lts_enabled(self) -> bool:
-        pass
-
-    @abc.abstractmethod
     def download_file(self, key: str, filename: str) -> None:
         pass
 
@@ -335,32 +326,6 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        try:
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            byte_range = f"bytes=0-{len(compressed_data) - 1}"
-            target_key = f"s3://{self.bucket}/{base_key}?range={byte_range}"
-            self.write(base_key, compressed_data)
-            logger.info(
-                "Successfully stored LTS recording",
-                recording_id=recording_id,
-                uncompressed_size=len(recording_data),
-                compressed_size=len(compressed_data),
-            )
-            return target_key, None
-        except Exception as e:
-            logger.exception(
-                "session_recording_v2_object_storage.store_lts_recording_failed",
-                bucket=self.bucket,
-                recording_id=recording_id,
-                error=e,
-            )
-            return None, f"Failed to store LTS recording: {str(e)}"
-
-    def is_lts_enabled(self) -> bool:
-        return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
-
     def download_file(self, key: str, filename: str) -> None:
         try:
             self.aws_client.download_file(
@@ -590,32 +555,6 @@ class AsyncSessionRecordingV2ObjectStorage:
                 error=e,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
-
-    async def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        try:
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            byte_range = f"bytes=0-{len(compressed_data) - 1}"
-            target_key = f"s3://{self.bucket}/{base_key}?range={byte_range}"
-            await self.write(base_key, compressed_data)
-            logger.info(
-                "Successfully stored LTS recording",
-                recording_id=recording_id,
-                uncompressed_size=len(recording_data),
-                compressed_size=len(compressed_data),
-            )
-            return target_key, None
-        except Exception as e:
-            logger.exception(
-                "async_session_recording_v2_object_storage.store_lts_recording_failed",
-                bucket=self.bucket,
-                recording_id=recording_id,
-                error=e,
-            )
-            return None, f"Failed to store LTS recording: {str(e)}"
-
-    def is_lts_enabled(self) -> bool:
-        return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
     async def download_file(self, key: str, filename: str) -> None:
         try:
