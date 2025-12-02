@@ -1,3 +1,5 @@
+from typing import Optional
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
@@ -25,7 +27,7 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         )
 
     def _create_query_runner(
-        self, query: MarketingAnalyticsAggregatedQuery = None
+        self, query: Optional[MarketingAnalyticsAggregatedQuery] = None
     ) -> MarketingAnalyticsAggregatedQueryRunner:
         if query is None:
             query = self.default_query
