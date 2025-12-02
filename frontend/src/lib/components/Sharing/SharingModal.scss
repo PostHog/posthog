@@ -1,4 +1,6 @@
-.SharingPreview {
-    padding: 0.5rem;
-    background-color: var(--color-bg-primary);
+@layer base {
+    .SharingPreview {
+        padding: 0.5rem;
+        background-color: var(--color-bg-primary);
+    }
 }

@@ -321,7 +321,6 @@ const config = {
         '!../../frontend/src/**/*Type.ts',
     ],
     darkMode: ['selector', '[theme="dark"]'],
-    important: true,
     theme: {
         colors: {
             red: {

@@ -1,22 +1,24 @@
-.toolbar-launch-page {
-    margin-bottom: 48px;
+@layer base {
+    .toolbar-launch-page {
+        margin-bottom: 48px;
 
-    .feature-highlight-list {
-        max-width: 800px;
+        .feature-highlight-list {
+            max-width: 800px;
 
-        .fh-item {
-            width: calc(100% * (1 / 2) - 8px);
+            .fh-item {
+                width: calc(100% * (1 / 2) - 8px);
 
-            .fh-icon {
-                font-size: 1.6em;
-            }
+                .fh-icon {
+                    font-size: 1.6em;
+                }
 
-            h4 {
-                font-size: 1.2em;
-            }
+                h4 {
+                    font-size: 1.2em;
+                }
 
-            @media (max-width: 599px) {
-                width: calc(100% - 8px);
+                @media (max-width: 599px) {
+                    width: calc(100% - 8px);
+                }
             }
         }
     }
