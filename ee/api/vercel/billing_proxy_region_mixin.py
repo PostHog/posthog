@@ -9,6 +9,7 @@ import structlog
 from rest_framework import exceptions, status
 from rest_framework.request import Request
 
+from posthog.cloud_utils import is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization_integration import OrganizationIntegration
 
@@ -29,10 +30,6 @@ class BillingProxyRegionMixin:
     PROXY_TIMEOUT = 10
     US_DOMAIN = getattr(settings, "REGION_US_DOMAIN", "us.posthog.com")
     EU_DOMAIN = getattr(settings, "REGION_EU_DOMAIN", "eu.posthog.com")
-
-    @property
-    def is_dev_env(self) -> bool:
-        return settings.SITE_URL.startswith("http://localhost") or settings.DEBUG
 
     @property
     def current_region(self) -> str | None:
@@ -106,7 +103,7 @@ class BillingProxyRegionMixin:
             return None
 
     def dispatch(self, request: HttpRequest, *args: Any, **kwargs: Any) -> HttpResponse:
-        if self.is_dev_env or not self.current_region:
+        if is_dev_mode() or not self.current_region:
             return super().dispatch(request, *args, **kwargs)  # type: ignore[misc]
 
         organization_id = self._extract_organization_id(request)
