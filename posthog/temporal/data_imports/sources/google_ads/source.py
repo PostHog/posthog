@@ -1,3 +1,4 @@
+import re
 from typing import cast
 
 from posthog.schema import (
@@ -17,8 +18,10 @@ from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
 from posthog.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsServiceAccountSourceConfig,
+    clean_customer_id,
     get_incremental_fields as get_google_ads_incremental_fields,
     get_schemas as get_google_ads_schemas,
+    google_ads_client,
     google_ads_source,
 )
 
@@ -131,3 +134,46 @@ class GoogleAdsSource(SimpleSource[GoogleAdsSourceConfig | GoogleAdsServiceAccou
                 ],
             ),
         )
+
+    def validate_config(self, job_inputs: dict) -> tuple[bool, list[str]]:
+        is_valid, errors = super().validate_config(job_inputs)
+
+        customer_id = job_inputs.get("customer_id", "")
+        if customer_id and not re.match(r"^\d{3}-\d{3}-\d{4}$", customer_id):
+            errors.append(
+                "Please enter a valid Google Ads customer ID. This should be 10-digits and in XXX-XXX-XXXX format."
+            )
+            is_valid = False
+
+        return is_valid, errors
+
+    def validate_credentials(
+        self, config: GoogleAdsSourceConfig | GoogleAdsServiceAccountSourceConfig, team_id: int
+    ) -> tuple[bool, str | None]:
+        try:
+            client = google_ads_client(config, team_id)
+
+            customer_service = client.get_service("CustomerService")
+            accessible_customers = customer_service.list_accessible_customers()
+
+            customer_resource_name = f"customers/{clean_customer_id(config.customer_id)}"
+            is_valid = customer_resource_name in accessible_customers.resource_names
+            if not is_valid:
+                return (
+                    False,
+                    f"{accessible_customers.resource_names} Customer ID {config.customer_id} is not correct. Please check your customer ID and try again.",
+                )
+            return True, None
+        except Exception as e:
+            error_message = str(e)
+            if "ACCESS_TOKEN_SCOPE_INSUFFICIENT" in error_message:
+                return (
+                    False,
+                    "Insufficient permissions. Please reconnect your Google Ads account with the required scopes.",
+                )
+            if "NOT_ADS_USER" in error_message:
+                return (
+                    False,
+                    "The Google account is not associated with any Google Ads accounts. Please use an account with Google Ads access.",
+                )
+            return False, f"Error validating credentials: {error_message}"
