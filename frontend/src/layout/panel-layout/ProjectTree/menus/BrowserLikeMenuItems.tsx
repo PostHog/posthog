@@ -1,7 +1,7 @@
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuItem } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { CustomMenuProps } from '../types'
 
@@ -21,7 +21,7 @@ export function BrowserLikeMenuItems({
                 asChild
                 onClick={(e) => {
                     e.stopPropagation()
-                    sceneLogic.findMounted()?.actions.newTab(href)
+                    newInternalTab(href)
                     resetPanelLayout(false)
                 }}
                 data-attr="tree-item-menu-open-link-button"
