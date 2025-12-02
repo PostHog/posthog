@@ -1263,19 +1263,6 @@
         }
     },
     {
-        "model": "deepseek/deepseek-r1-distill-qwen-14b",
-        "cost": {
-            "default": {
-                "prompt_token": 1.2e-7,
-                "completion_token": 1.2e-7
-            },
-            "novita-bf16": {
-                "prompt_token": 1.2e-7,
-                "completion_token": 1.2e-7
-            }
-        }
-    },
-    {
         "model": "deepseek/deepseek-r1-distill-qwen-32b",
         "cost": {
             "default": {
@@ -1356,6 +1343,25 @@
         }
     },
     {
+        "model": "deepseek/deepseek-v3.2",
+        "cost": {
+            "default": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7,
+                "cache_read_token": 2.8e-8
+            },
+            "deepseek": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7,
+                "cache_read_token": 2.8e-8
+            },
+            "novita-fp8": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7
+            }
+        }
+    },
+    {
         "model": "deepseek/deepseek-v3.2-exp",
         "cost": {
             "default": {
@@ -1375,11 +1381,6 @@
                 "completion_token": 4e-7,
                 "cache_read_token": 2.16e-7
             },
-            "deepseek": {
-                "prompt_token": 2.8e-7,
-                "completion_token": 4.2e-7,
-                "cache_read_token": 2.8e-8
-            },
             "novita-fp8": {
                 "prompt_token": 2.16e-7,
                 "completion_token": 3.28e-7
@@ -1387,6 +1388,24 @@
             "siliconflow-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 4.1e-7
+            }
+        }
+    },
+    {
+        "model": "deepseek/deepseek-v3.2-speciale",
+        "cost": {
+            "default": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4e-7
+            },
+            "atlas-cloud-fp8": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4e-7
+            },
+            "deepseek": {
+                "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7,
+                "cache_read_token": 2.8e-8
             }
         }
     },
@@ -3527,6 +3546,10 @@
                 "prompt_token": 0.00000115,
                 "completion_token": 0.000008,
                 "cache_read_token": 1.5e-7
+            },
+            "nebius-fp8": {
+                "prompt_token": 6e-7,
+                "completion_token": 0.0000025
             },
             "novita-bf16": {
                 "prompt_token": 4.8e-7,

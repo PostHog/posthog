@@ -14,6 +14,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
 
 from products.data_warehouse.backend.models import DataWarehouseTable
+from products.marketing_analytics.backend.hogql_queries.constants import MATCH_KEY_FIELD
 
 logger = structlog.get_logger(__name__)
 
@@ -119,6 +120,7 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
     clicks_field: str = MarketingAnalyticsColumnsSchemaNames.CLICKS
     cost_field: str = MarketingAnalyticsColumnsSchemaNames.COST
     reported_conversion_field: str = MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION
+    match_key_field: str = MATCH_KEY_FIELD
 
     @classmethod
     @abstractmethod
@@ -288,6 +290,9 @@ class MarketingSourceAdapter(ABC, Generic[ConfigType]):
                 ast.Alias(alias=self.clicks_field, expr=self._get_clicks_field()),
                 ast.Alias(alias=self.cost_field, expr=self._get_cost_field()),
                 ast.Alias(alias=self.reported_conversion_field, expr=self._get_reported_conversion_field()),
+                # match_key is used for joining with conversion goals
+                # Each adapter decides whether to use campaign_name or campaign_id based on team preferences
+                ast.Alias(alias=self.match_key_field, expr=self.get_campaign_match_field()),
             ]
 
             # Build query components

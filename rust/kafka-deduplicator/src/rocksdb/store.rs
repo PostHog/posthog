@@ -349,7 +349,7 @@ impl RocksDbStore {
             Ok(_) => Ok(()),
             Err(e) => {
                 self.metrics.counter(ROCKSDB_ERRORS_COUNTER).increment(1);
-                Err(anyhow::anyhow!("Failed to flush: {}", e))
+                Err(anyhow::anyhow!("Failed to flush: {e}"))
             }
         }
     }
@@ -368,7 +368,7 @@ impl RocksDbStore {
     pub fn flush_wal(&self, sync: bool) -> Result<()> {
         self.db
             .flush_wal(sync)
-            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={}): {}", sync, e))
+            .map_err(|e| anyhow::anyhow!("Failed to flush WAL (sync={sync}): {e}"))
     }
 
     /// Get the latest sequence number from the database
