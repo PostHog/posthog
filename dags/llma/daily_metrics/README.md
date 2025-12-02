@@ -42,8 +42,7 @@ use the sorting key (team_id, timestamp) efficiently.
 Templates have access to these Jinja2 variables:
 
 - `event_types`: List of AI event types to aggregate
-- `date_start`: Start date for aggregation (YYYY-MM-DD)
-- `date_end`: End date for aggregation (YYYY-MM-DD)
+- `metric_date`: The date being aggregated (YYYY-MM-DD)
 - `pageview_mappings`: List of (url_path, metric_suffix) tuples for pageview categorization
 - `include_error_rates`: Boolean flag for error rate calculation (default: true)
 

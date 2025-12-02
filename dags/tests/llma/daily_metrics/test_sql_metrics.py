@@ -29,8 +29,7 @@ def template_context():
     return {
         "event_types": config.ai_event_types,
         "pageview_mappings": config.pageview_mappings,
-        "date_start": "2025-01-01",
-        "date_end": "2025-01-02",
+        "metric_date": "2025-01-01",
         "include_error_rates": config.include_error_rates,
     }
 
