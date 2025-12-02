@@ -126,12 +126,10 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         rawData: [
             null as SdkDoctorResponse | null,
             {
-                loadRawData: async ({
-                    forceRefresh,
-                }: { forceRefresh?: boolean } = {}): Promise<SdkDoctorResponse | null> => {
+                loadRawData: async (options?: { forceRefresh?: boolean }): Promise<SdkDoctorResponse | null> => {
                     try {
                         const endpoint =
-                            forceRefresh === true ? 'api/sdk_doctor/?force_refresh=true' : 'api/sdk_doctor/'
+                            options?.forceRefresh === true ? 'api/sdk_doctor/?force_refresh=true' : 'api/sdk_doctor/'
                         const response = await api.get<SdkDoctorResponse>(endpoint)
 
                         return response
