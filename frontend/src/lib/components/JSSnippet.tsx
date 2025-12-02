@@ -8,6 +8,8 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { domainFor, proxyLogic } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from '~/loadPostHogJS'
+
 function snippetFunctions(arrayJs = '/static/array.js'): string {
     const methods: string[] = []
     const posthogPrototype = Object.getPrototypeOf(posthog)
@@ -52,7 +54,7 @@ export function useJsSnippet(indent = 0, arrayJs?: string, scriptAttributes?: st
             enabled: !!proxyRecord,
         },
         defaults: {
-            content: '2025-05-24',
+            content: SDK_DEFAULTS_DATE,
             enabled: true,
         },
         person_profiles: {
