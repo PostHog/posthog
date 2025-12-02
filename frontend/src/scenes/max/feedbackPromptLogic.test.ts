@@ -107,6 +107,9 @@ describe('feedbackPromptLogic', () => {
         })
 
         it('does not trigger message_interval twice for same interval', async () => {
+            // Mock Math.random to avoid random sampling trigger
+            jest.spyOn(Math, 'random').mockReturnValue(0.9)
+
             // First trigger at message 10
             logic.actions.checkShouldShowPrompt(10, 0, 0)
             expect(logic.values.isPromptVisible).toBe(true)
@@ -124,6 +127,9 @@ describe('feedbackPromptLogic', () => {
         })
 
         it('triggers message_interval at next interval', async () => {
+            // Mock Math.random to avoid random sampling trigger
+            jest.spyOn(Math, 'random').mockReturnValue(0.9)
+
             // First trigger at message 10
             logic.actions.checkShouldShowPrompt(10, 0, 0)
             logic.actions.hidePrompt()
