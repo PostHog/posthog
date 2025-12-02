@@ -14,7 +14,7 @@ import datetime
 import datetime as dt
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -1285,6 +1285,16 @@ def _request_has_key_set(key: str, request: Request, allowed_values: Optional[li
         assert isinstance(value, str)
         return value
     return False
+
+
+def str_to_int_set(value: Any) -> set[int]:
+    """Return a set of integers"""
+    if not value:
+        return set[int]([])
+    with suppress(Exception):
+        as_json = json.loads(str(value))
+        return {int(v) for v in as_json}
+    return set[int]([])
 
 
 def str_to_bool(value: Any) -> bool:

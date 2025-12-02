@@ -10,6 +10,7 @@ import dj_database_url
 
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
 DISABLE_SERVER_SIDE_CURSORS: bool = get_from_env("USING_PGBOUNCER", False, type_cast=str_to_bool)
@@ -482,3 +483,6 @@ MATERIALIZED_COLUMNS_USE_CACHE: bool = get_from_env("MATERIALIZED_COLUMNS_USE_CA
 
 # Limiting event_list API, saving ClickHouse, 0 - disabled, 1 - migration period, 2 - enabled.
 PATCH_EVENT_LIST_MAX_OFFSET: int = get_from_env("PATCH_EVENT_LIST_MAX_OFFSET", 0, type_cast=int)
+PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
+    "PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM", default=set[int]([]), type_cast=str_to_int_set
+)
