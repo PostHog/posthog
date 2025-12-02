@@ -1,5 +1,6 @@
 import json
 import time
+import hashlib
 from collections.abc import Callable
 from typing import Optional
 
@@ -90,6 +91,7 @@ class HyperCache:
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
         batch_load_fn: Optional[Callable[[list[Team]], dict[int, dict]]] = None,
+        enable_etag: bool = False,
     ):
         self.namespace = namespace
         self.value = value
@@ -98,6 +100,7 @@ class HyperCache:
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
+        self.enable_etag = enable_etag
 
         # Derive cache_client and redis_url from cache_alias (single source of truth)
         if cache_alias:
@@ -125,6 +128,12 @@ class HyperCache:
             if isinstance(key, Team):
                 key = key.id
             return f"cache/teams/{key}/{self.namespace}/{self.value}"
+
+    def get_etag_key(self, key: KeyType) -> str:
+        return f"{self.get_cache_key(key)}:etag"
+
+    def _compute_etag(self, json_data: str) -> str:
+        return hashlib.sha256(json_data.encode("utf-8")).hexdigest()[:16]
 
     def get_from_cache(self, key: KeyType) -> dict | None:
         data, _ = self.get_from_cache_with_source(key)
@@ -164,6 +173,56 @@ class HyperCache:
         HYPERCACHE_CACHE_COUNTER.labels(result="hit_db", namespace=self.namespace, value=self.value).inc()
         return data, "db"
 
+    def get_etag(self, key: KeyType) -> str | None:
+        """Get just the ETag for a cached value without loading the full response."""
+        if not self.enable_etag:
+            return None
+        return self.cache_client.get(self.get_etag_key(key))
+
+    def get_if_none_match(self, key: KeyType, client_etag: str | None) -> tuple[dict | None, str | None, bool]:
+        """
+        Check if client's ETag matches current cache, enabling HTTP 304 responses.
+
+        Requires enable_etag=True in constructor. If ETags are disabled, always returns
+        the full data with modified=True.
+
+        Returns: (data, etag, modified)
+        - If client_etag matches current: (None, current_etag, False) - 304 case
+        - Otherwise: (data, current_etag, True) - 200 case with full data
+
+        Note: If Redis fails during ETag check, gracefully degrades to returning
+        the full data (treating as modified) rather than raising an exception.
+        """
+        if not self.enable_etag:
+            data, _ = self.get_from_cache_with_source(key)
+            return data, None, True
+
+        try:
+            current_etag = self.get_etag(key)
+
+            if client_etag and current_etag and client_etag == current_etag:
+                return None, current_etag, False
+
+            data, source = self.get_from_cache_with_source(key)
+
+            # If we loaded from S3 or DB, the ETag was set during _set_cache_value_redis
+            # Re-fetch it to ensure we return the correct value
+            if source in ("s3", "db"):
+                current_etag = self.get_etag(key)
+
+            return data, current_etag, True
+        except Exception as e:
+            # Gracefully degrade: return full data when Redis fails
+            logger.warning(
+                f"Redis failure during ETag check for {self.namespace}, falling back to full response", error=str(e)
+            )
+            try:
+                data, _ = self.get_from_cache_with_source(key)
+                return data, None, True
+            except Exception:
+                # If everything fails, return None with modified=True
+                return None, None, True
+
     def update_cache(self, key: KeyType, ttl: Optional[int] = None) -> bool:
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
@@ -199,18 +258,33 @@ class HyperCache:
         kinds = kinds or ["redis", "s3"]
         if "redis" in kinds:
             self.cache_client.delete(self.get_cache_key(key))
+            # Always delete ETag key to clean up stale ETags from when enable_etag was True
+            self.cache_client.delete(self.get_etag_key(key))
         if "s3" in kinds:
             object_storage.delete(self.get_cache_key(key))
 
     def _set_cache_value_redis(
         self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
     ):
-        key = self.get_cache_key(key)
+        cache_key = self.get_cache_key(key)
+        etag_key = self.get_etag_key(key)
         if data is None or isinstance(data, HyperCacheStoreMissing):
-            self.cache_client.set(key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            self.cache_client.set(cache_key, _HYPER_CACHE_EMPTY_VALUE, timeout=self.cache_miss_ttl)
+            # Always delete ETag key to clean up stale ETags from when enable_etag was True
+            self.cache_client.delete(etag_key)
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
-            self.cache_client.set(key, json.dumps(data), timeout=timeout)
+            # Use sort_keys for deterministic serialization (consistent ETags)
+            json_data = json.dumps(data, sort_keys=True)
+            if self.enable_etag:
+                etag = self._compute_etag(json_data)
+                # Write data and ETag via pipeline (single Redis round trip)
+                # Note this is not strictly atomic, but good enough for our use case
+                self.cache_client.set_many({cache_key: json_data, etag_key: etag}, timeout=timeout)
+            else:
+                self.cache_client.set(cache_key, json_data, timeout=timeout)
+                # Clean up stale ETag if ETags were previously enabled
+                self.cache_client.delete(etag_key)
 
     def _set_cache_value_s3(self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None):
         """
@@ -224,4 +298,5 @@ class HyperCache:
         if data is None or isinstance(data, HyperCacheStoreMissing):
             object_storage.delete(key)
         else:
-            object_storage.write(key, json.dumps(data))
+            # Use sort_keys for deterministic serialization (consistent ETags)
+            object_storage.write(key, json.dumps(data, sort_keys=True))

@@ -311,12 +311,14 @@ flags_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=True),
+    enable_etag=True,
 )
 
 flags_without_cohorts_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_without_cohorts.json",
     load_fn=lambda key: _get_flags_response_for_local_evaluation(HyperCache.team_from_key(key), include_cohorts=False),
+    enable_etag=True,
 )
 
 
@@ -326,6 +328,20 @@ def get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -
         if include_cohorts
         else flags_without_cohorts_hypercache.get_from_cache(team)
     )
+
+
+def get_flags_response_if_none_match(
+    team: Team, include_cohorts: bool, client_etag: str | None
+) -> tuple[dict | None, str | None, bool]:
+    """
+    Get flags response with ETag support for HTTP 304 responses.
+
+    Returns: (data, etag, modified)
+    - If client_etag matches current: (None, current_etag, False) - 304 case
+    - Otherwise: (data, current_etag, True) - 200 case with full data
+    """
+    hypercache = flags_hypercache if include_cohorts else flags_without_cohorts_hypercache
+    return hypercache.get_if_none_match(team, client_etag)
 
 
 def update_flag_caches(team: Team):
