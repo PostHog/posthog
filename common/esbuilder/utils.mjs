@@ -192,20 +192,6 @@ export const commonConfig = {
                 crypto: true,
             },
         }),
-        {
-            name: 'external-react-for-docs',
-            setup(build) {
-                // Mark React and react/jsx-runtime as external for files in docs directory
-                build.onResolve({ filter: /^(react|react\/jsx-runtime)$/ }, (args) => {
-                    if (args.importer && args.importer.includes('/docs/')) {
-                        return {
-                            path: args.path,
-                            external: true,
-                        }
-                    }
-                })
-            },
-        },
     ],
     tsconfig: tsconfigPath,
     define: {
