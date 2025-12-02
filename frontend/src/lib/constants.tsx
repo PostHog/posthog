@@ -149,10 +149,11 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 // NOTE: Run `dev:sync-flags` locally to sync these flags into your local project
 // or if you're running flox + mprocs you can also run the `sync-feature-flags` process
 export const FEATURE_FLAGS = {
-    // Eternal feature flags, shouldn't be removed, helpful for debugging reasons
+    // Eternal feature flags, shouldn't be removed, helpful for debugging/maintenance reasons
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite, usage: see `useWhyDidIRender.ts`
     QUERY_TIMINGS: 'query-timings', // owner: @mariusandra, usage: see `dataTableLogic.ts`
+    REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith, see `signupLogic.ts`
 
     // Feature flags used to control opt-in for different behaviors
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
@@ -166,8 +167,6 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_HIGHER_CONCURRENCY: 'web-analytics-higher-concurrency', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_OPEN_AS_INSIGHT: 'web-analytics-open-as-insight', // owner: @lricoy #team-web-analytics
     MAX_AI_INSIGHT_SEARCH: 'max-ai-insight-search', // owner: #team-posthog-ai
-    REDIRECT_SIGNUPS_TO_INSTANCE: 'redirect-signups-to-instance', // owner: @raquelmsmith
-    HOGQL_DASHBOARD_ASYNC: 'hogql-dashboard-async', // owner: @webjunkie
     WEBHOOKS_DENYLIST: 'webhooks-denylist', // owner: #team-ingestion
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: @neilkakkar #team-feature-success
     INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
