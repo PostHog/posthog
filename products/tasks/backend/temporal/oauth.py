@@ -18,10 +18,10 @@ def get_array_app() -> OAuthApplication:
     region = get_instance_region()
     if region == "EU":
         client_id = ARRAY_APP_CLIENT_ID_EU
-    elif region in ("DEV", "E2E"):
-        client_id = ARRAY_APP_CLIENT_ID_DEV
-    else:
+    elif region == "US":
         client_id = ARRAY_APP_CLIENT_ID_US
+    else:
+        client_id = ARRAY_APP_CLIENT_ID_DEV
 
     try:
         return OAuthApplication.objects.get(client_id=client_id)

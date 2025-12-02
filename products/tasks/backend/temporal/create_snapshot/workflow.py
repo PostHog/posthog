@@ -37,6 +37,7 @@ class CreateSnapshotForRepositoryInput:
 class CreateSnapshotForRepositoryOutput:
     success: bool
     snapshot_id: Optional[str] = None
+    sandbox_id: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -79,11 +80,13 @@ class CreateSnapshotForRepositoryWorkflow(PostHogWorkflow):
             return CreateSnapshotForRepositoryOutput(
                 success=True,
                 snapshot_id=snapshot_id,
+                sandbox_id=sandbox_id,
             )
 
         except Exception as e:
             return CreateSnapshotForRepositoryOutput(
                 success=False,
+                sandbox_id=sandbox_id,
                 error=str(e),
             )
 

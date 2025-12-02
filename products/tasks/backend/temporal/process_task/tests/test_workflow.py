@@ -222,7 +222,7 @@ class TestProcessTaskWorkflow:
                     handle = await env.client.start_workflow(
                         ProcessTaskWorkflow.run,
                         str(test_task_run.id),
-                        id=test_task_run.workflow_id,
+                        id=str(uuid.uuid4()),
                         task_queue=settings.TASKS_TASK_QUEUE,
                         retry_policy=RetryPolicy(maximum_attempts=1),
                         execution_timeout=timedelta(minutes=60),

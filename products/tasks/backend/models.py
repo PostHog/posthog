@@ -245,19 +245,8 @@ class TaskRun(models.Model):
 
     def append_log(self, entries: list[dict]):
         """Append log entries to S3 storage."""
-
-        existing_content = ""
-        is_new_file = False
-        try:
-            existing_content = object_storage.read(self.log_url) or ""
-        except Exception as e:
-            is_new_file = True
-            logger.debug(
-                "task_run.no_existing_logs",
-                task_run_id=str(self.id),
-                log_url=self.log_url,
-                error=str(e),
-            )
+        existing_content = object_storage.read(self.log_url, missing_ok=True) or ""
+        is_new_file = not existing_content
 
         new_lines = "\n".join(json.dumps(entry) for entry in entries)
         content = existing_content + ("\n" if existing_content else "") + new_lines

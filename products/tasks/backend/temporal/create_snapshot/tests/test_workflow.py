@@ -192,72 +192,43 @@ class TestCreateSnapshotForRepositoryWorkflow:
 
     async def test_workflow_cleans_up_sandbox_on_success(self, github_integration, test_team):
         created_snapshots: list[SandboxSnapshot] = []
-        sandbox_id = None
 
         try:
-            with patch(
-                "products.tasks.backend.temporal.create_snapshot.activities.create_sandbox.Sandbox.create"
-            ) as mock_create:
-                original_create = Sandbox.create
-
-                def create_and_capture(*args, **kwargs):
-                    nonlocal sandbox_id
-                    sandbox = original_create(*args, **kwargs)
-                    sandbox_id = sandbox.id
-                    return sandbox
-
-                mock_create.side_effect = create_and_capture
-
-                result = await self._run_workflow(
-                    github_integration_id=github_integration.id,
-                    repository="posthog/posthog-js",
-                    team_id=test_team.id,
-                )
+            result = await self._run_workflow(
+                github_integration_id=github_integration.id,
+                repository="posthog/posthog-js",
+                team_id=test_team.id,
+            )
 
             assert result.success is True
+            assert result.sandbox_id is not None
 
             if result.snapshot_id:
                 snapshot = await sync_to_async(SandboxSnapshot.objects.get)(id=result.snapshot_id)
                 created_snapshots.append(snapshot)
 
-            if sandbox_id:
-                await asyncio.sleep(10)
-                sandbox = Sandbox.get_by_id(sandbox_id)
-                assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+            await asyncio.sleep(10)
+            sandbox = Sandbox.get_by_id(result.sandbox_id)
+            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
         finally:
             for snapshot in created_snapshots:
                 await self._cleanup_snapshot(snapshot)
 
     async def test_workflow_cleans_up_sandbox_on_failure(self, github_integration, test_team):
-        sandbox_id = None
-
-        with patch(
-            "products.tasks.backend.temporal.create_snapshot.activities.create_sandbox.Sandbox.create"
-        ) as mock_create:
-            original_create = Sandbox.create
-
-            def create_and_capture(*args, **kwargs):
-                nonlocal sandbox_id
-                sandbox = original_create(*args, **kwargs)
-                sandbox_id = sandbox.id
-                return sandbox
-
-            mock_create.side_effect = create_and_capture
-
-            result = await self._run_workflow(
-                github_integration_id=github_integration.id,
-                repository="posthog/posthog-js",
-                team_id=test_team.id,
-                mock_setup_command="exit 1",
-            )
+        result = await self._run_workflow(
+            github_integration_id=github_integration.id,
+            repository="posthog/posthog-js",
+            team_id=test_team.id,
+            mock_setup_command="exit 1",
+        )
 
         assert result.success is False
+        assert result.sandbox_id is not None
 
-        if sandbox_id:
-            await asyncio.sleep(10)
-            sandbox = Sandbox.get_by_id(sandbox_id)
-            assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        await asyncio.sleep(10)
+        sandbox = Sandbox.get_by_id(result.sandbox_id)
+        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
 
     async def test_multiple_runs_create_separate_snapshots(self, github_integration, test_team):
         created_snapshots: list[SandboxSnapshot] = []

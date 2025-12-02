@@ -122,6 +122,12 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         sandbox = Sandbox.create(config)
 
         if not used_snapshot:
+            emit_agent_log(ctx.run_id, "info", f"Cloning {ctx.repository} into sandbox")
+            clone_result = sandbox.clone_repository(ctx.repository, github_token=github_token)
+            if clone_result.exit_code != 0:
+                sandbox.destroy()
+                raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
+
             _trigger_snapshot_workflow(ctx.github_integration_id, ctx.repository, ctx.team_id)
 
         activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={used_snapshot})")
