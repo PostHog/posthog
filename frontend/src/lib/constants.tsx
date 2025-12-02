@@ -152,12 +152,13 @@ export const FEATURE_FLAGS = {
     // Eternal feature flags, shouldn't be removed, helpful for debugging reasons
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite, usage: see `loadPosthogJS.tsx`
     DEBUG_REACT_RENDERS: 'debug-react-renders', // owner: @benjackwhite, usage: see `useWhyDidIRender.ts`
+    QUERY_TIMINGS: 'query-timings', // owner: @mariusandra, usage: see `dataTableLogic.ts`
+
+    // Legacy flags, TBD if they need to be removed
+    AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE #team-feature-flags
+    QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
 
     // Temporary feature flags, should be removed when the feature is no longer needed
-    AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
-    QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    QUERY_TIMINGS: 'query-timings', // owner: @mariusandra
-    HEDGEHOG_MODE_DEBUG: 'hedgehog-mode-debug', // owner: @benjackwhite
     HIGH_FREQUENCY_BATCH_EXPORTS: 'high-frequency-batch-exports', // owner: @tomasfarias
     PERSON_BATCH_EXPORTS: 'person-batch-exports', // owner: @tomasfarias
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: @EDsCODE
