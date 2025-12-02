@@ -5,7 +5,7 @@ This document summarizes the automated checks executed after every DuckLake data
 ## How verification works
 
 1. `prepare_data_modeling_ducklake_metadata_activity` enriches each model with metadata derived from the `DataWarehouseSavedQuery.columns` definition so we know **what** to compare:
-   - `partition_column`: first Date/DateTime column (used for partition-by-partition row comparisons)
+   - `partition_column`: primary partition column reported by the Delta table metadata
    - `key_columns`: inferred IDs (`person_id`, `distinct_id`, etc.) for distinct-count checks
    - `non_nullable_columns`: any column that is not declared as `Nullable(...)`
 2. `verify_ducklake_copy_activity` (see `posthog/temporal/data_modeling/ducklake_copy_workflow.py`) materializes the DuckLake table, executes the SQL queries from `data_modeling.yaml`, and then issues the built-in comparisons below directly in DuckDB. Any failure stops the workflow.

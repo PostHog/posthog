@@ -51,6 +51,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
         ],
     )
     monkeypatch.setenv("DUCKLAKE_DATA_BUCKET", "ducklake-test-bucket")
+    monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["timestamp"])
 
     metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
 
@@ -64,9 +65,25 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
     assert model_metadata.verification_queries
     assert model_metadata.verification_queries[0].name == "row_count_delta_vs_ducklake"
     assert model_metadata.partition_column == "timestamp"
+    assert model_metadata.partition_column_type == "DateTime64"
     assert "person_id" in model_metadata.key_columns
     assert "person_id" in model_metadata.non_nullable_columns
     assert "optional_col" not in model_metadata.non_nullable_columns
+
+
+def test_detect_partition_column_prefers_delta_metadata(monkeypatch):
+    columns = {
+        "timestamp": {"type": "DateTime64"},
+        "partition_ts": {"type": "Date"},
+    }
+    monkeypatch.setattr(
+        ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["partition_ts", "timestamp"]
+    )
+
+    column, column_type = ducklake_module._detect_partition_column(columns, "s3://source/table")
+
+    assert column == "partition_ts"
+    assert column_type == "Date"
 
 
 @pytest.mark.asyncio
@@ -343,6 +360,74 @@ async def test_verify_ducklake_copy_activity_reports_failures(monkeypatch, activ
     assert len(results) == 1
     assert results[0].passed is False
     assert fake_conn.closed is True
+
+
+def test_run_partition_verification_without_temporal_type():
+    class FakeCursor:
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def __init__(self):
+            self.statements: list[str] = []
+
+        def execute(self, statement: str, params: list | None = None):
+            self.statements.append(statement)
+            return FakeCursor()
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_partition_string",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_partition_string",
+        verification_queries=[],
+        partition_column="event_id",
+        partition_column_type="String",
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
+    conn = FakeConn()
+
+    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+
+    assert result is not None and result.passed is True
+    assert conn.statements and "date_trunc" not in conn.statements[0]
+
+
+def test_run_partition_verification_with_temporal_type():
+    class FakeCursor:
+        def fetchall(self):
+            return []
+
+    class FakeConn:
+        def __init__(self):
+            self.statements: list[str] = []
+
+        def execute(self, statement: str, params: list | None = None):
+            self.statements.append(statement)
+            return FakeCursor()
+
+    metadata = DuckLakeCopyModelMetadata(
+        model_label="model_partition_time",
+        saved_query_id=str(uuid.uuid4()),
+        saved_query_name="ducklake_model",
+        normalized_name="ducklake_model",
+        source_table_uri="s3://source/table",
+        schema_name="data_modeling_team_1",
+        table_name="model_partition_time",
+        verification_queries=[],
+        partition_column="timestamp",
+        partition_column_type="DateTime64",
+    )
+    inputs = DuckLakeCopyActivityInputs(team_id=1, job_id="job-partition", model=metadata)
+    conn = FakeConn()
+
+    result = ducklake_module._run_partition_verification(conn, "ducklake.schema.table", inputs)
+
+    assert result is not None and result.passed is True
+    assert conn.statements and "date_trunc" in conn.statements[0]
 
 
 @pytest.mark.asyncio

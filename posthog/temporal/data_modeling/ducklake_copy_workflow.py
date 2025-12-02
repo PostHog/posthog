@@ -7,6 +7,7 @@ from typing import Any
 from django.conf import settings
 
 import duckdb
+import deltalake
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -51,6 +52,7 @@ class DuckLakeCopyModelMetadata:
     table_name: str
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
     partition_column: str | None = None
+    partition_column_type: str | None = None
     key_columns: list[str] = dataclasses.field(default_factory=list)
     non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
@@ -86,7 +88,7 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         await logger.ainfo("DuckLake copy requested but no models were provided - skipping")
         return []
 
-    metadata: list[DuckLakeCopyModelMetadata] = []
+    model_list: list[DuckLakeCopyModelMetadata] = []
 
     for model in inputs.models:
         saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("team").get)(
@@ -95,10 +97,10 @@ async def prepare_data_modeling_ducklake_metadata_activity(
 
         normalized_name = saved_query.normalized_name or saved_query.name
         saved_query_columns = saved_query.columns or await database_sync_to_async(saved_query.get_columns)()
-        partition_column = _detect_partition_column(saved_query_columns)
+        partition_column, partition_column_type = _detect_partition_column(saved_query_columns, model.table_uri)
         key_columns = _detect_key_columns(saved_query_columns)
         non_nullable_columns = _detect_non_nullable_columns(saved_query_columns)
-        metadata.append(
+        model_list.append(
             DuckLakeCopyModelMetadata(
                 model_label=model.model_label,
                 saved_query_id=str(saved_query.id),
@@ -112,12 +114,13 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
+                partition_column_type=partition_column_type,
                 key_columns=key_columns,
                 non_nullable_columns=non_nullable_columns,
             )
         )
 
-    return metadata
+    return model_list
 
 
 @activity.defn
@@ -311,20 +314,20 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
             workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
             return
 
-        metadata = await workflow.execute_activity(
+        model_list: list[DuckLakeCopyModelMetadata] = await workflow.execute_activity(
             prepare_data_modeling_ducklake_metadata_activity,
             inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
-        if not metadata:
+        if not model_list:
             workflow.logger.info("No DuckLake copy metadata resolved - nothing to do", **inputs.properties_to_log)
             return
 
         try:
-            for target in metadata:
-                activity_inputs = DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=target)
+            for model in model_list:
+                activity_inputs = DuckLakeCopyActivityInputs(team_id=inputs.team_id, job_id=inputs.job_id, model=model)
                 await workflow.execute_activity(
                     copy_data_modeling_model_to_ducklake_activity,
                     activity_inputs,
@@ -355,7 +358,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
                     failure_payload = [dataclasses.asdict(result) for result in failed_checks]
                     workflow.logger.error(
                         "DuckLake verification failed",
-                        model_label=target.model_label,
+                        model_label=model.model_label,
                         failures=failure_payload,
                     )
                     raise ApplicationError(
@@ -446,21 +449,83 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
-def _detect_partition_column(columns: dict[str, Any]) -> str | None:
-    for name, metadata in columns.items():
+def _detect_partition_column(columns: dict[str, Any], table_uri: str) -> tuple[str | None, str | None]:
+    partition_column = _detect_partition_column_from_delta(columns, table_uri)
+    if partition_column:
+        metadata = columns.get(partition_column)
         column_type = _extract_column_type(metadata)
-        lowered = column_type.lower()
-        if "date" in lowered:
-            return name
+        return partition_column, column_type or None
+
+    LOGGER.warning(
+        "Unable to detect partition column from Delta metadata - skipping partition verification.",
+        table_uri=table_uri,
+    )
+    # TODO: Emit a metric for detection failures to track missing partition coverage.
+    return None, None
+
+
+def _detect_partition_column_from_delta(columns: dict[str, Any], table_uri: str) -> str | None:
+    if not table_uri:
+        return None
+
+    partition_columns = _fetch_delta_partition_columns(table_uri)
+    if not partition_columns:
+        return None
+
+    normalized_mapping = {name.lower(): name for name in columns.keys()}
+    for candidate in partition_columns:
+        normalized = normalized_mapping.get(candidate.lower())
+        if normalized:
+            return normalized
+        if candidate:
+            return candidate
+
     return None
 
 
+def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
+    options = _get_delta_storage_options()
+    try:
+        delta_table = deltalake.DeltaTable(table_uri=table_uri, storage_options=options)
+    except Exception as exc:
+        LOGGER.bind(table_uri=table_uri).debug("Delta partition detection failed to open table", error=str(exc))
+        return []
+
+    try:
+        metadata = delta_table.metadata()
+    except Exception as exc:
+        LOGGER.bind(table_uri=table_uri).debug("Delta partition detection failed to read metadata", error=str(exc))
+        return []
+
+    partition_columns = getattr(metadata, "partition_columns", None) or []
+    return [column for column in partition_columns if column]
+
+
+def _get_delta_storage_options() -> dict[str, str]:
+    options: dict[str, str] = {
+        "aws_access_key_id": getattr(settings, "AIRBYTE_BUCKET_KEY", "") or "",
+        "aws_secret_access_key": getattr(settings, "AIRBYTE_BUCKET_SECRET", "") or "",
+        "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
+    }
+
+    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "") or ""
+    if region:
+        options["region_name"] = region
+        options["AWS_DEFAULT_REGION"] = region
+
+    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
+    if endpoint:
+        options["endpoint_url"] = endpoint
+        options["AWS_ALLOW_HTTP"] = "true"
+
+    return {key: value for key, value in options.items() if value}
+
+
 def _detect_key_columns(columns: dict[str, Any]) -> list[str]:
-    special_names = {"distinct_id", "person_id", "subscription_id"}
     detected: list[str] = []
     for name in columns.keys():
         lowered = name.lower()
-        if lowered.endswith("_id") or lowered in special_names:
+        if lowered.endswith("_id"):
             detected.append(name)
     return detected
 
@@ -482,6 +547,13 @@ def _extract_column_type(metadata: Any) -> str:
     if isinstance(metadata, str):
         return metadata
     return ""
+
+
+def _is_datetime_column_type(column_type: str | None) -> bool:
+    if not column_type:
+        return False
+    normalized = column_type.strip().lower()
+    return "date" in normalized or "time" in normalized
 
 
 def _run_schema_verification(
@@ -527,15 +599,15 @@ def _run_partition_verification(
     if not partition_column:
         return None
 
-    column_expr = _quote_identifier(partition_column)
+    bucket_expr = _build_partition_bucket_expression(partition_column, inputs.model.partition_column_type)
     sql = f"""
         WITH source AS (
-            SELECT date_trunc('day', {column_expr}) AS bucket, count(*) AS cnt
+            SELECT {bucket_expr} AS bucket, count(*) AS cnt
             FROM delta_scan(?)
             GROUP BY 1
         ),
         ducklake AS (
-            SELECT date_trunc('day', {column_expr}) AS bucket, count(*) AS cnt
+            SELECT {bucket_expr} AS bucket, count(*) AS cnt
             FROM {ducklake_table}
             GROUP BY 1
         )
@@ -577,6 +649,15 @@ def _run_partition_verification(
         observed_value=0.0,
         tolerance=0.0,
     )
+
+
+def _build_partition_bucket_expression(column_name: str, column_type: str | None) -> str:
+    column_expr = _quote_identifier(column_name)
+    # people should not use datetime types for partition columns
+    # but AI lord made me check it
+    if _is_datetime_column_type(column_type):
+        return f"date_trunc('day', {column_expr})"
+    return column_expr
 
 
 def _run_key_cardinality_verifications(
