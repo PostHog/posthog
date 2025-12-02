@@ -9,7 +9,6 @@ import html
 import hashlib
 from typing import Optional
 
-from django.core.cache import cache
 from django.db.models import Q
 
 from rest_framework import status
@@ -164,46 +163,7 @@ def validate_origin(request: Request, team: Team) -> bool:
     return True
 
 
-def check_suspicious_activity(request: Request, team: Team, distinct_id: str, content: str) -> bool:
-    """
-    Detect suspicious activity patterns.
-    Returns True if activity seems suspicious (but doesn't block for MVP).
-    """
-    # Get client IP
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
-    if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
-    else:
-        ip = request.META.get("REMOTE_ADDR")
-
-    cache_key_prefix = f"conversations:suspicious:{team.id}"
-
-    # Track distinct_ids per IP
-    distinct_ids_key = f"{cache_key_prefix}:ip:{ip}:distinct_ids"
-    distinct_ids = cache.get(distinct_ids_key, set())
-    distinct_ids.add(distinct_id)
-    cache.set(distinct_ids_key, distinct_ids, timeout=3600)
-
-    if len(distinct_ids) > 10:
-        # Suspicious: same IP creating many distinct_ids
-        return True
-
-    # Check for spam (same content across multiple distinct_ids)
-    content_hash = hashlib.md5(content.encode()).hexdigest()[:16]
-    spam_key = f"{cache_key_prefix}:content:{content_hash}"
-    spam_count = cache.get(spam_key, 0) + 1
-    cache.set(spam_key, spam_count, timeout=3600)
-
-    if spam_count > 5:
-        # Suspicious: same message sent multiple times
-        return True
-
-    return False
-
-
 # API Views
-
-
 class WidgetMessageView(APIView):
     """
     POST /api/conversations/widget/message
@@ -236,11 +196,6 @@ class WidgetMessageView(APIView):
 
         except ValidationError as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Check for suspicious activity (log but don't block for MVP)
-        if check_suspicious_activity(request, team, distinct_id, message_content):
-            # TODO: Log to monitoring system
-            pass
 
         # Find or create ticket
         if ticket_id:

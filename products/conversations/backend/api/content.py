@@ -38,11 +38,6 @@ class ContentArticleSerializer(serializers.ModelSerializer):
 
 
 class ContentArticleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """
-    Manage knowledge base articles.
-    Articles that AI uses to answer questions.
-    """
-
     scope_object = "content_article"
     queryset = ContentArticle.objects.all()
     serializer_class = ContentArticleSerializer

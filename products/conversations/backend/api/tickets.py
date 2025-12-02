@@ -54,12 +54,6 @@ class TicketSerializer(serializers.ModelSerializer):
 
 
 class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """
-    Basic CRUD operations for tickets.
-    List tickets with filtering and search.
-    Update ticket status.
-    """
-
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer

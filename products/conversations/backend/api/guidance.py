@@ -38,11 +38,6 @@ class GuidanceRuleSerializer(serializers.ModelSerializer):
 
 
 class GuidanceRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """
-    Manage AI behavioral rules.
-    Rules that control how the AI responds (tone and escalation).
-    """
-
     scope_object = "guidance_rule"
     queryset = GuidanceRule.objects.all()
     serializer_class = GuidanceRuleSerializer
