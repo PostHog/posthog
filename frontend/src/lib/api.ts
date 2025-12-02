@@ -2540,7 +2540,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
@@ -3324,10 +3324,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
-        },
-
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
@@ -3795,8 +3791,11 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
-        async getResponsesCount(): Promise<{ [key: string]: number }> {
-            return await new ApiRequest().surveysResponsesCount().get()
+        async getResponsesCount(surveyIds?: string): Promise<{ [key: string]: number }> {
+            return await new ApiRequest()
+                .surveysResponsesCount()
+                .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
+                .get()
         },
         async summarize_responses(
             surveyId: Survey['id'],

@@ -1,7 +1,8 @@
 import os
 import json
+import time
 import uuid
-from typing import Optional
+from typing import Literal, Optional
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -18,6 +19,8 @@ from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
+
+LogLevel = Literal["debug", "info", "warn", "error"]
 
 
 class Task(DeletedMetaFields, models.Model):
@@ -290,6 +293,19 @@ class TaskRun(models.Model):
         self.error_message = error
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
+
+    def _get_timestamp_ms(self) -> int:
+        return int(time.time() * 1000)
+
+    def emit_console_event(self, level: LogLevel, message: str) -> None:
+        """Emit a console-style log event (debug, info, warn, error)."""
+        event = {
+            "type": "console",
+            "ts": self._get_timestamp_ms(),
+            "level": level,
+            "message": message,
+        }
+        self.append_log([event])
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")

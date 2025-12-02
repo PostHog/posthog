@@ -16,10 +16,12 @@ from posthog.temporal.delete_recordings.types import (
     RecordingBlockGroup,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
+    RecordingsWithTeamInput,
 )
 from posthog.temporal.delete_recordings.workflows import (
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
+    DeleteRecordingsWithTeamWorkflow,
     DeleteRecordingWorkflow,
 )
 
@@ -216,6 +218,118 @@ async def test_delete_recording_with_person_workflow():
         "1c6c32da-0518-4a83-a513-eb2595c33b66": [],
         "791244f2-2569-4ed9-a448-d5a6e35471cd": [],
         "3d2b505b-3a0e-48fd-89ab-6eb65a08e915": [],
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_recordings_with_team_workflow():
+    TEST_TEAM_ID: int = 99999
+    TEST_SESSIONS = {
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [
+            RecordingBlock(
+                start_time=datetime.now(),
+                end_time=datetime.now() + timedelta(hours=2),
+                url="s3://test_bucket/session_recordings/1y/1756117652764-84b1bccb847e7ea6?range=bytes=12269307-12294780",
+            ),
+            RecordingBlock(
+                start_time=datetime.now() + timedelta(hours=3),
+                end_time=datetime.now() + timedelta(hours=5),
+                url="s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010",
+            ),
+        ],
+        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [
+            RecordingBlock(
+                start_time=datetime.now(),
+                end_time=datetime.now() + timedelta(hours=8),
+                url="s3://test_bucket/session_recordings/5y/1756117699905-b688321ffa0fa994?range=bytes=12269307-12294780",
+            ),
+        ],
+        "c3d4e5f6-g7h8-9012-cdef-123456789012": [
+            RecordingBlock(
+                start_time=datetime.now(),
+                end_time=datetime.now() + timedelta(hours=15),
+                url="s3://test_bucket/session_recordings/30d/1756117708699-28b991ee5019274d?range=bytes=81788204-81793010",
+            ),
+            RecordingBlock(
+                start_time=datetime.now() + timedelta(hours=16),
+                end_time=datetime.now() + timedelta(hours=18),
+                url="s3://test_bucket/session_recordings/30d/1756117711878-61ed9e32ebf3e27a?range=bytes=2790658-2800843",
+            ),
+        ],
+    }
+
+    EXPECTED_GROUPED_RANGES = {
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [
+            [(12269307, 12294780)],
+            [(81788204, 81793010)],
+        ],
+        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [
+            [(12269307, 12294780)],
+        ],
+        "c3d4e5f6-g7h8-9012-cdef-123456789012": [
+            [(81788204, 81793010)],
+            [(2790658, 2800843)],
+        ],
+    }
+
+    EXPECTED_PATHS = [
+        "session_recordings/1y/1756117652764-84b1bccb847e7ea6",
+        "session_recordings/90d/1756117747546-97a0b1e81d492d3a",
+        "session_recordings/5y/1756117699905-b688321ffa0fa994",
+        "session_recordings/30d/1756117708699-28b991ee5019274d",
+        "session_recordings/30d/1756117711878-61ed9e32ebf3e27a",
+    ]
+
+    @activity.defn(name="load-recordings-with-team-id")
+    async def load_recordings_with_team_id_mocked(input: RecordingsWithTeamInput) -> list[str]:
+        assert input.team_id == TEST_TEAM_ID
+        return list(TEST_SESSIONS.keys())
+
+    @activity.defn(name="load-recording-blocks")
+    async def load_recording_blocks_mocked(input: Recording) -> list[RecordingBlock]:
+        assert input.session_id in TEST_SESSIONS
+        assert input.team_id == TEST_TEAM_ID
+        return TEST_SESSIONS[input.session_id]
+
+    @activity.defn(name="delete-recording-blocks")
+    async def delete_recording_blocks_mocked(input: RecordingBlockGroup) -> None:
+        assert input.recording.session_id in TEST_SESSIONS
+        assert input.recording.team_id == TEST_TEAM_ID
+        assert input.ranges in EXPECTED_GROUPED_RANGES[input.recording.session_id]
+        assert input.path in EXPECTED_PATHS
+        TEST_SESSIONS[input.recording.session_id] = []  # Delete recording blocks
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingsWithTeamWorkflow, DeleteRecordingWorkflow],
+            activities=[
+                load_recording_blocks_mocked,
+                delete_recording_blocks_mocked,
+                load_recordings_with_team_id_mocked,
+                group_recording_blocks,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            parent_id = str(uuid.uuid4())
+
+            await env.client.execute_workflow(
+                DeleteRecordingsWithTeamWorkflow.run,
+                RecordingsWithTeamInput(team_id=TEST_TEAM_ID),
+                id=parent_id,
+                task_queue=task_queue_name,
+            )
+
+            # Wait a short while to let child workflows complete
+            await asyncio.sleep(3)
+
+    # Check that all recording blocks were deleted
+    assert TEST_SESSIONS == {
+        "a1b2c3d4-e5f6-7890-abcd-ef1234567890": [],
+        "b2c3d4e5-f6g7-8901-bcde-f12345678901": [],
+        "c3d4e5f6-g7h8-9012-cdef-123456789012": [],
     }
 
 

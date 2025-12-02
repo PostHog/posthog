@@ -509,6 +509,19 @@ class BillingUsageResponseBreakdownType(StrEnum):
     MULTIPLE = "multiple"
 
 
+class BingAdsDefaultSources(StrEnum):
+    BING = "bing"
+    MICROSOFT = "microsoft"
+
+
+class BingAdsTableExclusions(StrEnum):
+    PERFORMANCE = "performance"
+
+
+class BingAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -571,18 +584,6 @@ class CalendarHeatmapFilter(BaseModel):
 class CalendarHeatmapMathType(StrEnum):
     TOTAL = "total"
     DAU = "dau"
-
-
-class MatchField(StrEnum):
-    CAMPAIGN_NAME = "campaign_name"
-    CAMPAIGN_ID = "campaign_id"
-
-
-class CampaignFieldPreference(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    match_field: MatchField
 
 
 class ChartDisplayCategory(StrEnum):
@@ -1443,6 +1444,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    SUPABASE = "Supabase"
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
     STRIPE = "Stripe"
@@ -1700,6 +1702,27 @@ class GoalLine(BaseModel):
     value: float
 
 
+class GoogleAdsDefaultSources(StrEnum):
+    GOOGLE = "google"
+    ADWORDS = "adwords"
+    YOUTUBE = "youtube"
+    DISPLAY = "display"
+    GMAIL = "gmail"
+    GOOGLE_MAPS = "google_maps"
+    GOOGLE_PLAY = "google_play"
+    GOOGLE_DISCOVER = "google_discover"
+    ADMOB = "admob"
+    WAZE = "waze"
+
+
+class GoogleAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class GoogleAdsTableKeywords(StrEnum):
+    CAMPAIGN = "campaign"
+
+
 class HedgehogColorOptions(StrEnum):
     GREEN = "green"
     RED = "red"
@@ -1920,6 +1943,19 @@ class LifecycleToggle(StrEnum):
     DORMANT = "dormant"
 
 
+class LinkedinAdsDefaultSources(StrEnum):
+    LINKEDIN = "linkedin"
+    LI = "li"
+
+
+class LinkedinAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class LinkedinAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class LogSeverityLevel(StrEnum):
     TRACE = "trace"
     DEBUG = "debug"
@@ -1984,6 +2020,121 @@ class MarketingAnalyticsSchemaFieldTypes(StrEnum):
     DATETIME = "datetime"
     DATE = "date"
     BOOLEAN = "boolean"
+
+
+class MarketingIntegrationConfig1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaign"] = "campaign"
+    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["google"] = "google"
+    sourceType: Literal["GoogleAds"] = "GoogleAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["linkedin"] = "linkedin"
+    sourceType: Literal["LinkedinAds"] = "LinkedinAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig3(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["meta"] = "meta"
+    sourceType: Literal["MetaAds"] = "MetaAds"
+    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig4(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["campaign_id"] = "campaign_id"
+    nameField: Literal["campaign_name"] = "campaign_name"
+    primarySource: Literal["tiktok"] = "tiktok"
+    sourceType: Literal["TikTokAds"] = "TikTokAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig5(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=1, min_length=1)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["reddit"] = "reddit"
+    sourceType: Literal["RedditAds"] = "RedditAds"
+    statsTableName: Literal["campaign_report"] = "campaign_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig6(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: Literal["campaigns"] = "campaigns"
+    defaultSources: list[str] = Field(..., max_length=2, min_length=2)
+    idField: Literal["id"] = "id"
+    nameField: Literal["name"] = "name"
+    primarySource: Literal["bing"] = "bing"
+    sourceType: Literal["BingAds"] = "BingAds"
+    statsTableName: Literal["campaign_performance_report"] = "campaign_performance_report"
+    tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
+    tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
+
+
+class MarketingIntegrationConfig(
+    RootModel[
+        MarketingIntegrationConfig1
+        | MarketingIntegrationConfig2
+        | MarketingIntegrationConfig3
+        | MarketingIntegrationConfig4
+        | MarketingIntegrationConfig5
+        | MarketingIntegrationConfig6
+    ]
+):
+    root: (
+        MarketingIntegrationConfig1
+        | MarketingIntegrationConfig2
+        | MarketingIntegrationConfig3
+        | MarketingIntegrationConfig4
+        | MarketingIntegrationConfig5
+        | MarketingIntegrationConfig6
+    )
+
+
+class MatchField(StrEnum):
+    CAMPAIGN_NAME = "campaign_name"
+    CAMPAIGN_ID = "campaign_id"
 
 
 class MatchedRecordingEvent(BaseModel):
@@ -2130,6 +2281,26 @@ class MaxProductInfo(BaseModel):
     usage_limit: float | None = None
 
 
+class MetaAdsDefaultSources(StrEnum):
+    META = "meta"
+    FACEBOOK = "facebook"
+    INSTAGRAM = "instagram"
+    MESSENGER = "messenger"
+    FB = "fb"
+    WHATSAPP = "whatsapp"
+    AUDIENCE_NETWORK = "audience_network"
+    FACEBOOK_MARKETPLACE = "facebook_marketplace"
+    THREADS = "threads"
+
+
+class MetaAdsTableExclusions(StrEnum):
+    STATS = "stats"
+
+
+class MetaAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class MinimalHedgehogConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2148,6 +2319,15 @@ class MultipleBreakdownType(StrEnum):
     SESSION = "session"
     HOGQL = "hogql"
     REVENUE_ANALYTICS = "revenue_analytics"
+
+
+class NativeMarketingSource(StrEnum):
+    GOOGLE_ADS = "GoogleAds"
+    LINKEDIN_ADS = "LinkedinAds"
+    META_ADS = "MetaAds"
+    TIK_TOK_ADS = "TikTokAds"
+    REDDIT_ADS = "RedditAds"
+    BING_ADS = "BingAds"
 
 
 class NodeKind(StrEnum):
@@ -2624,6 +2804,18 @@ class RecordingPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class RedditAdsDefaultSources(StrEnum):
+    REDDIT = "reddit"
+
+
+class RedditAdsTableExclusions(StrEnum):
+    REPORT = "report"
+
+
+class RedditAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
+
+
 class RefreshType(StrEnum):
     ASYNC_ = "async"
     ASYNC_EXCEPT_ON_CACHE_MISS = "async_except_on_cache_miss"
@@ -2820,11 +3012,6 @@ class SnapshotSource(StrEnum):
     WEB = "web"
     MOBILE = "mobile"
     UNKNOWN = "unknown"
-
-
-class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
-    OBJECT_STORAGE = "object_storage"
 
 
 class SessionReplayBlock(BaseModel):
@@ -3144,6 +3331,18 @@ class TestSetupResponse(BaseModel):
     result: Any | None = None
     success: bool
     test_name: str
+
+
+class TikTokAdsDefaultSources(StrEnum):
+    TIKTOK = "tiktok"
+
+
+class TikTokAdsTableExclusions(StrEnum):
+    REPORT = "report"
+
+
+class TikTokAdsTableKeywords(StrEnum):
+    CAMPAIGNS = "campaigns"
 
 
 class TimelineEntry(BaseModel):
@@ -3947,6 +4146,13 @@ class Series(BaseModel):
     value: int
 
 
+class CampaignFieldPreference(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    match_field: MatchField
+
+
 class Settings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4406,6 +4612,12 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    reason: UserProductListReason | None = Field(
+        default=None, description="Reason for custom product suggestion (from UserProductList)"
+    )
+    reasonText: str | None = Field(
+        default=None, description="Custom reason text for custom product suggestion (from UserProductList)"
+    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(default=None, description="Match this with the a base scene key or a specific one")
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
@@ -4657,6 +4869,21 @@ class MarketingAnalyticsSchemaField(BaseModel):
     isCurrency: bool
     required: bool
     type: list[MarketingAnalyticsSchemaFieldTypes]
+
+
+class MarketingIntegrationConfigType(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    campaignTableName: str
+    defaultSources: list[str]
+    idField: str
+    nameField: str
+    primarySource: str
+    sourceType: NativeMarketingSource
+    statsTableName: str
+    tableExclusions: list[str]
+    tableKeywords: list[str]
 
 
 class MatchedRecording(BaseModel):
@@ -5291,7 +5518,6 @@ class SessionRecordingType(BaseModel):
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
-    storage: Storage | None = Field(default=None, description="Where this recording information was loaded from")
     summary: str | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
@@ -5498,6 +5724,7 @@ class SurveyQuestionSchema(BaseModel):
     display: Display1 | None = None
     hasOpenChoice: bool | None = None
     id: str | None = None
+    isNpsQuestion: bool | None = None
     link: str | None = None
     lowerBoundLabel: str | None = None
     optional: bool | None = None
