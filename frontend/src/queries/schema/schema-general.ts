@@ -1629,6 +1629,7 @@ export type LifecycleFilter = {
     stacked?: boolean
 }
 
+// See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
 export type RefreshType =
     | 'async'
     | 'async_except_on_cache_miss'
@@ -1985,6 +1986,7 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     /** Sampling rate */
     samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
     /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
     interval?: IntervalType
@@ -4497,6 +4499,7 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Ashby',
     'Supabase',
     'CustomerIO',
     'Github',
