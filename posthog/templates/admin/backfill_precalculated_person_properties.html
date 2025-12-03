@@ -50,17 +50,6 @@
         <h2>Target Cohort</h2>
 
         <div class="form-row">
-            <label for="{{ form.cohort_id.id_for_label }}" class="required">
-                {{ form.cohort_id.label }}:
-            </label>
-            {{ form.cohort_id }}
-            {% if form.cohort_id.help_text %}
-                <p class="help">{{ form.cohort_id.help_text }}</p>
-            {% endif %}
-            {{ form.cohort_id.errors }}
-        </div>
-
-        <div class="form-row">
             <label for="{{ form.team_id.id_for_label }}" class="required">
                 {{ form.team_id.label }}:
             </label>
@@ -69,6 +58,17 @@
                 <p class="help">{{ form.team_id.help_text }}</p>
             {% endif %}
             {{ form.team_id.errors }}
+        </div>
+
+        <div class="form-row">
+            <label for="{{ form.cohort_id.id_for_label }}">
+                {{ form.cohort_id.label }}:
+            </label>
+            {{ form.cohort_id }}
+            {% if form.cohort_id.help_text %}
+                <p class="help">{{ form.cohort_id.help_text }}</p>
+            {% endif %}
+            {{ form.cohort_id.errors }}
         </div>
     </fieldset>
 
