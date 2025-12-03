@@ -43,8 +43,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
 
-    @async_to_sync
-    async def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+    def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         state, _ = self._get_cached_state(conversation)
         if state is None:
             return []
@@ -52,7 +51,7 @@ class ConversationSerializer(ConversationMinimalSerializer):
         team = self.context["team"]
         user = self.context["user"]
         artifact_manager = ArtifactManager(team, user)
-        enriched_messages = await artifact_manager.aenrich_messages(list(state.messages))
+        enriched_messages = async_to_sync(artifact_manager.aenrich_messages)(list(state.messages))
         messages = [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
         return messages
 
