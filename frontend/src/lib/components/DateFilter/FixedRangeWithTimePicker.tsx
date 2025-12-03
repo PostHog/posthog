@@ -93,6 +93,7 @@ export function FixedRangeWithTimePicker({
                         return {
                             active: selected === String(timeProps.value),
                             className: 'rounded-none',
+                            'data-attr': `${timeProps.value}-${timeProps.unit}`,
                             onClick: () => {
                                 if (currentValue) {
                                     let newDate = currentValue
