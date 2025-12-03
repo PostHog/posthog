@@ -29,7 +29,7 @@ export function StepConditionalBranchConfiguration({
         const branchEdges: HogFlow['edges'] = []
         const nonBranchEdges: HogFlow['edges'] = []
 
-        nodeEdges.forEach((edge) => {
+        nodeEdges?.forEach((edge) => {
             if (edge.type === 'branch' && edge.from === action.id) {
                 branchEdges.push(edge)
             } else {
