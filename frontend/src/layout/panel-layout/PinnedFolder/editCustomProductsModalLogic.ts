@@ -147,7 +147,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         loadUserSuccess: ({ user }) => {
             if (user) {
                 actions.setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
-                actions.setShortcutPosition((user.shortcut_position ?? 'above') as 'above' | 'below' | 'hidden')
+                actions.setShortcutPosition((user.shortcut_position ?? 'above') as UserShortcutPosition, false)
             }
         },
         toggleProduct: async ({ productPath }) => {
