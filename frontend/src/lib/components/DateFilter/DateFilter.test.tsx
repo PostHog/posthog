@@ -55,14 +55,14 @@ describe('DateFilter', () => {
     })
 })
 
-describe('DateFilter with allowTimePrecision', () => {
+describe('DateFilter with allowFixedRangeWithTime', () => {
     let onChange = jest.fn()
     beforeEach(() => {
         initKeaTests()
         onChange = jest.fn()
         render(
             <Provider>
-                <DateFilter onChange={onChange} dateOptions={dateMapping} allowTimePrecision />
+                <DateFilter onChange={onChange} dateOptions={dateMapping} allowFixedRangeWithTime />
             </Provider>
         )
     })

@@ -20,6 +20,7 @@ export type DateFilterLogicProps = {
     isFixedDateMode?: boolean
     placeholder?: string
     allowTimePrecision?: boolean
+    allowFixedRangeWithTime?: boolean
     explicitDate?: boolean
 }
 

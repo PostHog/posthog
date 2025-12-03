@@ -55,6 +55,7 @@ interface RawDateFilterProps extends DateFilterProps {
     max?: number | null
     allowedRollingDateOptions?: DateOption[]
     allowTimePrecision?: boolean
+    allowFixedRangeWithTime?: boolean
     /**
      * Granularity is picked based on the dateFrom value
      * but can be overridden to force a specific granularity.
@@ -83,6 +84,7 @@ export function DateFilter({
     isFixedDateMode = false,
     allowedRollingDateOptions,
     allowTimePrecision = false,
+    allowFixedRangeWithTime = false,
     placeholder,
     fullWidth = false,
     forceGranularity,
@@ -259,7 +261,7 @@ export function DateFilter({
                         <LemonButton onClick={openFixedRange} active={isFixedRange && !isFixedRangeWithTime} fullWidth>
                             Custom fixed date range…
                         </LemonButton>
-                        {allowTimePrecision && (
+                        {allowFixedRangeWithTime && (
                             <LemonButton onClick={openFixedRangeWithTime} active={isFixedRangeWithTime} fullWidth>
                                 Custom fixed date range with time…
                             </LemonButton>
