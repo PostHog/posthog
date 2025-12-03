@@ -1,9 +1,9 @@
 import posthog, { PostHog } from 'posthog-js'
 
-import posthogEE from '@posthog/ee/exports'
 import { EventType, eventWithTime, fullSnapshotEvent } from '@posthog/rrweb-types'
 
 import { isEmptyObject, isObject } from 'lib/utils'
+import { transformEventToWeb } from 'scenes/session-recordings/mobile-replay'
 import {
     type DecompressionMode,
     getDecompressionWorkerManager,
@@ -28,8 +28,6 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
 } from '~/types'
-
-import { PostHogEE } from '../../../../../@posthog/ee/types'
 
 export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 
@@ -261,20 +259,20 @@ function processSnapshot(
     const windowId = snapshot.windowId
     const hasSeenFullForWindow = !!context.seenFullByWindow[windowId]
 
-    if (
-        snapshot.type === EventType.IncrementalSnapshot &&
-        !hasSeenFullForWindow &&
-        isLikelyMobileScreenshot(snapshot)
-    ) {
+    if (snapshot.type === EventType.IncrementalSnapshot && isLikelyMobileScreenshot(snapshot)) {
         const syntheticTimestamp = Math.max(0, snapshot.timestamp - 1)
         const imgNode = extractImgNodeFromMobileIncremental(snapshot)
         const syntheticFull = createMinimalFullSnapshot(snapshot.windowId, syntheticTimestamp, imgNode)
-        const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+
+        // Only patch meta if we haven't seen a full snapshot for this window yet
+        if (!hasSeenFullForWindow) {
+            const metaInserted = pushPatchedMeta(syntheticTimestamp, snapshot.windowId, syntheticFull)
+            context.hasSeenMeta = context.hasSeenMeta || metaInserted
+            context.seenFullByWindow[windowId] = true
+        }
 
         context.result.push(syntheticFull)
         context.sourceResult.push(syntheticFull)
-        context.seenFullByWindow[windowId] = true
-        context.hasSeenMeta = context.hasSeenMeta || metaInserted
     }
 
     if (snapshot.type === EventType.FullSnapshot) {
@@ -465,8 +463,6 @@ function processAllSnapshotsSync(
     return context.result
 }
 
-let postHogEEModule: PostHogEE
-
 function isRecordingSnapshot(x: unknown): x is RecordingSnapshot {
     return typeof x === 'object' && x !== null && 'type' in x && 'timestamp' in x
 }
@@ -505,7 +501,7 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
 function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
     const currentEvent = decompressEvent(d, sessionRecordingId)
-    return postHogEEModule?.mobileReplay?.transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
+    return transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
 function isLengthPrefixedSnappy(uint8Data: Uint8Array): boolean {
@@ -620,10 +616,6 @@ export const parseEncodedSnapshots = async (
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
     const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
-
-    if (!postHogEEModule) {
-        postHogEEModule = await posthogEE()
-    }
 
     // Check if we received binary data (ArrayBuffer or Uint8Array)
     if (items instanceof ArrayBuffer || items instanceof Uint8Array) {

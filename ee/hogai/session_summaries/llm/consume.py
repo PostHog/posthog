@@ -156,9 +156,9 @@ async def get_llm_session_group_patterns_extraction(
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns extraction, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
@@ -178,9 +178,9 @@ async def get_llm_session_group_patterns_assignment(
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns assignment, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_pattern_assignments_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
@@ -200,9 +200,9 @@ async def get_llm_session_group_patterns_combination(
     )
     raw_content = get_raw_content(result)
     if not raw_content:
-        raise ValueError(
-            f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
-        )
+        msg = f"No content consumed when calling LLM for session group patterns chunks combination, sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     patterns = load_patterns_from_llm_content(raw_content, sessions_identifier)
     return patterns
 
@@ -236,7 +236,9 @@ async def get_llm_single_session_summary(
         )
         raw_content = get_raw_content(result)
         if not raw_content:
-            raise ValueError(f"No content consumed when calling LLM for session summary, sessions {session_id}")
+            msg = f"No content consumed when calling LLM for session summary, sessions {session_id}"
+            logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+            raise ValueError(msg)
         session_summary = _convert_llm_content_to_session_summary(
             content=raw_content,
             allowed_event_ids=allowed_event_ids,
@@ -252,9 +254,9 @@ async def get_llm_single_session_summary(
             final_validation=True,
         )
         if not session_summary:
-            raise ValueError(
-                f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
-            )
+            msg = f"Failed to parse LLM response for session summary, session_id {session_id}: {raw_content}"
+            logger.error(msg, session_id=session_id, user_id=user_id, signals_type="session-summaries")
+            raise ValueError(msg)
         # If parsing succeeds, yield the new chunk
         return session_summary
     except (SummaryValidationError, ValueError) as err:
@@ -264,6 +266,7 @@ async def get_llm_single_session_summary(
             f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (get): {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
@@ -272,6 +275,7 @@ async def get_llm_single_session_summary(
             f"Error calling LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
 
@@ -342,6 +346,7 @@ async def stream_llm_single_session_summary(
                     f"Hallucinated data or inconsistencies in the session summary for session_id {session_id} (stream): {err}",
                     session_id=session_id,
                     user_id=user_id,
+                    signals_type="session-summaries",
                 )
                 raise ExceptionToRetry() from err
     except (openai.APIError, openai.APITimeoutError, openai.RateLimitError) as err:
@@ -350,6 +355,7 @@ async def stream_llm_single_session_summary(
             f"Error streaming LLM for session_id {session_id} by user {user_id}: {err}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
     finally:
@@ -358,7 +364,12 @@ async def stream_llm_single_session_summary(
             try:
                 await stream.close()
             except Exception:
-                logger.warning("Failed to close LLM stream", session_id=session_id, user_id=user_id)
+                logger.warning(
+                    "Failed to close LLM stream",
+                    session_id=session_id,
+                    user_id=user_id,
+                    signals_type="session-summaries",
+                )
 
     # Final validation of accumulated content (to decide if to retry the whole stream or not)
     try:
@@ -383,6 +394,7 @@ async def stream_llm_single_session_summary(
                 f"Final LLM content validation failed for session_id {session_id}",
                 session_id=session_id,
                 user_id=user_id,
+                signals_type="session-summaries",
             )
             raise ValueError("Final content validation failed")
         final_summary_str = json.dumps(final_summary.data)
@@ -394,6 +406,7 @@ async def stream_llm_single_session_summary(
             f"Failed to validate final LLM content for session_id {session_id}: {str(err)}",
             session_id=session_id,
             user_id=user_id,
+            signals_type="session-summaries",
         )
         raise ExceptionToRetry() from err
 

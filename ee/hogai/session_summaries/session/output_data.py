@@ -1,4 +1,3 @@
-from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -7,7 +6,12 @@ from rest_framework import serializers
 
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
-from ee.hogai.session_summaries.utils import get_column_index, prepare_datetime, unpack_full_event_id
+from ee.hogai.session_summaries.utils import (
+    calculate_time_since_start,
+    get_column_index,
+    prepare_datetime,
+    unpack_full_event_id,
+)
 from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
@@ -270,13 +274,22 @@ def _remove_hallucinated_events(
         and total_summary_events > 0
         and len(hallucinated_events) / total_summary_events > HALLUCINATED_EVENTS_MIN_RATIO
     ):
-        raise SummaryValidationError(
+        msg = (
             f"Too many hallucinated events ({len(hallucinated_events)}/{total_summary_events}) for session id ({session_id})"
-            f"in the raw session summary: {[x[-1] for x in hallucinated_events]} "  # Log events
+            f"in the raw session summary: {[x[-1] for x in hallucinated_events]} "
         )
+        if final_validation:
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     # Reverse to not break indexes
     for group_index, event_index, event in reversed(hallucinated_events):
-        logger.warning(f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}")
+        if final_validation:
+            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
+            logger.warning(
+                f"Removing hallucinated event {event} from the raw session summary for session_id {session_id}",
+                session_id=session_id,
+                signals_type="session-summaries",
+            )
         del raw_session_summary.data["key_actions"][group_index]["events"][event_index]
     return raw_session_summary
 
@@ -285,21 +298,27 @@ def load_raw_session_summary_from_llm_content(
     raw_content: str, allowed_event_ids: list[str], session_id: str, *, final_validation: bool
 ) -> RawSessionSummarySerializer | None:
     if not raw_content:
-        raise SummaryValidationError(f"No LLM content found when summarizing session_id {session_id}")
+        msg = f"No LLM content found when summarizing session_id {session_id}"
+        if final_validation:
+            # Log only on final validation to not spam during regular streaming (as validation errors are expected)
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     try:
         json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=final_validation)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
-        raise SummaryValidationError(
-            f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
-        ) from err
+        msg = f"Error loading YAML content into JSON when summarizing session_id {session_id}: {err}"
+        if final_validation:
+            logger.exception(msg, session_id=session_id, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
     # Validate the LLM output against the schema
     raw_session_summary = RawSessionSummarySerializer(data=json_content)
     if not raw_session_summary.is_valid():
-        raise SummaryValidationError(
-            f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
-        )
+        msg = f"Error validating LLM output against the schema when summarizing session_id {session_id}: {raw_session_summary.errors}"
+        if final_validation:
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     segments = raw_session_summary.data.get("segments")
     if not segments:
         # If segments aren't generated yet - return the current state
@@ -318,9 +337,10 @@ def load_raw_session_summary_from_llm_content(
             continue
         # Ensure that LLM didn't hallucinate segments
         if key_group_segment_index not in segments_indices:
-            raise ValueError(
-                f"LLM hallucinated segment index {key_group_segment_index} when summarizing session_id {session_id}: {raw_session_summary.data}"
-            )
+            msg = f"LLM hallucinated segment index {key_group_segment_index} when summarizing session_id {session_id}: {raw_session_summary.data}"
+            logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            # No sense to continue generation if the whole segment is hallucinated
+            raise ValueError(msg)
         key_group_events = key_action_group.get("events")
         if not key_group_events:
             # If key group events aren't generated yet - skip this group
@@ -347,14 +367,6 @@ def load_raw_session_summary_from_llm_content(
     return raw_session_summary
 
 
-# TODO Rework the logic, so events before the recording are marked as "LOAD", not 00:00
-def calculate_time_since_start(session_timestamp: str, session_start_time: datetime | None) -> int | None:
-    if not session_start_time or not session_timestamp:
-        return None
-    timestamp_datetime = datetime.fromisoformat(session_timestamp)
-    return max(0, int((timestamp_datetime - session_start_time).total_seconds() * 1000))
-
-
 def _validate_enriched_summary(
     data: dict[str, Any], session_id: str, final_validation: bool
 ) -> SessionSummarySerializer:
@@ -363,9 +375,9 @@ def _validate_enriched_summary(
     # Validate even when processing incomplete chunks as the `.data` can't be used without validation check
     if not session_summary.is_valid():
         # Most of the fields are optional, so failed validation should be reported
-        raise SummaryValidationError(
-            f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
-        )
+        msg = f"Error validating enriched content against the schema when summarizing session_id {session_id}: {session_summary.errors}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     return session_summary
 
 
@@ -439,6 +451,7 @@ def _calculate_segment_meta(
     raw_key_actions: list[dict[str, Any]] | None,
     session_duration: int,
     session_id: str,
+    final_validation: bool,
 ) -> SegmentMetaSerializer:
     # Find first and the last event in the segment
     segment_index = raw_segment.get("index")
@@ -458,7 +471,9 @@ def _calculate_segment_meta(
         return SegmentMetaSerializer(data=segment_meta_data)
     # Calculate duration of the segment
     if not session_duration:
-        raise ValueError(f"Session duration is not set when summarizing session_id {session_id}")
+        msg = f"Session duration is not set when summarizing session_id {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     # If both events aren't hallucinated - calculate the meta
     if start_event_id in simplified_events_mapping and end_event_id in simplified_events_mapping:
         duration, duration_percentage = _calculate_segment_duration(
@@ -582,9 +597,12 @@ def _calculate_segment_meta(
     # TODO: Factor of two is arbitrary, find a better solution
     if duration <= 0 or fallback_duration // duration > 2:
         # Checking only duration as events are sorted chronologically
-        logger.warning(
-            f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}"
-        )
+        if final_validation:
+            logger.warning(
+                f"Duration change is drastic (fallback: {fallback_duration} -> segments: {duration}) - using fallback data for session_id {session_id}",
+                session_id=session_id,
+                signals_type="session-summaries",
+            )
         segment_meta_data["duration"] = fallback_duration
         segment_meta_data["duration_percentage"] = fallback_duration_percentage
         segment_meta_data["events_count"] = fallback_events_count
@@ -638,13 +656,15 @@ def enrich_raw_session_summary_with_meta(
             simplified_events_mapping=simplified_events_mapping,
             raw_key_actions=raw_key_actions,
             session_id=session_id,
+            final_validation=final_validation,
         )
         # Validate the serializer to be able to use `.data`
         if not segment_meta.is_valid():
             # Most of the fields are optional, so failed validation should be reported
-            raise SummaryValidationError(
-                f"Error validating segment meta against the schema when summarizing session_id {session_id}: {segment_meta.errors}"
-            )
+            msg = f"Error validating segment meta against the schema when summarizing session_id {session_id}: {segment_meta.errors}"
+            if final_validation:
+                logger.error(msg, session_id=session_id, signals_type="session-summaries")
+            raise SummaryValidationError(msg)
         enriched_segment["meta"] = segment_meta.data
         enriched_segments.append(enriched_segment)
     summary_to_enrich["segments"] = enriched_segments
@@ -676,9 +696,9 @@ def enrich_raw_session_summary_with_meta(
             event_mapping_data = simplified_events_mapping.get(event_id)
             if not event_mapping_data:
                 # If event id is found, but not in mapping, it's a hallucination
-                raise ValueError(
-                    f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id} (probably a hallucination): {raw_session_summary}"
-                )
+                msg = f"Mapping data for event_id {event_id} not found when summarizing session_id {session_id} (probably a hallucination): {raw_session_summary}"
+                logger.error(msg, session_id=session_id, signals_type="session-summaries")
+                raise ValueError(msg)
             enriched_event["event"] = event_mapping_data[event_index]
             # Calculate time to jump to the right place in the player
             timestamp = event_mapping_data[timestamp_index]

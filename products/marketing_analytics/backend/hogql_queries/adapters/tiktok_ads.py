@@ -1,7 +1,10 @@
 # TikTok Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, TikTokAdsConfig, ValidationResult
 
 
@@ -13,10 +16,14 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.TIK_TOK_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """TikTok Ads campaigns typically use 'tiktok' as the UTM source"""
-        return {"tiktok": ["tiktok"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         return "TikTokAds"
@@ -44,7 +51,14 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "campaign_name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
+
+    def _get_campaign_id_field(self) -> ast.Expr:
+        campaign_table_name = self.config.campaign_table.name
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
+        return ast.Call(name="toString", args=[field_expr])
 
     def _get_source_name_field(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Constant(value="tiktok")])
@@ -151,5 +165,5 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
         return conditions
 
     def _get_group_by(self) -> list[ast.Expr]:
-        """Build GROUP BY expressions"""
-        return [self._get_campaign_name_field()]
+        """Build GROUP BY expressions - group by both name and ID"""
+        return [self._get_campaign_name_field(), self._get_campaign_id_field()]

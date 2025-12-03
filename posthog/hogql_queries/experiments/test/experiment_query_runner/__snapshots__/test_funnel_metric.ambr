@@ -16,7 +16,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -66,7 +66,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_duplicate_events_1_enable_new_query_builder
@@ -86,7 +87,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -120,7 +121,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_0_disable_new_query_builder_ordered
@@ -140,7 +142,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -190,7 +192,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_1_enable_new_query_builder_ordered
@@ -210,7 +213,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -244,7 +247,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_2_disable_new_query_builder_unordered
@@ -264,7 +268,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -314,7 +318,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_after_exposure_3_enable_new_query_builder_unordered
@@ -334,7 +339,7 @@
             exposures.exposure_event_uuid AS exposure_event_uuid,
             exposures.exposure_session_id AS exposure_session_id,
             exposures.first_exposure_time AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -389,7 +394,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order_0_disable_new_query_builder
@@ -409,7 +415,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -459,7 +465,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_events_out_of_order_1_enable_new_query_builder
@@ -479,7 +486,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -513,7 +520,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags_0_disable_new_query_builder
@@ -533,7 +541,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -583,7 +591,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_different_feature_flags_1_enable_new_query_builder
@@ -603,7 +612,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -637,7 +646,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date_0_disable_new_query_builder
@@ -656,7 +666,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -705,7 +715,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_excludes_events_after_experiment_end_date_1_enable_new_query_builder
@@ -724,7 +735,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -757,7 +768,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_disable_new_query_builder
@@ -777,7 +789,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -827,7 +839,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_0_disable_new_query_builder.1
@@ -847,7 +860,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -897,7 +910,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_1_enable_new_query_builder
@@ -917,7 +931,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -951,7 +965,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_ordered_vs_unordered_comparison_1_enable_new_query_builder.1
@@ -971,7 +986,7 @@
             exposures.exposure_event_uuid AS exposure_event_uuid,
             exposures.exposure_session_id AS exposure_session_id,
             exposures.first_exposure_time AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1026,7 +1041,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action_0_disable_new_query_builder
@@ -1046,7 +1062,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1096,7 +1112,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_action_1_enable_new_query_builder
@@ -1116,7 +1133,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1150,7 +1167,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window_0_disable_new_query_builder
@@ -1170,7 +1188,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1220,7 +1238,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_conversion_window_1_enable_new_query_builder
@@ -1240,7 +1259,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1274,7 +1293,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window_0_disable_new_query_builder
@@ -1294,7 +1314,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1344,7 +1364,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_custom_conversion_window_1_enable_new_query_builder
@@ -1364,7 +1385,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 86400, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1398,7 +1419,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps_0_disable_new_query_builder
@@ -1422,7 +1444,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(6, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(6, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1476,7 +1498,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_many_steps_1_enable_new_query_builder
@@ -1500,7 +1523,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(7, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5), multiply(7, metric_events.step_6)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(7, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3), multiply(5, metric_events.step_4), multiply(6, metric_events.step_5), multiply(7, metric_events.step_6)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1538,7 +1561,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps_0_disable_new_query_builder
@@ -1559,7 +1583,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1610,7 +1634,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_multiple_similar_steps_1_enable_new_query_builder
@@ -1631,7 +1656,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(4, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(4, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2), multiply(4, metric_events.step_3)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1666,7 +1691,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter_0_disable_new_query_builder
@@ -1686,7 +1712,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1736,7 +1762,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_step_property_filter_1_enable_new_query_builder
@@ -1756,7 +1783,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1790,7 +1817,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps_0_disable_new_query_builder
@@ -1810,7 +1838,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1860,7 +1888,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_funnel_metric_with_unordered_steps_1_enable_new_query_builder
@@ -1880,7 +1909,7 @@
             exposures.exposure_event_uuid AS exposure_event_uuid,
             exposures.exposure_session_id AS exposure_session_id,
             exposures.first_exposure_time AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(3, 94608000, 'first_touch', 'unordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1), multiply(3, metric_events.step_2)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -1935,7 +1964,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_0_disable_new_query_builder
@@ -1954,7 +1984,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2003,7 +2033,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_funnel_metric_1_enable_new_query_builder
@@ -2022,7 +2053,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2055,7 +2086,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric_0_disable_new_query_builder
@@ -2074,7 +2106,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2109,7 +2141,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_group_aggregation_funnel_metric_1_enable_new_query_builder
@@ -2128,7 +2161,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2154,7 +2187,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_00_person_id_override_properties_on_events_no_filter_disable_new_query_builder
@@ -2218,7 +2252,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2267,7 +2301,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_00_person_id_override_properties_on_events_no_filter_disable_new_query_builder.2
@@ -2403,7 +2438,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2436,7 +2471,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_01_person_id_override_properties_on_events_no_filter_enable_new_query_builder.2
@@ -2572,7 +2608,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2621,7 +2657,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_02_person_id_override_properties_on_events_filter_earlierevent_disable_new_query_builder.2
@@ -2757,7 +2794,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2790,7 +2827,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_03_person_id_override_properties_on_events_filter_earlierevent_enable_new_query_builder.2
@@ -2926,7 +2964,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -2975,7 +3013,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_04_person_id_override_properties_on_events_filter_laterevent_disable_new_query_builder.2
@@ -3111,7 +3150,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -3144,7 +3183,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_05_person_id_override_properties_on_events_filter_laterevent_enable_new_query_builder.2
@@ -3280,7 +3320,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -3349,7 +3389,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_06_person_id_override_properties_joined_no_filter_disable_new_query_builder.2
@@ -3485,7 +3526,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -3528,7 +3569,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_07_person_id_override_properties_joined_no_filter_enable_new_query_builder.2
@@ -3664,7 +3706,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -3733,7 +3775,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_08_person_id_override_properties_joined_filter_earlierevent_disable_new_query_builder.2
@@ -3869,7 +3912,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -3912,7 +3955,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_09_person_id_override_properties_joined_filter_earlierevent_enable_new_query_builder.2
@@ -4048,7 +4092,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4117,7 +4161,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_10_person_id_override_properties_joined_filter_laterevent_disable_new_query_builder.2
@@ -4253,7 +4298,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4296,7 +4341,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_11_person_id_override_properties_joined_filter_laterevent_enable_new_query_builder.2
@@ -4432,7 +4478,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4467,7 +4513,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_12_person_id_no_override_properties_on_events_no_filter_disable_new_query_builder.2
@@ -4603,7 +4650,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4629,7 +4676,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_13_person_id_no_override_properties_on_events_no_filter_enable_new_query_builder.2
@@ -4765,7 +4813,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4800,7 +4848,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_14_person_id_no_override_properties_on_events_filter_earlierevent_disable_new_query_builder.2
@@ -4936,7 +4985,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -4962,7 +5011,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_15_person_id_no_override_properties_on_events_filter_earlierevent_enable_new_query_builder.2
@@ -5098,7 +5148,7 @@
             any(exposures.exposure_event_uuid) AS exposure_event_uuid,
             any(exposures.exposure_session_id) AS exposure_session_id,
             any(exposures.first_exposure_time) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(1, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -5133,7 +5183,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_16_person_id_no_override_properties_on_events_filter_laterevent_disable_new_query_builder.2
@@ -5269,7 +5320,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp
      FROM
@@ -5295,7 +5346,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentFunnelMetric.test_query_runner_with_persons_on_events_mode_17_person_id_no_override_properties_on_events_filter_laterevent_enable_new_query_builder.2

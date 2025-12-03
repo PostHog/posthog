@@ -29,7 +29,8 @@ export async function processPersonsStep(
         runner.hub.db.kafkaProducer,
         personStoreBatch,
         runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
-        runner.mergeMode
+        runner.mergeMode,
+        runner.hub.PERSON_PROPERTIES_UPDATE_ALL
     )
 
     const processor = new PersonEventProcessor(

@@ -48,7 +48,10 @@ from posthog.storage.cache_expiry_manager import (
     track_cache_expiry,
 )
 from posthog.storage.hypercache import HyperCache
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats as get_cache_stats_generic,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -316,14 +319,14 @@ def cleanup_stale_expiry_tracking() -> int:
     return removed
 
 
-def get_flags_cache_stats() -> dict[str, Any]:
+def get_cache_stats() -> dict[str, Any]:
     """
     Get statistics about the flags cache.
 
     Returns:
         Dictionary with cache statistics including size information
     """
-    return get_cache_stats(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
+    return get_cache_stats_generic(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
 
 
 # Signal handlers for automatic cache invalidation
