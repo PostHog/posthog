@@ -88,19 +88,23 @@ export function ActionFilterGroup({
                         ...newValues[eventIndex],
                         ...updates,
                     }
+                    const groupName = newValues.map((v) => v.name).join(', ')
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
                         values: newValues,
+                        name: groupName,
                         index,
                     } as any)
                 },
                 removeLocalFilter: () => {
                     const newValues = values.filter((_, i) => i !== eventIndex)
+                    const groupName = newValues.map((v) => v.name).join(', ')
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
                         values: newValues,
+                        name: groupName,
                         index,
                     } as any)
                 },
@@ -150,10 +154,13 @@ export function ActionFilterGroup({
             ...(filter.math_hogql && { math_hogql: filter.math_hogql }),
             ...(filter.math_group_type_index !== undefined && { math_group_type_index: filter.math_group_type_index }),
         }
+        const updatedValues = [...values, newEvent]
+        const groupName = updatedValues.map((v) => v.name).join(', ')
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values: [...values, newEvent],
+            values: updatedValues,
+            name: groupName,
             index,
         } as any)
     }
