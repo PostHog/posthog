@@ -134,7 +134,7 @@ export function FixedRangeWithTimePicker({
                     granularity="minute"
                 />
             </div>
-            <div className="flex justify-end gap-2 border-t p-2 pt-4">
+            <div className="flex justify-end gap-2 border-t p-2 pt-4" data-attr="lemon-calendar-range-with-time-footer">
                 <LemonButton type="secondary" onClick={onClose}>
                     Cancel
                 </LemonButton>
