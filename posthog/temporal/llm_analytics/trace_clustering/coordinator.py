@@ -59,7 +59,7 @@ def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list
         SELECT
             team_id,
             count(DISTINCT document_id) as embedding_count
-        FROM posthog_document_embeddings
+        FROM distributed_posthog_document_embeddings
         WHERE timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
             AND rendering = %(rendering)s
@@ -181,6 +181,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     id=f"trace-clustering-team-{team_id}-{temporalio.workflow.now().isoformat()}",
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
+                    parent_close_policy=temporalio.workflow.ParentClosePolicy.ABANDON,
                 )
                 workflow_handles.append((team_id, handle))
 

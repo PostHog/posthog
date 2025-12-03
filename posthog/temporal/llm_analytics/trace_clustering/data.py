@@ -48,7 +48,7 @@ def fetch_trace_embeddings_for_clustering(
     """
     query = """
         SELECT document_id, embedding
-        FROM posthog_document_embeddings
+        FROM distributed_posthog_document_embeddings
         WHERE team_id = %(team_id)s
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
