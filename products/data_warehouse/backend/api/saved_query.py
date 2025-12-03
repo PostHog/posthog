@@ -331,7 +331,10 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 self.context["activity_log"] = latest_activity_log
 
             if sync_frequency and sync_frequency != "never":
-                view.setup_model_paths()
+                try:
+                    view.setup_model_paths()
+                except Exception:
+                    logger.exception("Failed to update model path when updating view %s", view.name)
 
         if was_sync_frequency_updated:
             view.schedule_materialization(
