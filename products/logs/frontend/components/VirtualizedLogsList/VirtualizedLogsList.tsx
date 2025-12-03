@@ -38,11 +38,11 @@ export function VirtualizedLogsList({
 }: VirtualizedLogsListProps): JSX.Element {
     const { togglePinLog, setHighlightedLogId, fetchNextLogsPage } = useActions(logsLogic)
     const { highlightedLogId, hasMoreLogsToLoad, logsLoading } = useValues(logsLogic)
-    const { shouldLoadMore } = useValues(virtualizedLogsListLogic)
+    const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
+    const { setContainerWidth } = useActions(virtualizedLogsListLogic)
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
     const prevDataLengthRef = useRef<number>(0)
-    const prevWidthRef = useRef<number>(0)
 
     const minRowWidth = useMemo(() => getMinRowWidth(), [])
 
@@ -57,13 +57,12 @@ export function VirtualizedLogsList({
     )
 
     // Clear cache when container width changes (affects message column width and thus row heights)
-    const handleWidthChange = (width: number): void => {
-        if (prevWidthRef.current !== 0 && prevWidthRef.current !== width) {
+    useEffect(() => {
+        if (containerWidth > 0) {
             cache.clearAll()
             listRef.current?.recomputeRowHeights()
         }
-        prevWidthRef.current = width
-    }
+    }, [containerWidth, cache])
 
     // Preserve scroll position when new data is appended
     useEffect(() => {
@@ -167,7 +166,9 @@ export function VirtualizedLogsList({
             <div style={{ height: fixedHeight }} className="flex flex-col">
                 <AutoSizer disableHeight>
                     {({ width }) => {
-                        handleWidthChange(width)
+                        if (width !== containerWidth) {
+                            setContainerWidth(width)
+                        }
                         return (
                             <>
                                 <LogRowHeader rowWidth={width} />
@@ -195,7 +196,9 @@ export function VirtualizedLogsList({
         <div className="h-full flex-1 flex flex-col">
             <AutoSizer>
                 {({ width, height }) => {
-                    handleWidthChange(width)
+                    if (width !== containerWidth) {
+                        setContainerWidth(width)
+                    }
                     const rowWidth = Math.max(width, minRowWidth)
 
                     return (
