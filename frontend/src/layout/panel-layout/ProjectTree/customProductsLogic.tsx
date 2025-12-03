@@ -20,12 +20,12 @@ export const customProductsLogic = kea<customProductsLogicType>([
                     const response = await api.userProductList.list()
                     return response.results ?? []
                 },
-                syncFromColleagues: async (): Promise<UserProductListItem[]> => {
-                    const response = await api.userProductList.syncFromColleagues()
+                seed: async (): Promise<UserProductListItem[]> => {
+                    const response = await api.userProductList.seed()
 
                     const { results = [] } = response
                     if (results.length === 0) {
-                        lemonToast.error('No products found to sync from colleagues')
+                        lemonToast.error('No recommended products found')
                     }
 
                     return results

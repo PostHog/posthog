@@ -25,7 +25,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         ],
         actions: [
             customProductsLogic,
-            ['loadCustomProducts', 'loadCustomProductsSuccess', 'syncFromColleagues'],
+            ['loadCustomProducts', 'loadCustomProductsSuccess', 'seedSuccess'],
             userLogic,
             ['updateUser', 'loadUserSuccess'],
         ],
@@ -126,7 +126,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         loadCustomProductsSuccess: ({ customProducts }) => {
             actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
         },
-        syncFromColleaguesSuccess: ({ customProducts }) => {
+        seedSuccess: ({ customProducts }) => {
             actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
         },
         loadUserSuccess: ({ user }) => {

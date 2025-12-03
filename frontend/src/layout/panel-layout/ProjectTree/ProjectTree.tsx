@@ -124,7 +124,7 @@ export function ProjectTree({
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
     const { customProducts, customProductsLoading } = useValues(customProductsLogic)
-    const { syncFromColleagues } = useActions(customProductsLogic)
+    const { seed } = useActions(customProductsLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
@@ -197,8 +197,8 @@ export function ProjectTree({
                             <br />
                             <br />
                             {!hasColleagueProducts && fullFileSystemFiltered.length <= 3 && (
-                                <span className="cursor-pointer underline" onClick={syncFromColleagues}>
-                                    {customProductsLoading ? 'Syncing...' : 'Sync products from your colleagues?'}
+                                <span className="cursor-pointer underline" onClick={seed}>
+                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
                                 </span>
                             )}
                         </div>
