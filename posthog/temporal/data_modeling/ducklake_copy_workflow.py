@@ -136,9 +136,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake_dev"
         try:
-            heartbeater.details = ("configure_source_storage", inputs.model.model_label)
             _configure_source_storage(conn, logger)
-            heartbeater.details = ("attach_catalog", inputs.model.model_label)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -151,9 +149,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
                 ducklake_table=qualified_table,
                 source_table=inputs.model.source_table_uri,
             )
-            heartbeater.details = ("create_schema", inputs.model.schema_name)
             conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
-            heartbeater.details = ("materialize_table", inputs.model.model_label)
             conn.execute(
                 f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
                 [inputs.model.source_table_uri],
@@ -181,7 +177,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            heartbeater.details = ("verify_configure_source", inputs.model.model_label)
             _configure_source_storage(conn, logger)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -198,7 +193,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             for query in inputs.model.verification_queries:
                 rendered_sql = query.sql.format(**format_values)
                 params = [_resolve_verification_parameter(param, inputs) for param in query.parameters]
-                heartbeater.details = ("verify_query", inputs.model.model_label, query.name)
 
                 try:
                     row = conn.execute(rendered_sql, params).fetchone()
@@ -282,19 +276,15 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
                     )
                 )
 
-            heartbeater.details = ("verify_schema", inputs.model.model_label)
             schema_result = _run_schema_verification(conn, ducklake_table, inputs)
             if schema_result:
                 results.append(schema_result)
 
-            heartbeater.details = ("verify_partition", inputs.model.model_label)
             partition_result = _run_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
 
-            heartbeater.details = ("verify_keys", inputs.model.model_label)
             results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
-            heartbeater.details = ("verify_non_null_columns", inputs.model.model_label)
             results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
