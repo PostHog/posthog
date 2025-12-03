@@ -1,4 +1,4 @@
-import { useMDXComponents } from '../../../frontend/src/scenes/onboarding/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/onboarding/OnboardingDocsContentWrapper'
 
 export const GoogleInstallation = (): JSX.Element => {
     const {
