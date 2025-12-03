@@ -60,7 +60,7 @@ class TestFunnelGroupBreakdownUDF(
 
 
 class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
-    def test_assert_flag_is_on(self):
+    def test_assert_udf_flag(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "steps",
