@@ -162,7 +162,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
             if (toolCall.status === 'completed') {
                 return 'Read data schema'
             }
-            return 'Reading data scehma...'
+            return 'Reading data schema...'
         },
     },
     read_data: {
