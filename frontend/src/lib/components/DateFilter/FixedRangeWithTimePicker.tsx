@@ -108,10 +108,12 @@ export function FixedRangeWithTimePicker({
                                     } else if (timeProps.unit === 'm') {
                                         newDate = currentValue.minute(Number(timeProps.value))
                                     } else if (timeProps.unit === 'a') {
-                                        newDate =
-                                            timeProps.value === 'am'
-                                                ? currentValue.subtract(12, 'hour')
-                                                : currentValue.add(12, 'hour')
+                                        const currentHour = currentValue.hour()
+                                        if (timeProps.value === 'am' && currentHour >= 12) {
+                                            newDate = currentValue.subtract(12, 'hour')
+                                        } else if (timeProps.value === 'pm' && currentHour < 12) {
+                                            newDate = currentValue.add(12, 'hour')
+                                        }
                                     }
                                     if (selectingStart) {
                                         setLocalFrom(newDate)

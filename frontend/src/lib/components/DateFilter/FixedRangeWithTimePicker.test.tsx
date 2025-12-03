@@ -79,4 +79,19 @@ describe('FixedRangeWithTimePicker', () => {
         userEvent.click(within(footer).getByText(/apply/i))
         expect(setDate).toHaveBeenCalledWith('2024-01-15T10:00:00', '2024-01-15T14:00:00', false, true)
     })
+
+    it('preserves PM time when initialized with PM', () => {
+        const { container } = render(
+            <FixedRangeWithTimePicker
+                rangeDateFrom={dayjs('2024-01-15T14:30:00')}
+                rangeDateTo={dayjs('2024-01-15T16:00:00')}
+                setDate={setDate}
+                onClose={onClose}
+            />
+        )
+
+        const footer = container.querySelector('[data-attr="lemon-calendar-range-with-time-footer"]') as HTMLElement
+        userEvent.click(within(footer).getByText(/apply/i))
+        expect(setDate).toHaveBeenCalledWith('2024-01-15T14:30:00', '2024-01-15T16:00:00', false, true)
+    })
 })
