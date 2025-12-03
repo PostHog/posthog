@@ -1,9 +1,9 @@
 from posthog.test.base import BaseTest
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantMessage, FailureMessage, HumanMessage
+from posthog.schema import AssistantMessage, AssistantTrendsQuery, FailureMessage, HumanMessage, VisualizationMessage
 
 from ee.hogai.utils.helpers import filter_and_merge_messages
-from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
+from ee.hogai.utils.types.base import AssistantMessageUnion
 
 
 class TestTrendsUtils(BaseTest):
@@ -12,24 +12,14 @@ class TestTrendsUtils(BaseTest):
             HumanMessage(content="Text"),
             FailureMessage(content="Error"),
             HumanMessage(content="Text"),
-            ArtifactRefMessage(
-                content_type=ArtifactContentType.VISUALIZATION,
-                source=ArtifactSource.ARTIFACT,
-                artifact_id="123",
-                id="123",
-            ),
+            VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
             HumanMessage(content="Text2"),
         ]
         messages = filter_and_merge_messages(conversation)
         self.assertEqual(
             [
                 HumanMessage(content="Text\nText"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="123",
-                    id="123",
-                ),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="plan"),
                 HumanMessage(content="Text2"),
             ],
             messages,
@@ -39,20 +29,10 @@ class TestTrendsUtils(BaseTest):
         messages = filter_and_merge_messages(
             [
                 HumanMessage(content="Question 1"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="123",
-                    id="123",
-                ),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
                 AssistantMessage(content="Summary 1"),
                 HumanMessage(content="Question 2"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="456",
-                    id="456",
-                ),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
                 AssistantMessage(content="Summary 2"),
             ]
         )
@@ -61,20 +41,10 @@ class TestTrendsUtils(BaseTest):
             messages,
             [
                 HumanMessage(content="Question 1"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="123",
-                    id="123",
-                ),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 1"),
                 AssistantMessage(content="Summary 1"),
                 HumanMessage(content="Question 2"),
-                ArtifactRefMessage(
-                    content_type=ArtifactContentType.VISUALIZATION,
-                    source=ArtifactSource.ARTIFACT,
-                    artifact_id="456",
-                    id="456",
-                ),
+                VisualizationMessage(answer=AssistantTrendsQuery(series=[]), plan="Plan 2"),
                 AssistantMessage(content="Summary 2"),
             ],
         )

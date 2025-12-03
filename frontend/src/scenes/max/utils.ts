@@ -6,9 +6,6 @@ import { humanFriendlyDuration } from 'lib/utils'
 import {
     AnyAssistantGeneratedQuery,
     AnyAssistantSupportedQuery,
-    ArtifactContent,
-    ArtifactContentType,
-    ArtifactMessage,
     AssistantMessage,
     AssistantMessageType,
     AssistantToolCallMessage,
@@ -17,7 +14,7 @@ import {
     MultiVisualizationMessage,
     NotebookUpdateMessage,
     RootAssistantMessage,
-    VisualizationArtifactContent,
+    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import {
     DashboardFilter,
@@ -34,18 +31,16 @@ import { EnhancedToolCall } from './Thread'
 import { SuggestionGroup } from './maxLogic'
 import { MaxActionContext, MaxContextType, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
 
+export function isVisualizationMessage(
+    message: RootAssistantMessage | undefined | null
+): message is VisualizationMessage {
+    return message?.type === AssistantMessageType.Visualization
+}
+
 export function isMultiVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is MultiVisualizationMessage {
     return message?.type === AssistantMessageType.MultiVisualization
-}
-
-export function isArtifactMessage(message: RootAssistantMessage | undefined | null): message is ArtifactMessage {
-    return message?.type === AssistantMessageType.Artifact
-}
-
-export function isVisualizationArtifactContent(content: ArtifactContent): content is VisualizationArtifactContent {
-    return content.content_type === ArtifactContentType.Visualization
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {

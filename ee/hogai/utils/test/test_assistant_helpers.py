@@ -4,13 +4,11 @@ from langchain_core.messages import AIMessage
 from parameterized import parameterized
 
 from posthog.schema import (
-    ArtifactMessage,
-    ArtifactSource,
     AssistantMessage,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     HumanMessage,
-    VisualizationArtifactContent,
+    VisualizationMessage,
 )
 
 from ee.hogai.utils.helpers import (
@@ -105,13 +103,7 @@ class TestAssistantHelpers(BaseTest):
                 [
                     HumanMessage(content="first", id="first-id"),
                     AssistantMessage(content="response 1", type="ai"),
-                    ArtifactMessage(
-                        artifact_id="test-artifact-id",
-                        source=ArtifactSource.ARTIFACT,
-                        content=VisualizationArtifactContent(
-                            query=AssistantTrendsQuery(series=[]), name="Test Artifact", description="Test plan"
-                        ),
-                    ),
+                    VisualizationMessage(answer=AssistantTrendsQuery(series=[])),
                     HumanMessage(content="second", id="target-id"),
                     AssistantMessage(content="response 2", type="ai"),
                 ],

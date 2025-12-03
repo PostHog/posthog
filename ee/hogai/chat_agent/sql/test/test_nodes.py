@@ -1,51 +1,41 @@
 from posthog.test.base import NonAtomicBaseTest
 from unittest.mock import patch
 
-from langchain_core.runnables import RunnableConfig, RunnableLambda
+from langchain_core.runnables import RunnableLambda
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantHogQLQuery, HumanMessage
+from posthog.schema import AssistantHogQLQuery, HumanMessage, VisualizationMessage
 
 from ee.hogai.chat_agent.sql.nodes import SQLGeneratorNode
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import ArtifactRefMessage
-from ee.models.assistant import Conversation
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
 class TestSQLGeneratorNode(NonAtomicBaseTest):
     maxDiff = None
 
-    def setUp(self):
-        super().setUp()
-        self.conversation = Conversation.objects.create(team=self.team, user=self.user)
-
     async def test_node_runs(self):
         node = SQLGeneratorNode(self.team, self.user)
-        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
-        answer = AssistantHogQLQuery(query="SELECT 1")
-
         with patch.object(SQLGeneratorNode, "_model") as generator_model_mock:
+            answer = AssistantHogQLQuery(query="SELECT 1")
             generator_model_mock.return_value = RunnableLambda(lambda _: answer.model_dump())
-            # Call through __call__ to ensure config is set before context_manager is created
-            new_state = await node(
+            new_state = await node.arun(
                 AssistantState(
                     messages=[HumanMessage(content="Text")],
                     plan="Plan",
                     root_tool_insight_plan="question",
                 ),
-                config,
+                {},
             )
 
-            # Verify node output contains ArtifactRefMessage pointing to database artifact
-            assert new_state is not None
-            self.assertEqual(len(new_state.messages), 1)
-            msg = new_state.messages[0]
-            self.assertIsInstance(msg, ArtifactRefMessage)
-            assert isinstance(msg, ArtifactRefMessage)
-            self.assertEqual(msg.content_type, ArtifactContentType.VISUALIZATION)
-            self.assertEqual(msg.source, ArtifactSource.ARTIFACT)
-            self.assertIsNotNone(msg.artifact_id)
-
-            # Verify node clears these state fields
-            self.assertIsNone(new_state.intermediate_steps)
-            self.assertIsNone(new_state.plan)
-            self.assertIsNone(new_state.rag_context)
+            assert new_state == PartialAssistantState(
+                messages=[
+                    VisualizationMessage(
+                        query="question",
+                        answer=answer,
+                        plan="Plan",
+                        id=new_state.messages[0].id if new_state.messages else None,
+                    )
+                ],
+                intermediate_steps=None,
+                plan=None,
+                rag_context=None,
+            )

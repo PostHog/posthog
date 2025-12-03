@@ -5,12 +5,11 @@ from unittest.mock import patch
 
 from braintrust import EvalCase
 
-from posthog.schema import HumanMessage
+from posthog.schema import HumanMessage, VisualizationMessage
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
-from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -19,7 +18,7 @@ from ..scorers import InsightEvaluationAccuracy, InsightSearchOutput
 
 def extract_evaluation_info_from_state(state) -> dict:
     """Extract evaluation information from the final assistant state."""
-    artifact_messages = [msg for msg in state.messages if isinstance(msg, ArtifactRefMessage)]
+    visualization_messages = [msg for msg in state.messages if isinstance(msg, VisualizationMessage)]
 
     evaluation_message = None
     found_insights_in_evaluation = False
@@ -32,12 +31,12 @@ def extract_evaluation_info_from_state(state) -> dict:
             break
 
     # Determine if insights were selected or rejected
-    # Use both artifact message presence AND evaluation result content
-    has_selected_insights = len(artifact_messages) > 0 or found_insights_in_evaluation
+    # Use both VisualizationMessage presence AND evaluation result content
+    has_selected_insights = len(visualization_messages) > 0 or found_insights_in_evaluation
     is_creating_new_insight = bool(state.root_tool_insight_plan)
 
     # Also check for "No existing insights found" message which indicates new insight creation
-    # BUT only if we don't already have insights selected (artifact message takes precedence)
+    # BUT only if we don't already have insights selected (VisualizationMessage takes precedence)
     if not is_creating_new_insight and not has_selected_insights:
         for msg in state.messages:
             if hasattr(msg, "content"):
@@ -75,7 +74,7 @@ def extract_evaluation_info_from_state(state) -> dict:
         "has_selected_insights": has_selected_insights,
         "is_creating_new_insight": is_creating_new_insight,
         "evaluation_message": evaluation_message,
-        "visualization_count": len(artifact_messages),
+        "visualization_count": len(visualization_messages),
     }
 
 
