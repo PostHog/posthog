@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -50,6 +51,9 @@ export function ResourceMenuItems({
                 asChild
                 onClick={(e) => {
                     e.stopPropagation()
+                    if (resourceMeta?.href && resource.ref) {
+                        router.actions.push(resourceMeta.href(resource.ref))
+                    }
                 }}
             >
                 <ButtonPrimitive menuItem>
