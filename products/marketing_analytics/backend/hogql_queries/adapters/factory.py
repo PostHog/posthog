@@ -7,7 +7,7 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.team.team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
-from posthog.schema import SourceMap
+from posthog.schema import NativeMarketingSource, SourceMap
 
 from posthog.hogql.database.database import Database
 
@@ -178,7 +178,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[GoogleAdsConfig]:
         """Create Google Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["GoogleAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.GOOGLE_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -210,7 +210,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[LinkedinAdsConfig]:
         """Create LinkedIn Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["LinkedinAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.LINKEDIN_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -242,7 +242,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[RedditAdsConfig]:
         """Create Reddit Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["RedditAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.REDDIT_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -274,7 +274,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[MetaAdsConfig]:
         """Create Meta Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["MetaAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.META_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -306,7 +306,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[TikTokAdsConfig]:
         """Create TikTok Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["TikTokAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.TIK_TOK_ADS]
         campaign_table = None
         campaign_stats_table = None
 
@@ -338,7 +338,7 @@ class MarketingSourceFactory:
         self, source: ExternalDataSource, tables: list[DataWarehouseTable]
     ) -> Optional[BingAdsConfig]:
         """Create Bing Ads adapter config with campaign and stats tables"""
-        patterns = TABLE_PATTERNS["BingAds"]
+        patterns = TABLE_PATTERNS[NativeMarketingSource.BING_ADS]
         campaign_table = None
         campaign_stats_table = None
 

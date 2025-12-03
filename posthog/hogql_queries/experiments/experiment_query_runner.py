@@ -25,7 +25,7 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
@@ -582,6 +582,7 @@ class ExperimentQueryRunner(QueryRunner):
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
+            product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
@@ -589,8 +590,8 @@ class ExperimentQueryRunner(QueryRunner):
         )
 
         experiment_query_ast = self._get_experiment_query()
-        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
         self.hogql = to_printed_hogql(experiment_query_ast, self.team)
+        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
 
         response = execute_hogql_query(
             query_type="ExperimentQuery",
