@@ -127,7 +127,9 @@ export const legacyEntityToNode = (
         shared = {
             ...shared,
             operator: entity.operator || undefined,
-            values: entity.values || [],
+            values: (entity.values || []).map((v) =>
+                legacyEntityToNode(v as ActionFilter, includeProperties, mathAvailability)
+            ),
         } as GroupNode
     }
 
@@ -195,7 +197,6 @@ export const legacyEntityToNode = (
         return setLatestVersionsOnQuery(
             objectCleanWithEmpty({
                 kind: NodeKind.GroupNode,
-                id: entity.id, // TODO: Check if ID is needed, as it empty str
                 ...shared,
             })
         ) as any

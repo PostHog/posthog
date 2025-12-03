@@ -15384,7 +15384,17 @@
                 "values": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/DataWarehouseNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

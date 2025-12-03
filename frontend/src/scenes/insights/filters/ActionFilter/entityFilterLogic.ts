@@ -73,7 +73,7 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
  */
 export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
     return {
-        id: 'events_group_id',
+        id: null,
         name: 'events_group', // for debugging
         type: EntityTypes.GROUPS,
         order: filter.order,

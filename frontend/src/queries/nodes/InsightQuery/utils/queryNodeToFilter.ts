@@ -42,7 +42,7 @@ type FilterTypeActionsAndEvents = {
 
 const getFilterId = (node: EventsNode | ActionsNode | DataWarehouseNode | GroupNode): any => {
     if (isGroupNode(node)) {
-        return null
+        return undefined
     }
 
     if (isDataWarehouseNode(node)) {
@@ -91,7 +91,7 @@ export const seriesNodeToFilter = (
         ...(isGroupNode(node)
             ? {
                   operator: node.operator,
-                  values: node.values || [],
+                  values: (node.values || []).map((v) => seriesNodeToFilter(v)),
               }
             : {}),
     })
