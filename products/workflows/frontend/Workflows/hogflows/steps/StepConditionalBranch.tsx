@@ -136,7 +136,9 @@ export function StepConditionalBranchConfiguration({
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(
-                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                                conditions.map((condition, i) =>
+                                    i === index ? { ...condition, filters: filters ?? {} } : condition
+                                )
                             )
                         }
                         typeKey={`workflow-trigger-${index}`}
