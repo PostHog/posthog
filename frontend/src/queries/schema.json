@@ -16140,6 +16140,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializedColumnsOptimizationMode": {
+                    "enum": ["disabled", "optimized"],
+                    "type": "string"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -17981,7 +17985,18 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": [
+                "ID",
+                "Campaign",
+                "Source",
+                "Cost",
+                "Clicks",
+                "Impressions",
+                "CPC",
+                "CTR",
+                "Reported Conversion",
+                "Reported Conversion Value"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -17994,7 +18009,8 @@
                 "date",
                 "impressions",
                 "source",
-                "reported_conversion"
+                "reported_conversion",
+                "reported_conversion_value"
             ],
             "type": "string"
         },
@@ -20664,7 +20680,8 @@
                 "error_tracking_issue",
                 "revenue_analytics",
                 "flag",
-                "log"
+                "log",
+                "workflow_variable"
             ],
             "type": "string"
         },
@@ -28014,6 +28031,9 @@
                 "reported_conversion": {
                     "type": "string"
                 },
+                "reported_conversion_value": {
+                    "type": "string"
+                },
                 "source": {
                     "type": "string"
                 }
@@ -28842,7 +28862,8 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
-                "max_ai_context"
+                "max_ai_context",
+                "workflow_variables"
             ],
             "type": "string"
         },

@@ -7,7 +7,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { editCustomProductsModalLogic } from './editCustomProductsModalLogic'
 
@@ -23,7 +23,8 @@ export function EditCustomProductsModal(): JSX.Element {
         productsByCategory,
         productLoading,
     } = useValues(editCustomProductsModalLogic)
-    const { toggleProduct, toggleSidebarSuggestions, closeModal } = useActions(editCustomProductsModalLogic)
+    const { toggleProduct, toggleCategory, toggleSidebarSuggestions, closeModal } =
+        useActions(editCustomProductsModalLogic)
 
     return (
         <LemonModal
@@ -48,13 +49,37 @@ export function EditCustomProductsModal(): JSX.Element {
                 <div className="flex flex-col gap-4 mb-4 px-2">
                     {categories.map((category: string) => {
                         const products = productsByCategory.get(category) || []
+                        const productPaths = products.map((p) => p.path)
+                        const selectedCount = productPaths.filter((path) => selectedPaths.has(path)).length
+                        const categoryState: boolean | 'indeterminate' =
+                            selectedCount === 0 ? false : selectedCount === productPaths.length ? true : 'indeterminate'
+                        const categoryLoading = products.some((p) => productLoading[p.path])
 
                         return (
-                            <div key={category}>
-                                <h3 className="text-xs font-semibold text-tertiary mb-2 pl-6">{category}</h3>
+                            <div key={category} className="mb-6">
+                                <div className="mb-2">
+                                    <LemonCheckbox
+                                        checked={categoryState}
+                                        onChange={() => toggleCategory(category)}
+                                        disabledReason={
+                                            category === 'Unreleased'
+                                                ? 'These products are in Alpha, enable them one by one'
+                                                : categoryLoading
+                                                  ? 'Saving...'
+                                                  : customProductsLoading && customProducts.length === 0
+                                                    ? 'Loading...'
+                                                    : undefined
+                                        }
+                                        label={<span className="font-semibold text-tertiary">{category}</span>}
+                                    />
+                                </div>
                                 <div className="space-y-1">
                                     {products.map((product: FileSystemImport) => {
-                                        const icon = iconForType(product.iconType ?? undefined, product.iconColor)
+                                        const icon = iconForType(
+                                            ('iconType' in product ? product.iconType : undefined) ||
+                                                (product.type as FileSystemIconType),
+                                            product.iconColor
+                                        )
                                         const isLoading = productLoading[product.path] || false
                                         return (
                                             <LemonCheckbox

@@ -2,7 +2,7 @@
 # name: TestMarketingAnalyticsAggregatedQueryRunner.test_join_uses_match_key_not_or_condition
   '''
   
-  SELECT sum(round(campaign_costs.total_cost, 2)) AS Cost, sum(round(campaign_costs.total_clicks, 0)) AS Clicks, sum(round(campaign_costs.total_impressions, 0)) AS Impressions, sum(round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversion`, sum(ucg.conversion_0) AS `Test Purchase` 
+  SELECT sum(round(campaign_costs.total_cost, 2)) AS Cost, sum(round(campaign_costs.total_clicks, 0)) AS Clicks, sum(round(campaign_costs.total_impressions, 0)) AS Impressions, sum(round(campaign_costs.total_reported_conversions, 2)) AS `Reported Conversion`, sum(round(campaign_costs.total_reported_conversion_value, 2)) AS `Reported Conversion Value`, sum(ucg.conversion_0) AS `Test Purchase` 
   FROM campaign_costs LEFT JOIN ucg AS ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source))
   '''
 # ---
