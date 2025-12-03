@@ -98,6 +98,18 @@ HYPERCACHE_SIZE_GAUGE = Gauge(
     labelnames=["namespace"],
 )
 
+HYPERCACHE_ENTRIES_GAUGE = Gauge(
+    "posthog_hypercache_entries_total",
+    "Total number of entries in the HyperCache",
+    labelnames=["namespace"],
+)
+
+HYPERCACHE_EXPIRY_TRACKED_GAUGE = Gauge(
+    "posthog_hypercache_expiry_tracked_total",
+    "Number of entries tracked in the expiry sorted set",
+    labelnames=["namespace"],
+)
+
 
 class UpdateFn(Protocol):
     """Protocol for cache update functions that accept team and optional TTL."""
@@ -136,16 +148,30 @@ class HyperCacheManagementConfig:
         return self.cache_name.replace("_", " ")
 
     @property
+    def _django_key_prefix(self) -> str:
+        """Get Django cache key prefix (e.g., 'posthog:1:')."""
+        # Django redis cache uses KEY_PREFIX + VERSION to build the full prefix
+        # Default version is 1, resulting in "posthog:1:" prefix
+        cache_client = self.hypercache.cache_client
+        key_prefix = getattr(cache_client, "key_prefix", "")
+        version = getattr(cache_client, "version", 1)
+        if key_prefix:
+            return f"{key_prefix}:{version}:"
+        return ""
+
+    @property
     def redis_pattern(self) -> str:
         """Redis key pattern for scanning all cache entries."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/*"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/*"
 
     @property
     def redis_stats_pattern(self) -> str:
         """Specific Redis pattern for stats (includes value file)."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
 
     @property
     def expiry_sorted_set_key(self) -> str:
@@ -199,7 +225,7 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
         Number of cache keys deleted
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         deleted = 0
         for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
@@ -228,6 +254,7 @@ def warm_caches(
     max_ttl_days: int = 7,
     team_ids: list[int] | None = None,
     progress_callback: Callable[[int, int, int, int], None] | None = None,
+    batch_start_callback: Callable[[int, int], None] | None = None,
 ) -> tuple[int, int]:
     """
     Warm cache for teams (all or specific subset).
@@ -250,6 +277,8 @@ def warm_caches(
         team_ids: Optional list of team IDs to warm (if None, warms all teams)
         progress_callback: Optional callback for progress reporting.
             Called with (processed, total, successful, failed) after each batch.
+        batch_start_callback: Optional callback called before each batch starts.
+            Called with (batch_number, batch_size) where batch_number is 1-indexed.
 
     Returns:
         Tuple of (successful_updates, failed_updates)
@@ -291,12 +320,19 @@ def warm_caches(
         successful = 0
         failed = 0
         processed = 0
+        batch_number = 0
 
         last_id = 0
         while True:
             batch = list(teams_queryset.filter(id__gt=last_id).order_by("id")[:batch_size])
             if not batch:
                 break
+
+            batch_number += 1
+
+            # Notify caller that batch is starting
+            if batch_start_callback:
+                batch_start_callback(batch_number, len(batch))
 
             # Pre-load data for all teams in batch if the hypercache has batch loading
             batch_data = None
@@ -395,7 +431,7 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         Dictionary with cache statistics including size information
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         total_keys = 0
         ttl_buckets = {
@@ -500,10 +536,16 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
             HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
 
         HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
+        HYPERCACHE_ENTRIES_GAUGE.labels(namespace=config.namespace).set(total_keys)
+
+        # Update expiry tracking gauge using ZCARD (O(1) operation)
+        expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
+        HYPERCACHE_EXPIRY_TRACKED_GAUGE.labels(namespace=config.namespace).set(expiry_tracked_count)
 
         return {
             "total_cached": total_keys,
             "total_teams": total_teams,
+            "expiry_tracked": expiry_tracked_count,
             "cache_coverage": f"{coverage_percent:.1f}%",
             "cache_coverage_percent": coverage_percent,
             "ttl_distribution": ttl_buckets,
