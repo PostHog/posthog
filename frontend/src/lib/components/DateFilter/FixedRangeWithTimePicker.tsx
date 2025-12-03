@@ -118,15 +118,12 @@ export function FixedRangeWithTimePicker({
                                     if (selectingStart) {
                                         setLocalFrom(newDate)
                                         if (localTo && newDate.isAfter(localTo)) {
-                                            setLocalTo(newDate)
-                                            setLocalFrom(localTo)
+                                            setLocalTo(newDate.add(1, 'hour'))
                                         }
                                     } else {
+                                        setLocalTo(newDate)
                                         if (localFrom && newDate.isBefore(localFrom)) {
-                                            setLocalFrom(newDate)
-                                            setLocalTo(localFrom)
-                                        } else {
-                                            setLocalTo(newDate)
+                                            setLocalFrom(newDate.subtract(1, 'hour'))
                                         }
                                     }
                                 }
