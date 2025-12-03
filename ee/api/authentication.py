@@ -455,6 +455,8 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
 
         organization_id = payload.get("organization_id")
         if not organization_id:
+            capture_exception(ValueError("Billing service token missing organization_id"))
+            logger.warning("Billing service token missing organization_id")
             raise AuthenticationFailed("Missing organization_id in token")
 
         return BillingServiceUser(organization_id=organization_id), None
@@ -462,12 +464,16 @@ class BillingServiceAuthentication(authentication.BaseAuthentication):
     def _validate_jwt_token(self, token: str) -> BillingServiceJWTPayload:
         license = get_cached_instance_license()
         if not license or not license.key:
+            capture_exception(ValueError("Billing service auth failed: no license configured"))
+            logger.error("Billing service auth failed: no license configured")
             raise AuthenticationFailed("No license configured")
 
         # Extract the secret from the license key (format: "id::secret")
         try:
             license_secret = license.key.split("::")[1]
         except IndexError:
+            capture_exception(ValueError("Billing service auth failed: invalid license key format"))
+            logger.exception("Billing service auth failed: invalid license key format")
             raise AuthenticationFailed("Invalid license key format")
 
         return jwt.decode(
