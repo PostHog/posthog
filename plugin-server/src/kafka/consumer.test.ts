@@ -768,4 +768,70 @@ describe('parseEventHeaders', () => {
             force_disable_person_processing: false,
         })
     })
+
+    describe('now header parsing', () => {
+        it('should parse valid ISO date string into Date object', () => {
+            const isoDate = '2023-06-15T10:30:00.000Z'
+            const headers: MessageHeader[] = [{ now: Buffer.from(isoDate) }]
+            const result = parseEventHeaders(headers)
+            expect(result.now).toBeInstanceOf(Date)
+            expect(result.now?.toISOString()).toBe(isoDate)
+        })
+
+        it('should parse ISO date with timezone offset', () => {
+            const isoDate = '2023-06-15T10:30:00+02:00'
+            const headers: MessageHeader[] = [{ now: Buffer.from(isoDate) }]
+            const result = parseEventHeaders(headers)
+            expect(result.now).toBeInstanceOf(Date)
+            // The date should be correctly parsed (08:30 UTC)
+            expect(result.now?.getUTCHours()).toBe(8)
+            expect(result.now?.getUTCMinutes()).toBe(30)
+        })
+
+        it('should not set now for invalid date string', () => {
+            const headers: MessageHeader[] = [{ now: Buffer.from('not-a-valid-date') }]
+            const result = parseEventHeaders(headers)
+            expect(result.now).toBeUndefined()
+        })
+
+        it('should not set now for empty string', () => {
+            const headers: MessageHeader[] = [{ now: Buffer.from('') }]
+            const result = parseEventHeaders(headers)
+            expect(result.now).toBeUndefined()
+        })
+
+        it('should parse now header along with other headers', () => {
+            const isoDate = '2023-06-15T10:30:00.000Z'
+            const headers: MessageHeader[] = [
+                {
+                    token: Buffer.from('test-token'),
+                    distinct_id: Buffer.from('user-123'),
+                    now: Buffer.from(isoDate),
+                },
+            ]
+            const result = parseEventHeaders(headers)
+            expect(result).toEqual({
+                token: 'test-token',
+                distinct_id: 'user-123',
+                now: new Date(isoDate),
+                force_disable_person_processing: false,
+            })
+        })
+
+        it('should handle now header with milliseconds precision', () => {
+            const isoDate = '2023-06-15T10:30:00.123Z'
+            const headers: MessageHeader[] = [{ now: Buffer.from(isoDate) }]
+            const result = parseEventHeaders(headers)
+            expect(result.now).toBeInstanceOf(Date)
+            expect(result.now?.getUTCMilliseconds()).toBe(123)
+        })
+
+        it('should use last now value when duplicate headers exist', () => {
+            const firstDate = '2023-06-15T10:30:00.000Z'
+            const secondDate = '2023-06-15T11:30:00.000Z'
+            const headers: MessageHeader[] = [{ now: Buffer.from(firstDate) }, { now: Buffer.from(secondDate) }]
+            const result = parseEventHeaders(headers)
+            expect(result.now?.toISOString()).toBe(secondDate)
+        })
+    })
 })

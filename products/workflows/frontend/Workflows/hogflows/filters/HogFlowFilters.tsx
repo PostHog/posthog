@@ -34,6 +34,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
         TaxonomicFilterGroupType.Elements,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.HogQLExpression,
+        TaxonomicFilterGroupType.WorkflowVariables,
     ]
     if (shouldShowInternalEvents) {
         propertyTaxonomicGroupTypes.push(TaxonomicFilterGroupType.InternalEventProperties)
@@ -71,6 +72,7 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
             }}
             pageKey={`HogFlowPropertyFilters.${actionId}`}
             taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.WorkflowVariables,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
@@ -78,6 +80,7 @@ export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlo
                 TaxonomicFilterGroupType.HogQLExpression,
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
+            hideBehavioralCohorts
             metadataSource={{ kind: NodeKind.ActorsQuery }}
         />
     )

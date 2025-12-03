@@ -33,6 +33,8 @@ import {
     FileSystemCount,
     FileSystemEntry,
     FileSystemViewLogEntry,
+    GroupsQuery,
+    GroupsQueryResponse,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
@@ -1979,6 +1981,9 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
+        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
+            return await new ApiRequest().userProductList().withAction('seed').create()
+        },
         async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
@@ -2775,6 +2780,14 @@ const api = {
     groups: {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+            const groupsQuery: GroupsQuery = {
+                kind: NodeKind.GroupsQuery,
+                ...params,
+            }
+
+            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })

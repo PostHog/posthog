@@ -3,6 +3,16 @@
 set -e
 
 export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
+export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
+
+# Acquire exclusive lock using flock (atomic, no race condition)
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "⚠️  Another instance of bin/start is already running (lock file: $LOCK_FILE)"
+    echo "   To skip this check, delete the lock file: rm $LOCK_FILE"
+    exit 1
+fi
+
 export DEBUG=${DEBUG:-1}
 export SKIP_SERVICE_VERSION_REQUIREMENTS=${SKIP_SERVICE_VERSION_REQUIREMENTS:-1}
 
@@ -101,8 +111,8 @@ if [[ "$*" == *"--custom"* ]]; then
         exit 1
     fi
     exec mprocs --config "$config_path"
-# Use minimal config
-elif [[ "$*" == *"--minimal"* ]]; then
+    # Use minimal config
+    elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
 else
     exec mprocs --config bin/mprocs.yaml
