@@ -15,7 +15,7 @@ import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
 import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { containsSearchQuery } from '../searchUtils'
-import { CompatMessage, VercelSDKImageMessage } from '../types'
+import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
     getGeminiInlineData,
     isAnthropicDocumentMessage,
@@ -242,7 +242,7 @@ export const ImageMessageDisplay = ({
     return <span>{content}</span>
 }
 
-function renderContentItem(item: any, searchQuery?: string): JSX.Element | null {
+function renderContentItem(item: MultiModalContentItem, searchQuery?: string): JSX.Element | null {
     if (typeof item === 'string') {
         return searchQuery?.trim() ? (
             <SearchHighlight string={item} substring={searchQuery} className="whitespace-pre-wrap" />
@@ -296,6 +296,9 @@ function renderContentItem(item: any, searchQuery?: string): JSX.Element | null 
     }
 
     if (isOpenAIFileMessage(item)) {
+        if (!item.file.file_data.startsWith('data:')) {
+            return <span className="text-muted">{item.file.filename}</span>
+        }
         return (
             // eslint-disable-next-line react/forbid-elements
             <a href={item.file.file_data} download={item.file.filename} className="text-link hover:underline">
@@ -412,7 +415,7 @@ export const LLMMessageDisplay = React.memo(
             : Object.fromEntries(Object.entries(additionalKwargs).filter(([, value]) => value !== undefined))
 
         const renderMessageContent = (
-            content: string | { type: string; content: string } | VercelSDKImageMessage | object[],
+            content: string | { type: string; content: string } | VercelSDKImageMessage | MultiModalContentItem[],
             searchQuery?: string
         ): JSX.Element | null => {
             if (!content) {

@@ -7,6 +7,8 @@ import { hogql } from '~/queries/utils'
 import type { EvaluationRun } from './evaluations/types'
 import type { SpanAggregation } from './llmAnalyticsTraceDataLogic'
 import {
+    AnthropicDocumentMessage,
+    AnthropicImageMessage,
     AnthropicInputMessage,
     AnthropicTextMessage,
     AnthropicThinkingMessage,
@@ -14,9 +16,15 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
+    GeminiAudioMessage,
+    GeminiDocumentMessage,
+    GeminiImageMessage,
     LiteLLMChoice,
     LiteLLMResponse,
+    OpenAIAudioMessage,
     OpenAICompletionMessage,
+    OpenAIFileMessage,
+    OpenAIImageURLMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
     VercelSDKInputImageMessage,
@@ -270,7 +278,7 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
     )
 }
 
-export function isOpenAIImageURLMessage(input: unknown): boolean {
+export function isOpenAIImageURLMessage(input: unknown): input is OpenAIImageURLMessage {
     return (
         !!input &&
         typeof input === 'object' &&
@@ -284,7 +292,7 @@ export function isOpenAIImageURLMessage(input: unknown): boolean {
     )
 }
 
-export function isOpenAIFileMessage(input: unknown): boolean {
+export function isOpenAIFileMessage(input: unknown): input is OpenAIFileMessage {
     return (
         !!input &&
         typeof input === 'object' &&
@@ -300,7 +308,7 @@ export function isOpenAIFileMessage(input: unknown): boolean {
     )
 }
 
-export function isOpenAIAudioMessage(input: unknown): boolean {
+export function isOpenAIAudioMessage(input: unknown): input is OpenAIAudioMessage {
     return (
         !!input &&
         typeof input === 'object' &&
@@ -311,7 +319,7 @@ export function isOpenAIAudioMessage(input: unknown): boolean {
     )
 }
 
-export function isAnthropicImageMessage(input: unknown): boolean {
+export function isAnthropicImageMessage(input: unknown): input is AnthropicImageMessage {
     return (
         !!input &&
         typeof input === 'object' &&
@@ -329,7 +337,7 @@ export function isAnthropicImageMessage(input: unknown): boolean {
     )
 }
 
-export function isAnthropicDocumentMessage(input: unknown): boolean {
+export function isAnthropicDocumentMessage(input: unknown): input is AnthropicDocumentMessage {
     return (
         !!input &&
         typeof input === 'object' &&
@@ -379,7 +387,7 @@ export function getGeminiInlineData(input: unknown): { data: string; mime_type: 
     return null
 }
 
-export function isGeminiImageMessage(input: unknown): boolean {
+export function isGeminiImageMessage(input: unknown): input is GeminiImageMessage {
     if (!input || typeof input !== 'object' || !('type' in input) || input.type !== 'image') {
         return false
     }
@@ -387,7 +395,7 @@ export function isGeminiImageMessage(input: unknown): boolean {
     return inlineData !== null && inlineData.mime_type.startsWith('image/')
 }
 
-export function isGeminiDocumentMessage(input: unknown): boolean {
+export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
     if (!input || typeof input !== 'object' || !('type' in input)) {
         return false
     }
@@ -406,7 +414,7 @@ export function isGeminiDocumentMessage(input: unknown): boolean {
     return false
 }
 
-export function isGeminiAudioMessage(input: unknown): boolean {
+export function isGeminiAudioMessage(input: unknown): input is GeminiAudioMessage {
     return (
         !!input &&
         typeof input === 'object' &&

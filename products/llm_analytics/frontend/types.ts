@@ -1,6 +1,6 @@
 export interface RoleBasedMessage {
     role: string
-    content: string | { type: string; content: string } | object[]
+    content: string | { type: string; content: string } | MultiModalContentItem[]
 }
 
 export interface OpenAIToolCall {
@@ -178,3 +178,26 @@ export interface LiteLLMResponse {
     choices?: LiteLLMChoice[]
     [additionalKey: string]: any
 }
+
+export interface TextContentItem {
+    type: 'text'
+    text: string
+}
+
+export interface ImageContentItem {
+    type: 'image'
+    image: string
+}
+
+export type MultiModalContentItem =
+    | string
+    | TextContentItem
+    | ImageContentItem
+    | OpenAIImageURLMessage
+    | OpenAIFileMessage
+    | OpenAIAudioMessage
+    | AnthropicImageMessage
+    | AnthropicDocumentMessage
+    | GeminiImageMessage
+    | GeminiDocumentMessage
+    | GeminiAudioMessage
