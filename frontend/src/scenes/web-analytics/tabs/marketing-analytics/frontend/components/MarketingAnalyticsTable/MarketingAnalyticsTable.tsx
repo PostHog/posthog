@@ -44,7 +44,6 @@ export const MarketingAnalyticsTable = ({
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
-    // Create custom context with sortable headers for marketing analytics (no cell actions for main table)
     const marketingAnalyticsContext: QueryContext = {
         ...webAnalyticsDataTableQueryContext,
         insightProps,
