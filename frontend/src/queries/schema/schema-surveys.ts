@@ -55,6 +55,7 @@ export interface SurveyQuestionSchema {
     scale?: number
     lowerBoundLabel?: string
     upperBoundLabel?: string
+    isNpsQuestion?: boolean
 
     // Link questions
     link?: string

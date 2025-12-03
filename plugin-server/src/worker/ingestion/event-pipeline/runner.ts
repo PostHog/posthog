@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -38,6 +39,9 @@ export type EventPipelineResult = {
     lastStep: string
     eventToEmit?: RawKafkaEvent
     error?: string
+    // For ingestion lag metric
+    inputHeaders?: EventHeaders
+    inputMessage?: Message
 }
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
