@@ -5,6 +5,7 @@ import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -44,8 +45,17 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
 
 export function CouponRedemption({ campaign, config, requiresBilling = true }: CouponRedemptionProps): JSX.Element {
     const logic = couponLogic({ campaign })
-    const { claimed, claimedDetails, isAdminOrOwner, isCouponSubmitting } = useValues(logic)
+    const {
+        claimed,
+        claimedDetails,
+        isAdminOrOwner,
+        isCouponSubmitting,
+        couponsOverviewLoading,
+        getClaimedCouponForCampaign,
+    } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
+
+    const alreadyClaimed = getClaimedCouponForCampaign(campaign)
 
     const platformAndSupportProduct = billing?.products?.find(
         (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
@@ -155,7 +165,12 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                     <div className="bg-surface-secondary rounded-lg p-6">
                         <h2 className="text-xl mb-4">{requiresBilling ? 'Step 2: ' : ''}Redeem your coupon</h2>
 
-                        {claimed ? (
+                        {couponsOverviewLoading ? (
+                            <div className="flex items-center gap-2">
+                                <Spinner className="text-lg" />
+                                <span>Checking coupon status...</span>
+                            </div>
+                        ) : claimed ? (
                             <div className="space-y-4">
                                 <div className="flex items-center gap-2 text-success">
                                     <IconCheck className="shrink-0" />
@@ -164,7 +179,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                 <p className="text-muted">
                                     Your organization now has access to {config.name} benefits.
                                     {claimedDetails?.expires_at &&
-                                        ` Valid until ${new Date(claimedDetails.expires_at).toLocaleDateString()}.`}
+                                        ` Valid until ${dayjs(claimedDetails.expires_at).format('LL')}.`}
                                 </p>
                                 <div className="flex gap-2">
                                     <LemonButton
@@ -178,6 +193,21 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                         Return to PostHog
                                     </LemonButton>
                                 </div>
+                            </div>
+                        ) : alreadyClaimed ? (
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-2 text-success">
+                                    <IconCheck className="shrink-0" />
+                                    <span>You've already claimed this offer!</span>
+                                </div>
+                                <p className="text-muted">
+                                    Your organization has already claimed {config.name} coupon.
+                                    {alreadyClaimed.expires_at &&
+                                        ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}
+                                </p>
+                                <LemonButton type="primary" to={urls.organizationBilling()} disableClientSideRouting>
+                                    View in billing
+                                </LemonButton>
                             </div>
                         ) : (
                             <Form
