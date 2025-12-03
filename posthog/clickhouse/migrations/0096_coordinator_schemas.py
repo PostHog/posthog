@@ -33,7 +33,7 @@ operations = [
     run_sql_with_exceptions(CHANNEL_DEFINITION_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(CHANNEL_DEFINITION_DICTIONARY_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(CREATE_COHORTPEOPLE_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
-    run_sql_with_exceptions(DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
+    run_sql_with_exceptions(DISTRIBUTED_EVENTS_RECENT_TABLE_SQL(), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(EVENTS_RECENT_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
     run_sql_with_exceptions(GROUPS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.COORDINATOR]),
