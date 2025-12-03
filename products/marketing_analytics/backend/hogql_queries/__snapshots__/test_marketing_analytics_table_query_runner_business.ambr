@@ -19,6 +19,7 @@
           campaign,
           id,
           source,
+          any(match_key) AS match_key,
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
@@ -33,7 +34,8 @@
               toFloat(coalesce(impressions1, 0)) AS impressions,
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion
+              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+              toString(campaign1) AS match_key
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -72,6 +74,7 @@
           campaign,
           id,
           source,
+          any(match_key) AS match_key,
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
@@ -86,7 +89,8 @@
               toFloat(coalesce(impressions1, 0)) AS impressions,
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion
+              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+              toString(campaign1) AS match_key
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -103,6 +107,7 @@
           conv.campaign AS campaign,
           conv.id AS id,
           conv.source AS source,
+          conv.campaign AS match_key,
           sum(conv.conversion_0) AS conversion_0
       
   FROM
@@ -167,7 +172,7 @@
   GROUP BY
           conv.campaign,
           conv.id,
-          conv.source) AS ucg ON and(or(equals(campaign_costs.campaign, ucg.campaign), equals(campaign_costs.id, ucg.id)), equals(campaign_costs.source, ucg.source))
+          conv.source) AS ucg ON and(equals(campaign_costs.match_key, ucg.match_key), equals(campaign_costs.source, ucg.source))
   ORDER BY
       Cost DESC
   
@@ -195,6 +200,7 @@
           campaign,
           id,
           source,
+          any(match_key) AS match_key,
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
@@ -209,7 +215,8 @@
               toFloat(coalesce(impressions1, 0)) AS impressions,
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion
+              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+              toString(campaign1) AS match_key
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -248,6 +255,7 @@
           campaign,
           id,
           source,
+          any(match_key) AS match_key,
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
@@ -262,7 +270,8 @@
               toFloat(coalesce(impressions1, 0)) AS impressions,
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-              toFloat(coalesce(conversions1, 0)) AS reported_conversion
+              toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+              toString(campaign1) AS match_key
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -302,6 +311,7 @@
               campaign,
               id,
               source,
+              any(match_key) AS match_key,
               sum(cost) AS total_cost,
               sum(clicks) AS total_clicks,
               sum(impressions) AS total_impressions,
@@ -316,7 +326,8 @@
                   toFloat(coalesce(impressions1, 0)) AS impressions,
                   toFloat(coalesce(clicks1, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
-                  toFloat(coalesce(conversions1, 0)) AS reported_conversion
+                  toFloat(coalesce(conversions1, 0)) AS reported_conversion,
+                  toString(campaign1) AS match_key
               
       FROM
                   `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -332,7 +343,8 @@
                   toFloat(coalesce(impressions2, 0)) AS impressions,
                   toFloat(coalesce(clicks2, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost,
-                  toFloat(coalesce(0, 0)) AS reported_conversion
+                  toFloat(coalesce(0, 0)) AS reported_conversion,
+                  toString(campaign2) AS match_key
               
       FROM
                   `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
@@ -348,7 +360,8 @@
                   toFloat(coalesce(impressions3, 0)) AS impressions,
                   toFloat(coalesce(clicks3, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost,
-                  toFloat(coalesce(0, 0)) AS reported_conversion
+                  toFloat(coalesce(0, 0)) AS reported_conversion,
+                  toString(campaign3) AS match_key
               
       FROM
                   `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table

@@ -1141,6 +1141,7 @@ class TestSurvey(APIBaseTest):
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_tags": [],
+                        "bucketing_identifier": "distinct_id",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -3100,6 +3101,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "event": "$pageview",
                                                 "properties": None,
                                                 "selector": None,
+                                                "selector_regex": None,
                                                 "tag_name": None,
                                                 "text": None,
                                                 "text_matching": None,
