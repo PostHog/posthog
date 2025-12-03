@@ -53,7 +53,6 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
                 where
                     person_id = {person_id}
                     and timestamp <= {now}
-                    and timestamp <= expiry_time
                     and timestamp >= {date_from}
                     and timestamp <= {date_to}
                     and notEmpty(`$session_id`)
