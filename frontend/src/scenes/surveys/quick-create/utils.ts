@@ -87,11 +87,11 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
 
         case QuickSurveyType.ERROR_TRACKING:
             return {
-                key: `error-tracking-${context.issueId}`,
+                key: `error-tracking-${context.exceptionType}-${randomId}`,
                 contextType: context.type,
                 source: SURVEY_CREATED_SOURCE.ERROR_TRACKING,
                 defaults: {
-                    name: `Exception feedback (${randomId})`,
+                    name: `${context.exceptionType} feedback (${randomId})`,
                     question: 'Looks like we hit a snag - how disruptive was this?',
                     questionType: SurveyQuestionType.Rating,
                     scaleType: 'number',
@@ -104,7 +104,15 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                                 {
                                     name: '$exception',
                                     propertyFilters: {
-                                        $exception_issue_id: { values: [context.issueId], operator: 'exact' },
+                                        $exception_types: { values: [context.exceptionType], operator: 'exact' },
+                                        ...(context.exceptionMessage
+                                            ? {
+                                                  $exception_values: {
+                                                      values: [context.exceptionMessage],
+                                                      operator: 'icontains',
+                                                  },
+                                              }
+                                            : {}),
                                     },
                                 },
                             ],

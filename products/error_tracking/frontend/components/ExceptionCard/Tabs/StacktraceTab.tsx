@@ -1,13 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { IconChevronDown, IconMagicWand, IconMessage } from '@posthog/icons'
+import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenu,
@@ -18,13 +15,8 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
-import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
-import { urls } from 'scenes/urls'
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
-
-import { errorTrackingIssueSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
 import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
@@ -53,10 +45,8 @@ export function StacktraceTab({
     const { setShowAllFrames } = useActions(exceptionCardLogic)
     const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType, release } =
         useValues(errorPropertiesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const [showSurveyModal, setShowSurveyModal] = useState(false)
     const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId, exceptionType)
 
     useEffect(() => {
@@ -67,20 +57,6 @@ export function StacktraceTab({
         }
     }, [loading, hasStacktrace, hasInAppFrames, setShowAllFrames])
 
-    const exceptionSurveys = surveysByIssueId[issueId] ?? []
-    const hasExceptionSurveys = exceptionSurveys.length > 0
-    const showSurveyButton = featureFlags[FEATURE_FLAGS.SURVEYS_ERROR_TRACKING_CROSS_SELL] && !exceptionSurveysLoading
-
-    const handleSurveyClick = (): void => {
-        if (!hasExceptionSurveys) {
-            setShowSurveyModal(true)
-        } else if (exceptionSurveys.length === 1) {
-            router.actions.push(urls.survey(exceptionSurveys[0].id))
-        } else {
-            router.actions.push(urls.surveys())
-        }
-    }
-
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
@@ -89,18 +65,6 @@ export function StacktraceTab({
                     {release && <ReleasePreviewPill release={release} />}
                 </div>
                 <ButtonGroupPrimitive size="sm">
-                    {showSurveyButton && (
-                        <ButtonPrimitive
-                            onClick={handleSurveyClick}
-                            className="px-2 h-[1.4rem]"
-                            tooltip={
-                                !hasExceptionSurveys ? 'Show a survey to users when this exception occurs' : undefined
-                            }
-                        >
-                            <IconMessage />
-                            {!hasExceptionSurveys ? 'Ask affected users' : 'View feedback'}
-                        </ButtonPrimitive>
-                    )}
                     {showFixButton && (
                         <ButtonPrimitive
                             onClick={() => setShowFixModal(true)}
@@ -136,15 +100,6 @@ export function StacktraceTab({
                 issueLoading={issueLoading}
             />
             <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issueId} />
-            <QuickSurveyModal
-                context={{
-                    type: QuickSurveyType.ERROR_TRACKING,
-                    issueId: issueId,
-                }}
-                info="This survey will display when a user encounters this exception."
-                isOpen={showSurveyModal}
-                onCancel={() => setShowSurveyModal(false)}
-            />
         </TabsPrimitiveContent>
     )
 }
