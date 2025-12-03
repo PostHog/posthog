@@ -260,7 +260,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -285,7 +284,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -914,21 +912,6 @@ class SessionRecordingViewSet(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
 
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = self.get_object()
-
-        if not settings.EE_AVAILABLE:
-            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
-
-        # Indicates it is not yet persisted
-        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
-        if recording.storage == "object_storage":
-            recording.save()
-
-        return Response({"success": True})
-
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
     @action(
@@ -1258,7 +1241,7 @@ class SessionRecordingViewSet(
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 

@@ -250,7 +250,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_00_poe_v2_and_materialized_columns_allowed_with_materialization.1
@@ -297,7 +298,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -337,7 +339,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_01_poe_v2_and_materialized_columns_allowed_without_materialization.1
@@ -384,7 +387,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -424,7 +428,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_02_poe_v2_and_materialized_columns_off_with_materialization.1
@@ -471,7 +476,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -511,7 +517,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_03_poe_v2_and_materialized_columns_off_without_materialization.1
@@ -558,7 +565,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -598,7 +606,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_04_poe_off_and_materialized_columns_allowed_with_materialization.1
@@ -660,7 +669,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -700,7 +710,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_05_poe_off_and_materialized_columns_allowed_without_materialization.1
@@ -762,7 +773,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -802,7 +814,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_06_poe_off_and_materialized_columns_not_allowed_with_materialization.1
@@ -864,7 +877,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -904,7 +918,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_07_poe_off_and_materialized_columns_not_allowed_without_materialization.1
@@ -966,7 +981,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -1006,7 +1022,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_08_poe_v1_and_materialized_columns_allowed_with_materialization.1
@@ -1053,7 +1070,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -1093,7 +1111,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_09_poe_v1_and_materialized_columns_allowed_without_materialization.1
@@ -1140,7 +1159,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -1180,7 +1200,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization.1
@@ -1227,7 +1248,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1267,7 +1289,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_event_filter_with_person_properties_materialized_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization.1
@@ -1314,7 +1337,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_00_poe_v2_and_materialized_columns_allowed_with_materialization
@@ -1357,7 +1381,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_01_poe_v2_and_materialized_columns_allowed_without_materialization
@@ -1400,7 +1425,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_02_poe_v2_and_materialized_columns_off_with_materialization
@@ -1443,7 +1469,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_03_poe_v2_and_materialized_columns_off_without_materialization
@@ -1486,7 +1513,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_04_poe_off_and_materialized_columns_allowed_with_materialization
@@ -1535,7 +1563,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_05_poe_off_and_materialized_columns_allowed_without_materialization
@@ -1584,7 +1613,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_06_poe_off_and_materialized_columns_not_allowed_with_materialization
@@ -1633,7 +1663,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_07_poe_off_and_materialized_columns_not_allowed_without_materialization
@@ -1682,7 +1713,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_08_poe_v1_and_materialized_columns_allowed_with_materialization
@@ -1731,7 +1763,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_09_poe_v1_and_materialized_columns_allowed_without_materialization
@@ -1780,7 +1813,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_10_poe_v1_and_not_materialized_columns_not_allowed_with_materialization
@@ -1829,7 +1863,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestClickhouseSessionRecordingsListFromQuery.test_person_id_filter_11_poe_v1_and_not_materialized_columns_not_allowed_without_materialization
@@ -1878,7 +1913,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_action_filter
@@ -1925,7 +1961,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_action_filter.1
@@ -1972,7 +2009,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_action_filter.2
@@ -2019,7 +2057,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_action_filter.3
@@ -2066,7 +2105,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_all_filters_at_once
@@ -2129,7 +2169,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties
@@ -2176,7 +2217,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties.1
@@ -2223,7 +2265,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties.2
@@ -2270,7 +2313,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties_materialized
@@ -2317,7 +2361,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties_materialized.1
@@ -2364,7 +2409,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_any_event_filter_with_properties_materialized.2
@@ -2411,7 +2457,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query
@@ -2451,7 +2498,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_active_sessions
@@ -2491,7 +2539,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_active_sessions.1
@@ -2531,7 +2580,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_active_sessions.2
@@ -2571,7 +2621,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_ordering
@@ -2612,7 +2663,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_ordering.1
@@ -2653,7 +2705,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_ordering.2
@@ -2694,7 +2747,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_paging
@@ -2735,7 +2789,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_paging.1
@@ -2776,7 +2831,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_basic_query_with_paging.2
@@ -2817,7 +2873,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_from_filter
@@ -2857,7 +2914,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_from_filter.1
@@ -2897,7 +2955,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL
@@ -2937,7 +2996,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL
@@ -2977,7 +3037,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL
@@ -3017,7 +3078,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_to_filter
@@ -3057,7 +3119,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_date_to_filter.1
@@ -3097,7 +3160,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_duration_filter
@@ -3137,7 +3201,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_duration_filter.1
@@ -3177,7 +3242,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter
@@ -3224,7 +3290,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter.1
@@ -3271,7 +3338,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_has_ttl_applied_too
@@ -3318,7 +3386,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_has_ttl_applied_too.1
@@ -3358,7 +3427,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_active_sessions
@@ -3405,7 +3475,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_active_sessions.1
@@ -3452,7 +3523,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_group_filter
@@ -3504,7 +3576,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_group_filter.1
@@ -3556,7 +3629,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_group_filter.2
@@ -3608,7 +3682,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -3655,7 +3730,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -3724,7 +3800,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -3793,7 +3870,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -3840,7 +3918,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -3909,7 +3988,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -3978,7 +4058,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_person_properties
@@ -4040,7 +4121,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_person_properties.1
@@ -4102,7 +4184,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_properties
@@ -4149,7 +4232,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_properties.1
@@ -4196,7 +4280,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_properties_materialized
@@ -4243,7 +4328,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_hogql_properties_materialized.1
@@ -4290,7 +4376,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_matching_on_session_id
@@ -4337,7 +4424,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_matching_on_session_id.1
@@ -4384,7 +4472,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties
@@ -4431,7 +4520,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties.1
@@ -4478,7 +4568,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties.2
@@ -4525,7 +4616,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties.3
@@ -4572,7 +4664,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties_materialized
@@ -4619,7 +4712,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties_materialized.1
@@ -4666,7 +4760,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties_materialized.2
@@ -4713,7 +4808,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_properties_materialized.3
@@ -4760,7 +4856,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_test_accounts_excluded
@@ -4843,7 +4940,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_test_accounts_excluded.1
@@ -4890,7 +4988,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_test_accounts_excluded_materialized
@@ -4973,7 +5072,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -5020,7 +5120,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_event_filter_with_two_events_and_multiple_teams
@@ -5074,7 +5175,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_by_distinct_ids_0_single_distinct_id
@@ -5114,7 +5216,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_by_distinct_ids_1_multiple_distinct_ids
@@ -5154,7 +5257,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_by_distinct_ids_2_non_existent_distinct_id
@@ -5194,7 +5298,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_by_distinct_ids_3_empty_distinct_ids
@@ -5234,7 +5339,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -5280,7 +5386,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -5326,7 +5433,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -5372,7 +5480,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -5418,7 +5527,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_snapshot_source
@@ -5458,7 +5568,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_by_snapshot_source.1
@@ -5498,7 +5609,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_errors
@@ -5544,7 +5656,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_errors.1
@@ -5590,7 +5703,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_logs
@@ -5636,7 +5750,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_logs.1
@@ -5682,7 +5797,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_warns
@@ -5728,7 +5844,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_console_warns.1
@@ -5774,7 +5891,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_mixed_console_counts
@@ -5820,7 +5938,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_for_recordings_with_mixed_console_counts.1
@@ -5866,7 +5985,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_on_session_ids
@@ -5910,7 +6030,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_on_session_ids.1
@@ -5954,7 +6075,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort
@@ -6052,7 +6174,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.3
@@ -6103,7 +6226,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort.4
@@ -6292,7 +6416,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.3
@@ -6343,7 +6468,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_materialized.4
@@ -6532,7 +6658,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.3
@@ -6583,7 +6710,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events.4
@@ -6772,7 +6900,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.3
@@ -6823,7 +6952,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_users_from_excluded_cohort_no_events_materialized.4
@@ -6976,7 +7106,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_filter_with_person_properties_not_contains
@@ -7038,7 +7169,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_listing_ignores_future_replays
@@ -7078,7 +7210,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters
@@ -7132,7 +7265,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters.1
@@ -7186,7 +7320,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters.2
@@ -7240,7 +7375,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters.3
@@ -7294,7 +7430,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters.4
@@ -7348,7 +7485,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_multiple_event_filters.5
@@ -7402,7 +7540,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_event_filters
@@ -7456,7 +7595,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_event_filters.1
@@ -7510,7 +7650,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -7556,7 +7697,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -7602,7 +7744,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
@@ -7648,7 +7791,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
@@ -7694,7 +7838,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -7740,7 +7885,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_mandatory_filters
@@ -7796,7 +7942,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_mandatory_filters.1
@@ -7852,7 +7999,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_mandatory_filters.2
@@ -7899,7 +8047,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_mandatory_filters.3
@@ -7946,7 +8095,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_person_filters
@@ -8030,7 +8180,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_operand_or_person_filters.1
@@ -8114,7 +8265,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_ordering
@@ -8154,7 +8306,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_ordering.1
@@ -8194,7 +8347,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_person_id_filter
@@ -8243,7 +8397,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_sessions_with_current_data
@@ -8283,7 +8438,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_host_property_test_account_filter
@@ -8330,7 +8486,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_host_property_test_account_filter.1
@@ -8361,14 +8518,14 @@
                                                                                                                                                                                                                                                                 FROM events
                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                 LIMIT 1000000)), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                              LIMIT 1000000))))
   GROUP BY s.session_id
@@ -8384,7 +8541,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_host_property_test_account_filter_materialized
@@ -8431,7 +8589,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_host_property_test_account_filter_materialized.1
@@ -8462,14 +8621,14 @@
                                                                                                                                                                                                                                                                 FROM events
                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(nullIf(nullIf(events.`mat_$host`, ''), 'null'), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                 LIMIT 1000000)), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(nullIf(nullIf(events.`mat_$host`, ''), 'null'), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                              LIMIT 1000000))))
   GROUP BY s.session_id
@@ -8485,7 +8644,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter
@@ -8532,7 +8692,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter.1
@@ -8579,7 +8740,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -8626,7 +8788,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -8673,7 +8836,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -8720,7 +8884,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -8767,7 +8932,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_materialized
@@ -8814,7 +8980,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_event_property_test_account_filter_materialized.1
@@ -8861,7 +9028,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_event_property_test_account_filter
@@ -8908,7 +9076,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_event_property_test_account_filter.1
@@ -8955,7 +9124,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -9002,7 +9172,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -9049,7 +9220,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_person_property_test_account_filter
@@ -9096,7 +9268,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_person_property_test_account_filter.1
@@ -9158,7 +9331,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -9205,7 +9379,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -9267,7 +9442,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_person_property_test_account_filter
@@ -9314,7 +9490,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_person_property_test_account_filter.1
@@ -9376,7 +9553,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_person_property_test_account_filter_materialized
@@ -9423,7 +9601,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_0.test_top_level_person_property_test_account_filter_materialized.1
@@ -9485,7 +9664,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_action_filter
@@ -9532,7 +9712,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_action_filter.1
@@ -9579,7 +9760,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_action_filter.2
@@ -9626,7 +9808,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_action_filter.3
@@ -9673,7 +9856,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_all_filters_at_once
@@ -9736,7 +9920,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties
@@ -9783,7 +9968,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties.1
@@ -9830,7 +10016,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties.2
@@ -9877,7 +10064,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties_materialized
@@ -9924,7 +10112,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties_materialized.1
@@ -9971,7 +10160,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_any_event_filter_with_properties_materialized.2
@@ -10018,7 +10208,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query
@@ -10058,7 +10249,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_active_sessions
@@ -10098,7 +10290,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_active_sessions.1
@@ -10138,7 +10331,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_active_sessions.2
@@ -10178,7 +10372,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_ordering
@@ -10219,7 +10414,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_ordering.1
@@ -10260,7 +10456,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_ordering.2
@@ -10301,7 +10498,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_paging
@@ -10342,7 +10540,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_paging.1
@@ -10383,7 +10582,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_basic_query_with_paging.2
@@ -10424,7 +10624,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_from_filter
@@ -10464,7 +10665,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_from_filter.1
@@ -10504,7 +10706,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_from_filter_respects_ttl_0_that_searching_from_28_days_ago_excludes_sessions_past_TTL
@@ -10544,7 +10747,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_from_filter_respects_ttl_1_that_searching_from_29_days_ago_still_excludes_sessions_past_TTL
@@ -10584,7 +10788,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_from_filter_respects_ttl_2_that_even_searching_from_30_days_ago_exactly_at_TTL_boundary_excludes_sessions_past_TTL
@@ -10624,7 +10829,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_to_filter
@@ -10664,7 +10870,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_date_to_filter.1
@@ -10704,7 +10911,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_duration_filter
@@ -10744,7 +10952,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_duration_filter.1
@@ -10784,7 +10993,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter
@@ -10831,7 +11041,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter.1
@@ -10878,7 +11089,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_has_ttl_applied_too
@@ -10925,7 +11137,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_has_ttl_applied_too.1
@@ -10965,7 +11178,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_active_sessions
@@ -11012,7 +11226,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_active_sessions.1
@@ -11059,7 +11274,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_group_filter
@@ -11111,7 +11327,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_group_filter.1
@@ -11163,7 +11380,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_group_filter.2
@@ -11215,7 +11433,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded
@@ -11262,7 +11481,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded.1
@@ -11331,7 +11551,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded.2
@@ -11400,7 +11621,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized
@@ -11447,7 +11669,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.1
@@ -11516,7 +11739,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_event_properties_test_accounts_excluded_materialized.2
@@ -11585,7 +11809,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_person_properties
@@ -11647,7 +11872,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_person_properties.1
@@ -11709,7 +11935,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_properties
@@ -11756,7 +11983,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_properties.1
@@ -11803,7 +12031,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_properties_materialized
@@ -11850,7 +12079,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_hogql_properties_materialized.1
@@ -11897,7 +12127,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_matching_on_session_id
@@ -11944,7 +12175,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_matching_on_session_id.1
@@ -11991,7 +12223,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties
@@ -12038,7 +12271,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties.1
@@ -12085,7 +12319,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties.2
@@ -12132,7 +12367,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties.3
@@ -12179,7 +12415,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties_materialized
@@ -12226,7 +12463,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties_materialized.1
@@ -12273,7 +12511,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties_materialized.2
@@ -12320,7 +12559,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_properties_materialized.3
@@ -12367,7 +12607,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_test_accounts_excluded
@@ -12450,7 +12691,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_test_accounts_excluded.1
@@ -12497,7 +12739,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_test_accounts_excluded_materialized
@@ -12580,7 +12823,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_test_accounts_excluded_materialized.1
@@ -12627,7 +12871,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_event_filter_with_two_events_and_multiple_teams
@@ -12681,7 +12926,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_by_distinct_ids_0_single_distinct_id
@@ -12721,7 +12967,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_by_distinct_ids_1_multiple_distinct_ids
@@ -12761,7 +13008,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_by_distinct_ids_2_non_existent_distinct_id
@@ -12801,7 +13049,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_by_distinct_ids_3_empty_distinct_ids
@@ -12841,7 +13090,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_console_text_0__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -12887,7 +13137,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_console_text_1__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_4_operator_icontains_type_log_entry_
@@ -12933,7 +13184,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_console_text_2__key_level_value_warn_error_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -12979,7 +13231,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_console_text_3__key_level_value_info_operator_exact_type_log_entry_key_message_value_message_5_operator_icontains_type_log_entry_
@@ -13025,7 +13278,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_snapshot_source
@@ -13065,7 +13319,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_by_snapshot_source.1
@@ -13105,7 +13360,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_errors
@@ -13151,7 +13407,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_errors.1
@@ -13197,7 +13454,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_logs
@@ -13243,7 +13501,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_logs.1
@@ -13289,7 +13548,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_warns
@@ -13335,7 +13595,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_console_warns.1
@@ -13381,7 +13642,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_mixed_console_counts
@@ -13427,7 +13689,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_for_recordings_with_mixed_console_counts.1
@@ -13473,7 +13736,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_on_session_ids
@@ -13517,7 +13781,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_on_session_ids.1
@@ -13561,7 +13826,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort
@@ -13659,7 +13925,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.3
@@ -13710,7 +13977,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort.4
@@ -13899,7 +14167,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.3
@@ -13950,7 +14219,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_materialized.4
@@ -14139,7 +14409,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.3
@@ -14190,7 +14461,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events.4
@@ -14379,7 +14651,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.3
@@ -14430,7 +14703,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_users_from_excluded_cohort_no_events_materialized.4
@@ -14583,7 +14857,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_filter_with_person_properties_not_contains
@@ -14645,7 +14920,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_listing_ignores_future_replays
@@ -14685,7 +14961,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters
@@ -14739,7 +15016,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters.1
@@ -14793,7 +15071,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters.2
@@ -14847,7 +15126,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters.3
@@ -14901,7 +15181,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters.4
@@ -14955,7 +15236,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_multiple_event_filters.5
@@ -15009,7 +15291,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_event_filters
@@ -15063,7 +15346,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_event_filters.1
@@ -15117,7 +15401,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_filters_0__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -15163,7 +15448,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_filters_1__key_level_value_info_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -15209,7 +15495,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_filters_2__key_level_value_warn_operator_exact_type_log_entry_
@@ -15255,7 +15542,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_filters_3__key_message_value_random_operator_exact_type_log_entry_
@@ -15301,7 +15589,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_filters_4__key_level_value_warn_operator_exact_type_log_entry_key_message_value_random_operator_exact_type_log_entry_
@@ -15347,7 +15636,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_mandatory_filters
@@ -15403,7 +15693,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_mandatory_filters.1
@@ -15459,7 +15750,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_mandatory_filters.2
@@ -15506,7 +15798,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_mandatory_filters.3
@@ -15553,7 +15846,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_person_filters
@@ -15637,7 +15931,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_operand_or_person_filters.1
@@ -15721,7 +16016,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_ordering
@@ -15761,7 +16057,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_ordering.1
@@ -15801,7 +16098,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_person_id_filter
@@ -15850,7 +16148,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_sessions_with_current_data
@@ -15890,7 +16189,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_host_property_test_account_filter
@@ -15937,7 +16237,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_host_property_test_account_filter.1
@@ -15968,14 +16269,14 @@
                                                                                                                                                                                                                                                                 FROM events
                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                 LIMIT 1000000)), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', ''), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$host'), ''), 'null'), '^"|"$', '')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                              LIMIT 1000000))))
   GROUP BY s.session_id
@@ -15991,7 +16292,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_host_property_test_account_filter_materialized
@@ -16038,7 +16340,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_host_property_test_account_filter_materialized.1
@@ -16069,14 +16372,14 @@
                                                                                                                                                                                                                                                                 FROM events
                                                                                                                                                                                                                                                                 WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$pageview'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                 GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(nullIf(nullIf(events.`mat_$host`, ''), 'null'), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                HAVING ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                 ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                 LIMIT 1000000)), globalIn(s.session_id,
                                                                                                                                                                                                                                                                                             (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                              FROM events
                                                                                                                                                                                                                                                                                              WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-12-31 20:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(not(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)')), 1), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2021-01-17 00:00:00.000000', 6, 'UTC')))
                                                                                                                                                                                                                                                                                              GROUP BY events.`$session_id`
-                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(nullIf(nullIf(events.`mat_$host`, ''), 'null'), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
+                                                                                                                                                                                                                                                                                             HAVING ifNull(equals(countIf(ifNull(match(toString(nullIf(nullIf(events.`mat_$host`, ''), 'null')), '^(localhost|127\\.0\\.0\\.1)($|:)'), 0)), 0), 0)
                                                                                                                                                                                                                                                                                              ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
                                                                                                                                                                                                                                                                                              LIMIT 1000000))))
   GROUP BY s.session_id
@@ -16092,7 +16395,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter
@@ -16139,7 +16443,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter.1
@@ -16186,7 +16491,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_allowing_denormalized_props
@@ -16233,7 +16539,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_allowing_denormalized_props.1
@@ -16280,7 +16587,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized
@@ -16327,7 +16635,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_allowing_denormalized_props_materialized.1
@@ -16374,7 +16683,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_materialized
@@ -16421,7 +16731,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_event_property_test_account_filter_materialized.1
@@ -16468,7 +16779,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_event_property_test_account_filter
@@ -16515,7 +16827,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_event_property_test_account_filter.1
@@ -16562,7 +16875,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_event_property_test_account_filter_materialized
@@ -16609,7 +16923,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_event_property_test_account_filter_materialized.1
@@ -16656,7 +16971,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_person_property_test_account_filter
@@ -16703,7 +17019,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_person_property_test_account_filter.1
@@ -16765,7 +17082,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_person_property_test_account_filter_materialized
@@ -16812,7 +17130,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_hogql_person_property_test_account_filter_materialized.1
@@ -16874,7 +17193,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_person_property_test_account_filter
@@ -16921,7 +17241,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_person_property_test_account_filter.1
@@ -16983,7 +17304,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_person_property_test_account_filter_materialized
@@ -17030,7 +17352,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestSessionRecordingsListFromQuery_1.test_top_level_person_property_test_account_filter_materialized.1
@@ -17092,6 +17415,7 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---

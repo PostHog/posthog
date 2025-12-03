@@ -1,7 +1,10 @@
 # Meta Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, MetaAdsConfig, ValidationResult
 
 # Purchase action types to extract from Meta's actions/action_values arrays
@@ -16,22 +19,14 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.META_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """Meta Ads campaigns typically use 'meta' as the UTM source"""
-        return {
-            "meta": [
-                "meta",
-                "facebook",
-                "instagram",
-                "messenger",
-                "fb",
-                "whatsapp",
-                "audience_network",
-                "facebook_marketplace",
-                "threads",
-            ]
-        }
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
@@ -60,11 +55,13 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
 
     def _get_campaign_id_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
         return ast.Call(name="toString", args=[field_expr])
 
     def _get_impressions_field(self) -> ast.Expr:
@@ -137,6 +134,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "actions" in columns:
                 actions_field = ast.Field(chain=[stats_table_name, "actions"])
+                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
+                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
+                actions_non_null = ast.Call(name="coalesce", args=[actions_field, ast.Constant(value="[]")])
 
                 array_sum = ast.Call(
                     name="arraySum",
@@ -152,7 +152,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                             name="arrayFilter",
                             args=[
                                 ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[actions_field]),
+                                ast.Call(name="JSONExtractArrayRaw", args=[actions_non_null]),
                             ],
                         ),
                     ],
@@ -174,6 +174,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
             columns = getattr(self.config.stats_table, "columns", None)
             if columns and hasattr(columns, "__contains__") and "action_values" in columns:
                 action_values_field = ast.Field(chain=[stats_table_name, "action_values"])
+                # Use coalesce to convert Nullable(String) to String, defaulting to empty array '[]'
+                # This prevents "Nested type Array(String) cannot be inside Nullable type" error
+                action_values_non_null = ast.Call(name="coalesce", args=[action_values_field, ast.Constant(value="[]")])
 
                 array_sum = ast.Call(
                     name="arraySum",
@@ -189,7 +192,7 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                             name="arrayFilter",
                             args=[
                                 ast.Lambda(args=["x"], expr=self._build_action_type_filter()),
-                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_field]),
+                                ast.Call(name="JSONExtractArrayRaw", args=[action_values_non_null]),
                             ],
                         ),
                     ],

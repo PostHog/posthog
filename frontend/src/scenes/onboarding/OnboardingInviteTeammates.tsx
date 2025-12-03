@@ -39,8 +39,6 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
 
     const likeTo = (): string => {
         switch (productKey) {
-            case ProductKey.PRODUCT_ANALYTICS:
-                return 'dig into the data'
             case ProductKey.SESSION_REPLAY:
                 return 'see how people use your product'
             case ProductKey.FEATURE_FLAGS:
@@ -77,7 +75,7 @@ export const OnboardingInviteTeammates = ({ stepKey }: { stepKey: OnboardingStep
                     )}
                 </p>
             </div>
-            <InviteTeamMatesComponent />
+            <InviteTeamMatesComponent hideProjectAccessSelector />
             {showInviteLinks && (
                 <>
                     <LemonDivider className="my-4" />

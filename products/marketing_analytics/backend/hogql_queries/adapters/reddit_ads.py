@@ -1,7 +1,10 @@
 # Reddit Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, RedditAdsConfig, ValidationResult
 
 
@@ -13,10 +16,14 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.REDDIT_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """Reddit Ads campaigns typically use 'reddit' as the UTM source"""
-        return {"reddit": ["reddit"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         """Return unique identifier for this source type"""
@@ -45,11 +52,13 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
 
     def _get_campaign_id_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        field_expr = ast.Field(chain=[campaign_table_name, "id"])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
         return ast.Call(name="toString", args=[field_expr])
 
     def _get_impressions_field(self) -> ast.Expr:

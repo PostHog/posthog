@@ -3,12 +3,13 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
-import { EndpointRequest, HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
+import { EndpointRequest } from '~/queries/schema/schema-general'
 import { DataWarehouseSyncInterval, EndpointType } from '~/types'
 
 import type { endpointLogicType } from './endpointLogicType'
@@ -18,15 +19,6 @@ export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
 export interface EndpointLogicProps {
     tabId: string
-}
-
-const NEW_ENDPOINT: Partial<EndpointType> = {
-    name: 'new-endpoint',
-    description: 'New endpoint returns this and that',
-    query: {
-        kind: NodeKind.HogQLQuery,
-        query: 'select * from events limit 1',
-    } as HogQLQuery | InsightQueryNode,
 }
 
 export const endpointLogic = kea<endpointLogicType>([
@@ -55,6 +47,7 @@ export const endpointLogic = kea<endpointLogicType>([
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
         deleteEndpointFailure: () => ({}),
+        confirmToggleActive: (endpoint: EndpointType) => ({ endpoint }),
     }),
     reducers({
         endpointName: [null as string | null, { setEndpointName: (_, { endpointName }) => endpointName }],
@@ -103,8 +96,8 @@ export const endpointLogic = kea<endpointLogicType>([
             null as EndpointType | null,
             {
                 loadEndpoint: async (name: string) => {
-                    if (!name || name === 'new') {
-                        return { ...NEW_ENDPOINT } as EndpointType
+                    if (!name) {
+                        return null
                     }
                     const endpoint = await api.endpoint.get(name)
 
@@ -162,6 +155,7 @@ export const endpointLogic = kea<endpointLogicType>([
                 try {
                     const response = await api.endpoint.update(name, request)
                     actions.updateEndpointSuccess(response)
+                    actions.loadEndpoints()
                 } catch (error) {
                     console.error('Failed to update endpoint:', error)
                     actions.updateEndpointFailure()
@@ -189,6 +183,33 @@ export const endpointLogic = kea<endpointLogicType>([
             },
             deleteEndpointFailure: () => {
                 lemonToast.error('Failed to delete endpoint')
+            },
+            confirmToggleActive: ({ endpoint }) => {
+                const isActivating = !endpoint.is_active
+                LemonDialog.open({
+                    title: isActivating ? 'Activate endpoint?' : 'Deactivate endpoint?',
+                    content: (
+                        <div className="text-sm text-secondary">
+                            {isActivating
+                                ? 'Are you sure you want to activate this endpoint? It will be accessible via the API.'
+                                : 'Are you sure you want to deactivate this endpoint? It will no longer be accessible via the API.'}
+                        </div>
+                    ),
+                    primaryButton: {
+                        children: isActivating ? 'Activate' : 'Deactivate',
+                        type: 'primary',
+                        status: isActivating ? undefined : 'danger',
+                        onClick: () => {
+                            actions.updateEndpoint(endpoint.name, { is_active: isActivating })
+                        },
+                        size: 'small',
+                    },
+                    secondaryButton: {
+                        children: 'Cancel',
+                        type: 'tertiary',
+                        size: 'small',
+                    },
+                })
             },
         }
     }),
