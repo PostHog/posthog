@@ -1,8 +1,10 @@
 import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { capitalizeFirstLetter } from 'lib/utils'
 
 import { OverviewGrid, OverviewItem } from '~/queries/nodes/OverviewGrid/OverviewGrid'
 import { AnyResponseType, WebOverviewQuery, WebOverviewQueryResponse } from '~/queries/schema/schema-general'
@@ -33,6 +35,8 @@ export function WebOverview(props: {
     const { response, responseLoading } = useValues(logic)
     useAttachedLogic(logic, props.attachTo)
 
+    const { hasReverseProxy } = useValues(reverseProxyCheckerLogic)
+
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
     const samplingRate = webOverviewQueryResponse?.samplingRate
@@ -55,6 +59,11 @@ export function WebOverview(props: {
             changeFromPreviousPct: item.changeFromPreviousPct,
             kind: item.kind,
             isIncreaseBad: item.isIncreaseBad,
+            warning:
+                hasReverseProxy === false
+                    ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
+                    : undefined,
+            warningLink: hasReverseProxy === false ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
 
     return (
