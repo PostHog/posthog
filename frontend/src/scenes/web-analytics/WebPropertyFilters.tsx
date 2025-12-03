@@ -27,6 +27,40 @@ export interface WebPropertyFiltersProps {
     setWebAnalyticsFilters?: (filters: AnyPropertyFilter[]) => void
 }
 
+export const WEB_ANALYTICS_PROPERTY_ALLOW_LIST = {
+    [TaxonomicFilterGroupType.EventProperties]: [
+        '$host',
+        '$device_type',
+        '$browser',
+        '$os',
+        '$referring_domain',
+        '$geoip_country_code',
+        '$geoip_city_name',
+        '$geoip_subdivision_1_code',
+        '$geoip_subdivision_1_name',
+        '$geoip_time_zone',
+        '$pathname',
+        'metadata.loggedIn',
+        'metadata.backend',
+    ],
+    [TaxonomicFilterGroupType.SessionProperties]: [
+        '$entry_pathname',
+        '$end_pathname',
+        '$entry_utm_source',
+        '$entry_utm_medium',
+        '$entry_utm_campaign',
+        '$entry_utm_term',
+        '$entry_utm_content',
+        '$channel_type',
+    ],
+}
+
+export const getWebAnalyticsTaxonomicGroupTypes = (preAggregatedEnabled: boolean): TaxonomicFilterGroupType[] => [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+    ...(!preAggregatedEnabled ? [TaxonomicFilterGroupType.PersonProperties] : []),
+]
+
 export const WebPropertyFilters = ({
     webAnalyticsFilters: propsFilters,
     setWebAnalyticsFilters: propsSetFilters,
