@@ -177,6 +177,7 @@ export interface ErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
+    readonly release: string
 }
 
 export interface PatchedErrorTrackingSymbolSetApi {
@@ -190,6 +191,7 @@ export interface PatchedErrorTrackingSymbolSetApi {
     storage_ptr?: string | null
     /** @nullable */
     failure_reason?: string | null
+    readonly release?: string
 }
 
 /**
