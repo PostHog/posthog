@@ -371,6 +371,7 @@ export interface HogQLQueryModifiers {
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2' | 'v3'
     sessionsV2JoinMode?: 'string' | 'uuid'
+    materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]

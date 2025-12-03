@@ -16140,6 +16140,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializedColumnsOptimizationMode": {
+                    "enum": ["disabled", "optimized"],
+                    "type": "string"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
