@@ -502,17 +502,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     [AgentMode.ProductAnalytics]: {
         name: 'Product analytics',
-        description: 'Creates insights and dashboards to analyze your product data',
+        description: 'Creates insights and dashboards to analyze your product data.',
         icon: iconForType('product_analytics'),
     },
     [AgentMode.SQL]: {
         name: 'SQL',
-        description: 'Generates and executes SQL queries for your PostHog data and connected data warehouse sources',
+        description: 'Generates and executes SQL queries for your PostHog data and connected data warehouse sources.',
         icon: iconForType('sql_editor'),
     },
     [AgentMode.SessionReplay]: {
         name: 'Session replay',
-        description: 'Analyzes session recordings and provides summaries and insights about user behavior',
+        description: 'Analyzes session recordings and provides summaries and insights about user behavior.',
         icon: iconForType('session_replay'),
     },
 }
@@ -527,7 +527,7 @@ export const SPECIAL_MODES = {
     deep_research: {
         name: 'Deep research',
         description:
-            'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights',
+            'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconMagicWand />,
     },
 }

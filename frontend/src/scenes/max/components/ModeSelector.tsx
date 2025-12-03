@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
 import { LemonSelect, LemonSelectSection, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { identifierToHuman } from 'lib/utils'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -136,32 +138,37 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
     )
 }
 
-const MODE_OPTIONS: LemonSelectSection<ModeValue>[] = [
-    {
-        options: [
-            {
-                value: null,
-                label: SPECIAL_MODES.auto.name,
-                icon: SPECIAL_MODES.auto.icon,
-                tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
-            },
-            {
-                value: 'deep_research',
-                label: SPECIAL_MODES.deep_research.name,
-                icon: SPECIAL_MODES.deep_research.icon,
-                tooltip: SPECIAL_MODES.deep_research.description,
-            },
-        ],
-    },
-    {
-        options: Object.entries(MODE_DEFINITIONS).map(([mode, def]) => ({
-            value: mode as AgentMode,
-            label: def.name,
-            icon: def.icon,
-            tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
-        })),
-    },
-]
+function getModeOptions(deepResearchEnabled: boolean): LemonSelectSection<ModeValue>[] {
+    const specialOptions = [
+        {
+            value: null as ModeValue,
+            label: SPECIAL_MODES.auto.name,
+            icon: SPECIAL_MODES.auto.icon,
+            tooltip: buildModeTooltip(SPECIAL_MODES.auto.description, getDefaultTools()),
+        },
+    ]
+
+    if (deepResearchEnabled) {
+        specialOptions.push({
+            value: 'deep_research' as ModeValue,
+            label: SPECIAL_MODES.deep_research.name,
+            icon: SPECIAL_MODES.deep_research.icon,
+            tooltip: <div>{SPECIAL_MODES.deep_research.description}</div>,
+        })
+    }
+
+    return [
+        { options: specialOptions },
+        {
+            options: Object.entries(MODE_DEFINITIONS).map(([mode, def]) => ({
+                value: mode as AgentMode,
+                label: def.name,
+                icon: def.icon,
+                tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
+            })),
+        },
+    ]
+}
 
 interface ModeSelectorProps {
     size?: 'xsmall' | 'xxsmall'
@@ -170,8 +177,11 @@ interface ModeSelectorProps {
 export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Element {
     const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
+    const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
 
     const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
+
+    const modeOptions = useMemo(() => getModeOptions(deepResearchEnabled), [deepResearchEnabled])
 
     const handleChange = (value: ModeValue): void => {
         if (value === 'deep_research') {
@@ -179,7 +189,7 @@ export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Elemen
             setAgentMode(null)
         } else {
             setDeepResearchMode(false)
-            setAgentMode(value)
+            setAgentMode(value as AgentMode | null)
         }
     }
 
@@ -187,7 +197,7 @@ export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Elemen
         <LemonSelect
             value={currentValue}
             onChange={handleChange}
-            options={MODE_OPTIONS}
+            options={modeOptions}
             size={size}
             type="tertiary"
             tooltip={buildGeneralTooltip(
