@@ -19,6 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { couponLogic } from 'scenes/coupons/couponLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -55,6 +56,7 @@ export function Billing(): JSX.Element {
     const { openSupportForm } = useActions(supportLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
+    const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -78,7 +80,7 @@ export function Billing(): JSX.Element {
         router.actions.push(urls.default())
     }
 
-    if (!billing && billingLoading) {
+    if ((!billing && billingLoading) || couponsOverviewLoading) {
         return (
             <>
                 <SpinnerOverlay sceneLevel />
@@ -188,6 +190,29 @@ export function Billing(): JSX.Element {
             )}
 
             {!showBillingSummary && <StripePortalButton />}
+
+            {!couponsOverviewLoading && activeCoupons.length > 0 && (
+                <div className="mt-6 max-w-300">
+                    <h3 className="mb-2">Active coupons</h3>
+                    <div className="space-y-2">
+                        {activeCoupons.map((coupon) => (
+                            <div
+                                key={coupon.code}
+                                className="flex items-center justify-between p-3 bg-surface-secondary rounded"
+                            >
+                                <div>
+                                    <span className="font-medium">{coupon.campaign_name}</span>
+                                    {coupon.expires_at && (
+                                        <span className="text-muted ml-2">
+                                            Valid until {dayjs(coupon.expires_at).format('LL')}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             <LemonDivider className="mt-6 mb-8" />
 
