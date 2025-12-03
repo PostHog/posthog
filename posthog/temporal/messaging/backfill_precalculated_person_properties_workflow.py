@@ -17,6 +17,8 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 
+from common.hogvm.python.execute import execute_bytecode
+
 LOGGER = get_logger(__name__)
 
 
@@ -151,8 +153,6 @@ async def backfill_precalculated_person_properties_activity(
 
                 for filter_info in inputs.filters:
                     # Evaluate person against filter using HogQL bytecode
-                    from common.hogvm.python.execute import execute_bytecode
-
                     globals_dict = {
                         "person": {
                             "id": person_id,
