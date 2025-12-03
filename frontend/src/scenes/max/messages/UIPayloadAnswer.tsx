@@ -35,7 +35,7 @@ export function UIPayloadAnswer({
     return null
 }
 
-export function RecordingsWidget({
+function RecordingsWidget({
     toolCallId,
     filters,
 }: {

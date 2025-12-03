@@ -359,11 +359,9 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
-    // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'
     | 'summarize_sessions'
-    | 'filter_session_recordings'
     | 'create_insight'
     | 'create_form'
 

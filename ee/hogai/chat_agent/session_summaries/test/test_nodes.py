@@ -32,7 +32,6 @@ from posthog.schema import (
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.models import SessionRecording
-from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
 from posthog.temporal.ai.session_summary.summarize_session_group import SessionSummaryStreamUpdate
@@ -141,7 +140,7 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner_class.return_value = mock_query_runner
 
         # Convert MaxRecordingUniversalFilters to RecordingsQuery
-        recordings_query = convert_filters_to_recordings_query(mock_filters.model_dump(exclude_none=True))
+        recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
         result = self.node._session_search._get_session_ids_with_filters(
             replay_filters=recordings_query,
         )
@@ -156,9 +155,19 @@ class TestSessionSummarizationNode(BaseTest):
         mock_query_runner_class.return_value = mock_query_runner
 
         # First convert MaxRecordingUniversalFilters to RecordingsQuery
-        recordings_query = convert_filters_to_recordings_query(mock_filters.model_dump(exclude_none=True))
-        result = self.node._session_search._get_session_ids_with_filters(recordings_query)
+        recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(mock_filters)
+        result = self.node._session_search._get_session_ids_with_filters(
+            replay_filters=recordings_query,
+        )
+
         self.assertEqual(result, ["session-1"])
+
+        # Verify duration filters were converted to having_predicates
+        call_args = mock_query_runner_class.call_args
+        # The query parameter should have having_predicates
+        query_param = call_args[1]["query"]
+        self.assertIsNotNone(query_param.having_predicates)
+        self.assertEqual(len(query_param.having_predicates), 2)
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.chat_agent.session_summaries.nodes.database_sync_to_async")
@@ -813,7 +822,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         }
 
         # Convert custom filters to recordings query
-        recordings_query = convert_filters_to_recordings_query(custom_filters)
+        recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
@@ -850,7 +859,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         }
 
         # Convert custom filters to recordings query
-        recordings_query = convert_filters_to_recordings_query(custom_filters)
+        recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
@@ -888,7 +897,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         )
 
         # Convert the generated filters to recordings query using the node's method
-        recordings_query = convert_filters_to_recordings_query(generated_filters.model_dump(exclude_none=True))
+        recordings_query = self.node._session_search._convert_max_filters_to_recordings_query(generated_filters)
 
         # Use the node's method to get session IDs
         session_ids = self.node._session_search._get_session_ids_with_filters(
@@ -923,7 +932,7 @@ class TestSessionSummarizationNodeFilterGeneration(ClickhouseTestMixin, BaseTest
         }
 
         # Convert custom filters to recordings query
-        recordings_query = convert_filters_to_recordings_query(custom_filters)
+        recordings_query = self.node._session_search._convert_current_filters_to_recordings_query(custom_filters)
 
         # Get session IDs with explicit limit of 1
         session_ids = self.node._session_search._get_session_ids_with_filters(replay_filters=recordings_query)

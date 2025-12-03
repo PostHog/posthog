@@ -39,7 +39,8 @@
 }
 
 .SessionRecordingPlaylistHeightWrapper {
-    height: 100%;
+    // NOTE: Somewhat random way to offset the various headers and tabs above the playlist
+    height: calc(100vh - 10rem);
     min-height: 25rem;
 }
 

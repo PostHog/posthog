@@ -105,7 +105,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                         'p-0':
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto':
+                        'h-[calc(100vh-var(--scene-layout-header-height))]':
                             sceneConfig?.layout === 'app-full-scene-height',
                     }
                 )}
