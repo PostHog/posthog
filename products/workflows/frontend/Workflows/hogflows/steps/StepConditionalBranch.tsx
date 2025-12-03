@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -59,7 +60,7 @@ export function StepConditionalBranchConfiguration({
             throw new Error('Continue edge not found')
         }
 
-        setConditions([...conditions, { filters: {} }])
+        setConditions([...conditions, { filters: {}, name: undefined }])
         setWorkflowActionEdges(action.id, [
             ...branchEdges,
             {
@@ -95,6 +96,17 @@ export function StepConditionalBranchConfiguration({
                             disabledReason={selectedNodeCanBeDeleted ? undefined : 'Clean up branching steps first'}
                         />
                     </div>
+
+                    <LemonInput
+                        value={condition.name || ''}
+                        onChange={(value) =>
+                            setConditions(
+                                conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c))
+                            )
+                        }
+                        placeholder={`If condition #${index + 1} matches`}
+                        size="small"
+                    />
 
                     <HogFlowPropertyFilters
                         actionId={`${action.id}.${index}`}
