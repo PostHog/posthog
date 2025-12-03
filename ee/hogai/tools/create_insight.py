@@ -3,10 +3,11 @@ from typing import Literal, Self
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantTool, AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import AssistantTool, AssistantToolCallMessage
 
 from posthog.models import Team, User
 
+from ee.hogai.artifacts.utils import is_visualization_artifact_message
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
 from ee.hogai.context.context import AssistantContextManager
@@ -512,6 +513,7 @@ InsightType = Literal["trends", "funnel", "retention"]
 
 
 class CreateInsightToolArgs(BaseModel):
+    title: str = Field(description="A short title for the insight.")
     query_description: str = Field(description="A plan of the query to generate based on the template.")
     insight_type: InsightType = Field(description="The type of insight to generate.")
 
@@ -540,7 +542,7 @@ class CreateInsightTool(MaxTool):
         return cls(team=team, user=user, state=state, node_path=node_path, config=config, description=prompt)
 
     async def _arun_impl(
-        self, query_description: str, insight_type: InsightType
+        self, title: str, query_description: str, insight_type: InsightType
     ) -> tuple[str, ToolMessagesArtifact | None]:
         graph_builder = InsightsGraph(self._team, self._user)
         match insight_type:
@@ -562,6 +564,7 @@ class CreateInsightTool(MaxTool):
             update={
                 "root_tool_call_id": self.tool_call_id,
                 "plan": query_description,
+                "visualization_title": title,
             },
             deep=True,
         )
@@ -584,16 +587,19 @@ class CreateInsightTool(MaxTool):
                 INSIGHT_TOOL_UNHANDLED_FAILURE_PROMPT, system_reminder=INSIGHT_TOOL_FAILURE_SYSTEM_REMINDER_PROMPT
             ), None
 
-        # If the previous message is not a visualization message, the agent has requested human feedback.
-        if not isinstance(maybe_viz_message, VisualizationMessage):
+        # If the previous message is not a visualization or artifact message, the agent has requested human feedback.
+        if not is_visualization_artifact_message(maybe_viz_message):
             return "", ToolMessagesArtifact(messages=[tool_call_message])
 
+        visualization_content = await self._context_manager.artifacts.aget_content_by_short_id(
+            maybe_viz_message.artifact_id
+        )
         # If the contextual tool is available, we're editing an insight.
         # Add the UI payload to the tool call message.
         if self.is_editing_mode(self._context_manager):
             tool_call_message = AssistantToolCallMessage(
                 content=tool_call_message.content,
-                ui_payload={self.get_name(): maybe_viz_message.answer.model_dump(exclude_none=True)},
+                ui_payload={self.get_name(): visualization_content.query.model_dump(exclude_none=True)},
                 id=tool_call_message.id,
                 tool_call_id=tool_call_message.tool_call_id,
             )

@@ -4,6 +4,7 @@ import React, { HTMLProps, useState } from 'react'
 import { IconCollapse, IconExpand } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 
 import { getStickyColumnInfo } from './columnUtils'
 import { ExpandableConfig, LemonTableColumn, LemonTableColumnGroup, TableCellRepresentation } from './types'
@@ -23,6 +24,7 @@ export interface TableRowProps<T extends Record<string, any>> {
     pinnedColumns?: string[]
     pinnedColumnWidths?: number[]
     columns?: LemonTableColumn<T, any>[]
+    rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -40,6 +42,7 @@ function TableRowRaw<T extends Record<string, any>>({
     pinnedColumns,
     pinnedColumnWidths,
     columns,
+    rowActions,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -105,9 +108,26 @@ function TableRowRaw<T extends Record<string, any>>({
                             const columnKeyOrIndex = columnKeyRaw ? String(columnKeyRaw) : columnIndex
                             // != is intentional to catch undefined too
                             const value = column.dataIndex != null ? record[column.dataIndex] : undefined
-                            const contents = column.render
+                            const rawContents = column.render
                                 ? column.render(value as T[keyof T], record, recordIndex, rowCount)
                                 : value
+
+                            // Wrap with cell actions if defined
+                            const cellActionsOverlay = column.cellActions
+                                ? column.cellActions(value as T[keyof T], record, recordIndex)
+                                : null
+                            const contents =
+                                cellActionsOverlay && !isTableCellRepresentation(rawContents) ? (
+                                    <div className="flex items-center gap-1">
+                                        <div className="flex-1 min-w-0">{rawContents}</div>
+                                        <div className="flex-shrink-0">
+                                            <More overlay={cellActionsOverlay} size="xsmall" />
+                                        </div>
+                                    </div>
+                                ) : (
+                                    rawContents
+                                )
+
                             const isSticky = firstColumnSticky && columnGroupIndex === 0 && columnIndex === 0
 
                             // Check if this column is pinned
@@ -145,6 +165,14 @@ function TableRowRaw<T extends Record<string, any>>({
                                 </td>
                             )
                         })
+                )}
+                {rowActions && (
+                    <td className="w-0">
+                        {(() => {
+                            const actionsOverlay = rowActions(record, recordIndex)
+                            return actionsOverlay ? <More overlay={actionsOverlay} /> : null
+                        })()}
+                    </td>
                 )}
             </tr>
 
