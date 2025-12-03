@@ -1,7 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useMemo } from 'react'
 
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
@@ -12,7 +11,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { updateItemWithOptionalName } from './utils'
+import { useDebouncedNameInputs } from './utils'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -25,20 +24,18 @@ export function StepRandomCohortBranchConfiguration({
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
 
-    // Local state for cohort names to avoid input lag
-    const [localCohortNames, setLocalCohortNames] = useState<(string | undefined)[]>(cohorts.map((c) => c.name))
-
-    // Update local state when cohorts change from external sources
-    useEffect(() => {
-        setLocalCohortNames(cohorts.map((c) => c.name))
-    }, [cohorts.length]) // Only update when number of cohorts changes
-
-    // Debounced function to update cohort names
-    const debouncedUpdateCohortName = useDebouncedCallback((index: number, value: string | undefined) => {
-        setCohorts(updateItemWithOptionalName(cohorts, index, value))
-    }, 300)
-
     const nodeEdges = edgesByActionId[action.id] ?? []
+
+    const setCohorts = (
+        cohorts: Extract<HogFlowAction, { type: 'random_cohort_branch' }>['config']['cohorts']
+    ): void => {
+        setWorkflowAction(action.id, {
+            ...action,
+            config: { ...action.config, cohorts },
+        })
+    }
+
+    const { localNames: localCohortNames, handleNameChange } = useDebouncedNameInputs(cohorts, setCohorts)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -54,15 +51,6 @@ export function StepRandomCohortBranchConfiguration({
 
         return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
     }, [nodeEdges, action.id])
-
-    const setCohorts = (
-        cohorts: Extract<HogFlowAction, { type: 'random_cohort_branch' }>['config']['cohorts']
-    ): void => {
-        setWorkflowAction(action.id, {
-            ...action,
-            config: { ...action.config, cohorts },
-        })
-    }
 
     const addCohort = (): void => {
         const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
@@ -122,15 +110,7 @@ export function StepRandomCohortBranchConfiguration({
 
                     <LemonInput
                         value={localCohortNames[index] || ''}
-                        onChange={(value) => {
-                            // Update local state immediately for responsive typing
-                            const newNames = [...localCohortNames]
-                            newNames[index] = value
-                            setLocalCohortNames(newNames)
-
-                            // Debounced update to persist the name
-                            debouncedUpdateCohortName(index, value)
-                        }}
+                        onChange={(value) => handleNameChange(index, value)}
                         placeholder={`Cohort #${index + 1}`}
                         size="small"
                     />

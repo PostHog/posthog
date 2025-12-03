@@ -1,7 +1,6 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
+import { useMemo } from 'react'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
@@ -13,7 +12,7 @@ import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { updateItemWithOptionalName } from './utils'
+import { useDebouncedNameInputs } from './utils'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -26,22 +25,22 @@ export function StepConditionalBranchConfiguration({
     const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
 
-    // Local state for condition names to avoid input lag
-    const [localConditionNames, setLocalConditionNames] = useState<(string | undefined)[]>(
-        conditions.map((c) => c.name)
-    )
-
-    // Update local state when conditions change from external sources
-    useEffect(() => {
-        setLocalConditionNames(conditions.map((c) => c.name))
-    }, [conditions.length]) // Only update when number of conditions changes
-
-    // Debounced function to update condition names
-    const debouncedUpdateConditionName = useDebouncedCallback((index: number, value: string | undefined) => {
-        setConditions(updateItemWithOptionalName(conditions, index, value))
-    }, 300)
-
     const nodeEdges = edgesByActionId[action.id] ?? []
+
+    const setConditions = (
+        conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
+    ): void => {
+        // TODO: Find all related edges. We can only delete those that are the same as the continue edge.
+        // All others should be disabled for deletion until the subbranch is removed
+
+        // For condition modifiers we need to setup the branches as well
+        setWorkflowAction(action.id, {
+            ...action,
+            config: { ...action.config, conditions },
+        })
+    }
+
+    const { localNames: localConditionNames, handleNameChange } = useDebouncedNameInputs(conditions, setConditions)
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
@@ -57,19 +56,6 @@ export function StepConditionalBranchConfiguration({
 
         return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
     }, [nodeEdges, action.id])
-
-    const setConditions = (
-        conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
-    ): void => {
-        // TODO: Find all related edges. We can only delete those that are the same as the continue edge.
-        // All others should be disabled for deletion until the subbranch is removed
-
-        // For condition modifiers we need to setup the branches as well
-        setWorkflowAction(action.id, {
-            ...action,
-            config: { ...action.config, conditions },
-        })
-    }
 
     const addCondition = (): void => {
         const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
@@ -116,15 +102,7 @@ export function StepConditionalBranchConfiguration({
 
                     <LemonInput
                         value={localConditionNames[index] || ''}
-                        onChange={(value) => {
-                            // Update local state immediately for responsive typing
-                            const newNames = [...localConditionNames]
-                            newNames[index] = value
-                            setLocalConditionNames(newNames)
-
-                            // Debounced update to persist the name
-                            debouncedUpdateConditionName(index, value)
-                        }}
+                        onChange={(value) => handleNameChange(index, value)}
                         placeholder={`If condition #${index + 1} matches`}
                         size="small"
                     />

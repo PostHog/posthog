@@ -1,7 +1,5 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
-import { useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
@@ -12,7 +10,7 @@ import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { updateOptionalName } from './utils'
+import { useDebouncedNameInput } from './utils'
 
 export function StepWaitUntilConditionConfiguration({
     node,
@@ -24,18 +22,9 @@ export function StepWaitUntilConditionConfiguration({
 
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
 
-    // Local state for condition name to avoid input lag
-    const [localConditionName, setLocalConditionName] = useState<string | undefined>(condition.name)
-
-    // Update local state when condition changes from external sources
-    useEffect(() => {
-        setLocalConditionName(condition.name)
-    }, [condition.name])
-
-    // Debounced function to update condition name
-    const debouncedUpdateConditionName = useDebouncedCallback((value: string | undefined) => {
-        partialSetWorkflowActionConfig(action.id, { condition: updateOptionalName(condition, value) })
-    }, 300)
+    const { localName: localConditionName, handleNameChange } = useDebouncedNameInput(condition, (updatedCondition) =>
+        partialSetWorkflowActionConfig(action.id, { condition: updatedCondition })
+    )
 
     return (
         <>
@@ -55,13 +44,7 @@ export function StepWaitUntilConditionConfiguration({
                 <LemonLabel>Conditions to wait for</LemonLabel>
                 <LemonInput
                     value={localConditionName || ''}
-                    onChange={(value) => {
-                        // Update local state immediately for responsive typing
-                        setLocalConditionName(value)
-
-                        // Debounced update to persist the name
-                        debouncedUpdateConditionName(value)
-                    }}
+                    onChange={handleNameChange}
                     placeholder="If condition matches"
                     size="small"
                 />
