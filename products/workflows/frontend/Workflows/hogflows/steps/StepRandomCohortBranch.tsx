@@ -34,7 +34,20 @@ export function StepRandomCohortBranchConfiguration({
 
     // Debounced function to update cohort names
     const debouncedUpdateCohortName = useDebouncedCallback((index: number, value: string | undefined) => {
-        setCohorts(cohorts.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
+        setCohorts(
+            cohorts.map((c, i) => {
+                if (i !== index) {
+                    return c
+                }
+                const updated = { ...c }
+                if (value) {
+                    updated.name = value
+                } else {
+                    delete updated.name
+                }
+                return updated
+            })
+        )
     }, 300)
 
     const nodeEdges = edgesByActionId[action.id] ?? []

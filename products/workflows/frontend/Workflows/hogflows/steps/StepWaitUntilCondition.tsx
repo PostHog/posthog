@@ -33,7 +33,13 @@ export function StepWaitUntilConditionConfiguration({
 
     // Debounced function to update condition name
     const debouncedUpdateConditionName = useDebouncedCallback((value: string | undefined) => {
-        partialSetWorkflowActionConfig(action.id, { condition: { ...condition, name: value || undefined } })
+        const updated = { ...condition }
+        if (value) {
+            updated.name = value
+        } else {
+            delete updated.name
+        }
+        partialSetWorkflowActionConfig(action.id, { condition: updated })
     }, 300)
 
     return (
