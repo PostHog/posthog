@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import Q, QuerySet
 
 from drf_spectacular.utils import extend_schema
+import structlog
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -14,6 +15,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
 from posthog.tasks.email import send_discussions_mentioned
+
+logger = structlog.get_logger(__name__)
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -61,6 +64,7 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
+            logger.info(f"Sending discussions mentioned email for comment {comment.id} to {mentions}")
             send_discussions_mentioned.delay(comment.id, mentions, slug)
 
         return comment

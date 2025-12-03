@@ -44,7 +44,7 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
-import { InsightLogicProps, OnboardingStepKey } from '~/types'
+import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
@@ -57,9 +57,11 @@ import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
     const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
-    const { currentTeam } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam)
 
     return (
         <div
@@ -68,27 +70,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
             )}
         >
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING] && !currentTeam?.ingested_event ? (
-                <ProductIntroduction
-                    className="col-span-full w-full"
-                    productName="Web Analytics"
-                    productKey={ProductKey.WEB_ANALYTICS}
-                    thingName="event"
-                    isEmpty={true}
-                    titleOverride="Nothing to investigate yet!"
-                    description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
-                    docsURL="https://posthog.com/docs/web-analytics/installation"
-                    actionElementOverride={
-                        <LemonButton
-                            type="primary"
-                            to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
-                            data-attr="web-analytics-onboarding"
-                        >
-                            Open installation guide
-                        </LemonButton>
-                    }
-                />
-            ) : (
+            {emptyOnboardingContent ??
                 tiles.map((tile, i) => {
                     if (tile.kind === 'query') {
                         return <QueryTileItem key={i} tile={tile} />
@@ -102,8 +84,7 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                         return <SectionTileItem key={i} tile={tile} />
                     }
                     return null
-                })
-            )}
+                })}
         </div>
     )
 }
@@ -616,4 +597,43 @@ const WebAnalyticsTabs = (): JSX.Element => {
             }
         />
     )
+}
+
+const getEmptyOnboardingContent = (
+    featureFlags: FeatureFlagsSet,
+    currentTeamLoading: boolean,
+    currentTeam: TeamType | TeamPublicType | null
+): JSX.Element | null => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]) {
+        return null
+    }
+
+    if (currentTeamLoading && !currentTeam) {
+        return <LemonSkeleton className="col-span-full w-full" />
+    }
+
+    if (!currentTeam?.ingested_event) {
+        return (
+            <ProductIntroduction
+                className="col-span-full w-full"
+                productName="Web Analytics"
+                productKey={ProductKey.WEB_ANALYTICS}
+                thingName="event"
+                isEmpty={true}
+                titleOverride="Nothing to investigate yet!"
+                description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                docsURL="https://posthog.com/docs/web-analytics/installation"
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                        data-attr="web-analytics-onboarding"
+                    >
+                        Open installation guide
+                    </LemonButton>
+                }
+            />
+        )
+    }
+    return null
 }

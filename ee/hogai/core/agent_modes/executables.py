@@ -13,6 +13,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
+from langgraph.errors import NodeInterrupt
 from langgraph.types import Send
 from posthoganalytics import capture_exception
 from pydantic import ValidationError
@@ -29,7 +30,6 @@ from posthog.schema import (
 from posthog.event_usage import groups
 from posthog.models import Team, User
 
-from ee.hogai.core.agent_modes.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.prompts import (
     ROOT_CONVERSATION_SUMMARY_PROMPT,
@@ -43,6 +43,7 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
+from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -185,7 +186,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         message = await model.ainvoke(system_prompts + langchain_messages, config)
         assistant_message = self._process_output_message(message)
 
-        new_messages: list[AssistantMessageUnion] = [assistant_message]
+        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
         if messages_to_replace:
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
@@ -419,6 +420,9 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     )
                 ],
             )
+        except NodeInterrupt:
+            # Let NodeInterrupt propagate to the graph engine for tool interrupts
+            raise
         except Exception as e:
             logger.exception("Error calling tool", extra={"tool_name": tool_call.name, "error": str(e)})
             capture_exception(

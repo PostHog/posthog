@@ -1,10 +1,12 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { quickFiltersLogic } from 'lib/components/QuickFilters'
 
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyOperator, QuickFilterOption } from '~/types'
 
+import { QuickFiltersEvents } from './consts'
 import type { quickFiltersSectionLogicType } from './quickFiltersSectionLogicType'
 
 export interface SelectedQuickFilter {
@@ -58,12 +60,21 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         deleteFilter: ({ id }) => {
             const deletedFilter = values.quickFilters.find((f) => f.id === id)
             if (deletedFilter) {
                 actions.clearQuickFilter(deletedFilter.property_name)
             }
+        },
+        setQuickFilterValue: ({ propertyName, option }) => {
+            posthog.capture(QuickFiltersEvents.QuickFilterSelected, {
+                name: values.quickFilters.find((f) => f.property_name === propertyName)?.name,
+                property_name: propertyName,
+                label: option.label,
+                value: option.value,
+                context: props.context,
+            })
         },
     })),
 ])
