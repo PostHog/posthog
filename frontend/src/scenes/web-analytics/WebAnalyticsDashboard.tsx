@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,7 +19,6 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -568,10 +567,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     const { setProductTab } = useActions(webAnalyticsLogic)
 
-    const handleShare = (): void => {
-        void copyToClipboard(window.location.href, 'link')
-    }
-
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -584,17 +579,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
             ]}
             sceneInset
             className="-mt-4"
-            rightSlot={
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconShare fontSize="16" />}
-                    tooltip="Share"
-                    tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                />
-            }
         />
     )
 }
