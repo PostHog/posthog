@@ -3,7 +3,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Json;
 use axum_client_ip::InsecureClientIp;
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, HasEventName};
 use flate2::read::GzDecoder;
 use futures::stream;
 use multer::{parse_boundary, Multipart};
@@ -23,7 +23,7 @@ use crate::timestamp;
 use crate::token::validate_token;
 use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PartInfo {
     pub name: String,
     pub length: usize,
@@ -52,6 +52,12 @@ struct EventMetadata {
     distinct_id: String,
     event_json: Value,
     event_part_info: PartInfo,
+}
+
+impl HasEventName for EventMetadata {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
 }
 
 /// Raw multipart parts retrieved from the request
@@ -155,13 +161,23 @@ pub async fn ai_handler(
         .should_drop(token, &event_metadata.distinct_id)
     {
         report_dropped_events("token_dropper", 1);
-        // Return success to prevent client retries (matches v0 behavior)
-        return Ok(Json(AIEndpointResponse {
-            accepted_parts: vec![event_metadata.event_part_info],
-        }));
+        return Err(CaptureError::BillingLimit);
     }
 
-    // Step 3: Retrieve and validate remaining multipart parts
+    // Step 3: Check quota limiter - drop if over quota
+    // We pass a single-element vec and check if it's filtered out
+    let filtered = state
+        .quota_limiter
+        .check_and_filter(token, vec![event_metadata])
+        .await?;
+
+    // If the event was filtered out by quota limiter, return billing limit error
+    let event_metadata = filtered
+        .into_iter()
+        .next()
+        .ok_or(CaptureError::BillingLimit)?;
+
+    // Step 4: Retrieve and validate remaining multipart parts
     let parts = retrieve_multipart_parts(
         decompressed_body,
         &boundary,
@@ -170,17 +186,17 @@ pub async fn ai_handler(
     )
     .await?;
 
-    // Step 4: Parse the parts and build event with blob placeholders
+    // Step 5: Parse the parts and build event with blob placeholders
     let parsed = parse_multipart_data(parts)?;
 
-    // Step 5: Build Kafka event
+    // Step 6: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
         .unwrap_or_else(|| "127.0.0.1".to_string());
     let (accepted_parts, processed_event) = build_kafka_event(parsed, token, &client_ip, &state)?;
 
-    // Step 5: Send event to Kafka
+    // Step 7: Send event to Kafka
     state.sink.send(processed_event).await.map_err(|e| {
         warn!("Failed to send AI event to Kafka: {:?}", e);
         e
