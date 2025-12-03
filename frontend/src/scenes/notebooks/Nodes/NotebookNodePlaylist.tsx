@@ -17,7 +17,7 @@ import {
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { AnyPropertyFilter, FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
 
 import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
@@ -29,14 +29,13 @@ const Component = ({
 }: NotebookNodeProps<NotebookNodePlaylistAttributes>): JSX.Element => {
     const { pinned, nodeId, universalFilters } = attributes
     const playerKey = `notebook-${nodeId}`
-    const { canvasFiltersOverride } = useValues(notebookLogic)
-    const personUUID = getPersonUUIDFromOverride(canvasFiltersOverride)
+    const { personUUIDFromCanvasOverride } = useValues(notebookLogic)
 
     const recordingPlaylistLogicProps: SessionRecordingPlaylistLogicProps = useMemo(
         () => ({
             logicKey: playerKey,
             filters: universalFilters,
-            ...(personUUID ? { personUUID } : {}),
+            ...(personUUIDFromCanvasOverride ? { personUUID: personUUIDFromCanvasOverride } : {}),
             updateSearchParams: false,
             autoPlay: false,
             onFiltersChange: (newFilters) => updateAttributes({ universalFilters: newFilters }),
@@ -167,11 +166,4 @@ export function buildPlaylistContent(filters: Partial<FilterType>): JSONContent 
         type: NotebookNodeType.RecordingPlaylist,
         attrs: { filters },
     }
-}
-
-function getPersonUUIDFromOverride(override: AnyPropertyFilter[] | null): string | null {
-    if (!override || override.length === 0) {
-        return null
-    }
-    return override.find((filter) => filter.key === 'person_id')?.value as string
 }
