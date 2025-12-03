@@ -784,7 +784,7 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
     def get_person_condition(self, prop: Property) -> ast.SelectQuery:
         """
         Query precalculated_person_properties using conditionHash for realtime person property matching.
-        Uses the precalculated_person_properties table populated by CdpRealtimeCohortsConsumer.
+        Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer and backfill workflows.
 
         Uses argMax(matches, _timestamp) to get the latest evaluation result without relying on
         ReplacingMergeTree compaction. Only returns persons where latest evaluation matches=1.
