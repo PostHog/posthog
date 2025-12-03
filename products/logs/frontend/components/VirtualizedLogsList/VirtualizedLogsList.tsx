@@ -46,6 +46,16 @@ export function VirtualizedLogsList({
 
     const minRowWidth = useMemo(() => getMinRowWidth(), [])
 
+    const cache = useMemo(
+        () =>
+            new CellMeasurerCache({
+                fixedWidth: true,
+                defaultHeight: 32,
+                minHeight: 32,
+            }),
+        []
+    )
+
     // Clear cache when container width changes (affects message column width and thus row heights)
     const handleWidthChange = (width: number): void => {
         if (prevWidthRef.current !== 0 && prevWidthRef.current !== width) {
@@ -64,16 +74,6 @@ export function VirtualizedLogsList({
         }
         prevDataLengthRef.current = dataSource.length
     }, [dataSource.length])
-
-    const cache = useMemo(
-        () =>
-            new CellMeasurerCache({
-                fixedWidth: true,
-                defaultHeight: 32,
-                minHeight: 32,
-            }),
-        []
-    )
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
