@@ -15,7 +15,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
-export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings']
+export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings', 'create_form']
 
 export function UIPayloadAnswer({
     toolCallId,
@@ -35,7 +35,7 @@ export function UIPayloadAnswer({
     return null
 }
 
-function RecordingsWidget({
+export function RecordingsWidget({
     toolCallId,
     filters,
 }: {

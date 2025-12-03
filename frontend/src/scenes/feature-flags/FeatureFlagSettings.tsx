@@ -9,6 +9,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { DefaultEvaluationEnvironments } from './DefaultEvaluationEnvironments'
+import { RequireEvaluationEnvironmentTags } from './RequireEvaluationEnvironmentTags'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -105,6 +106,10 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                         </Form>
                     </div>
                 )}
+            </div>
+
+            <div className="space-y-2">
+                <RequireEvaluationEnvironmentTags />
             </div>
 
             <div className="space-y-2">
