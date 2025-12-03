@@ -27,21 +27,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { GraphType } from '~/types'
 
-let timer: NodeJS.Timeout | null = null
-
-function setTooltipPosition(chart: Chart, tooltipEl: HTMLElement): void {
-    if (timer) {
-        clearTimeout(timer)
-    }
-    timer = setTimeout(() => {
-        const position = chart.canvas.getBoundingClientRect()
-
-        tooltipEl.style.position = 'absolute'
-        tooltipEl.style.left = position.left + window.pageXOffset + (chart.tooltip?.caretX || 0) + 8 + 'px'
-        tooltipEl.style.top = position.top + window.pageYOffset + (chart.tooltip?.caretY || 0) + 8 + 'px'
-    }, 25)
-}
-
 function getPercentageForDataPoint(context: Context): number {
     const total = context.dataset.data.reduce((a, b) => (a as number) + (b as number), 0) as number
     return ((context.dataset.data[context.dataIndex] as number) / total) * 100
@@ -82,7 +67,7 @@ export function PieChart({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
-    const { getTooltip } = useInsightTooltip()
+    const { getTooltip, hideTooltip } = useInsightTooltip()
 
     const { canvasRef } = useChart<'pie'>({
         getConfig: () => {
@@ -176,11 +161,11 @@ export function PieChart({
                                     if (trendsFilter?.showLegend) {
                                         highlightSeries(null)
                                     }
-                                    tooltipEl.style.opacity = '0'
+                                    hideTooltip()
                                     return
                                 }
 
-                                tooltipEl.classList.remove('above', 'below', 'no-transform')
+                                tooltipEl.classList.remove('above', 'below', 'no-transform', 'opacity-0', 'invisible')
                                 tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
                                 tooltipEl.style.opacity = '1'
 
@@ -248,7 +233,12 @@ export function PieChart({
                                     )
                                 }
 
-                                setTooltipPosition(chart, tooltipEl)
+                                const position = chart.canvas.getBoundingClientRect()
+                                tooltipEl.style.position = 'absolute'
+                                tooltipEl.style.left =
+                                    position.left + window.pageXOffset + (tooltip.caretX || 0) + 8 + 'px'
+                                tooltipEl.style.top =
+                                    position.top + window.pageYOffset + (tooltip.caretY || 0) + 8 + 'px'
                             },
                         },
                     },
@@ -270,6 +260,7 @@ export function PieChart({
             labelGroupType,
             disableHoverOffset,
             getTooltip,
+            hideTooltip,
             highlightSeries,
             aggregationLabel,
         ],
