@@ -547,6 +547,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
+            tag_queries(workload=Workload.ENDPOINTS)
             insight_query_override = data.query_override or {}
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
@@ -655,6 +656,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
+            tag_queries(product=Product.ENDPOINTS)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
