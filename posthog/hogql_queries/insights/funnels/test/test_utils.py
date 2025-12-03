@@ -3,6 +3,7 @@ from django.test import SimpleTestCase
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import clone_expr
+
 from posthog.hogql_queries.insights.funnels.utils import alias_columns_in_select
 
 
