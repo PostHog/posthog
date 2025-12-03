@@ -7,6 +7,7 @@ import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { FLAGS_PER_PAGE } from 'scenes/feature-flags/featureFlagsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagType } from '~/types'
 
@@ -34,7 +35,13 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
     path(['scenes', 'experiments', 'create', 'selectExistingFeatureFlagModalLogic']),
 
     connect({
-        actions: [eventUsageLogic, ['reportExperimentFeatureFlagModalOpened']],
+        actions: [
+            eventUsageLogic,
+            ['reportExperimentFeatureFlagModalOpened'],
+            teamLogic,
+            ['loadCurrentTeamSuccess', 'updateCurrentTeamSuccess'],
+        ],
+        values: [teamLogic, ['currentTeam']],
     }),
 
     actions({
@@ -66,7 +73,7 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setFilters: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadFeatureFlags()
@@ -77,6 +84,16 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
         openSelectExistingFeatureFlagModal: () => {
             actions.reportExperimentFeatureFlagModalOpened()
             actions.loadFeatureFlags()
+        },
+        loadCurrentTeamSuccess: () => {
+            if (values.isModalOpen) {
+                actions.loadFeatureFlags()
+            }
+        },
+        updateCurrentTeamSuccess: () => {
+            if (values.isModalOpen) {
+                actions.loadFeatureFlags()
+            }
         },
     })),
 
@@ -97,12 +114,21 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
 
     selectors({
         paramsFromFilters: [
-            (s) => [s.filters],
-            (filters: FeatureFlagModalFilters) => ({
-                ...filters,
-                limit: FLAGS_PER_PAGE,
-                offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
-            }),
+            (s) => [s.filters, s.currentTeam],
+            (filters: FeatureFlagModalFilters, currentTeam) => {
+                const params: Record<string, any> = {
+                    ...filters,
+                    limit: FLAGS_PER_PAGE,
+                    offset: filters.page ? (filters.page - 1) * FLAGS_PER_PAGE : 0,
+                }
+
+                // Add evaluation tags filter if required by team
+                if (currentTeam?.require_evaluation_environment_tags) {
+                    params.has_evaluation_tags = true
+                }
+
+                return params
+            },
         ],
         pagination: [
             (s) => [s.filters, s.featureFlags],
@@ -133,6 +159,10 @@ export const selectExistingFeatureFlagModalLogic = kea<selectExistingFeatureFlag
                             : undefined,
                 }
             },
+        ],
+        isEvaluationTagsRequired: [
+            (s) => [s.currentTeam],
+            (currentTeam) => currentTeam?.require_evaluation_environment_tags || false,
         ],
     }),
 ])

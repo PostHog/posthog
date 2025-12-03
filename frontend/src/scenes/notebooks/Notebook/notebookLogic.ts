@@ -22,6 +22,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     ActivityScope,
+    AnyPropertyFilter,
     CommentType,
     InsightShortId,
     SidePanelTab,
@@ -51,6 +52,7 @@ export type NotebookLogicProps = {
     shortId: string
     mode?: NotebookLogicMode
     target?: NotebookTarget
+    canvasFiltersOverride?: AnyPropertyFilter[]
 }
 
 async function runWhenEditorIsReady(waitForEditor: () => boolean, fn: () => any): Promise<any> {
@@ -151,6 +153,7 @@ export const notebookLogic = kea<notebookLogicType>([
         setAccessDeniedToNotebook: true,
     }),
     reducers(({ props }) => ({
+        canvasFiltersOverride: [props.canvasFiltersOverride ?? ([] as AnyPropertyFilter[])],
         isShareModalOpen: [
             false,
             {

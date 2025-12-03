@@ -66,9 +66,14 @@ TOTAL_COST_FIELD = "total_cost"
 TOTAL_CLICKS_FIELD = "total_clicks"
 TOTAL_IMPRESSIONS_FIELD = "total_impressions"
 TOTAL_REPORTED_CONVERSION_FIELD = "total_reported_conversions"
+TOTAL_REPORTED_CONVERSION_VALUE_FIELD = "total_reported_conversion_value"
 
-# Fallback query when no valid adapters are found
-FALLBACK_EMPTY_QUERY = f"SELECT 'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION} WHERE 1=0"
+# Field used for joining with conversion goals
+MATCH_KEY_FIELD = "match_key"
+
+# Fallback query when no valid adapters are found (includes all 9 columns in correct order)
+# Order: match_key, campaign, id, source, impressions, clicks, cost, reported_conversion, reported_conversion_value
+FALLBACK_EMPTY_QUERY = f"SELECT '' as {MATCH_KEY_FIELD}, 'No Campaign' as {MarketingAnalyticsColumnsSchemaNames.CAMPAIGN}, 'No ID' as {MarketingAnalyticsColumnsSchemaNames.ID}, 'No Source' as {MarketingAnalyticsColumnsSchemaNames.SOURCE}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.IMPRESSIONS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.CLICKS}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.COST}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION}, 0.0 as {MarketingAnalyticsColumnsSchemaNames.REPORTED_CONVERSION_VALUE} WHERE 1=0"
 
 # AST Expression mappings for MarketingAnalyticsBaseColumns
 BASE_COLUMN_MAPPING = {
@@ -158,6 +163,16 @@ BASE_COLUMN_MAPPING = {
             name="round",
             args=[
                 ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_FIELD]),
+                ast.Constant(value=DECIMAL_PRECISION),
+            ],
+        ),
+    ),
+    MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE: ast.Alias(
+        alias=MarketingAnalyticsBaseColumns.REPORTED_CONVERSION_VALUE,
+        expr=ast.Call(
+            name="round",
+            args=[
+                ast.Field(chain=[CAMPAIGN_COST_CTE_NAME, TOTAL_REPORTED_CONVERSION_VALUE_FIELD]),
                 ast.Constant(value=DECIMAL_PRECISION),
             ],
         ),

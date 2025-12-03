@@ -140,7 +140,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
             groupsModel,
             ['aggregationLabel', 'groupTypes', 'groupTypesLoading', 'groupsAccessStatus'],
             customProductsLogic,
-            ['customProducts', 'customProductPaths'],
+            ['customProducts'],
         ],
         actions: [panelLayoutLogic, ['setActivePanelIdentifier']],
     })),
