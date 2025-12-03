@@ -3,6 +3,7 @@ import React from 'react'
 import { IconAI, IconWarning } from '@posthog/icons'
 
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { IconLink } from 'lib/lemon-ui/icons'
@@ -97,18 +98,22 @@ export const EventCopyLinkButton = React.forwardRef<
     HTMLButtonElement,
     { event: Pick<EventType, 'uuid' | 'timestamp'> }
 >(function EventCopyLinkButton({ event }, ref) {
+    const handleClick = (): void => {
+        // Use the same approach as TZLabel: parse and convert to UTC explicitly
+        const utcTimestamp = dayjs(event.timestamp).tz('UTC').toISOString()
+        void copyToClipboard(
+            urls.absolute(urls.currentProject(urls.event(String(event.uuid), utcTimestamp))),
+            'link to event'
+        )
+    }
+
     return (
         <LemonButton
             ref={ref}
             fullWidth
             sideIcon={<IconLink />}
             data-attr="events-table-event-link"
-            onClick={() =>
-                void copyToClipboard(
-                    urls.absolute(urls.currentProject(urls.event(String(event.uuid), event.timestamp))),
-                    'link to event'
-                )
-            }
+            onClick={handleClick}
         >
             Copy link to event
         </LemonButton>
