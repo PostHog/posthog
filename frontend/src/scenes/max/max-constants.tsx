@@ -1,6 +1,7 @@
-import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconDocument, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -38,6 +39,8 @@ export interface ToolDefinition<N extends string = string> {
     product?: Scene
     /** If the tool is only available if a feature flag is enabled, you can specify it here. */
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    /** If the tool is in beta, set this to true to display a beta badge */
+    beta?: boolean
 }
 
 /** Active instance of a tool. */
@@ -83,11 +86,23 @@ export interface ModeDefinition {
 }
 
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+    create_form: {
+        name: 'Create a form',
+        description: 'Create a form to collect information from the user',
+        icon: <IconQuestionAnswer />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a form'
+            }
+            return 'Creating a form...'
+        },
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -163,6 +178,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            artifacts: {
+                name: 'Read conversation artifacts',
+                description: 'Read conversation artifacts created by the agent',
+                icon: <IconDocument />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read conversation artifacts'
+                    }
+                    return 'Reading conversation artifacts...'
                 },
             },
         },
@@ -293,6 +319,18 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Found impactful issues'
             }
             return 'Finding impactful issues...'
+        },
+    },
+    error_tracking_explain_issue: {
+        name: 'Explain an issue',
+        description: 'Explain an issue by analyzing its stack trace',
+        product: Scene.ErrorTracking,
+        icon: iconForType('error_tracking'),
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Issue explained'
+            }
+            return 'Analyzing issue...'
         },
     },
     experiment_results_summary: {
@@ -446,6 +484,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -467,18 +506,23 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     },
 }
 
-export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
+export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
     { icon: <IconAtSign />, description: 'Analyze and use attached context' },
     { icon: <IconMemory />, description: 'Remember project-level information' },
 ]
 
-export const MAX_GENERALLY_CANNOT: string[] = [
+export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',
 ]
+
+export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
+    const identifier = toolCall.args.kind ?? toolCall.name
+    return getToolDefinition(identifier as string)
+}
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {

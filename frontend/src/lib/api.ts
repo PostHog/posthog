@@ -50,6 +50,7 @@ import {
     RefreshType,
     SourceConfig,
     TileFilters,
+    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -153,6 +154,7 @@ import {
     PropertyDefinitionType,
     QueryBasedInsightModel,
     QueryTabState,
+    QuickFilter,
     RawAnnotationType,
     RawBatchExportBackfill,
     RawBatchExportRun,
@@ -185,7 +187,12 @@ import {
     ErrorTrackingRule,
     ErrorTrackingRuleType,
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
-import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
+import type {
+    SessionGroupSummaryListItemType,
+    SessionGroupSummaryType,
+} from 'products/session_summaries/frontend/types'
+import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
@@ -195,6 +202,7 @@ import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
+    ErrorTrackingRelease,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -611,6 +619,11 @@ export class ApiRequest {
         return this.comments(teamId).addPathComponent(id)
     }
 
+    // # Feed
+    public feed(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('feed')
+    }
+
     // # Exports
     public exports(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('exports')
@@ -1015,6 +1028,14 @@ export class ApiRequest {
         return this.tasks(teamId).addPathComponent(id)
     }
 
+    public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.task(taskId, teamId).addPathComponent('runs')
+    }
+
+    public taskRun(taskId: Task['id'], runId: TaskRun['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.taskRuns(taskId, teamId).addPathComponent(runId)
+    }
+
     // # Surveys
     public surveys(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
@@ -1084,6 +1105,14 @@ export class ApiRequest {
         return this.errorTrackingSymbolSets().addPathComponent(id)
     }
 
+    public errorTrackingReleases(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('releases')
+    }
+
+    public errorTrackingRelease(id: ErrorTrackingRelease['id']): ApiRequest {
+        return this.errorTrackingReleases().addPathComponent(id)
+    }
+
     public gitProviderFileLinks(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('error_tracking')
@@ -1108,6 +1137,14 @@ export class ApiRequest {
 
     public errorTrackingIssueCohort(issueId: ErrorTrackingIssue['id'], teamId?: TeamType['id']): ApiRequest {
         return this.errorTrackingIssue(issueId, teamId).addPathComponent(`cohort`)
+    }
+
+    public quickFilters(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('quick_filters')
+    }
+
+    public quickFilter(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.quickFilters(teamId).addPathComponent(id)
     }
 
     // # Warehouse
@@ -1598,6 +1635,15 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('session_summaries')
     }
 
+    // Session group summaries
+    public sessionGroupSummaries(projectId?: ProjectType['id']): ApiRequest {
+        return this.projectsDetail(projectId).addPathComponent('session_group_summaries')
+    }
+
+    public sessionGroupSummary(id: string, projectId?: ProjectType['id']): ApiRequest {
+        return this.sessionGroupSummaries(projectId).addPathComponent(id)
+    }
+
     // Heatmap screenshots
     public heatmapScreenshots(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('heatmap_screenshots')
@@ -1930,21 +1976,10 @@ const api = {
     },
 
     userProductList: {
-        async list(): Promise<
-            CountedPaginatedResponse<{
-                id: string
-                product_path: string
-                enabled: boolean
-                created_at: string
-                updated_at: string
-            }>
-        > {
+        async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
-        async updateByPath(data: {
-            product_path: string
-            enabled: boolean
-        }): Promise<{ id: string; product_path: string; enabled: boolean; created_at: string; updated_at: string }> {
+        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
     },
@@ -2022,19 +2057,11 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
-                include_organization_scoped?: '1'
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
-            }
-
-            const scopesWithOrgScopedRecords = [ActivityScope.PERSONAL_API_KEY]
-            for (const scope of scopesWithOrgScopedRecords) {
-                if (filters.scope === scope || filters.scopes?.includes(scope)) {
-                    filters.include_organization_scoped = '1'
-                }
             }
 
             return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
@@ -2164,6 +2191,12 @@ const api = {
         },
     },
 
+    feed: {
+        async recentUpdates(days: number = 7): Promise<{ results: any[]; count: number }> {
+            return new ApiRequest().feed().withAction('recent_updates').withQueryString({ days }).get()
+        },
+    },
+
     logs: {
         async query({
             query,
@@ -2171,7 +2204,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[] }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2247,6 +2280,9 @@ const api = {
     eventDefinitions: {
         async get({ eventDefinitionId }: { eventDefinitionId: EventDefinition['id'] }): Promise<EventDefinition> {
             return new ApiRequest().eventDefinitionDetail(eventDefinitionId).get()
+        },
+        async create(eventDefinitionData: Partial<EventDefinition>): Promise<EventDefinition> {
+            return new ApiRequest().eventDefinitions().create({ data: eventDefinitionData })
         },
         async update({
             eventDefinitionId,
@@ -2496,7 +2532,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
@@ -3120,12 +3156,14 @@ const api = {
                 status,
                 offset = 0,
                 limit = 100,
+                orderBy = '-created_at',
             }: {
                 status?: SymbolSetStatusFilter
                 offset: number
                 limit: number
+                orderBy?: SymbolSetOrder
             }): Promise<CountedPaginatedResponse<ErrorTrackingSymbolSet>> {
-                const queryString = { order_by: '-created_at', status, offset, limit }
+                const queryString = { order_by: orderBy, status, offset, limit }
                 return await new ApiRequest().errorTrackingSymbolSets().withQueryString(toParams(queryString)).get()
             },
 
@@ -3135,6 +3173,19 @@ const api = {
 
             async delete(id: ErrorTrackingSymbolSet['id']): Promise<void> {
                 return await new ApiRequest().errorTrackingSymbolSet(id).delete()
+            },
+        },
+
+        releases: {
+            async list({
+                offset = 0,
+                limit = 100,
+            }: {
+                offset?: number
+                limit?: number
+            }): Promise<CountedPaginatedResponse<ErrorTrackingRelease>> {
+                const queryString = { order_by: '-created_at', offset, limit }
+                return await new ApiRequest().errorTrackingReleases().withQueryString(toParams(queryString)).get()
             },
         },
 
@@ -3194,6 +3245,29 @@ const api = {
         },
     },
 
+    quickFilters: {
+        async list(context: string): Promise<CountedPaginatedResponse<QuickFilter>> {
+            return await new ApiRequest().quickFilters().withQueryString(toParams({ context })).get()
+        },
+        async get(id: string): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).get()
+        },
+        async create(
+            data: Pick<QuickFilter, 'contexts' | 'name' | 'property_name' | 'type' | 'options'>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilters().create({ data })
+        },
+        async update(
+            id: string,
+            data: Partial<Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options' | 'contexts'>>
+        ): Promise<QuickFilter> {
+            return await new ApiRequest().quickFilter(id).update({ data })
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().quickFilter(id).delete()
+        },
+    },
+
     gitProviderFileLinks: {
         async resolveGithub(
             owner: string,
@@ -3240,10 +3314,6 @@ const api = {
             data: Partial<SessionRecordingUpdateType>
         ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).update({ data })
-        },
-
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
         },
 
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
@@ -3488,6 +3558,26 @@ const api = {
         },
     },
 
+    sessionGroupSummaries: {
+        async get(id: string): Promise<SessionGroupSummaryType> {
+            return await new ApiRequest().sessionGroupSummary(id).get()
+        },
+        async list(
+            params: {
+                created_by?: string
+                search?: string
+                order?: string
+                limit?: number
+                offset?: number
+            } = {}
+        ): Promise<CountedPaginatedResponse<SessionGroupSummaryListItemType>> {
+            return await new ApiRequest().sessionGroupSummaries().withQueryString(toParams(params)).get()
+        },
+        async delete(id: string): Promise<void> {
+            return await new ApiRequest().sessionGroupSummary(id).delete()
+        },
+    },
+
     batchExports: {
         async list(params: Record<string, any> = {}): Promise<CountedPaginatedResponse<BatchExportConfiguration>> {
             return await new ApiRequest().batchExports().withQueryString(toParams(params)).get()
@@ -3631,7 +3721,7 @@ const api = {
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
         },
-        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Partial<Task>> {
+        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Task> {
             return await new ApiRequest().task(id).update({ data })
         },
         async delete(id: Task['id']): Promise<void> {
@@ -3642,6 +3732,30 @@ const api = {
         },
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
+        },
+        runs: {
+            async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
+                return await new ApiRequest().taskRuns(taskId).get()
+            },
+            async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
+                return await new ApiRequest().taskRun(taskId, runId).get()
+            },
+            async getLogs(taskId: Task['id'], runId: TaskRun['id'], noCache: boolean = false): Promise<string> {
+                const run = await new ApiRequest().taskRun(taskId, runId).get()
+                if (run.log_url) {
+                    const url = noCache
+                        ? `${run.log_url}${run.log_url.includes('?') ? '&' : '?'}t=${Date.now()}`
+                        : run.log_url // TRICKY: We add a timestamp to bypass the browser cache
+                    const response = await fetch(url, {
+                        cache: 'no-store',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                        },
+                    })
+                    return await response.text()
+                }
+                return ''
+            },
         },
     },
 
@@ -3669,8 +3783,11 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
-        async getResponsesCount(): Promise<{ [key: string]: number }> {
-            return await new ApiRequest().surveysResponsesCount().get()
+        async getResponsesCount(surveyIds?: string): Promise<{ [key: string]: number }> {
+            return await new ApiRequest()
+                .surveysResponsesCount()
+                .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
+                .get()
         },
         async summarize_responses(
             surveyId: Survey['id'],
@@ -4249,6 +4366,17 @@ const api = {
     productIntents: {
         async update(data: ProductIntentProperties): Promise<TeamType> {
             return await new ApiRequest().addProductIntent().update({ data })
+        },
+    },
+    teamSettings: {
+        async asOf(at: string, scope?: string | string[]): Promise<Record<string, any>> {
+            const params: Record<string, any> = { at, ...(scope !== undefined ? { scope } : {}) }
+            return await new ApiRequest()
+                .environments()
+                .current()
+                .withAction('settings_as_of')
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 

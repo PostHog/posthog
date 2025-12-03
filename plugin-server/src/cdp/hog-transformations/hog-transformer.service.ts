@@ -2,13 +2,13 @@ import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import { Hub } from '../../types'
 import { logger } from '../../utils/logger'
-import { CdpRedis, createCdpRedisPool } from '../redis'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
@@ -63,13 +63,13 @@ export class HogTransformerService {
     private pluginExecutor: LegacyPluginExecutorService
     private hogFunctionMonitoringService: HogFunctionMonitoringService
     private hogWatcher: HogWatcherService
-    private redis: CdpRedis
+    private redis: RedisV2
     private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
 
     constructor(hub: Hub) {
         this.hub = hub
-        this.redis = createCdpRedisPool(hub)
+        this.redis = createRedisV2Pool(hub, 'cdp')
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.pluginExecutor = new LegacyPluginExecutorService(hub)

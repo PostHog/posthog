@@ -14,7 +14,7 @@ import datetime
 import datetime as dt
 import dataclasses
 from collections.abc import Callable, Generator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
@@ -26,6 +26,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.db import ProgrammingError
+from django.db.models.functions import Lower
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -438,10 +439,12 @@ def get_context_for_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.file_system.user_product_list import UserProductListSerializer
         from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
+        from posthog.models.file_system.user_product_list import UserProductList
         from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
@@ -452,6 +455,7 @@ def get_context_for_template(
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
+            "custom_products": [],
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
@@ -466,6 +470,7 @@ def get_context_for_template(
             ).data
         elif request.user.pk:
             user = cast("User", request.user)
+
             user_permissions = UserPermissions(user=user, team=user.team)
             user_access_control = UserAccessControl(user=user, team=user.team)
             posthog_app_context["effective_resource_access_control"] = {
@@ -476,6 +481,7 @@ def get_context_for_template(
                 resource: user_access_control.access_level_for_resource(resource)
                 for resource in ACCESS_CONTROL_RESOURCES
             }
+
             user_serialized = UserSerializer(
                 request.user,
                 context={
@@ -487,6 +493,7 @@ def get_context_for_template(
             )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
+
             if user.team:
                 team_serialized = TeamSerializer(
                     user.team,
@@ -498,6 +505,7 @@ def get_context_for_template(
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
+
                 project_serialized = ProjectSerializer(
                     user.team.project,
                     context={"request": request, "user_permissions": user_permissions},
@@ -506,6 +514,14 @@ def get_context_for_template(
                 posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
+
+                user_product_list = UserProductListSerializer(
+                    UserProductList.objects.filter(team=user.team, user=user, enabled=True).order_by(
+                        Lower("product_path")
+                    ),
+                    many=True,
+                )
+                posthog_app_context["custom_products"] = user_product_list.data
 
     # JSON dumps here since there may be objects like Queries
     # that are not serializable by Django's JSON serializer
@@ -670,9 +686,9 @@ def friendly_time(seconds: float):
 
 def get_ip_address(request: HttpRequest) -> str:
     """use requestobject to fetch client machine's IP Address"""
-    x_forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR")
+    x_forwarded_for = request.headers.get("x-forwarded-for")
     if x_forwarded_for:
-        ip = x_forwarded_for.split(",")[0]
+        ip: str | None = x_forwarded_for.split(",")[0]
     else:
         ip = request.META.get("REMOTE_ADDR")  # Real IP address of client Machine
 
@@ -680,12 +696,12 @@ def get_ip_address(request: HttpRequest) -> str:
     if ip and len(ip.split(":")) == 2:
         ip = ip.split(":")[0]
 
-    return ip
+    return ip or ""
 
 
 def get_short_user_agent(request: HttpRequest) -> str:
     """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
-    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    user_agent_str = request.headers.get("user-agent")
     if not user_agent_str:
         return ""
 
@@ -762,10 +778,8 @@ def get_compare_period_dates(
     return new_date_from, new_date_to
 
 
-def generate_cache_key(stringified: str) -> str:
-    # TODO this value might be user controllable, so we should switch from md5
-    # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
-    return "cache_" + hashlib.md5(stringified.encode("utf-8")).hexdigest()
+def generate_cache_key(team_pk: int, stringified: str) -> str:
+    return f"cache_{team_pk}_{hashlib.sha256(stringified.encode('utf-8')).hexdigest()}"
 
 
 def get_celery_heartbeat() -> Union[str, int]:
@@ -1302,6 +1316,16 @@ def _request_has_key_set(key: str, request: Request, allowed_values: Optional[li
         assert isinstance(value, str)
         return value
     return False
+
+
+def str_to_int_set(value: Any) -> set[int]:
+    """Return a set of integers"""
+    if not value:
+        return set[int]([])
+    with suppress(Exception):
+        as_json = json.loads(str(value))
+        return {int(v) for v in as_json}
+    return set[int]([])
 
 
 def str_to_bool(value: Any) -> bool:

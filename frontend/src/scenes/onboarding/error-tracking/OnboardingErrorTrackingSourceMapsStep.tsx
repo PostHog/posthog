@@ -6,6 +6,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 import { OnboardingStepKey } from '~/types'
 
+import { EditKeyModal } from '../../settings/user/PersonalAPIKeys'
 import { OnboardingStep } from '../OnboardingStep'
 import { SourceMapsInstructionsModal } from './OnboardingErrorTrackingSourceMapsModal'
 import { SourceMapOptionCard } from './source-maps/SourceMapOptionCard'
@@ -26,7 +27,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
         <OnboardingStep
             title="Link source maps"
             stepKey={stepKey}
-            continueOverride={!shouldShowContinue ? <></> : undefined}
+            showContinue={shouldShowContinue}
             showSkip={!shouldShowContinue}
         >
             <p>
@@ -126,6 +127,8 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
             )}
 
             {shouldShowSourceMapStatus && <SourceMapStatus />}
+
+            <EditKeyModal zIndex="1162" />
         </OnboardingStep>
     )
 }

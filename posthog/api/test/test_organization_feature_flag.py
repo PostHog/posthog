@@ -152,6 +152,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
 
         flag_response = response.json()["success"][0]
@@ -238,6 +239,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
 
         flag_response = response.json()["success"][0]
@@ -371,6 +373,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "last_modified_by": ANY,
             "last_called_at": None,
             "evaluation_runtime": "all",
+            "bucketing_identifier": "distinct_id",
         }
         flag_response = response.json()["success"][0]
 

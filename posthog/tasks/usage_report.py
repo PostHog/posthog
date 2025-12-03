@@ -937,6 +937,11 @@ def get_teams_with_ai_event_count_in_period(
 
 # AI billing markup: 20% markup on top of cost
 AI_COST_MARKUP_PERCENT = 0.2
+# Region-to-team mapping for where AI events are stored
+CLOUD_REGION_TO_TEAM_ID = {
+    "EU": 1,
+    "US": 2,
+}
 
 
 @timed_log()
@@ -967,14 +972,9 @@ def get_teams_with_ai_credits_used_in_period(
     At time of writing, events in the US have a materialized region but nothing present in EU.
     Using the field from properties to filter events instead.
     """
-    # Depending on the region, events are stored in different teams
-    cloud_region_to_team_id = {
-        "EU": 1,
-        "US": 2,
-    }
     region = get_instance_region()
     assert region is not None, "Region must be set in production infrastructure"
-    team_to_query = cloud_region_to_team_id[region]
+    team_to_query = CLOUD_REGION_TO_TEAM_ID[region]
 
     with tags_context(product=Product.MAX_AI, usage_report="ai_credits", kind="usage_report"):
         results = sync_execute(

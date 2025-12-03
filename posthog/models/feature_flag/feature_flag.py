@@ -89,6 +89,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Specifies where this feature flag should be evaluated",
     )
 
+    BUCKETING_IDENTIFIER_CHOICES = [
+        ("distinct_id", "User ID (default)"),
+        ("device_id", "Device ID"),
+    ]
+    bucketing_identifier = models.CharField(
+        max_length=50,
+        choices=BUCKETING_IDENTIFIER_CHOICES,
+        default="distinct_id",
+        null=True,
+        blank=True,
+        help_text="Identifier used for bucketing users into rollout and variants",
+    )
+
     # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
     # This allows us to include evaluation tags in the cached flag data without
     # modifying the FeatureFlag model schema. The Redis cache stores the serialized
@@ -495,8 +508,11 @@ class FeatureFlagHashKeyOverride(models.Model):
     # A standard id foreign key leads to INNER JOINs every time we want to get the key
     # and we only ever want to get the key.
     feature_flag_key = models.CharField(max_length=400)
-    person = models.ForeignKey("Person", on_delete=models.CASCADE)
-    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # DO_NOTHING: Person/Team deletion handled manually via FeatureFlagHashKeyOverride.objects.filter(...).delete()
+    # in delete_bulky_postgres_data(). Django CASCADE doesn't work across separate databases.
+    # db_constraint=False: No database FK constraint - FeatureFlagHashKeyOverride may live in separate database
+    person = models.ForeignKey("Person", on_delete=models.DO_NOTHING, db_constraint=False)
+    team = models.ForeignKey("Team", on_delete=models.DO_NOTHING, db_constraint=False)
     hash_key = models.CharField(max_length=400)
 
     class Meta:

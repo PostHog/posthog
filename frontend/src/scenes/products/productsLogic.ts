@@ -2,20 +2,28 @@ import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea
 import { router, urlToAction } from 'kea-router'
 
 import { getRelativeNextPath } from 'lib/utils'
-import { ProductIntentContext } from 'lib/utils/product-intents'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { getRecommendedProducts } from 'scenes/onboarding/productRecommendations'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OnboardingStepKey, ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { OnboardingStepKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
 
 export const productsLogic = kea<productsLogicType>([
     path(['scenes', 'products', 'productsLogic']),
     connect(() => ({
-        actions: [teamLogic, ['addProductIntent'], onboardingLogic, ['setOnCompleteOnboardingRedirectUrl']],
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            onboardingLogic,
+            ['setOnCompleteOnboardingRedirectUrl'],
+            eventUsageLogic,
+            ['reportOnboardingStarted'],
+        ],
     })),
     actions(() => ({
         toggleSelectedProduct: (productKey: ProductKey) => ({ productKey }),
@@ -122,6 +130,9 @@ export const productsLogic = kea<productsLogicType>([
                         })
                     }
                 }
+            } else {
+                // User went directly to products page (not via use case selection)
+                actions.reportOnboardingStarted('product_selection')
             }
         },
     })),

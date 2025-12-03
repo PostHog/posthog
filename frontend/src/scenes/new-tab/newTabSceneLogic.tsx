@@ -34,7 +34,7 @@ import {
     iconForType,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -710,7 +710,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const name = splitPath(item.path).pop()
                     return {
                         id: item.path,
-                        name: name || item.path,
+                        name: name ? unescapePath(name) : item.path,
                         category: 'recents',
                         href: item.href || '#',
                         lastViewedAt: item.last_viewed_at ?? null,
@@ -826,7 +826,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'ask-ai',
                     name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: urls.max(undefined, searchTerm),
+                    href: urls.ai(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -840,7 +840,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'open-ai',
                     name: 'Open',
                     category: 'askAI',
-                    href: urls.max(undefined, undefined),
+                    href: urls.ai(undefined, undefined),
                     icon: <IconArrowRight />,
                     record: {
                         type: 'ai',
