@@ -6,6 +6,8 @@ from typing import Literal, get_args
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
 # WARNING: Make sure to keep in sync with the frontend!
+# - frontend/src/lib/scopes.tsx
+# - frontend/src/types.ts (`export type APIScopeObject`)
 APIScopeObject = Literal[
     "action",
     "access_control",
