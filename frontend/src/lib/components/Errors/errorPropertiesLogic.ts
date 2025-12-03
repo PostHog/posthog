@@ -21,7 +21,7 @@ import { dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import type { errorPropertiesLogicType } from './errorPropertiesLogicType'
-import { stackFrameLogic } from './stackFrameLogic'
+import { KeyedStackFrameRecords, stackFrameLogic } from './stackFrameLogic'
 
 export interface ErrorPropertiesLogicProps {
     properties?: ErrorEventProperties
@@ -97,7 +97,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
         uuid: [(_, props) => [props.id], (id: ErrorEventId) => id],
         release: [
             (s) => [s.frames, s.stackFrameRecords],
-            (frames, stackFrameRecords) => {
+            (frames: ErrorTrackingStackFrame[], stackFrameRecords: KeyedStackFrameRecords) => {
                 if (!frames.length || Object.keys(stackFrameRecords).length === 0) {
                     return undefined
                 }
@@ -110,7 +110,7 @@ export const errorPropertiesLogic = kea<errorPropertiesLogicType>([
                 if (uniqueRelatedReleasesIds.length === 1) {
                     return relatedReleases[0]
                 }
-                const kaboomFrame = frames.reverse()[0]
+                const kaboomFrame = frames[frames.length - 1]
                 if (stackFrameRecords[kaboomFrame?.raw_id]?.release) {
                     return stackFrameRecords[kaboomFrame.raw_id].release
                 }
