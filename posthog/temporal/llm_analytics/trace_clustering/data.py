@@ -92,9 +92,11 @@ def fetch_trace_summaries(
         Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes}
     """
 
+    # Use materialized column mat_$ai_trace_id to leverage bloom filter index
+    # for efficient filtering by trace_id
     query = """
         SELECT
-            JSONExtractString(properties, '$ai_trace_id') as trace_id,
+            `mat_$ai_trace_id` as trace_id,
             JSONExtractString(properties, '$ai_summary_title') as title,
             JSONExtractString(properties, '$ai_summary_flow_diagram') as flow_diagram,
             JSONExtractString(properties, '$ai_summary_bullets') as bullets,
@@ -104,7 +106,7 @@ def fetch_trace_summaries(
             AND event = '$ai_trace_summary'
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
-            AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
+            AND `mat_$ai_trace_id` IN %(trace_ids)s
     """
 
     rows, column_types = sync_execute(
