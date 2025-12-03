@@ -1788,6 +1788,11 @@ class MaterializationMode(StrEnum):
     DISABLED = "disabled"
 
 
+class MaterializedColumnsOptimizationMode(StrEnum):
+    DISABLED = "disabled"
+    OPTIMIZED = "optimized"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -4748,6 +4753,7 @@ class HogQLQueryModifiers(BaseModel):
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
     materializationMode: MaterializationMode | None = None
+    materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
