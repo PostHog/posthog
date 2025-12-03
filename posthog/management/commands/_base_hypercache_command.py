@@ -12,7 +12,7 @@ from django.db import connection
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, warm_caches
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats, warm_caches
 
 
 class BaseHyperCacheCommand(BaseCommand):
@@ -317,6 +317,9 @@ class BaseHyperCacheCommand(BaseCommand):
 
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
+            # Update cache metrics after verification completes (even on failure)
+            get_cache_stats(self.get_hypercache_config())
+
             if not settings.TEST:
                 connection.close()
 
@@ -595,8 +598,6 @@ class BaseHyperCacheCommand(BaseCommand):
         Subclasses must implement:
             - get_hypercache_config() -> HyperCacheManagementConfig
         """
-        from posthog.storage.hypercache_manager import get_cache_stats
-
         config = self.get_hypercache_config()
         cache_name = config.cache_display_name
 
@@ -631,8 +632,11 @@ class BaseHyperCacheCommand(BaseCommand):
             actual_batch_size = batch_size
             actual_invalidate_first = invalidate_first
 
-        # Progress callback to write to stdout
+        # Callbacks to write progress to stdout
         last_percent_reported = [0]  # Use list to allow mutation in closure
+
+        def batch_start_callback(batch_num: int, batch_len: int):
+            self.stdout.write(f"  Processing batch {batch_num} ({batch_len:,} teams)…")
 
         def progress_callback(processed: int, total: int, successful: int, failed: int):
             if total == 0:
@@ -656,6 +660,7 @@ class BaseHyperCacheCommand(BaseCommand):
             max_ttl_days=max_ttl_days,
             team_ids=team_ids,
             progress_callback=progress_callback,
+            batch_start_callback=batch_start_callback,
         )
 
         # Display results
@@ -664,6 +669,9 @@ class BaseHyperCacheCommand(BaseCommand):
         # Warn about failures (only for all teams workflow)
         if not team_ids and failed > 0:
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
+
+        # Update cache metrics after warming completes
+        get_cache_stats(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 

@@ -9,6 +9,7 @@ packages:
     - playwright
     - plugin-server
     - products/*
+    - docs/onboarding
     - products/mcp/typescript
     - rust/cyclotron-node
 
