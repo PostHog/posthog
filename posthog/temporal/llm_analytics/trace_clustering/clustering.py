@@ -32,6 +32,9 @@ def perform_kmeans_with_optimal_k(
     """
     n_samples = len(embeddings)
 
+    if n_samples == 0:
+        raise ValueError("Cannot cluster empty embeddings array")
+
     # silhouette_score requires 1 < n_clusters < n_samples, so cap at n_samples - 1
     effective_max_k = min(max_k, n_samples - 1)
 
