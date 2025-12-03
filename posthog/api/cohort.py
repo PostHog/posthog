@@ -1508,7 +1508,7 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
             # )[0]
             distinct_id_subquery = Subquery(
                 PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-                .filter(person_id=OuterRef("person_id"))
+                .filter(team_id=team_id, person_id=OuterRef("person_id"))
                 .values_list("id", flat=True)[:3]
             )
             prefetch_related_objects(

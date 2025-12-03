@@ -388,7 +388,11 @@ export class PersonMergeService {
         //   we're calling aliasDeprecated as we need to refresh the persons info completely first
 
         const mergedProperties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
-        const propertyUpdates = computeEventPropertyUpdates(this.context.event, mergedProperties)
+        const propertyUpdates = computeEventPropertyUpdates(
+            this.context.event,
+            mergedProperties,
+            this.context.updateAllProperties
+        )
 
         // Create a temporary person object to apply property updates to
         const tempPerson: InternalPerson = { ...mergeInto, properties: mergedProperties }

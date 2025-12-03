@@ -8,6 +8,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
@@ -75,8 +76,11 @@ class ConversationSerializer(ConversationMinimalSerializer):
                 {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
             )
             state = state_class.model_validate(snapshot.values)
-            messages = [message.model_dump() for message in state.messages if should_output_assistant_message(message)]
-            return messages, False
+            messages = list(state.messages)
+            artifact_manager = ArtifactManager(team, user)
+            enriched_messages = await artifact_manager.aenrich_messages(messages)
+            return [m.model_dump() for m in enriched_messages if should_output_assistant_message(m)], False
+
         except pydantic.ValidationError as e:
             capture_exception(
                 e,

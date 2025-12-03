@@ -91,6 +91,7 @@
         "@posthog/products-user-interviews": "workspace:*",
         "@posthog/products-web-analytics": "workspace:*",
         "@posthog/products-workflows": "workspace:*",
+        "@posthog/docs-onboarding": "workspace:*",
         "@posthog/rrweb": "0.0.26",
         "@posthog/rrweb-plugin-console-record": "0.0.26",
         "@posthog/rrweb-types": "0.0.26",
