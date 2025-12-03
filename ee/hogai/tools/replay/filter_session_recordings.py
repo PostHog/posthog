@@ -28,8 +28,6 @@ class FilterSessionRecordingsToolArgs(BaseModel):
         description=dedent(f"""
         User's question converted into a recordings query.
 
-        **CRITICAL: You MUST use the read_taxonomy tool to discover and clarify ALL properties and events before creating filters.**
-
         {PRODUCT_DESCRIPTION_PROMPT}
 
         {SESSION_REPLAY_EXAMPLES_PROMPT}
@@ -137,17 +135,18 @@ class FilterSessionRecordingsTool(MaxTool):
     name: Literal["filter_session_recordings"] = "filter_session_recordings"
     args_schema: type[BaseModel] = FilterSessionRecordingsToolArgs
     description: str = dedent("""
-        Filters session recordings by creating a recordings query, and then running it to list the recordings. The list is AUTOMATICALLY shown to the user as a widget.
-        - When to use the tool:
-        * When the user asks to update session recordings filters
-            - "update" synonyms: "change", "modify", "adjust", and similar
-            - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
-        * When the user asks to search for session recordings
-            - "search for" synonyms: "find", "look up", and similar
-        * When the user asks to summarize session recordings
+        Use this tool to retrieve a list of filtered session recordings by creating a recordings query. The list is shown to the user as a widget.
+        # When to use the tool:
+        - The user asks to update session recordings filters
+          - "update" synonyms: "change", "modify", "adjust", and similar
+          - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+        - The user asks to search for session recordings
+          - "search for" synonyms: "find", "look up", and similar
+        - The user asks to summarize session recordings
 
         When on the replay page, the tool will update the filters in the page.
         """).strip()
+    context_prompt_template: str = "Current recordings filters are: {{{current_filters}}}.\nCurrent session ID being viewed: {{{current_session_id}}}."
 
     async def _arun_impl(
         self, recordings_filters: MaxRecordingUniversalFilters
