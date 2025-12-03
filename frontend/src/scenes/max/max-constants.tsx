@@ -1,9 +1,9 @@
 import {
     IconAtSign,
     IconBook,
+    IconBrain,
     IconCreditCard,
     IconDocument,
-    IconMagicWand,
     IconMemory,
     IconSearch,
     IconShuffle,
@@ -552,7 +552,7 @@ export const SPECIAL_MODES = {
         name: 'Deep research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
-        icon: <IconMagicWand />,
+        icon: <IconBrain />,
     },
 }
 
