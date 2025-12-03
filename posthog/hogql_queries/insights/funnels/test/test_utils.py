@@ -17,6 +17,7 @@ class TestUtils(SimpleTestCase):
             0 as step_1
         """
         query = parse_select(sql)
+        assert isinstance(query, ast.SelectQuery)
 
         result = alias_columns_in_select(query.select, table_alias="my_table")
         result = [clone_expr(r, clear_locations=True) for r in result]  # remove locations from ast for easier asserts

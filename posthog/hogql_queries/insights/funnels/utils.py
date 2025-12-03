@@ -169,7 +169,7 @@ def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[a
             column_name = col.chain[-1]
             if not isinstance(column_name, str):
                 raise ValueError(f"Cannot alias field with chain {col.chain!r}")
-            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, col.alias])))
+            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, column_name])))
         else:
             raise ValueError(f"Unexpected select expression {col!r}")
     return result
