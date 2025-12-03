@@ -73,6 +73,20 @@ export function useChart<TType extends ChartType = ChartType>({
         chartRef.current = new Chart(ctx, config) as Chart<TType>
 
         return () => {
+            // Two different charts can exist:
+            // 1. orphanedChart: A chart Chart.js tracks on this canvas that we DON'T have in our ref.
+            //    This happens in React StrictMode (double-mount), HMR, or if chart creation succeeded
+            //    but assignment to chartRef failed. Chart.js tracks charts by canvas element internally.
+            // 2. chartRef.current: The chart we explicitly created and track in our ref.
+            //
+            // Usually these are the same instance. But in edge cases they differ, and we must
+            // destroy both to prevent memory leaks. The identity check avoids double-destroying.
+            if (canvasRef.current) {
+                const orphanedChart = Chart.getChart(canvasRef.current)
+                if (orphanedChart && orphanedChart !== chartRef.current) {
+                    orphanedChart.destroy()
+                }
+            }
             chartRef.current?.destroy()
             chartRef.current = null
         }
