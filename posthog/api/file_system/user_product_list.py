@@ -83,3 +83,17 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         status_code = status.HTTP_201_CREATED if created else status.HTTP_200_OK
         return Response(serializer.data, status=status_code)
+
+    @action(methods=["POST"], detail=False, url_path="sync_from_colleagues")
+    def sync_from_colleagues(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Sync products from colleagues to fill the user's product list for this team.
+        """
+        user = cast(User, request.user)
+        team = self.team
+
+        # Sync from colleagues
+        created_items = UserProductList.sync_from_team_colleagues(user, team, count=5)
+
+        serializer = self.get_serializer(created_items, many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

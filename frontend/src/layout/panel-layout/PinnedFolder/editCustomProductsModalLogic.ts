@@ -25,13 +25,14 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         ],
         actions: [
             customProductsLogic,
-            ['loadCustomProducts', 'loadCustomProductsSuccess'],
+            ['loadCustomProducts', 'loadCustomProductsSuccess', 'syncFromColleagues'],
             userLogic,
             ['updateUser', 'loadUserSuccess'],
         ],
     })),
     actions({
         toggleProduct: (productPath: string) => ({ productPath }),
+        toggleCategory: (category: string) => ({ category }),
         setAllowSidebarSuggestions: (value: boolean) => ({ value }),
         setSelectedPaths: (paths: Set<string>) => ({ paths }),
         setProductLoading: (productPath: string, loading: boolean) => ({ productPath, loading }),
@@ -125,6 +126,9 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         loadCustomProductsSuccess: ({ customProducts }) => {
             actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
         },
+        syncFromColleaguesSuccess: ({ customProducts }) => {
+            actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
+        },
         loadUserSuccess: ({ user }) => {
             if (user) {
                 actions.setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
@@ -148,6 +152,40 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             } finally {
                 actions.loadCustomProducts()
                 actions.setProductLoading(productPath, false)
+            }
+        },
+        toggleCategory: async ({ category }) => {
+            const products = values.productsByCategory.get(category) || []
+            const productPaths = products.map((p) => p.path)
+            const allSelected = productPaths.every((path) => values.selectedPaths.has(path))
+            const newEnabledState = !allSelected
+
+            const newSelectedPaths = new Set(values.selectedPaths)
+            if (allSelected) {
+                productPaths.forEach((path) => newSelectedPaths.delete(path))
+            } else {
+                productPaths.forEach((path) => newSelectedPaths.add(path))
+            }
+            actions.setSelectedPaths(newSelectedPaths)
+
+            const updatePromises = productPaths.map(async (productPath) => {
+                try {
+                    actions.setProductLoading(productPath, true)
+                    await api.userProductList.updateByPath({ product_path: productPath, enabled: newEnabledState })
+                } catch (error) {
+                    console.error(`Failed to toggle product ${productPath}:`, error)
+                    throw error
+                } finally {
+                    actions.setProductLoading(productPath, false)
+                }
+            })
+
+            try {
+                await Promise.all(updatePromises)
+            } catch {
+                lemonToast.error('Failed to toggle category. Try again?')
+            } finally {
+                actions.loadCustomProducts()
             }
         },
         toggleSidebarSuggestions: () => {

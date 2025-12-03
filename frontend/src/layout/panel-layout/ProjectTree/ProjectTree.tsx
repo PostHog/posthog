@@ -28,6 +28,7 @@ import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
@@ -122,6 +123,9 @@ export function ProjectTree({
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
 
+    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
+    const { syncFromColleagues } = useActions(customProductsLogic)
+
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
         false
@@ -162,32 +166,45 @@ export function ProjectTree({
             })
         }
 
-        if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
-            treeData.push({
-                id: 'products/custom-products-helper-category',
-                name: 'Example custom products',
-                type: 'category',
-                displayName: (
-                    <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                            'mt-6': fullFileSystemFiltered.length === 0,
-                        })}
-                    >
-                        You can display your preferred apps here. You can configure what items show up in here by
-                        clicking on the{' '}
-                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                        above. We'll automatically suggest new apps to this list as you use them.{' '}
-                        {fullFileSystemFiltered.length > 0 && (
-                            <span
-                                className="cursor-pointer underline"
-                                onClick={() => setCustomProductHelperDismissed(true)}
-                            >
-                                Dismiss.
-                            </span>
-                        )}
-                    </div>
-                ),
-            })
+        if (root === 'custom-products://') {
+            const hasColleagueProducts = customProducts.some(
+                (item) => item.reason === UserProductListReason.USED_BY_COLLEAGUES
+            )
+
+            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+                treeData.push({
+                    id: 'products/custom-products-helper-category',
+                    name: 'Example custom products',
+                    type: 'category',
+                    displayName: (
+                        <div
+                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                                'mt-6': fullFileSystemFiltered.length === 0,
+                            })}
+                        >
+                            You can display your preferred apps here. You can configure what items show up in here by
+                            clicking on the{' '}
+                            <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            above. We'll automatically suggest new apps to this list as you use them.{' '}
+                            {fullFileSystemFiltered.length > 0 && (
+                                <span
+                                    className="cursor-pointer underline"
+                                    onClick={() => setCustomProductHelperDismissed(true)}
+                                >
+                                    Dismiss.
+                                </span>
+                            )}
+                            <br />
+                            <br />
+                            {!hasColleagueProducts && fullFileSystemFiltered.length <= 3 && (
+                                <span className="cursor-pointer underline" onClick={syncFromColleagues}>
+                                    {customProductsLoading ? 'Syncing...' : 'Sync products from your colleagues?'}
+                                </span>
+                            )}
+                        </div>
+                    ),
+                })
+            }
         }
     }
 
