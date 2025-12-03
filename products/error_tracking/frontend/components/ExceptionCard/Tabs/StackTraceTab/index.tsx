@@ -11,7 +11,7 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { useCallbackOnce } from 'products/error_tracking/frontend/hooks/use-callback-once'
 
 import { ExceptionAttributesPreview } from '../../../ExceptionAttributesPreview'
-import { ReleasePreviewPill } from '../../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
+import { ReleasePreviewPill } from '../../../ReleasesPreview/ReleasePreviewPill'
 import { exceptionCardLogic } from '../../exceptionCardLogic'
 import { SubHeader } from './../SubHeader'
 
