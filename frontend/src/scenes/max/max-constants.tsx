@@ -461,7 +461,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
             const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
-            const modeText = modeName ? ` to the ${modeName} mode` : 'mode'
+            const modeText = (modeName ? ` to the ${modeName} mode` : 'mode').toLowerCase()
 
             if (toolCall.status === 'completed') {
                 return `Switched agent ${modeText}`

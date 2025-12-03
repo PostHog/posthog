@@ -191,6 +191,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         activateCommand: (command: SlashCommand) => ({ command }),
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
+        syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
@@ -260,7 +261,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             null as AgentMode | null,
             {
                 setAgentMode: (_, { agentMode }) => agentMode,
-                setConversation: (_, { conversation }) => (conversation?.agent_mode as AgentMode) ?? null,
+                syncAgentModeFromConversation: (_, { agentMode }) => agentMode,
+            },
+        ],
+
+        // Tracks if user manually selected agent mode after submission - if true, don't sync from conversation
+        agentModeLockedByUser: [
+            false,
+            {
+                setAgentMode: () => true,
+                askMax: () => false,
             },
         ],
 
@@ -393,7 +403,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                             conversation: streamData.conversation,
                             contextual_tools: streamData.contextual_tools,
                             ui_context: streamData.ui_context,
-                            agent_mode: streamData.agent_mode,
+                            agent_mode: agentMode,
                         },
                         generationAttempt + 1
                     )
@@ -488,6 +498,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
+        setConversation: ({ conversation }) => {
+            // Sync agentMode from conversation only if user hasn't manually selected a mode after submission
+            if (!values.agentModeLockedByUser && conversation?.agent_mode) {
+                actions.syncAgentModeFromConversation(conversation.agent_mode as AgentMode)
+            }
+        },
         askMax: async ({ prompt }) => {
             if (!values.dataProcessingAccepted) {
                 return // Skip - this will be re-fired by the `onApprove` on `AIConsentPopoverWrapper`
@@ -844,7 +860,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.AGENT_MODES] && !values.conversation) {
                 const suggestedMode = getAgentModeForScene(sceneId)
                 if (suggestedMode !== values.agentMode) {
-                    actions.setAgentMode(suggestedMode)
+                    // Use sync action to not lock - allows conversation to still update mode if agent changes it
+                    actions.syncAgentModeFromConversation(suggestedMode)
                 }
             }
         },
