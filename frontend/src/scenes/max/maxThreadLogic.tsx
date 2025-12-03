@@ -365,7 +365,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 const parser = createParser({
                     onEvent: async ({ data, event }) => {
                         pendingEventHandlers.push(
-                            onEventImplementation(event as string, data, { actions, values, props })
+                            onEventImplementation(event as string, data, { actions, values, props, agentMode })
                         )
                     },
                 })
@@ -931,7 +931,14 @@ function enhanceThreadToolCalls(
 async function onEventImplementation(
     event: string,
     data: string,
-    { actions, values, props }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'>
+    {
+        actions,
+        values,
+        props,
+        agentMode,
+    }: Pick<BuiltLogic<maxThreadLogicType>, 'actions' | 'values' | 'props'> & {
+        agentMode: AgentMode | null
+    }
 ): Promise<void> {
     // A Conversation object is only received when the conversation is new
     if (event === AssistantEventType.Conversation) {
@@ -942,6 +949,7 @@ async function onEventImplementation(
         const conversationWithTitle = {
             ...parsedResponse,
             title: parsedResponse.title || 'New chat',
+            agent_mode: agentMode,
         }
 
         actions.setConversation(conversationWithTitle)
