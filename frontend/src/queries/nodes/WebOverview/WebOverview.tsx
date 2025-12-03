@@ -2,7 +2,9 @@ import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/reverseProxyCheckerLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 
@@ -22,6 +24,7 @@ export function WebOverview(props: {
     uniqueKey?: string | number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
+    const { featureFlags } = useValues(featureFlagLogic)
     const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
     const key = props.uniqueKey ? String(props.uniqueKey) : _key
     const logic = dataNodeLogic({
@@ -50,6 +53,8 @@ export function WebOverview(props: {
         'usedPreAggregatedTables' in response &&
         response.usedPreAggregatedTables
 
+    const showWarning = hasReverseProxy === false && !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]
+
     // Convert WebOverviewItem to OverviewItem
     const overviewItems: OverviewItem[] =
         webOverviewQueryResponse?.results?.map((item) => ({
@@ -59,11 +64,10 @@ export function WebOverview(props: {
             changeFromPreviousPct: item.changeFromPreviousPct,
             kind: item.kind,
             isIncreaseBad: item.isIncreaseBad,
-            warning:
-                hasReverseProxy === false
-                    ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
-                    : undefined,
-            warningLink: hasReverseProxy === false ? 'https://posthog.com/docs/advanced/proxy' : undefined,
+            warning: showWarning
+                ? `${capitalizeFirstLetter(item.key)} counts may be underreported. Set up a reverse proxy so that events are less likely to be intercepted by tracking blockers.`
+                : undefined,
+            warningLink: showWarning ? 'https://posthog.com/docs/advanced/proxy' : undefined,
         })) || []
 
     return (
