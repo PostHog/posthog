@@ -222,7 +222,7 @@ def delete_custom_hostname(hostname_id: str) -> bool:
         hostname_id: The Cloudflare Custom Hostname ID
 
     Returns:
-        True if deleted successfully, False if not found
+        True if deleted successfully or already gone (404)
 
     Raises:
         CloudflareAPIError: If the API request fails (except for 404)
@@ -232,7 +232,8 @@ def delete_custom_hostname(hostname_id: str) -> bool:
     response = requests.delete(url, headers=_get_headers(), timeout=30)
 
     if response.status_code == 404:
-        return False
+        # Resource already gone, treat as success (idempotent delete)
+        return True
 
     _handle_response(response)
     return True
@@ -313,7 +314,7 @@ def delete_worker_route(route_id: str) -> bool:
         route_id: The Cloudflare Worker Route ID
 
     Returns:
-        True if deleted successfully, False if not found
+        True if deleted successfully or already gone (404)
 
     Raises:
         CloudflareAPIError: If the API request fails (except for 404)
@@ -323,7 +324,8 @@ def delete_worker_route(route_id: str) -> bool:
     response = requests.delete(url, headers=_get_headers(), timeout=30)
 
     if response.status_code == 404:
-        return False
+        # Resource already gone, treat as success (idempotent delete)
+        return True
 
     _handle_response(response)
     return True
