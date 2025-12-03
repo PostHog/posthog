@@ -322,9 +322,10 @@ jobs:
     # Collate job to require a single passing status for branch protection.
     # After merging, update the repository ruleset (Settings > Rules > Rulesets):
     #   1. Add "Rust Tests Pass" to required status checks
-    #   2. Remove these individual checks:
+    #   2. Remove these 34 individual checks:
     #      - "Build Rust services"
     #      - "Lint Rust services"
+    #      - "Shear Rust services"
     #      - "Test Rust services (*)" (all 31 matrix jobs)
     #   3. Then apply the TODO comments above to skip jobs entirely when no Rust changes
     rust_tests:
@@ -335,27 +336,34 @@ jobs:
         steps:
             - name: Check all Rust jobs
               run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no Rust changes detected (jobs were skipped)
                   if [[ "${{ needs.changes.outputs.rust }}" != "true" ]]; then
                     echo "Rust checks were skipped (no relevant changes)"
                     exit 0
                   fi
 
-                  if [[ "${{ needs.build.result }}" != "success" ]]; then
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Rust build failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.test.result }}" != "success" ]]; then
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
                     echo "Rust tests failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.linting.result }}" != "success" ]]; then
+                  if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
                     echo "Rust linting failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.shear.result }}" != "success" ]]; then
+                  if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
                     echo "Rust shear failed."
                     exit 1
                   fi
