@@ -267,10 +267,15 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 return 'condition'
                             case 'random_cohort_branch':
                                 return `cohort #${(edge.index || 0) + 1}`
-                            case 'conditional_branch':
-                                const conditionName = (edgeSourceAction as any)?.config?.conditions?.[edge.index || 0]
-                                    ?.name
+                            case 'conditional_branch': {
+                                const conditionalBranchAction = edgeSourceAction as Extract<
+                                    HogFlowAction,
+                                    { type: 'conditional_branch' }
+                                >
+                                const conditionName =
+                                    conditionalBranchAction?.config?.conditions?.[edge.index || 0]?.name
                                 return conditionName || `condition #${(edge.index || 0) + 1}`
+                            }
                             default:
                                 return `condition #${(edge.index || 0) + 1}`
                         }
@@ -297,9 +302,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? undefined
                                 : edge.type === 'continue'
                                   ? `No match`
-                                  : edgeSourceAction?.type === 'conditional_branch' &&
-                                      (edgeSourceAction as any)?.config?.conditions?.[edge.index || 0]?.name
-                                    ? (edgeSourceAction as any).config.conditions[edge.index || 0].name
+                                  : edgeSourceAction?.type === 'conditional_branch'
+                                    ? (() => {
+                                          const conditionalBranchAction = edgeSourceAction as Extract<
+                                              HogFlowAction,
+                                              { type: 'conditional_branch' }
+                                          >
+                                          const customName =
+                                              conditionalBranchAction?.config?.conditions?.[edge.index || 0]?.name
+                                          return customName || `If ${branchResourceName()} matches`
+                                      })()
                                     : `If ${branchResourceName()} matches`,
                         },
                         labelShowBg: false,

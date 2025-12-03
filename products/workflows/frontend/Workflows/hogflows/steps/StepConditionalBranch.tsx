@@ -35,13 +35,10 @@ export function StepConditionalBranchConfiguration({
         setLocalConditionNames(conditions.map((c) => c.name))
     }, [conditions.length]) // Only update when number of conditions changes
 
-    // Debounced function to update the actual conditions
-    const debouncedSetConditions = useDebouncedCallback(
-        (index: number, value: string | undefined) => {
-            setConditions(conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
-        },
-        300 // Wait 300ms after user stops typing
-    )
+    // Debounced function to update condition names
+    const debouncedUpdateConditionName = useDebouncedCallback((index: number, value: string | undefined) => {
+        setConditions(conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
+    }, 300)
 
     const nodeEdges = edgesByActionId[action.id]
 
@@ -124,8 +121,8 @@ export function StepConditionalBranchConfiguration({
                             newNames[index] = value
                             setLocalConditionNames(newNames)
 
-                            // Also update the actual conditions after a delay
-                            debouncedSetConditions(index, value)
+                            // Debounced update to persist the name
+                            debouncedUpdateConditionName(index, value)
                         }}
                         placeholder={`If condition #${index + 1} matches`}
                         size="small"
