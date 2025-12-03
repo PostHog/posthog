@@ -216,7 +216,7 @@ describe.each([
                                 app_source_id: fnFetchNoFilters.id,
                                 count: 1,
                                 metric_kind: 'billing',
-                                metric_name: 'cre_invocation',
+                                metric_name: 'billable_invocation',
                                 team_id: 2,
                                 timestamp: expect.any(String),
                             },
