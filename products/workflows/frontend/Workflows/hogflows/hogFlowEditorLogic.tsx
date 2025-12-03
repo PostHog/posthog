@@ -263,10 +263,21 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
                     const branchResourceName = () => {
                         switch (edgeSourceAction?.type) {
-                            case 'wait_until_condition':
-                                return 'condition'
-                            case 'random_cohort_branch':
-                                return `cohort #${(edge.index || 0) + 1}`
+                            case 'wait_until_condition': {
+                                const waitAction = edgeSourceAction as Extract<
+                                    HogFlowAction,
+                                    { type: 'wait_until_condition' }
+                                >
+                                return waitAction?.config?.condition?.name || 'condition'
+                            }
+                            case 'random_cohort_branch': {
+                                const cohortAction = edgeSourceAction as Extract<
+                                    HogFlowAction,
+                                    { type: 'random_cohort_branch' }
+                                >
+                                const cohortName = cohortAction?.config?.cohorts?.[edge.index || 0]?.name
+                                return cohortName || `cohort #${(edge.index || 0) + 1}`
+                            }
                             case 'conditional_branch': {
                                 const conditionalBranchAction = edgeSourceAction as Extract<
                                     HogFlowAction,
@@ -302,17 +313,39 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? undefined
                                 : edge.type === 'continue'
                                   ? `No match`
-                                  : edgeSourceAction?.type === 'conditional_branch'
-                                    ? (() => {
-                                          const conditionalBranchAction = edgeSourceAction as Extract<
-                                              HogFlowAction,
-                                              { type: 'conditional_branch' }
-                                          >
-                                          const customName =
-                                              conditionalBranchAction?.config?.conditions?.[edge.index || 0]?.name
-                                          return customName || `If ${branchResourceName()} matches`
-                                      })()
-                                    : `If ${branchResourceName()} matches`,
+                                  : (() => {
+                                        // Check for custom names across all branch types
+                                        if (edgeSourceAction?.type === 'conditional_branch') {
+                                            const action = edgeSourceAction as Extract<
+                                                HogFlowAction,
+                                                { type: 'conditional_branch' }
+                                            >
+                                            const customName = action?.config?.conditions?.[edge.index || 0]?.name
+                                            if (customName) {
+                                                return customName
+                                            }
+                                        } else if (edgeSourceAction?.type === 'random_cohort_branch') {
+                                            const action = edgeSourceAction as Extract<
+                                                HogFlowAction,
+                                                { type: 'random_cohort_branch' }
+                                            >
+                                            const customName = action?.config?.cohorts?.[edge.index || 0]?.name
+                                            if (customName) {
+                                                return customName
+                                            }
+                                        } else if (edgeSourceAction?.type === 'wait_until_condition') {
+                                            const action = edgeSourceAction as Extract<
+                                                HogFlowAction,
+                                                { type: 'wait_until_condition' }
+                                            >
+                                            const customName = action?.config?.condition?.name
+                                            if (customName) {
+                                                return customName
+                                            }
+                                        }
+                                        // Default to generated label
+                                        return `If ${branchResourceName()} matches`
+                                    })(),
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,

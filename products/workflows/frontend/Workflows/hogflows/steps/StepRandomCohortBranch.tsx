@@ -1,10 +1,12 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
@@ -21,6 +23,19 @@ export function StepRandomCohortBranchConfiguration({
 
     const { edgesByActionId } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+
+    // Local state for cohort names to avoid input lag
+    const [localCohortNames, setLocalCohortNames] = useState<(string | undefined)[]>(cohorts.map((c) => c.name))
+
+    // Update local state when cohorts change from external sources
+    useEffect(() => {
+        setLocalCohortNames(cohorts.map((c) => c.name))
+    }, [cohorts.length]) // Only update when number of cohorts changes
+
+    // Debounced function to update cohort names
+    const debouncedUpdateCohortName = useDebouncedCallback((index: number, value: string | undefined) => {
+        setCohorts(cohorts.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
+    }, 300)
 
     const nodeEdges = edgesByActionId[action.id]
 
@@ -74,7 +89,7 @@ export function StepRandomCohortBranchConfiguration({
     }
 
     const updateCohortPercentage = (index: number, percentage: number): void => {
-        setCohorts(cohorts.map((cohort, i) => (i === index ? { percentage } : cohort)))
+        setCohorts(cohorts.map((cohort, i) => (i === index ? { ...cohort, percentage } : cohort)))
     }
 
     const normalizePercentages = (): void => {
@@ -84,9 +99,9 @@ export function StepRandomCohortBranchConfiguration({
         }
         const base = Math.floor(100 / count)
         const remainder = 100 - base * count
-        const normalized = cohorts.map((_, i) => {
+        const normalized = cohorts.map((cohort, i) => {
             // Distribute remainder to the first cohorts
-            return { percentage: base + (i < remainder ? 1 : 0) }
+            return { ...cohort, percentage: base + (i < remainder ? 1 : 0) }
         })
         setCohorts(normalized)
     }
@@ -103,6 +118,21 @@ export function StepRandomCohortBranchConfiguration({
                         <LemonLabel>Cohort {index + 1}</LemonLabel>
                         <LemonButton size="xsmall" icon={<IconX />} onClick={() => removeCohort(index)} />
                     </div>
+
+                    <LemonInput
+                        value={localCohortNames[index] || ''}
+                        onChange={(value) => {
+                            // Update local state immediately for responsive typing
+                            const newNames = [...localCohortNames]
+                            newNames[index] = value
+                            setLocalCohortNames(newNames)
+
+                            // Debounced update to persist the name
+                            debouncedUpdateCohortName(index, value)
+                        }}
+                        placeholder={`Cohort #${index + 1}`}
+                        size="small"
+                    />
 
                     <div className="flex items-center gap-2">
                         <input

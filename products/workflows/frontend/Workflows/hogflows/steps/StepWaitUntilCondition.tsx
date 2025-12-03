@@ -1,7 +1,11 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
+import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonLabel } from '@posthog/lemon-ui'
+
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
@@ -19,6 +23,19 @@ export function StepWaitUntilConditionConfiguration({
 
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
 
+    // Local state for condition name to avoid input lag
+    const [localConditionName, setLocalConditionName] = useState<string | undefined>(condition.name)
+
+    // Update local state when condition changes from external sources
+    useEffect(() => {
+        setLocalConditionName(condition.name)
+    }, [condition.name])
+
+    // Debounced function to update condition name
+    const debouncedUpdateConditionName = useDebouncedCallback((value: string | undefined) => {
+        partialSetWorkflowActionConfig(action.id, { condition: { ...condition, name: value || undefined } })
+    }, 300)
+
     return (
         <>
             <StepSchemaErrors />
@@ -35,10 +52,24 @@ export function StepWaitUntilConditionConfiguration({
 
             <div>
                 <LemonLabel>Conditions to wait for</LemonLabel>
+                <LemonInput
+                    value={localConditionName || ''}
+                    onChange={(value) => {
+                        // Update local state immediately for responsive typing
+                        setLocalConditionName(value)
+
+                        // Debounced update to persist the name
+                        debouncedUpdateConditionName(value)
+                    }}
+                    placeholder="If condition matches"
+                    size="small"
+                />
                 <HogFlowPropertyFilters
                     actionId={action.id}
                     filters={condition.filters ?? {}}
-                    setFilters={(filters) => partialSetWorkflowActionConfig(action.id, { condition: { filters } })}
+                    setFilters={(filters) =>
+                        partialSetWorkflowActionConfig(action.id, { condition: { ...condition, filters } })
+                    }
                     typeKey="workflow-wait-until-condition"
                 />
             </div>

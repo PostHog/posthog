@@ -165,7 +165,60 @@ describe('hogFlowEditorLogic', () => {
             expect(branchEdge1?.data?.label).toBe('New condition 2')
         })
 
-        it('should handle wait_until_condition edge labels correctly', () => {
+        it('should use custom names for wait_until_condition when provided', () => {
+            const mockFlow: HogFlow = {
+                ...createMockHogFlow(),
+                actions: [
+                    {
+                        id: 'trigger',
+                        name: 'Trigger',
+                        description: '',
+                        type: 'trigger',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: {
+                            type: 'event',
+                            filters: {},
+                        },
+                    },
+                    {
+                        id: 'wait',
+                        name: 'Wait Until',
+                        description: '',
+                        type: 'wait_until_condition',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: {
+                            condition: { filters: {}, name: 'User completes onboarding' },
+                            max_wait_duration: '1h',
+                        },
+                    },
+                    {
+                        id: 'exit',
+                        name: 'Exit',
+                        description: '',
+                        type: 'exit',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: { reason: '' },
+                    },
+                ],
+                edges: [
+                    { from: 'trigger', to: 'wait', type: 'continue' },
+                    { from: 'wait', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'wait', to: 'exit', type: 'continue' },
+                ],
+            }
+
+            logic.actions.resetFlowFromHogFlow(mockFlow)
+
+            const edges = logic.values.edges
+            const branchEdge = edges.find((e) => e.source === 'wait' && e.sourceHandle?.includes('branch_wait_0'))
+
+            expect(branchEdge?.data?.label).toBe('User completes onboarding')
+        })
+
+        it('should handle wait_until_condition edge labels without custom names', () => {
             const mockFlow: HogFlow = {
                 ...createMockHogFlow(),
                 actions: [
@@ -218,7 +271,64 @@ describe('hogFlowEditorLogic', () => {
             expect(branchEdge?.data?.label).toBe('If condition matches')
         })
 
-        it('should handle random_cohort_branch edge labels correctly', () => {
+        it('should use custom names for random_cohort_branch when provided', () => {
+            const mockFlow: HogFlow = {
+                ...createMockHogFlow(),
+                actions: [
+                    {
+                        id: 'trigger',
+                        name: 'Trigger',
+                        description: '',
+                        type: 'trigger',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: {
+                            type: 'event',
+                            filters: {},
+                        },
+                    },
+                    {
+                        id: 'cohort',
+                        name: 'Random Cohort',
+                        description: '',
+                        type: 'random_cohort_branch',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: {
+                            cohorts: [
+                                { percentage: 50, name: 'Control group' },
+                                { percentage: 50, name: 'Test group' },
+                            ],
+                        },
+                    },
+                    {
+                        id: 'exit',
+                        name: 'Exit',
+                        description: '',
+                        type: 'exit',
+                        created_at: Date.now(),
+                        updated_at: Date.now(),
+                        config: { reason: '' },
+                    },
+                ],
+                edges: [
+                    { from: 'trigger', to: 'cohort', type: 'continue' },
+                    { from: 'cohort', to: 'exit', type: 'branch', index: 0 },
+                    { from: 'cohort', to: 'exit', type: 'branch', index: 1 },
+                ],
+            }
+
+            logic.actions.resetFlowFromHogFlow(mockFlow)
+
+            const edges = logic.values.edges
+            const branchEdge0 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_0'))
+            const branchEdge1 = edges.find((e) => e.source === 'cohort' && e.sourceHandle?.includes('branch_cohort_1'))
+
+            expect(branchEdge0?.data?.label).toBe('Control group')
+            expect(branchEdge1?.data?.label).toBe('Test group')
+        })
+
+        it('should handle random_cohort_branch edge labels without custom names', () => {
             const mockFlow: HogFlow = {
                 ...createMockHogFlow(),
                 actions: [
