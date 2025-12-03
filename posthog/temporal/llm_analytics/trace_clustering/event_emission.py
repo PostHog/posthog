@@ -6,7 +6,6 @@ This module contains functions for emitting clustering results to ClickHouse:
 """
 
 import uuid
-import logging
 import dataclasses
 from typing import TypedDict
 
@@ -21,9 +20,6 @@ from posthog.temporal.llm_analytics.trace_clustering.models import ClusterData, 
 class _TraceDistanceData(TypedDict):
     trace_id: str
     distance_to_centroid: float
-
-
-logger = logging.getLogger(__name__)
 
 
 def emit_cluster_events(

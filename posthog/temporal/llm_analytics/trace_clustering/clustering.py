@@ -1,14 +1,10 @@
 """Clustering utilities: k-means implementation and optimal k selection."""
 
-import logging
-
 import numpy as np
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, KMeansResult
-
-logger = logging.getLogger(__name__)
 
 
 def perform_kmeans_with_optimal_k(

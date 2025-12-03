@@ -5,13 +5,13 @@ using LLM to create titles and descriptions based on representative traces.
 """
 
 import os
-import logging
 from datetime import datetime
 
 from django.conf import settings
 
 import numpy as np
 import openai
+import structlog
 from pydantic import BaseModel
 
 from posthog.cloud_utils import is_cloud
@@ -20,7 +20,7 @@ from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_sum
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, ClusterRepresentatives
 from posthog.utils import get_instance_region
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class ClusterLabelModel(BaseModel):
@@ -208,8 +208,8 @@ def _call_llm_for_labels(
 
         return labels_dict
 
-    except Exception as e:
-        logger.exception(f"Failed to generate cluster labels: {e}")
+    except Exception:
+        logger.exception("failed_to_generate_cluster_labels")
         # Return fallback labels
         return {
             cluster_id: ClusterLabel(

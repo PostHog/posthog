@@ -136,46 +136,6 @@ class TestClusteringUtils:
             perform_kmeans_with_optimal_k(embeddings, min_k=5, max_k=10)
 
 
-class TestDetermineOptimalKActivity:
-    """Tests for determine_optimal_k_activity."""
-
-    @pytest.mark.asyncio
-    async def test_determine_optimal_k_success(self, sample_embeddings, mock_team):
-        """Test optimal k determination."""
-        # Note: This test would need actual ClickHouse data
-        # For now, we skip integration tests that require database access
-        pytest.skip("Skipping integration test - requires ClickHouse data")
-
-    @pytest.mark.asyncio
-    async def test_determine_optimal_k_insufficient_data(self):
-        """Test with insufficient data."""
-        # Note: This test would need actual ClickHouse data
-        # For now, we skip integration tests that require database access
-        pytest.skip("Skipping integration test - requires ClickHouse data")
-
-
-class TestPerformClusteringActivity:
-    """Tests for perform_clustering_activity."""
-
-    @pytest.mark.asyncio
-    async def test_clustering_success(self, sample_embeddings, mock_team):
-        """Test clustering execution."""
-        # Note: This test would need actual ClickHouse data
-        # For now, we skip integration tests that require database access
-        pytest.skip("Skipping integration test - requires ClickHouse data")
-
-
-class TestEmitClusterEventsActivity:
-    """Tests for emit_cluster_events_activity."""
-
-    @pytest.mark.asyncio
-    async def test_emit_events_success(self, sample_embeddings, mock_team):
-        """Test event emission (placeholder)."""
-        # Note: This test would need actual ClickHouse data
-        # For now, we skip integration tests that require database access
-        pytest.skip("Skipping integration test - requires ClickHouse data")
-
-
 class TestWorkflowInputs:
     """Tests for workflow input models."""
 

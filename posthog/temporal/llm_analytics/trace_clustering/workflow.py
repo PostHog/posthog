@@ -1,6 +1,5 @@
 """Daily trace clustering workflow."""
 
-import logging
 from datetime import timedelta
 
 from temporalio import workflow
@@ -18,8 +17,6 @@ with workflow.unsafe.imports_passed_through():
         EmitEventsActivityInputs,
         GenerateLabelsActivityInputs,
     )
-
-logger = logging.getLogger(__name__)
 
 
 @workflow.defn(name="daily-trace-clustering")

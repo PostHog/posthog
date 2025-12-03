@@ -7,11 +7,11 @@ This module contains the 3 activities that make up the clustering pipeline:
 """
 
 import asyncio
-import logging
 
 from django.utils.dateparse import parse_datetime
 
 import numpy as np
+import structlog
 from temporalio import activity
 
 from posthog.temporal.llm_analytics.trace_clustering import constants
@@ -33,7 +33,7 @@ from posthog.temporal.llm_analytics.trace_clustering.models import (
     GenerateLabelsActivityOutputs,
 )
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringComputeResult:
