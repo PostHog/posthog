@@ -33,6 +33,11 @@ export const LOG_COLUMNS: LogColumnConfig[] = [
     { key: 'actions', width: 80 },
 ]
 
+// Calculate total width of fixed-width columns (excludes flex columns)
+export const getFixedColumnsWidth = (): number => {
+    return LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
+}
+
 // Calculate total minimum width for horizontal scrolling
 export const getMinRowWidth = (): number => {
     return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
@@ -64,9 +69,7 @@ export function LogRow({
     rowWidth,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
-
-    const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
-    const flexWidth = rowWidth ? rowWidth - fixedColumnsWidth : undefined
+    const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
         const cellStyle: React.CSSProperties = column.flex
@@ -152,8 +155,7 @@ export function LogRow({
 }
 
 export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
-    const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
-    const flexWidth = rowWidth - fixedColumnsWidth
+    const flexWidth = rowWidth - getFixedColumnsWidth()
 
     return (
         <div
