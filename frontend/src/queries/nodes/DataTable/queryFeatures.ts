@@ -38,6 +38,8 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
+    rowActions,
+    cellActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
