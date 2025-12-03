@@ -424,11 +424,15 @@ class CohortSerializer(serializers.ModelSerializer):
         ]
 
     def get_last_error_message(self, cohort: Cohort) -> Optional[str]:
+        # Prefer the annotated last_error_code when available
         if hasattr(cohort, "last_error_code"):
             if cohort.last_error_code:
                 return get_friendly_error_message(cohort.last_error_code)
             return None
 
+        # Fall back to querying calculation history.
+        # Old records may have error set but error_code=NULL; get_friendly_error_message
+        # returns None for those, so they won't surface user-facing messages.
         last_failed_calculation = (
             CohortCalculationHistory.objects.filter(cohort=cohort)
             .exclude(error__isnull=True)

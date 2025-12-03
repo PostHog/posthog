@@ -355,7 +355,6 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 <LemonBanner
                                                     type="error"
                                                     action={{
-                                                        // Format: kind:target_area:severity_level:isEmailFormOpen
                                                         onClick: () =>
                                                             openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
                                                         children: 'Contact support',
