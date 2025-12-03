@@ -1,3 +1,4 @@
+import gc
 import os
 import re
 import enum
@@ -516,6 +517,9 @@ async def materialize_model(
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
 
+            # Explicitly delete batch to free memory after writing
+            del batch, ch_types
+
             shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
@@ -727,7 +731,7 @@ async def get_query_row_count(query: str, team: Team, logger: FilteringBoundLogg
         return count
 
 
-MB_50_IN_BYTES = 50 * 1000 * 1000
+MB_100_IN_BYTES = 100 * 1000 * 1000
 
 
 async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
@@ -834,8 +838,8 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
     # Re-print the query with `FORMAT = ArrowStream`
     context.output_format = "ArrowStream"
-    # Set the preferred record batch size to be 50 MB
-    settings.preferred_block_size_bytes = MB_50_IN_BYTES
+    # Set the preferred record batch size to be 100 MB
+    settings.preferred_block_size_bytes = MB_100_IN_BYTES
 
     arrow_prepared_hogql_query = await database_sync_to_async(prepare_ast_for_printing)(
         query_node, context=context, dialect="clickhouse", stack=[], settings=settings
@@ -854,27 +858,41 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
     async with get_client(max_block_size=50_000) as client:
         batches = []
         batches_size = 0
+        batch_count = 0
         async for batch in client.astream_query_as_arrow(arrow_printed, query_parameters=context.values):
             batches_size = batches_size + batch.nbytes
             batches.append(batch)
 
-            if batches_size >= MB_50_IN_BYTES:
+            if batches_size >= MB_100_IN_BYTES:
                 await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
 
+                combined = _combine_batches(batches)
                 yield (
-                    _combine_batches(batches),
+                    combined,
                     [(column_name, column_type) for column_name, column_type, _ in query_typings],
                 )
+
+                # Explicitly clear references to allow garbage collection
+                del combined
+                batches.clear()
                 batches_size = 0
-                batches = []
+                batch_count += 1
+
+                # Trigger garbage collection every 10 batches to prevent memory fragmentation
+                if batch_count % 10 == 0:
+                    await logger.adebug("Running garbage collection on batches")
+                    gc.collect()
 
         # Yield any left over batches
         if len(batches) > 0:
             await logger.adebug(f"Yielding {len(batches)} batches for total size of {batches_size / 1000 / 1000}MB")
+            combined = _combine_batches(batches)
             yield (
-                _combine_batches(batches),
+                combined,
                 [(column_name, column_type) for column_name, column_type, _ in query_typings],
             )
+            del combined
+            batches.clear()
 
 
 def _combine_batches(batches: list[pa.RecordBatch]) -> pa.RecordBatch:
