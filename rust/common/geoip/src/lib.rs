@@ -139,8 +139,7 @@ mod tests {
             ("187.188.10.252", "Mexico"),
         ];
 
-        let allowed_keys =
-            HashSet::<&str>::from_iter(GEOIP_FIELDS.iter().map(|(field, _)| *field));
+        let allowed_keys = HashSet::<&str>::from_iter(GEOIP_FIELDS.iter().map(|(field, _)| *field));
 
         for (ip, expected_country) in test_cases {
             let result = service.get_geoip_properties(ip).unwrap();
