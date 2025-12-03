@@ -1082,20 +1082,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 return
             }
 
-            // Check if we have a full snapshot before initializing the player
-            // This prevents the white screen bug where the player is created with only incremental snapshots
-            if (values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK]) {
-                const snapshots = values.sessionPlayerData.snapshotsByWindowId[windowId]
-                const hasFullSnapshot = snapshots.some((e) => e.type === EventType.FullSnapshot)
-
-                if (!hasFullSnapshot) {
-                    // Don't initialize the player yet - wait for the full snapshot to arrive
-                    // syncSnapshotsWithPlayer will be called again when new snapshots arrive
-                    actions.setPlayer(null)
-                    return
-                }
-            }
-
             const plugins: ReplayPlugin[] = [HLSPlayerPlugin]
 
             // We don't want non-cloud products to talk to our proxy as it likely won't work, but we _do_ want local testing to work
