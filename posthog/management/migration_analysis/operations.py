@@ -86,14 +86,9 @@ class AddFieldAnalyzer(OperationAnalyzer):
             score=1,
             reason="Adding nullable field requires brief lock",
             details={"model": op.model_name, "field": op.name},
-            guidance="""While this operation doesn't rewrite the table, it still acquires an ACCESS EXCLUSIVE lock briefly.
+            guidance="""This operation acquires a brief lock but doesn't rewrite the table.
 
-For high-traffic tables, consider:
-- Deploy during low-traffic periods
-- Monitor lock contention and query timeouts during deployment
-- Have a rollback plan ready
-
-For low-traffic tables, this operation is generally safe to deploy anytime.""",
+Deployment uses lock timeouts with automatic retries, so lock contention will cause retries rather than connection pile-up.""",
         )
 
     def _risk_not_null_no_default(self, op) -> OperationRisk:

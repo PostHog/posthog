@@ -89,7 +89,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                         <ErrorTrackingIssueScenePanel issue={issue} />
 
                         <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
-                            <div className="flex flex-1 h-full">
+                            <div className="flex flex-1 h-full w-full">
                                 <LeftHandColumn />
                                 <RightHandColumn />
                             </div>
