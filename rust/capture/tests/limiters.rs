@@ -2,7 +2,6 @@
 mod integration_utils;
 use integration_utils::DEFAULT_CONFIG;
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -11,7 +10,6 @@ use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
 use common_redis::MockRedisClient;
-use common_types::RawEvent;
 use health::HealthRegistry;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -182,32 +180,11 @@ fn extract_captured_event_names(events: &[ProcessedEvent]) -> Vec<String> {
         .collect()
 }
 
-// only useful in ScopedLimiter predicate (event_matcher) tests
-fn gen_stub_events(names: &[&str]) -> Vec<RawEvent> {
-    let mut out = vec![];
-
-    for name in names {
-        out.push(RawEvent {
-            event: name.to_string(),
-            token: Some("test_token".to_string()),
-            distinct_id: Some(Value::String("test_distinct_id".to_string())),
-            uuid: None,
-            properties: HashMap::new(),
-            timestamp: None,
-            offset: None,
-            set: None,
-            set_once: None,
-        });
-    }
-
-    out
-}
-
 #[tokio::test]
 async fn test_exception_predicate() {
     let should_accept_names = vec!["$exception"];
     for name in should_accept_names {
-        assert!(is_exception_event(name), "event {} should be accepted", name);
+        assert!(is_exception_event(name), "event {name} should be accepted");
     }
 
     let should_reject_names = vec![
@@ -222,8 +199,7 @@ async fn test_exception_predicate() {
     for name in should_reject_names {
         assert!(
             !is_exception_event(name),
-            "event {} should not be accepted",
-            name
+            "event {name} should not be accepted"
         );
     }
 }
@@ -240,7 +216,7 @@ async fn test_llm_predicate() {
         "$ai_feedback",
     ];
     for name in should_accept_names {
-        assert!(is_llm_event(name), "event {} should be accepted", name);
+        assert!(is_llm_event(name), "event {name} should be accepted");
     }
 
     let should_reject_names = vec![
@@ -255,8 +231,7 @@ async fn test_llm_predicate() {
     for name in should_reject_names {
         assert!(
             !is_llm_event(name),
-            "event {} should not be accepted",
-            name
+            "event {name} should not be accepted"
         );
     }
 }
@@ -265,7 +240,7 @@ async fn test_llm_predicate() {
 async fn test_survey_predicate() {
     let should_accept_names = vec!["survey sent", "survey shown", "survey dismissed"];
     for name in should_accept_names {
-        assert!(is_survey_event(name), "event {} should be accepted", name);
+        assert!(is_survey_event(name), "event {name} should be accepted");
     }
 
     let should_reject_names = vec![
@@ -283,8 +258,7 @@ async fn test_survey_predicate() {
     for name in should_reject_names {
         assert!(
             !is_survey_event(name),
-            "event {} should not be accepted",
-            name
+            "event {name} should not be accepted"
         );
     }
 }

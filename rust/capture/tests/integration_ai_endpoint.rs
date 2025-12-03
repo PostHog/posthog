@@ -2509,8 +2509,7 @@ async fn test_ai_endpoint_token_dropper_returns_billing_limit_error_message() {
     let response_text = response.text().await;
     assert!(
         response_text.contains("billing limit"),
-        "Response should contain 'billing limit' error message, got: {}",
-        response_text
+        "Response should contain 'billing limit' error message, got: {response_text}"
     );
 }
 
@@ -2645,7 +2644,6 @@ async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
     let response_text = response.text().await;
     assert!(
         response_text.contains("billing limit"),
-        "Response should contain 'billing limit' error message, got: {}",
-        response_text
+        "Response should contain 'billing limit' error message, got: {response_text}"
     );
 }
