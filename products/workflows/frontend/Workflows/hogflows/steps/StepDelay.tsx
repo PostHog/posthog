@@ -19,7 +19,7 @@ export function getDelayDescription(duration: string): string {
 }
 
 function shouldAutoUpdateDescription(description: string): boolean {
-    const AUTO_DESCRIPTION_REGEX = /^Wait for \d+\.?\d* (minute|hour|day)s?\.$/
+    const AUTO_DESCRIPTION_REGEX = /^Wait for \d*\.?\d+ (minute|hour|day)s?\.$/
     const legacyDefaultDescription = 'Wait for a specified duration.'
 
     return (
