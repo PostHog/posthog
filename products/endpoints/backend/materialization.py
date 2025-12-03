@@ -1,10 +1,12 @@
 from typing import Any
 
+from posthog.schema import HogQLQuery, HogQLQueryModifiers
+
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.timings import HogQLTimings
+
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models.team import Team
-from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
 
 def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[str, Any]:
