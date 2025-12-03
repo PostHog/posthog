@@ -1,6 +1,7 @@
 import json
 from typing import Any, Optional
 
+import structlog
 from pydantic import BaseModel
 
 from posthog.schema import (
@@ -19,6 +20,8 @@ from posthog.schema import (
 from posthog.hogql.ai import hit_openai
 
 from posthog.models import Team
+
+logger = structlog.get_logger(__name__)
 
 
 class InsightSuggestion(BaseModel):
@@ -149,6 +152,13 @@ def get_ai_suggestions(query: InsightVizNode, team: Team, insight_result: dict[s
             "You are an expert data analyst using PostHog. "
             "Given the following analysis configuration and its results, suggest 3 relevant follow-up insights to explore deeper. "
             "The suggestions should help the user understand *why* the results are the way they are, or explore related metrics.\n\n"
+            "Important Rules:\n"
+            "1. **Schema Compliance**: You must return a valid `InsightVizNode` JSON. \n"
+            "   - `TrendsQuery` does NOT have `breakdown` or `display` fields directly.\n"
+            "   - Use `breakdownFilter` object for breakdowns (e.g., `breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' }`).\n"
+            "   - Use `trendsFilter` object for display (e.g., `trendsFilter: { display: 'ActionsBar' }`).\n"
+            "2. **No Hallucination**: Use ONLY event names and property names that appear in the input query. Do not invent new properties like 'user_segment'.\n"
+            "3. **Simple Scope**: Focus on changing the visualization type (e.g. Trends, Stickiness), time interval, or breaking down by common properties like '$browser', '$os', '$geoip_country_code' ONLY if you are sure they are relevant. Prefer simple transformations of the existing query.\n\n"
             "Provide the response as a JSON array of objects with the following keys:\n"
             "- title: A short, descriptive title for the suggestion.\n"
             "- description: A brief explanation of why this is interesting.\n"
@@ -187,10 +197,12 @@ def get_ai_suggestions(query: InsightVizNode, team: Team, insight_result: dict[s
                         title=item["title"], description=item.get("description"), targetQuery=target_query
                     )
                 )
-            except Exception:
+            except Exception as e:
+                logger.warning("invalid_ai_suggestion", error=str(e), suggestion=item)
                 continue
 
         return suggestions
 
     except Exception:
+        logger.exception("ai_suggestions_failed")
         return []
