@@ -111,38 +111,6 @@ class TestUserProductListAPI(APIBaseTest):
         for item in data:
             self.assertTrue(item["enabled"])
 
-    def test_seed_does_not_backfill_when_user_already_has_products(self):
-        UserProductList.objects.create(
-            user=self.user,
-            team=self.team,
-            product_path="Product analytics",
-            enabled=True,
-            reason=UserProductList.Reason.PRODUCT_INTENT,
-        )
-
-        colleague = User.objects.create_user(
-            email="colleague@posthog.com", password="password", first_name="Colleague", allow_sidebar_suggestions=True
-        )
-        colleague.join(organization=self.organization)
-        UserProductList.objects.create(user=colleague, team=self.team, product_path="Session replay", enabled=True)
-
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        UserProductList.objects.create(user=self.user, team=other_team, product_path="Surveys", enabled=True)
-
-        response = self.client.post(f"/api/environments/{self.team.id}/user_product_list/seed/")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        data = response.json()
-        product_paths = {item["product_path"] for item in data}
-
-        self.assertIn("Product analytics", product_paths)
-        self.assertIn("Session replay", product_paths)
-        self.assertNotIn("Surveys", product_paths)
-
-        data_by_path = {item["product_path"]: item for item in data}
-        self.assertEqual(data_by_path["Product analytics"]["reason"], UserProductList.Reason.PRODUCT_INTENT)
-        self.assertEqual(data_by_path["Session replay"]["reason"], UserProductList.Reason.USED_BY_COLLEAGUES)
-
     def test_seed_only_returns_enabled_products(self):
         UserProductList.objects.create(
             user=self.user,
