@@ -6,10 +6,10 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    EndpointLastExecutionTimesRequest,
-    EndpointRequest,
-    EndpointRunRequest,
-    QueryStatusResponse,
+    EndpointLastExecutionTimesRequestApi,
+    EndpointRequestApi,
+    EndpointRunRequestApi,
+    QueryStatusResponseApi,
 } from './index.schemas'
 
 /**
@@ -58,14 +58,14 @@ export const getEnvironmentsEndpointsCreateUrl = (projectId: string) => {
 
 export const environmentsEndpointsCreate = async (
     projectId: string,
-    endpointRequest: EndpointRequest,
+    endpointRequestApi: EndpointRequestApi,
     options?: RequestInit
 ): Promise<environmentsEndpointsCreateResponse> => {
     return apiMutator<environmentsEndpointsCreateResponse>(getEnvironmentsEndpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRequest),
+        body: JSON.stringify(endpointRequestApi),
     })
 }
 
@@ -117,14 +117,14 @@ export const getEnvironmentsEndpointsUpdateUrl = (projectId: string, name: strin
 export const environmentsEndpointsUpdate = async (
     projectId: string,
     name: string,
-    endpointRequest: EndpointRequest,
+    endpointRequestApi: EndpointRequestApi,
     options?: RequestInit
 ): Promise<environmentsEndpointsUpdateResponse> => {
     return apiMutator<environmentsEndpointsUpdateResponse>(getEnvironmentsEndpointsUpdateUrl(projectId, name), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRequest),
+        body: JSON.stringify(endpointRequestApi),
     })
 }
 
@@ -235,14 +235,14 @@ export const getEnvironmentsEndpointsRunCreateUrl = (projectId: string, name: st
 export const environmentsEndpointsRunCreate = async (
     projectId: string,
     name: string,
-    endpointRunRequest: EndpointRunRequest,
+    endpointRunRequestApi: EndpointRunRequestApi,
     options?: RequestInit
 ): Promise<environmentsEndpointsRunCreateResponse> => {
     return apiMutator<environmentsEndpointsRunCreateResponse>(getEnvironmentsEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRunRequest),
+        body: JSON.stringify(endpointRunRequestApi),
     })
 }
 
@@ -318,7 +318,7 @@ export const environmentsEndpointsVersionsRetrieve2 = async (
  * Get the last execution times in the past 6 months for multiple endpoints.
  */
 export type environmentsEndpointsLastExecutionTimesCreateResponse200 = {
-    data: QueryStatusResponse
+    data: QueryStatusResponseApi
     status: 200
 }
 
@@ -335,7 +335,7 @@ export const getEnvironmentsEndpointsLastExecutionTimesCreateUrl = (projectId: s
 
 export const environmentsEndpointsLastExecutionTimesCreate = async (
     projectId: string,
-    endpointLastExecutionTimesRequest: EndpointLastExecutionTimesRequest,
+    endpointLastExecutionTimesRequestApi: EndpointLastExecutionTimesRequestApi,
     options?: RequestInit
 ): Promise<environmentsEndpointsLastExecutionTimesCreateResponse> => {
     return apiMutator<environmentsEndpointsLastExecutionTimesCreateResponse>(
@@ -344,7 +344,7 @@ export const environmentsEndpointsLastExecutionTimesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(endpointLastExecutionTimesRequest),
+            body: JSON.stringify(endpointLastExecutionTimesRequestApi),
         }
     )
 }
@@ -395,14 +395,14 @@ export const getEndpointsCreateUrl = (projectId: string) => {
 
 export const endpointsCreate = async (
     projectId: string,
-    endpointRequest: EndpointRequest,
+    endpointRequestApi: EndpointRequestApi,
     options?: RequestInit
 ): Promise<endpointsCreateResponse> => {
     return apiMutator<endpointsCreateResponse>(getEndpointsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRequest),
+        body: JSON.stringify(endpointRequestApi),
     })
 }
 
@@ -454,14 +454,14 @@ export const getEndpointsUpdateUrl = (projectId: string, name: string) => {
 export const endpointsUpdate = async (
     projectId: string,
     name: string,
-    endpointRequest: EndpointRequest,
+    endpointRequestApi: EndpointRequestApi,
     options?: RequestInit
 ): Promise<endpointsUpdateResponse> => {
     return apiMutator<endpointsUpdateResponse>(getEndpointsUpdateUrl(projectId, name), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRequest),
+        body: JSON.stringify(endpointRequestApi),
     })
 }
 
@@ -566,14 +566,14 @@ export const getEndpointsRunCreateUrl = (projectId: string, name: string) => {
 export const endpointsRunCreate = async (
     projectId: string,
     name: string,
-    endpointRunRequest: EndpointRunRequest,
+    endpointRunRequestApi: EndpointRunRequestApi,
     options?: RequestInit
 ): Promise<endpointsRunCreateResponse> => {
     return apiMutator<endpointsRunCreateResponse>(getEndpointsRunCreateUrl(projectId, name), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointRunRequest),
+        body: JSON.stringify(endpointRunRequestApi),
     })
 }
 
@@ -641,7 +641,7 @@ export const endpointsVersionsRetrieve2 = async (
  * Get the last execution times in the past 6 months for multiple endpoints.
  */
 export type endpointsLastExecutionTimesCreateResponse200 = {
-    data: QueryStatusResponse
+    data: QueryStatusResponseApi
     status: 200
 }
 
@@ -656,13 +656,13 @@ export const getEndpointsLastExecutionTimesCreateUrl = (projectId: string) => {
 
 export const endpointsLastExecutionTimesCreate = async (
     projectId: string,
-    endpointLastExecutionTimesRequest: EndpointLastExecutionTimesRequest,
+    endpointLastExecutionTimesRequestApi: EndpointLastExecutionTimesRequestApi,
     options?: RequestInit
 ): Promise<endpointsLastExecutionTimesCreateResponse> => {
     return apiMutator<endpointsLastExecutionTimesCreateResponse>(getEndpointsLastExecutionTimesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(endpointLastExecutionTimesRequest),
+        body: JSON.stringify(endpointLastExecutionTimesRequestApi),
     })
 }

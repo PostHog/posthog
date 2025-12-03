@@ -4,18 +4,18 @@
  * PostHog API - actions
  * OpenAPI spec version: 1.0.0
  */
-export type UrlMatchingEnum = (typeof UrlMatchingEnum)[keyof typeof UrlMatchingEnum]
-export const UrlMatchingEnum = {
+export type UrlMatchingEnumApi = (typeof UrlMatchingEnumApi)[keyof typeof UrlMatchingEnumApi]
+export const UrlMatchingEnumApi = {
     contains: 'contains',
     regex: 'regex',
     exact: 'exact',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -26,24 +26,24 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export interface PaginatedActionList {
+export interface PaginatedActionListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Action[]
+    results: ActionApi[]
 }
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface Action {
+export interface ActionApi {
     readonly id: number
     /**
      * @maxLength 400
@@ -55,9 +55,9 @@ export interface Action {
     post_to_slack?: boolean
     /** @maxLength 1200 */
     slack_message_format?: string
-    steps?: ActionStepJSON[]
+    steps?: ActionStepJSONApi[]
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     deleted?: boolean
     readonly is_calculating: boolean
     last_calculated_at?: string
@@ -79,7 +79,7 @@ export interface Action {
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface PatchedAction {
+export interface PatchedActionApi {
     readonly id?: number
     /**
      * @maxLength 400
@@ -91,9 +91,9 @@ export interface PatchedAction {
     post_to_slack?: boolean
     /** @maxLength 1200 */
     slack_message_format?: string
-    steps?: ActionStepJSON[]
+    steps?: ActionStepJSONApi[]
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     deleted?: boolean
     readonly is_calculating?: boolean
     last_calculated_at?: string
@@ -112,40 +112,40 @@ export interface PatchedAction {
     readonly user_access_level?: string | null
 }
 
-export type ActionStepJSONPropertiesItem = { [key: string]: unknown }
+export type ActionStepJSONApiPropertiesItem = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONTextMatching = { ...UrlMatchingEnum, ...NullEnum } as const
+export const ActionStepJSONApiTextMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type ActionStepJSONTextMatching =
-    | (typeof ActionStepJSONTextMatching)[keyof typeof ActionStepJSONTextMatching]
+export type ActionStepJSONApiTextMatching =
+    | (typeof ActionStepJSONApiTextMatching)[keyof typeof ActionStepJSONApiTextMatching]
     | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONHrefMatching = { ...UrlMatchingEnum, ...NullEnum } as const
+export const ActionStepJSONApiHrefMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type ActionStepJSONHrefMatching =
-    | (typeof ActionStepJSONHrefMatching)[keyof typeof ActionStepJSONHrefMatching]
+export type ActionStepJSONApiHrefMatching =
+    | (typeof ActionStepJSONApiHrefMatching)[keyof typeof ActionStepJSONApiHrefMatching]
     | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionStepJSONUrlMatching = { ...UrlMatchingEnum, ...NullEnum } as const
+export const ActionStepJSONApiUrlMatching = { ...UrlMatchingEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type ActionStepJSONUrlMatching =
-    | (typeof ActionStepJSONUrlMatching)[keyof typeof ActionStepJSONUrlMatching]
+export type ActionStepJSONApiUrlMatching =
+    | (typeof ActionStepJSONApiUrlMatching)[keyof typeof ActionStepJSONApiUrlMatching]
     | null
 
-export interface ActionStepJSON {
+export interface ActionStepJSONApi {
     /** @nullable */
     event?: string | null
     /** @nullable */
-    properties?: ActionStepJSONPropertiesItem[] | null
+    properties?: ActionStepJSONApiPropertiesItem[] | null
     /** @nullable */
     selector?: string | null
     /** @nullable */
@@ -153,32 +153,32 @@ export interface ActionStepJSON {
     /** @nullable */
     text?: string | null
     /** @nullable */
-    text_matching?: ActionStepJSONTextMatching
+    text_matching?: ActionStepJSONApiTextMatching
     /** @nullable */
     href?: string | null
     /** @nullable */
-    href_matching?: ActionStepJSONHrefMatching
+    href_matching?: ActionStepJSONApiHrefMatching
     /** @nullable */
     url?: string | null
     /** @nullable */
-    url_matching?: ActionStepJSONUrlMatching
+    url_matching?: ActionStepJSONApiUrlMatching
 }
 
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -195,9 +195,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**

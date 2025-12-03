@@ -4,396 +4,33 @@
  * PostHog API
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type {
-    AIEventType,
-    ActionConversionGoal,
-    ActionsNode,
-    ActorsPropertyTaxonomyQuery,
-    ActorsPropertyTaxonomyQueryResponse,
-    ActorsPropertyTaxonomyResponse,
-    ActorsQuery,
-    ActorsQueryResponse,
-    AlertCalculationInterval,
-    AutocompleteCompletionItem,
-    AutocompleteCompletionItemKind,
-    BreakdownFilter,
-    BreakdownItem,
-    BreakdownValue,
-    CalendarHeatmapFilter,
-    CalendarHeatmapQuery,
-    CalendarHeatmapResponse,
-    ChartAxis,
-    ChartSettings,
-    ChartSettingsDisplay,
-    ChartSettingsFormatting,
-    ClickhouseQueryProgress,
-    CompareFilter,
-    ConditionalFormattingRule,
-    CurrencyCode,
-    CustomChannelCondition,
-    CustomChannelField,
-    CustomChannelOperator,
-    CustomChannelRule,
-    CustomEventConversionGoal,
-    DashboardFilter,
-    DataTableNode,
-    DataTableNodeViewPropsContext,
-    DataTableNodeViewPropsContextType,
-    DataVisualizationNode,
-    DataWarehouseEventsModifier,
-    DataWarehouseNode,
-    DatabaseSchemaBatchExportTable,
-    DatabaseSchemaDataWarehouseTable,
-    DatabaseSchemaEndpointTable,
-    DatabaseSchemaField,
-    DatabaseSchemaManagedViewTable,
-    DatabaseSchemaManagedViewTableKind,
-    DatabaseSchemaMaterializedViewTable,
-    DatabaseSchemaPostHogTable,
-    DatabaseSchemaQuery,
-    DatabaseSchemaQueryResponse,
-    DatabaseSchemaSchema,
-    DatabaseSchemaSource,
-    DatabaseSchemaSystemTable,
-    DatabaseSchemaViewTable,
-    DatabaseSerializedFieldType,
-    DateRange,
-    DocumentSimilarityQuery,
-    DocumentSimilarityQueryResponse,
-    EmbeddedDocument,
-    EmbeddingDistance,
-    EmbeddingModelName,
-    EmbeddingRecord,
-    ErrorTrackingBreakdownsQuery,
-    ErrorTrackingBreakdownsQueryResponse,
-    ErrorTrackingCorrelatedIssue,
-    ErrorTrackingExternalReference,
-    ErrorTrackingExternalReferenceIntegration,
-    ErrorTrackingIssue,
-    ErrorTrackingIssueAggregations,
-    ErrorTrackingIssueAssignee,
-    ErrorTrackingIssueAssigneeType,
-    ErrorTrackingIssueCohort,
-    ErrorTrackingIssueCorrelationQuery,
-    ErrorTrackingIssueCorrelationQueryResponse,
-    ErrorTrackingQuery,
-    ErrorTrackingQueryResponse,
-    ErrorTrackingSimilarIssuesQuery,
-    ErrorTrackingSimilarIssuesQueryResponse,
-    EventOddsRatioSerialized,
-    EventTaxonomyItem,
-    EventTaxonomyQuery,
-    EventTaxonomyQueryResponse,
-    EventsHeatMapColumnAggregationResult,
-    EventsHeatMapDataResult,
-    EventsHeatMapRowAggregationResult,
-    EventsHeatMapStructuredResult,
-    EventsNode,
-    EventsQuery,
-    EventsQueryResponse,
-    ExperimentBreakdownResult,
-    ExperimentDataWarehouseNode,
-    ExperimentEventExposureConfig,
-    ExperimentExposureCriteria,
-    ExperimentExposureQuery,
-    ExperimentExposureQueryResponse,
-    ExperimentExposureTimeSeries,
-    ExperimentFunnelMetric,
-    ExperimentFunnelsQuery,
-    ExperimentFunnelsQueryResponse,
-    ExperimentMeanMetric,
-    ExperimentQuery,
-    ExperimentQueryResponse,
-    ExperimentRatioMetric,
-    ExperimentRetentionMetric,
-    ExperimentSignificanceCode,
-    ExperimentStatsBaseValidated,
-    ExperimentStatsValidationFailure,
-    ExperimentTrendsQuery,
-    ExperimentTrendsQueryResponse,
-    ExperimentVariantFunnelsBaseStats,
-    ExperimentVariantResultBayesian,
-    ExperimentVariantResultFrequentist,
-    ExperimentVariantTrendsBaseStats,
-    ExternalQueryError,
-    ExternalQueryErrorCode,
-    ExternalQueryStatus,
-    FunnelCorrelationActorsQuery,
-    FunnelCorrelationQuery,
-    FunnelCorrelationResponse,
-    FunnelCorrelationResult,
-    FunnelExclusionActionsNode,
-    FunnelExclusionEventsNode,
-    FunnelPathsFilter,
-    FunnelsActorsQuery,
-    FunnelsFilter,
-    FunnelsQuery,
-    FunnelsQueryResponse,
-    GoalLine,
-    GroupsQuery,
-    GroupsQueryResponse,
-    HogLanguage,
-    HogQLASTQuery,
-    HogQLAutocomplete,
-    HogQLAutocompleteResponse,
-    HogQLFilters,
-    HogQLMetadata,
-    HogQLMetadataResponse,
-    HogQLNotice,
-    HogQLQuery,
-    HogQLQueryModifiers,
-    HogQLQueryResponse,
-    HogQLVariable,
-    HogQuery,
-    HogQueryResponse,
-    InsightActorsQuery,
-    InsightActorsQueryOptions,
-    InsightActorsQueryOptionsResponse,
-    InsightVizNode,
-    IntegrationFilter,
-    LLMTrace,
-    LLMTraceEvent,
-    LLMTracePerson,
-    LifecycleFilter,
-    LifecycleQuery,
-    LifecycleQueryResponse,
-    LogSeverityLevel,
-    LogsQuery,
-    LogsQueryResponse,
-    MarketingAnalyticsAggregatedQuery,
-    MarketingAnalyticsAggregatedQueryResponse,
-    MarketingAnalyticsItem,
-    MarketingAnalyticsTableQuery,
-    MarketingAnalyticsTableQueryResponse,
-    MultipleBreakdownOptions,
-    MultipleBreakdownType,
-    PageURL,
-    PathsFilter,
-    PathsLink,
-    PathsQuery,
-    PathsQueryResponse,
-    PersistedFolder,
-    QueryIndexUsage,
-    QueryLogTags,
-    QueryRequest,
-    QueryResponseAlternative,
-    QueryStatus,
-    QueryStatusResponse,
-    QueryTiming,
-    QueryUpgradeRequest,
-    QueryUpgradeResponse,
-    RecordingOrder,
-    RecordingOrderDirection,
-    RecordingsQuery,
-    RecordingsQueryResponse,
-    RefreshType,
-    ResolvedDateRangeResponse,
-    ResultCustomizationBy,
-    ResultCustomizationByPosition,
-    ResultCustomizationByValue,
-    RetentionFilter,
-    RetentionQuery,
-    RetentionQueryResponse,
-    RetentionResult,
-    RetentionValue,
-    RevenueAnalyticsBreakdown,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsGrossRevenueQueryResponse,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsMRRQueryResponse,
-    RevenueAnalyticsMRRQueryResultItem,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMetricsQueryResponse,
-    RevenueAnalyticsOverviewItem,
-    RevenueAnalyticsOverviewItemKey,
-    RevenueAnalyticsOverviewQuery,
-    RevenueAnalyticsOverviewQueryResponse,
-    RevenueAnalyticsTopCustomersGroupBy,
-    RevenueAnalyticsTopCustomersQuery,
-    RevenueAnalyticsTopCustomersQueryResponse,
-    RevenueCurrencyPropertyConfig,
-    RevenueExampleDataWarehouseTablesQuery,
-    RevenueExampleDataWarehouseTablesQueryResponse,
-    RevenueExampleEventsQuery,
-    RevenueExampleEventsQueryResponse,
-    SamplingRate,
-    SavedInsightNode,
-    SessionAttributionExplorerQuery,
-    SessionAttributionExplorerQueryResponse,
-    SessionAttributionGroupBy,
-    SessionData,
-    SessionsQuery,
-    SessionsQueryResponse,
-    SessionsTimelineQuery,
-    SessionsTimelineQueryResponse,
-    SharingConfigurationSettings,
-    SimilarIssue,
-    StickinessActorsQuery,
-    StickinessComputationMode,
-    StickinessFilter,
-    StickinessOperator,
-    StickinessQuery,
-    StickinessQueryResponse,
-    SuggestedQuestionsQuery,
-    SuggestedQuestionsQueryResponse,
-    TableSettings,
-    TeamTaxonomyItem,
-    TeamTaxonomyQuery,
-    TeamTaxonomyQueryResponse,
-    TimelineEntry,
-    TraceQuery,
-    TraceQueryResponse,
-    TracesQuery,
-    TracesQueryResponse,
-    TrendsFilter,
-    TrendsFormulaNode,
-    TrendsQuery,
-    TrendsQueryResponse,
-    UsageMetric,
-    UsageMetricDisplay,
-    UsageMetricFormat,
-    UsageMetricsQuery,
-    UsageMetricsQueryResponse,
-    UserProductListReason,
-    VectorSearchQuery,
-    VectorSearchQueryResponse,
-    VectorSearchResponseItem,
-    VizSpecificOptions,
-    WebAnalyticsExternalSummaryQuery,
-    WebAnalyticsExternalSummaryQueryResponse,
-    WebAnalyticsItemKind,
-    WebAnalyticsOrderByDirection,
-    WebAnalyticsOrderByFields,
-    WebAnalyticsSampling,
-    WebExternalClicksTableQuery,
-    WebExternalClicksTableQueryResponse,
-    WebGoalsQuery,
-    WebGoalsQueryResponse,
-    WebOverviewItem,
-    WebOverviewQuery,
-    WebOverviewQueryResponse,
-    WebPageURLSearchQuery,
-    WebPageURLSearchQueryResponse,
-    WebStatsBreakdown,
-    WebStatsTableQuery,
-    WebStatsTableQueryResponse,
-    WebTrendsItem,
-    WebTrendsMetric,
-    WebTrendsQuery,
-    WebTrendsQueryResponse,
-    WebVitalsMetric,
-    WebVitalsPathBreakdownQuery,
-    WebVitalsPathBreakdownQueryResponse,
-    WebVitalsPathBreakdownResult,
-    WebVitalsPathBreakdownResultItem,
-    WebVitalsPercentile,
-    WebVitalsQuery,
-    YAxisSettings,
-} from '~/queries/schema'
-export type {
-    BaseMathType,
-    BatchExportBackfill,
-    Breakdown,
-    BreakdownAttributionType,
-    BreakdownType,
-    CalendarHeatmapMathType,
-    ChartDisplayType,
-    CohortPropertyFilter,
-    Conversation,
-    CountPerActorMathType,
-    DashboardTemplateScope,
-    DataWarehousePersonPropertyFilter,
-    DataWarehousePropertyFilter,
-    DataWarehouseViewLink,
-    DataWarehouseViewLinkConfiguration,
-    DurationType,
-    ElementPropertyFilter,
-    ElementType,
-    EmptyPropertyFilter,
-    EntityType,
-    ErrorTrackingIssueFilter,
-    EventDefinition,
-    EventMetadataPropertyFilter,
-    EventPropertyFilter,
-    EventType,
-    ExperimentHoldoutType,
-    ExperimentMetricGoal,
-    ExperimentMetricMathType,
-    FeatureFlagGroupType,
-    FeaturePropertyFilter,
-    FilterLogicalOperator,
-    FlagPropertyFilter,
-    FunnelConversionWindowTimeUnit,
-    FunnelCorrelationResultsType,
-    FunnelMathType,
-    FunnelPathType,
-    FunnelStepReference,
-    FunnelVizType,
-    Group,
-    GroupPropertyFilter,
-    HedgehogColorOptions,
-    HogFunctionStatus,
-    HogFunctionType,
-    HogQLPropertyFilter,
-    IntervalType,
-    LifecycleToggle,
-    LogEntryPropertyFilter,
-    LogPropertyFilter,
-    MatchedRecording,
-    MatchedRecordingEvent,
-    MinimalHedgehogConfig,
-    PathCleaningFilter,
-    PathType,
-    PersonPropertyFilter,
-    PersonType,
-    PluginLogEntry,
-    PropertyDefinition,
-    PropertyGroupFilter,
-    PropertyGroupFilterValue,
-    PropertyMathType,
-    PropertyOperator,
-    QuickFilter,
-    RecordingPropertyFilter,
-    RetentionDashboardDisplayType,
-    RetentionEntity,
-    RetentionEntityKind,
-    RetentionPeriod,
-    RetentionType,
-    RevenueAnalyticsPropertyFilter,
-    SessionPropertyFilter,
-    SessionRecordingPlaylistType,
-    SessionRecordingType,
-    SimpleIntervalType,
-    StepOrderValue,
-    UserBasicType,
-} from '~/types'
-export type State66aEnum = (typeof State66aEnum)[keyof typeof State66aEnum]
-export const State66aEnum = {
+export type State66aEnumApi = (typeof State66aEnumApi)[keyof typeof State66aEnumApi]
+export const State66aEnumApi = {
     Firing: 'Firing',
     Not_firing: 'Not firing',
     Errored: 'Errored',
     Snoozed: 'Snoozed',
 } as const
 
-export type CalculationIntervalEnum = (typeof CalculationIntervalEnum)[keyof typeof CalculationIntervalEnum]
-export const CalculationIntervalEnum = {
+export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
+export const CalculationIntervalEnumApi = {
     hourly: 'hourly',
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export const BatchExportBackfillStatusEnum = {
+export type BatchExportBackfillStatusEnumApi =
+    (typeof BatchExportBackfillStatusEnumApi)[keyof typeof BatchExportBackfillStatusEnumApi]
+export const BatchExportBackfillStatusEnumApi = {
     Cancelled: 'Cancelled',
     Completed: 'Completed',
     ContinuedAsNew: 'ContinuedAsNew',
@@ -405,53 +42,60 @@ export const BatchExportBackfillStatusEnum = {
     Starting: 'Starting',
 } as const
 
-export type ScrapingStatusEnum = (typeof ScrapingStatusEnum)[keyof typeof ScrapingStatusEnum]
-export const ScrapingStatusEnum = {
+export type ScrapingStatusEnumApi = (typeof ScrapingStatusEnumApi)[keyof typeof ScrapingStatusEnumApi]
+export const ScrapingStatusEnumApi = {
     pending: 'pending',
     completed: 'completed',
     skipped: 'skipped',
 } as const
 
-export type EvaluationTypeEnum = (typeof EvaluationTypeEnum)[keyof typeof EvaluationTypeEnum]
-export const EvaluationTypeEnum = {
+export type DashboardRestrictionLevelApi =
+    (typeof DashboardRestrictionLevelApi)[keyof typeof DashboardRestrictionLevelApi]
+export const DashboardRestrictionLevelApi = {
+    NUMBER_21: 21,
+    NUMBER_37: 37,
+} as const
+
+export type EvaluationTypeEnumApi = (typeof EvaluationTypeEnumApi)[keyof typeof EvaluationTypeEnumApi]
+export const EvaluationTypeEnumApi = {
     llm_judge: 'llm_judge',
 } as const
 
-export type OutputTypeEnum = (typeof OutputTypeEnum)[keyof typeof OutputTypeEnum]
-export const OutputTypeEnum = {
+export type OutputTypeEnumApi = (typeof OutputTypeEnumApi)[keyof typeof OutputTypeEnumApi]
+export const OutputTypeEnumApi = {
     boolean: 'boolean',
 } as const
 
-export type PropertyTypeEnum = (typeof PropertyTypeEnum)[keyof typeof PropertyTypeEnum]
-export const PropertyTypeEnum = {
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
+export const PropertyTypeEnumApi = {
     AND: 'AND',
     OR: 'OR',
 } as const
 
-export type SyncTypeEnum = (typeof SyncTypeEnum)[keyof typeof SyncTypeEnum]
-export const SyncTypeEnum = {
+export type SyncTypeEnumApi = (typeof SyncTypeEnumApi)[keyof typeof SyncTypeEnumApi]
+export const SyncTypeEnumApi = {
     full_refresh: 'full_refresh',
     incremental: 'incremental',
     append: 'append',
 } as const
 
-export type StatusA5eEnum = (typeof StatusA5eEnum)[keyof typeof StatusA5eEnum]
-export const StatusA5eEnum = {
+export type StatusA5eEnumApi = (typeof StatusA5eEnumApi)[keyof typeof StatusA5eEnumApi]
+export const StatusA5eEnumApi = {
     draft: 'draft',
     active: 'active',
     archived: 'archived',
 } as const
 
-export type ExitConditionEnum = (typeof ExitConditionEnum)[keyof typeof ExitConditionEnum]
-export const ExitConditionEnum = {
+export type ExitConditionEnumApi = (typeof ExitConditionEnumApi)[keyof typeof ExitConditionEnumApi]
+export const ExitConditionEnumApi = {
     exit_on_conversion: 'exit_on_conversion',
     exit_on_trigger_not_matched: 'exit_on_trigger_not_matched',
     exit_on_trigger_not_matched_or_conversion: 'exit_on_trigger_not_matched_or_conversion',
     exit_only_at_end: 'exit_only_at_end',
 } as const
 
-export type InsightVariableTypeEnum = (typeof InsightVariableTypeEnum)[keyof typeof InsightVariableTypeEnum]
-export const InsightVariableTypeEnum = {
+export type InsightVariableTypeEnumApi = (typeof InsightVariableTypeEnumApi)[keyof typeof InsightVariableTypeEnumApi]
+export const InsightVariableTypeEnumApi = {
     String: 'String',
     Number: 'Number',
     Boolean: 'Boolean',
@@ -459,55 +103,73 @@ export const InsightVariableTypeEnum = {
     Date: 'Date',
 } as const
 
-export const EffectiveRestrictionLevelEnum = {
+export type EffectiveRestrictionLevelEnumApi =
+    (typeof EffectiveRestrictionLevelEnumApi)[keyof typeof EffectiveRestrictionLevelEnumApi]
+export const EffectiveRestrictionLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
 
-export type EffectivePrivilegeLevelEnum = (typeof EffectivePrivilegeLevelEnum)[keyof typeof EffectivePrivilegeLevelEnum]
-export const EffectivePrivilegeLevelEnum = {
+export type EffectivePrivilegeLevelEnumApi =
+    (typeof EffectivePrivilegeLevelEnumApi)[keyof typeof EffectivePrivilegeLevelEnumApi]
+export const EffectivePrivilegeLevelEnumApi = {
     NUMBER_21: 21,
     NUMBER_37: 37,
 } as const
 
-export type CategoryTypeEnum = (typeof CategoryTypeEnum)[keyof typeof CategoryTypeEnum]
-export const CategoryTypeEnum = {
+export type CategoryTypeEnumApi = (typeof CategoryTypeEnumApi)[keyof typeof CategoryTypeEnumApi]
+export const CategoryTypeEnumApi = {
     marketing: 'marketing',
     transactional: 'transactional',
 } as const
 
-export type MetricNameEnum = (typeof MetricNameEnum)[keyof typeof MetricNameEnum]
-export const MetricNameEnum = {
+export type MetricNameEnumApi = (typeof MetricNameEnumApi)[keyof typeof MetricNameEnumApi]
+export const MetricNameEnumApi = {
     viewed: 'viewed',
 } as const
 
-export type PersistedFolderTypeEnum = (typeof PersistedFolderTypeEnum)[keyof typeof PersistedFolderTypeEnum]
-export const PersistedFolderTypeEnum = {
+export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
+export const PersistedFolderTypeEnumApi = {
     home: 'home',
     pinned: 'pinned',
     custom_products: 'custom_products',
 } as const
 
-export type QuickFilterTypeEnum = (typeof QuickFilterTypeEnum)[keyof typeof QuickFilterTypeEnum]
-export const QuickFilterTypeEnum = {
+export type RefreshTypeApi = (typeof RefreshTypeApi)[keyof typeof RefreshTypeApi]
+export const RefreshTypeApi = {
+    async: 'async',
+    async_except_on_cache_miss: 'async_except_on_cache_miss',
+    blocking: 'blocking',
+    force_async: 'force_async',
+    force_blocking: 'force_blocking',
+    force_cache: 'force_cache',
+    lazy_async: 'lazy_async',
+} as const
+
+export type QuickFilterTypeEnumApi = (typeof QuickFilterTypeEnumApi)[keyof typeof QuickFilterTypeEnumApi]
+export const QuickFilterTypeEnumApi = {
     'manual-options': 'manual-options',
     'auto-discovery': 'auto-discovery',
 } as const
 
-export const HeatmapScreenshotResponseTypeEnum = {
+export type HeatmapScreenshotResponseTypeEnumApi =
+    (typeof HeatmapScreenshotResponseTypeEnumApi)[keyof typeof HeatmapScreenshotResponseTypeEnumApi]
+export const HeatmapScreenshotResponseTypeEnumApi = {
     screenshot: 'screenshot',
     iframe: 'iframe',
     recording: 'recording',
 } as const
 
-export const HeatmapScreenshotResponseStatusEnum = {
+export type HeatmapScreenshotResponseStatusEnumApi =
+    (typeof HeatmapScreenshotResponseStatusEnumApi)[keyof typeof HeatmapScreenshotResponseStatusEnumApi]
+export const HeatmapScreenshotResponseStatusEnumApi = {
     processing: 'processing',
     completed: 'completed',
     failed: 'failed',
 } as const
 
-export type ReasonEnum = (typeof ReasonEnum)[keyof typeof ReasonEnum]
-export const ReasonEnum = {
+export type ReasonEnumApi = (typeof ReasonEnumApi)[keyof typeof ReasonEnumApi]
+export const ReasonEnumApi = {
     onboarding: 'onboarding',
     product_intent: 'product_intent',
     used_by_colleagues: 'used_by_colleagues',
@@ -517,8 +179,8 @@ export const ReasonEnum = {
     sales_led: 'sales_led',
 } as const
 
-export type TableFormatEnum = (typeof TableFormatEnum)[keyof typeof TableFormatEnum]
-export const TableFormatEnum = {
+export type TableFormatEnumApi = (typeof TableFormatEnumApi)[keyof typeof TableFormatEnumApi]
+export const TableFormatEnumApi = {
     CSV: 'CSV',
     CSVWithNames: 'CSVWithNames',
     Parquet: 'Parquet',
@@ -527,8 +189,8 @@ export const TableFormatEnum = {
     DeltaS3Wrapper: 'DeltaS3Wrapper',
 } as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -539,8 +201,8 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
-export const KindEnum = {
+export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export const KindEnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -565,8 +227,8 @@ export const KindEnum = {
     databricks: 'databricks',
 } as const
 
-export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
-export const OperatorEnum = {
+export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
+export const OperatorEnumApi = {
     exact: 'exact',
     is_not: 'is_not',
     icontains: 'icontains',
@@ -586,8 +248,8 @@ export const OperatorEnum = {
     not_in: 'not_in',
 } as const
 
-export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
-export const PropertyItemTypeEnum = {
+export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+export const PropertyItemTypeEnumApi = {
     event: 'event',
     event_metadata: 'event_metadata',
     feature: 'feature',
@@ -611,29 +273,29 @@ export const PropertyItemTypeEnum = {
     flag: 'flag',
 } as const
 
-export type OnErrorEnum = (typeof OnErrorEnum)[keyof typeof OnErrorEnum]
-export const OnErrorEnum = {
+export type OnErrorEnumApi = (typeof OnErrorEnumApi)[keyof typeof OnErrorEnumApi]
+export const OnErrorEnumApi = {
     continue: 'continue',
     abort: 'abort',
     complete: 'complete',
     branch: 'branch',
 } as const
 
-export type Templating186Enum = (typeof Templating186Enum)[keyof typeof Templating186Enum]
-export const Templating186Enum = {
+export type Templating186EnumApi = (typeof Templating186EnumApi)[keyof typeof Templating186EnumApi]
+export const Templating186EnumApi = {
     hog: 'hog',
     liquid: 'liquid',
 } as const
 
-export type PluginLogEntrySourceEnum = (typeof PluginLogEntrySourceEnum)[keyof typeof PluginLogEntrySourceEnum]
-export const PluginLogEntrySourceEnum = {
+export type PluginLogEntrySourceEnumApi = (typeof PluginLogEntrySourceEnumApi)[keyof typeof PluginLogEntrySourceEnumApi]
+export const PluginLogEntrySourceEnumApi = {
     SYSTEM: 'SYSTEM',
     PLUGIN: 'PLUGIN',
     CONSOLE: 'CONSOLE',
 } as const
 
-export type PluginLogEntryTypeEnum = (typeof PluginLogEntryTypeEnum)[keyof typeof PluginLogEntryTypeEnum]
-export const PluginLogEntryTypeEnum = {
+export type PluginLogEntryTypeEnumApi = (typeof PluginLogEntryTypeEnumApi)[keyof typeof PluginLogEntryTypeEnumApi]
+export const PluginLogEntryTypeEnumApi = {
     DEBUG: 'DEBUG',
     LOG: 'LOG',
     INFO: 'INFO',
@@ -641,13 +303,380 @@ export const PluginLogEntryTypeEnum = {
     ERROR: 'ERROR',
 } as const
 
-export const MarketingAnalyticsOrderByEnum = {
+export type BaseMathTypeApi = (typeof BaseMathTypeApi)[keyof typeof BaseMathTypeApi]
+export const BaseMathTypeApi = {
+    total: 'total',
+    dau: 'dau',
+    weekly_active: 'weekly_active',
+    monthly_active: 'monthly_active',
+    unique_session: 'unique_session',
+    first_time_for_user: 'first_time_for_user',
+    first_matching_event_for_user: 'first_matching_event_for_user',
+} as const
+
+export type FunnelMathTypeApi = (typeof FunnelMathTypeApi)[keyof typeof FunnelMathTypeApi]
+export const FunnelMathTypeApi = {
+    total: 'total',
+    first_time_for_user: 'first_time_for_user',
+    first_time_for_user_with_filters: 'first_time_for_user_with_filters',
+} as const
+
+export type PropertyMathTypeApi = (typeof PropertyMathTypeApi)[keyof typeof PropertyMathTypeApi]
+export const PropertyMathTypeApi = {
+    avg: 'avg',
+    sum: 'sum',
+    min: 'min',
+    max: 'max',
+    median: 'median',
+    p75: 'p75',
+    p90: 'p90',
+    p95: 'p95',
+    p99: 'p99',
+} as const
+
+export type CountPerActorMathTypeApi = (typeof CountPerActorMathTypeApi)[keyof typeof CountPerActorMathTypeApi]
+export const CountPerActorMathTypeApi = {
+    avg_count_per_actor: 'avg_count_per_actor',
+    min_count_per_actor: 'min_count_per_actor',
+    max_count_per_actor: 'max_count_per_actor',
+    median_count_per_actor: 'median_count_per_actor',
+    p75_count_per_actor: 'p75_count_per_actor',
+    p90_count_per_actor: 'p90_count_per_actor',
+    p95_count_per_actor: 'p95_count_per_actor',
+    p99_count_per_actor: 'p99_count_per_actor',
+} as const
+
+export type ExperimentMetricMathTypeApi = (typeof ExperimentMetricMathTypeApi)[keyof typeof ExperimentMetricMathTypeApi]
+export const ExperimentMetricMathTypeApi = {
+    total: 'total',
+    sum: 'sum',
+    unique_session: 'unique_session',
+    min: 'min',
+    max: 'max',
+    avg: 'avg',
+    dau: 'dau',
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+
+export type CalendarHeatmapMathTypeApi = (typeof CalendarHeatmapMathTypeApi)[keyof typeof CalendarHeatmapMathTypeApi]
+export const CalendarHeatmapMathTypeApi = {
+    total: 'total',
+    dau: 'dau',
+} as const
+
+export type MathGroupTypeIndexApi = (typeof MathGroupTypeIndexApi)[keyof typeof MathGroupTypeIndexApi]
+export const MathGroupTypeIndexApi = {
+    NUMBER_0: 0,
+    NUMBER_1: 1,
+    NUMBER_2: 2,
+    NUMBER_3: 3,
+    NUMBER_4: 4,
+} as const
+
+export type CompareApi = (typeof CompareApi)[keyof typeof CompareApi]
+export const CompareApi = {
+    current: 'current',
+    previous: 'previous',
+} as const
+
+export type HogLanguageApi = (typeof HogLanguageApi)[keyof typeof HogLanguageApi]
+export const HogLanguageApi = {
+    hog: 'hog',
+    hogJson: 'hogJson',
+    hogQL: 'hogQL',
+    hogQLExpr: 'hogQLExpr',
+    hogTemplate: 'hogTemplate',
+    liquid: 'liquid',
+} as const
+
+export type SessionAttributionGroupByApi =
+    (typeof SessionAttributionGroupByApi)[keyof typeof SessionAttributionGroupByApi]
+export const SessionAttributionGroupByApi = {
+    ChannelType: 'ChannelType',
+    Medium: 'Medium',
+    Source: 'Source',
+    Campaign: 'Campaign',
+    AdIds: 'AdIds',
+    ReferringDomain: 'ReferringDomain',
+    InitialURL: 'InitialURL',
+} as const
+
+export type OrderBy1Api = (typeof OrderBy1Api)[keyof typeof OrderBy1Api]
+export const OrderBy1Api = {
+    last_seen: 'last_seen',
+    first_seen: 'first_seen',
+    occurrences: 'occurrences',
+    users: 'users',
+    sessions: 'sessions',
+    revenue: 'revenue',
+} as const
+
+export type OrderDirection1Api = (typeof OrderDirection1Api)[keyof typeof OrderDirection1Api]
+export const OrderDirection1Api = {
     ASC: 'ASC',
     DESC: 'DESC',
 } as const
 
-export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
-export const SourceTypeEnum = {
+export type RevenueEntityApi = (typeof RevenueEntityApi)[keyof typeof RevenueEntityApi]
+export const RevenueEntityApi = {
+    person: 'person',
+    group_0: 'group_0',
+    group_1: 'group_1',
+    group_2: 'group_2',
+    group_3: 'group_3',
+    group_4: 'group_4',
+} as const
+
+export type RevenuePeriodApi = (typeof RevenuePeriodApi)[keyof typeof RevenuePeriodApi]
+export const RevenuePeriodApi = {
+    all_time: 'all_time',
+    last_30_days: 'last_30_days',
+} as const
+
+export type Status2Api = (typeof Status2Api)[keyof typeof Status2Api]
+export const Status2Api = {
+    archived: 'archived',
+    active: 'active',
+    resolved: 'resolved',
+    pending_release: 'pending_release',
+    suppressed: 'suppressed',
+    all: 'all',
+} as const
+
+export type EmbeddingModelNameApi = (typeof EmbeddingModelNameApi)[keyof typeof EmbeddingModelNameApi]
+export const EmbeddingModelNameApi = {
+    'text-embedding-3-small-1536': 'text-embedding-3-small-1536',
+    'text-embedding-3-large-3072': 'text-embedding-3-large-3072',
+} as const
+
+export type DistanceFuncApi = (typeof DistanceFuncApi)[keyof typeof DistanceFuncApi]
+export const DistanceFuncApi = {
+    L1Distance: 'L1Distance',
+    L2Distance: 'L2Distance',
+    cosineDistance: 'cosineDistance',
+} as const
+
+export type OrderByApi = (typeof OrderByApi)[keyof typeof OrderByApi]
+export const OrderByApi = {
+    distance: 'distance',
+    timestamp: 'timestamp',
+} as const
+
+export type OrderDirectionApi = (typeof OrderDirectionApi)[keyof typeof OrderDirectionApi]
+export const OrderDirectionApi = {
+    asc: 'asc',
+    desc: 'desc',
+} as const
+
+export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
+export const IntervalTypeApi = {
+    second: 'second',
+    minute: 'minute',
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    month: 'month',
+} as const
+
+export type WebAnalyticsOrderByFieldsApi =
+    (typeof WebAnalyticsOrderByFieldsApi)[keyof typeof WebAnalyticsOrderByFieldsApi]
+export const WebAnalyticsOrderByFieldsApi = {
+    Visitors: 'Visitors',
+    Views: 'Views',
+    Clicks: 'Clicks',
+    BounceRate: 'BounceRate',
+    AverageScrollPercentage: 'AverageScrollPercentage',
+    ScrollGt80Percentage: 'ScrollGt80Percentage',
+    TotalConversions: 'TotalConversions',
+    UniqueConversions: 'UniqueConversions',
+    ConversionRate: 'ConversionRate',
+    ConvertingUsers: 'ConvertingUsers',
+    RageClicks: 'RageClicks',
+    DeadClicks: 'DeadClicks',
+    Errors: 'Errors',
+} as const
+
+export type WebAnalyticsOrderByDirectionApi =
+    (typeof WebAnalyticsOrderByDirectionApi)[keyof typeof WebAnalyticsOrderByDirectionApi]
+export const WebAnalyticsOrderByDirectionApi = {
+    ASC: 'ASC',
+    DESC: 'DESC',
+} as const
+
+export type WebStatsBreakdownApi = (typeof WebStatsBreakdownApi)[keyof typeof WebStatsBreakdownApi]
+export const WebStatsBreakdownApi = {
+    Page: 'Page',
+    InitialPage: 'InitialPage',
+    ExitPage: 'ExitPage',
+    ExitClick: 'ExitClick',
+    PreviousPage: 'PreviousPage',
+    ScreenName: 'ScreenName',
+    InitialChannelType: 'InitialChannelType',
+    InitialReferringDomain: 'InitialReferringDomain',
+    InitialUTMSource: 'InitialUTMSource',
+    InitialUTMCampaign: 'InitialUTMCampaign',
+    InitialUTMMedium: 'InitialUTMMedium',
+    InitialUTMTerm: 'InitialUTMTerm',
+    InitialUTMContent: 'InitialUTMContent',
+    InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
+    Browser: 'Browser',
+    OS: 'OS',
+    Viewport: 'Viewport',
+    DeviceType: 'DeviceType',
+    Country: 'Country',
+    Region: 'Region',
+    City: 'City',
+    Timezone: 'Timezone',
+    Language: 'Language',
+    FrustrationMetrics: 'FrustrationMetrics',
+} as const
+
+export type WebVitalsMetricApi = (typeof WebVitalsMetricApi)[keyof typeof WebVitalsMetricApi]
+export const WebVitalsMetricApi = {
+    INP: 'INP',
+    LCP: 'LCP',
+    CLS: 'CLS',
+    FCP: 'FCP',
+} as const
+
+export type WebVitalsPercentileApi = (typeof WebVitalsPercentileApi)[keyof typeof WebVitalsPercentileApi]
+export const WebVitalsPercentileApi = {
+    p75: 'p75',
+    p90: 'p90',
+    p99: 'p99',
+} as const
+
+export type SimpleIntervalTypeApi = (typeof SimpleIntervalTypeApi)[keyof typeof SimpleIntervalTypeApi]
+export const SimpleIntervalTypeApi = {
+    day: 'day',
+    month: 'month',
+} as const
+
+export type RevenueAnalyticsTopCustomersGroupByApi =
+    (typeof RevenueAnalyticsTopCustomersGroupByApi)[keyof typeof RevenueAnalyticsTopCustomersGroupByApi]
+export const RevenueAnalyticsTopCustomersGroupByApi = {
+    month: 'month',
+    all: 'all',
+} as const
+
+export type MarketingAnalyticsOrderByEnumApi =
+    (typeof MarketingAnalyticsOrderByEnumApi)[keyof typeof MarketingAnalyticsOrderByEnumApi]
+export const MarketingAnalyticsOrderByEnumApi = {
+    ASC: 'ASC',
+    DESC: 'DESC',
+} as const
+
+export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
+export const ChartDisplayTypeApi = {
+    ActionsLineGraph: 'ActionsLineGraph',
+    ActionsBar: 'ActionsBar',
+    ActionsUnstackedBar: 'ActionsUnstackedBar',
+    ActionsStackedBar: 'ActionsStackedBar',
+    ActionsAreaGraph: 'ActionsAreaGraph',
+    ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
+    BoldNumber: 'BoldNumber',
+    ActionsPie: 'ActionsPie',
+    ActionsBarValue: 'ActionsBarValue',
+    ActionsTable: 'ActionsTable',
+    WorldMap: 'WorldMap',
+    CalendarHeatmap: 'CalendarHeatmap',
+} as const
+
+export type TaxonomicFilterGroupTypeApi = (typeof TaxonomicFilterGroupTypeApi)[keyof typeof TaxonomicFilterGroupTypeApi]
+export const TaxonomicFilterGroupTypeApi = {
+    metadata: 'metadata',
+    actions: 'actions',
+    cohorts: 'cohorts',
+    cohorts_with_all: 'cohorts_with_all',
+    data_warehouse: 'data_warehouse',
+    data_warehouse_properties: 'data_warehouse_properties',
+    data_warehouse_person_properties: 'data_warehouse_person_properties',
+    elements: 'elements',
+    events: 'events',
+    internal_events: 'internal_events',
+    internal_event_properties: 'internal_event_properties',
+    event_properties: 'event_properties',
+    event_feature_flags: 'event_feature_flags',
+    event_metadata: 'event_metadata',
+    numerical_event_properties: 'numerical_event_properties',
+    person_properties: 'person_properties',
+    pageview_urls: 'pageview_urls',
+    screens: 'screens',
+    custom_events: 'custom_events',
+    wildcard: 'wildcard',
+    groups: 'groups',
+    persons: 'persons',
+    feature_flags: 'feature_flags',
+    insights: 'insights',
+    experiments: 'experiments',
+    plugins: 'plugins',
+    dashboards: 'dashboards',
+    name_groups: 'name_groups',
+    session_properties: 'session_properties',
+    hogql_expression: 'hogql_expression',
+    notebooks: 'notebooks',
+    log_entries: 'log_entries',
+    error_tracking_issues: 'error_tracking_issues',
+    log_attributes: 'log_attributes',
+    replay: 'replay',
+    revenue_analytics_properties: 'revenue_analytics_properties',
+    resources: 'resources',
+    error_tracking_properties: 'error_tracking_properties',
+    activity_log_properties: 'activity_log_properties',
+    max_ai_context: 'max_ai_context',
+} as const
+
+export type FunnelCorrelationResultsTypeApi =
+    (typeof FunnelCorrelationResultsTypeApi)[keyof typeof FunnelCorrelationResultsTypeApi]
+export const FunnelCorrelationResultsTypeApi = {
+    events: 'events',
+    properties: 'properties',
+    event_with_properties: 'event_with_properties',
+} as const
+
+export type OrderBy3Api = (typeof OrderBy3Api)[keyof typeof OrderBy3Api]
+export const OrderBy3Api = {
+    latest: 'latest',
+    earliest: 'earliest',
+} as const
+
+export type LogSeverityLevelApi = (typeof LogSeverityLevelApi)[keyof typeof LogSeverityLevelApi]
+export const LogSeverityLevelApi = {
+    trace: 'trace',
+    debug: 'debug',
+    info: 'info',
+    warn: 'warn',
+    error: 'error',
+    fatal: 'fatal',
+} as const
+
+export type QueryIndexUsageApi = (typeof QueryIndexUsageApi)[keyof typeof QueryIndexUsageApi]
+export const QueryIndexUsageApi = {
+    undecisive: 'undecisive',
+    no: 'no',
+    partial: 'partial',
+    yes: 'yes',
+} as const
+
+export type ExperimentSignificanceCodeApi =
+    (typeof ExperimentSignificanceCodeApi)[keyof typeof ExperimentSignificanceCodeApi]
+export const ExperimentSignificanceCodeApi = {
+    significant: 'significant',
+    not_enough_exposure: 'not_enough_exposure',
+    low_win_probability: 'low_win_probability',
+    high_loss: 'high_loss',
+    high_p_value: 'high_p_value',
+} as const
+
+export type ExternalQueryStatusApi = (typeof ExternalQueryStatusApi)[keyof typeof ExternalQueryStatusApi]
+export const ExternalQueryStatusApi = {
+    success: 'success',
+    error: 'error',
+} as const
+
+export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
+export const SourceTypeEnumApi = {
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
     Github: 'Github',
@@ -682,35 +711,796 @@ export const SourceTypeEnum = {
     Shopify: 'Shopify',
 } as const
 
-export const HogFunctionFiltersSourceEnum = {
+export type HogFunctionFiltersSourceEnumApi =
+    (typeof HogFunctionFiltersSourceEnumApi)[keyof typeof HogFunctionFiltersSourceEnumApi]
+export const HogFunctionFiltersSourceEnumApi = {
     events: 'events',
     'person-updates': 'person-updates',
 } as const
 
-export type ConversationStatusEnum = (typeof ConversationStatusEnum)[keyof typeof ConversationStatusEnum]
-export const ConversationStatusEnum = {
+export type BreakdownTypeApi = (typeof BreakdownTypeApi)[keyof typeof BreakdownTypeApi]
+export const BreakdownTypeApi = {
+    cohort: 'cohort',
+    person: 'person',
+    event: 'event',
+    event_metadata: 'event_metadata',
+    group: 'group',
+    session: 'session',
+    hogql: 'hogql',
+    data_warehouse: 'data_warehouse',
+    data_warehouse_person_property: 'data_warehouse_person_property',
+    revenue_analytics: 'revenue_analytics',
+} as const
+
+export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
+export const PropertyOperatorApi = {
+    exact: 'exact',
+    is_not: 'is_not',
+    icontains: 'icontains',
+    not_icontains: 'not_icontains',
+    regex: 'regex',
+    not_regex: 'not_regex',
+    gt: 'gt',
+    gte: 'gte',
+    lt: 'lt',
+    lte: 'lte',
+    is_set: 'is_set',
+    is_not_set: 'is_not_set',
+    is_date_exact: 'is_date_exact',
+    is_date_before: 'is_date_before',
+    is_date_after: 'is_date_after',
+    between: 'between',
+    not_between: 'not_between',
+    min: 'min',
+    max: 'max',
+    in: 'in',
+    not_in: 'not_in',
+    is_cleaned_path_exact: 'is_cleaned_path_exact',
+    flag_evaluates_to: 'flag_evaluates_to',
+} as const
+
+export type KeyApi = (typeof KeyApi)[keyof typeof KeyApi]
+export const KeyApi = {
+    tag_name: 'tag_name',
+    text: 'text',
+    href: 'href',
+    selector: 'selector',
+} as const
+
+export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
+export const DurationTypeApi = {
+    duration: 'duration',
+    active_seconds: 'active_seconds',
+    inactive_seconds: 'inactive_seconds',
+} as const
+
+export type CurrencyCodeApi = (typeof CurrencyCodeApi)[keyof typeof CurrencyCodeApi]
+export const CurrencyCodeApi = {
+    AED: 'AED',
+    AFN: 'AFN',
+    ALL: 'ALL',
+    AMD: 'AMD',
+    ANG: 'ANG',
+    AOA: 'AOA',
+    ARS: 'ARS',
+    AUD: 'AUD',
+    AWG: 'AWG',
+    AZN: 'AZN',
+    BAM: 'BAM',
+    BBD: 'BBD',
+    BDT: 'BDT',
+    BGN: 'BGN',
+    BHD: 'BHD',
+    BIF: 'BIF',
+    BMD: 'BMD',
+    BND: 'BND',
+    BOB: 'BOB',
+    BRL: 'BRL',
+    BSD: 'BSD',
+    BTC: 'BTC',
+    BTN: 'BTN',
+    BWP: 'BWP',
+    BYN: 'BYN',
+    BZD: 'BZD',
+    CAD: 'CAD',
+    CDF: 'CDF',
+    CHF: 'CHF',
+    CLP: 'CLP',
+    CNY: 'CNY',
+    COP: 'COP',
+    CRC: 'CRC',
+    CVE: 'CVE',
+    CZK: 'CZK',
+    DJF: 'DJF',
+    DKK: 'DKK',
+    DOP: 'DOP',
+    DZD: 'DZD',
+    EGP: 'EGP',
+    ERN: 'ERN',
+    ETB: 'ETB',
+    EUR: 'EUR',
+    FJD: 'FJD',
+    GBP: 'GBP',
+    GEL: 'GEL',
+    GHS: 'GHS',
+    GIP: 'GIP',
+    GMD: 'GMD',
+    GNF: 'GNF',
+    GTQ: 'GTQ',
+    GYD: 'GYD',
+    HKD: 'HKD',
+    HNL: 'HNL',
+    HRK: 'HRK',
+    HTG: 'HTG',
+    HUF: 'HUF',
+    IDR: 'IDR',
+    ILS: 'ILS',
+    INR: 'INR',
+    IQD: 'IQD',
+    IRR: 'IRR',
+    ISK: 'ISK',
+    JMD: 'JMD',
+    JOD: 'JOD',
+    JPY: 'JPY',
+    KES: 'KES',
+    KGS: 'KGS',
+    KHR: 'KHR',
+    KMF: 'KMF',
+    KRW: 'KRW',
+    KWD: 'KWD',
+    KYD: 'KYD',
+    KZT: 'KZT',
+    LAK: 'LAK',
+    LBP: 'LBP',
+    LKR: 'LKR',
+    LRD: 'LRD',
+    LTL: 'LTL',
+    LVL: 'LVL',
+    LSL: 'LSL',
+    LYD: 'LYD',
+    MAD: 'MAD',
+    MDL: 'MDL',
+    MGA: 'MGA',
+    MKD: 'MKD',
+    MMK: 'MMK',
+    MNT: 'MNT',
+    MOP: 'MOP',
+    MRU: 'MRU',
+    MTL: 'MTL',
+    MUR: 'MUR',
+    MVR: 'MVR',
+    MWK: 'MWK',
+    MXN: 'MXN',
+    MYR: 'MYR',
+    MZN: 'MZN',
+    NAD: 'NAD',
+    NGN: 'NGN',
+    NIO: 'NIO',
+    NOK: 'NOK',
+    NPR: 'NPR',
+    NZD: 'NZD',
+    OMR: 'OMR',
+    PAB: 'PAB',
+    PEN: 'PEN',
+    PGK: 'PGK',
+    PHP: 'PHP',
+    PKR: 'PKR',
+    PLN: 'PLN',
+    PYG: 'PYG',
+    QAR: 'QAR',
+    RON: 'RON',
+    RSD: 'RSD',
+    RUB: 'RUB',
+    RWF: 'RWF',
+    SAR: 'SAR',
+    SBD: 'SBD',
+    SCR: 'SCR',
+    SDG: 'SDG',
+    SEK: 'SEK',
+    SGD: 'SGD',
+    SRD: 'SRD',
+    SSP: 'SSP',
+    STN: 'STN',
+    SYP: 'SYP',
+    SZL: 'SZL',
+    THB: 'THB',
+    TJS: 'TJS',
+    TMT: 'TMT',
+    TND: 'TND',
+    TOP: 'TOP',
+    TRY: 'TRY',
+    TTD: 'TTD',
+    TWD: 'TWD',
+    TZS: 'TZS',
+    UAH: 'UAH',
+    UGX: 'UGX',
+    USD: 'USD',
+    UYU: 'UYU',
+    UZS: 'UZS',
+    VES: 'VES',
+    VND: 'VND',
+    VUV: 'VUV',
+    WST: 'WST',
+    XAF: 'XAF',
+    XCD: 'XCD',
+    XOF: 'XOF',
+    XPF: 'XPF',
+    YER: 'YER',
+    ZAR: 'ZAR',
+    ZMW: 'ZMW',
+} as const
+
+export type BounceRatePageViewModeApi = (typeof BounceRatePageViewModeApi)[keyof typeof BounceRatePageViewModeApi]
+export const BounceRatePageViewModeApi = {
+    count_pageviews: 'count_pageviews',
+    uniq_urls: 'uniq_urls',
+    uniq_page_screen_autocaptures: 'uniq_page_screen_autocaptures',
+} as const
+
+export type InCohortViaApi = (typeof InCohortViaApi)[keyof typeof InCohortViaApi]
+export const InCohortViaApi = {
+    auto: 'auto',
+    leftjoin: 'leftjoin',
+    subquery: 'subquery',
+    leftjoin_conjoined: 'leftjoin_conjoined',
+} as const
+
+export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
+export const MaterializationModeApi = {
+    auto: 'auto',
+    legacy_null_as_string: 'legacy_null_as_string',
+    legacy_null_as_null: 'legacy_null_as_null',
+    disabled: 'disabled',
+} as const
+
+export type PersonsArgMaxVersionApi = (typeof PersonsArgMaxVersionApi)[keyof typeof PersonsArgMaxVersionApi]
+export const PersonsArgMaxVersionApi = {
+    auto: 'auto',
+    v1: 'v1',
+    v2: 'v2',
+} as const
+
+export type PersonsJoinModeApi = (typeof PersonsJoinModeApi)[keyof typeof PersonsJoinModeApi]
+export const PersonsJoinModeApi = {
+    inner: 'inner',
+    left: 'left',
+} as const
+
+export type PersonsOnEventsModeApi = (typeof PersonsOnEventsModeApi)[keyof typeof PersonsOnEventsModeApi]
+export const PersonsOnEventsModeApi = {
+    disabled: 'disabled',
+    person_id_no_override_properties_on_events: 'person_id_no_override_properties_on_events',
+    person_id_override_properties_on_events: 'person_id_override_properties_on_events',
+    person_id_override_properties_joined: 'person_id_override_properties_joined',
+} as const
+
+export type PropertyGroupsModeApi = (typeof PropertyGroupsModeApi)[keyof typeof PropertyGroupsModeApi]
+export const PropertyGroupsModeApi = {
+    enabled: 'enabled',
+    disabled: 'disabled',
+    optimized: 'optimized',
+} as const
+
+export type SessionTableVersionApi = (typeof SessionTableVersionApi)[keyof typeof SessionTableVersionApi]
+export const SessionTableVersionApi = {
+    auto: 'auto',
+    v1: 'v1',
+    v2: 'v2',
+    v3: 'v3',
+} as const
+
+export type SessionsV2JoinModeApi = (typeof SessionsV2JoinModeApi)[keyof typeof SessionsV2JoinModeApi]
+export const SessionsV2JoinModeApi = {
+    string: 'string',
+    uuid: 'uuid',
+} as const
+
+export type FilterLogicalOperatorApi = (typeof FilterLogicalOperatorApi)[keyof typeof FilterLogicalOperatorApi]
+export const FilterLogicalOperatorApi = {
+    AND: 'AND',
+    OR: 'OR',
+} as const
+
+export type StickinessOperatorApi = (typeof StickinessOperatorApi)[keyof typeof StickinessOperatorApi]
+export const StickinessOperatorApi = {
+    gte: 'gte',
+    lte: 'lte',
+    exact: 'exact',
+} as const
+
+export type WebTrendsMetricApi = (typeof WebTrendsMetricApi)[keyof typeof WebTrendsMetricApi]
+export const WebTrendsMetricApi = {
+    UniqueUsers: 'UniqueUsers',
+    PageViews: 'PageViews',
+    Sessions: 'Sessions',
+    Bounces: 'Bounces',
+    SessionDuration: 'SessionDuration',
+    TotalSessions: 'TotalSessions',
+} as const
+
+export type RecordingOrderApi = (typeof RecordingOrderApi)[keyof typeof RecordingOrderApi]
+export const RecordingOrderApi = {
+    duration: 'duration',
+    recording_duration: 'recording_duration',
+    inactive_seconds: 'inactive_seconds',
+    active_seconds: 'active_seconds',
+    start_time: 'start_time',
+    console_error_count: 'console_error_count',
+    click_count: 'click_count',
+    keypress_count: 'keypress_count',
+    mouse_activity_count: 'mouse_activity_count',
+    activity_score: 'activity_score',
+    recording_ttl: 'recording_ttl',
+} as const
+
+export type RecordingOrderDirectionApi = (typeof RecordingOrderDirectionApi)[keyof typeof RecordingOrderDirectionApi]
+export const RecordingOrderDirectionApi = {
+    ASC: 'ASC',
+    DESC: 'DESC',
+} as const
+
+export type ErrorTrackingIssueAssigneeTypeApi =
+    (typeof ErrorTrackingIssueAssigneeTypeApi)[keyof typeof ErrorTrackingIssueAssigneeTypeApi]
+export const ErrorTrackingIssueAssigneeTypeApi = {
+    user: 'user',
+    role: 'role',
+} as const
+
+export type FunnelConversionWindowTimeUnitApi =
+    (typeof FunnelConversionWindowTimeUnitApi)[keyof typeof FunnelConversionWindowTimeUnitApi]
+export const FunnelConversionWindowTimeUnitApi = {
+    second: 'second',
+    minute: 'minute',
+    hour: 'hour',
+    day: 'day',
+    week: 'week',
+    month: 'month',
+} as const
+
+export type ExperimentMetricGoalApi = (typeof ExperimentMetricGoalApi)[keyof typeof ExperimentMetricGoalApi]
+export const ExperimentMetricGoalApi = {
+    increase: 'increase',
+    decrease: 'decrease',
+} as const
+
+export type StepOrderValueApi = (typeof StepOrderValueApi)[keyof typeof StepOrderValueApi]
+export const StepOrderValueApi = {
+    strict: 'strict',
+    unordered: 'unordered',
+    ordered: 'ordered',
+} as const
+
+export type StartHandlingApi = (typeof StartHandlingApi)[keyof typeof StartHandlingApi]
+export const StartHandlingApi = {
+    first_seen: 'first_seen',
+    last_seen: 'last_seen',
+} as const
+
+export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
+export const MultipleVariantHandlingApi = {
+    exclude: 'exclude',
+    first_seen: 'first_seen',
+} as const
+
+export type DataTableNodeViewPropsContextTypeApi =
+    (typeof DataTableNodeViewPropsContextTypeApi)[keyof typeof DataTableNodeViewPropsContextTypeApi]
+export const DataTableNodeViewPropsContextTypeApi = {
+    event_definition: 'event_definition',
+    team_columns: 'team_columns',
+} as const
+
+export type AggregationAxisFormatApi = (typeof AggregationAxisFormatApi)[keyof typeof AggregationAxisFormatApi]
+export const AggregationAxisFormatApi = {
+    numeric: 'numeric',
+    duration: 'duration',
+    duration_ms: 'duration_ms',
+    percentage: 'percentage',
+    percentage_scaled: 'percentage_scaled',
+    currency: 'currency',
+} as const
+
+export type DetailedResultsAggregationTypeApi =
+    (typeof DetailedResultsAggregationTypeApi)[keyof typeof DetailedResultsAggregationTypeApi]
+export const DetailedResultsAggregationTypeApi = {
+    total: 'total',
+    average: 'average',
+    median: 'median',
+} as const
+
+export type ResultCustomizationByApi = (typeof ResultCustomizationByApi)[keyof typeof ResultCustomizationByApi]
+export const ResultCustomizationByApi = {
+    value: 'value',
+    position: 'position',
+} as const
+
+export type YAxisScaleTypeApi = (typeof YAxisScaleTypeApi)[keyof typeof YAxisScaleTypeApi]
+export const YAxisScaleTypeApi = {
+    log10: 'log10',
+    linear: 'linear',
+} as const
+
+export type BreakdownAttributionTypeApi = (typeof BreakdownAttributionTypeApi)[keyof typeof BreakdownAttributionTypeApi]
+export const BreakdownAttributionTypeApi = {
+    first_touch: 'first_touch',
+    last_touch: 'last_touch',
+    all_events: 'all_events',
+    step: 'step',
+} as const
+
+export type FunnelStepReferenceApi = (typeof FunnelStepReferenceApi)[keyof typeof FunnelStepReferenceApi]
+export const FunnelStepReferenceApi = {
+    total: 'total',
+    previous: 'previous',
+} as const
+
+export type FunnelVizTypeApi = (typeof FunnelVizTypeApi)[keyof typeof FunnelVizTypeApi]
+export const FunnelVizTypeApi = {
+    steps: 'steps',
+    time_to_convert: 'time_to_convert',
+    trends: 'trends',
+} as const
+
+export type FunnelLayoutApi = (typeof FunnelLayoutApi)[keyof typeof FunnelLayoutApi]
+export const FunnelLayoutApi = {
+    horizontal: 'horizontal',
+    vertical: 'vertical',
+} as const
+
+export type RetentionDashboardDisplayTypeApi =
+    (typeof RetentionDashboardDisplayTypeApi)[keyof typeof RetentionDashboardDisplayTypeApi]
+export const RetentionDashboardDisplayTypeApi = {
+    table_only: 'table_only',
+    graph_only: 'graph_only',
+    all: 'all',
+} as const
+
+export type MeanRetentionCalculationApi = (typeof MeanRetentionCalculationApi)[keyof typeof MeanRetentionCalculationApi]
+export const MeanRetentionCalculationApi = {
+    simple: 'simple',
+    weighted: 'weighted',
+    none: 'none',
+} as const
+
+export type RetentionPeriodApi = (typeof RetentionPeriodApi)[keyof typeof RetentionPeriodApi]
+export const RetentionPeriodApi = {
+    Hour: 'Hour',
+    Day: 'Day',
+    Week: 'Week',
+    Month: 'Month',
+} as const
+
+export type RetentionReferenceApi = (typeof RetentionReferenceApi)[keyof typeof RetentionReferenceApi]
+export const RetentionReferenceApi = {
+    total: 'total',
+    previous: 'previous',
+} as const
+
+export type RetentionTypeApi = (typeof RetentionTypeApi)[keyof typeof RetentionTypeApi]
+export const RetentionTypeApi = {
+    retention_recurring: 'retention_recurring',
+    retention_first_time: 'retention_first_time',
+    retention_first_ever_occurrence: 'retention_first_ever_occurrence',
+} as const
+
+export type TimeWindowModeApi = (typeof TimeWindowModeApi)[keyof typeof TimeWindowModeApi]
+export const TimeWindowModeApi = {
+    strict_calendar_dates: 'strict_calendar_dates',
+    '24_hour_windows': '24_hour_windows',
+} as const
+
+export type FunnelPathTypeApi = (typeof FunnelPathTypeApi)[keyof typeof FunnelPathTypeApi]
+export const FunnelPathTypeApi = {
+    funnel_path_before_step: 'funnel_path_before_step',
+    funnel_path_between_steps: 'funnel_path_between_steps',
+    funnel_path_after_step: 'funnel_path_after_step',
+} as const
+
+export type PathTypeApi = (typeof PathTypeApi)[keyof typeof PathTypeApi]
+export const PathTypeApi = {
+    $pageview: '$pageview',
+    $screen: '$screen',
+    custom_event: 'custom_event',
+    hogql: 'hogql',
+} as const
+
+export type StickinessComputationModeApi =
+    (typeof StickinessComputationModeApi)[keyof typeof StickinessComputationModeApi]
+export const StickinessComputationModeApi = {
+    non_cumulative: 'non_cumulative',
+    cumulative: 'cumulative',
+} as const
+
+export type LifecycleToggleApi = (typeof LifecycleToggleApi)[keyof typeof LifecycleToggleApi]
+export const LifecycleToggleApi = {
+    new: 'new',
+    resurrecting: 'resurrecting',
+    returning: 'returning',
+    dormant: 'dormant',
+} as const
+
+export type AutocompleteCompletionItemKindApi =
+    (typeof AutocompleteCompletionItemKindApi)[keyof typeof AutocompleteCompletionItemKindApi]
+export const AutocompleteCompletionItemKindApi = {
+    Method: 'Method',
+    Function: 'Function',
+    Constructor: 'Constructor',
+    Field: 'Field',
+    Variable: 'Variable',
+    Class: 'Class',
+    Struct: 'Struct',
+    Interface: 'Interface',
+    Module: 'Module',
+    Property: 'Property',
+    Event: 'Event',
+    Operator: 'Operator',
+    Unit: 'Unit',
+    Value: 'Value',
+    Constant: 'Constant',
+    Enum: 'Enum',
+    EnumMember: 'EnumMember',
+    Keyword: 'Keyword',
+    Text: 'Text',
+    Color: 'Color',
+    File: 'File',
+    Reference: 'Reference',
+    Customcolor: 'Customcolor',
+    Folder: 'Folder',
+    TypeParameter: 'TypeParameter',
+    User: 'User',
+    Issue: 'Issue',
+    Snippet: 'Snippet',
+} as const
+
+export type StatusApi = (typeof StatusApi)[keyof typeof StatusApi]
+export const StatusApi = {
+    archived: 'archived',
+    active: 'active',
+    resolved: 'resolved',
+    pending_release: 'pending_release',
+    suppressed: 'suppressed',
+} as const
+
+export type ExperimentStatsValidationFailureApi =
+    (typeof ExperimentStatsValidationFailureApi)[keyof typeof ExperimentStatsValidationFailureApi]
+export const ExperimentStatsValidationFailureApi = {
+    'not-enough-exposures': 'not-enough-exposures',
+    'baseline-mean-is-zero': 'baseline-mean-is-zero',
+    'not-enough-metric-data': 'not-enough-metric-data',
+} as const
+
+export type WebAnalyticsItemKindApi = (typeof WebAnalyticsItemKindApi)[keyof typeof WebAnalyticsItemKindApi]
+export const WebAnalyticsItemKindApi = {
+    unit: 'unit',
+    duration_s: 'duration_s',
+    percentage: 'percentage',
+    currency: 'currency',
+} as const
+
+export type ExternalQueryErrorCodeApi = (typeof ExternalQueryErrorCodeApi)[keyof typeof ExternalQueryErrorCodeApi]
+export const ExternalQueryErrorCodeApi = {
+    platform_access_required: 'platform_access_required',
+    query_execution_failed: 'query_execution_failed',
+} as const
+
+export type RevenueAnalyticsOverviewItemKeyApi =
+    (typeof RevenueAnalyticsOverviewItemKeyApi)[keyof typeof RevenueAnalyticsOverviewItemKeyApi]
+export const RevenueAnalyticsOverviewItemKeyApi = {
+    revenue: 'revenue',
+    paying_customer_count: 'paying_customer_count',
+    avg_revenue_per_customer: 'avg_revenue_per_customer',
+} as const
+
+export type DatabaseSchemaManagedViewTableKindApi =
+    (typeof DatabaseSchemaManagedViewTableKindApi)[keyof typeof DatabaseSchemaManagedViewTableKindApi]
+export const DatabaseSchemaManagedViewTableKindApi = {
+    revenue_analytics_charge: 'revenue_analytics_charge',
+    revenue_analytics_customer: 'revenue_analytics_customer',
+    revenue_analytics_product: 'revenue_analytics_product',
+    revenue_analytics_revenue_item: 'revenue_analytics_revenue_item',
+    revenue_analytics_subscription: 'revenue_analytics_subscription',
+} as const
+
+export type UsageMetricDisplayApi = (typeof UsageMetricDisplayApi)[keyof typeof UsageMetricDisplayApi]
+export const UsageMetricDisplayApi = {
+    number: 'number',
+    sparkline: 'sparkline',
+} as const
+
+export type UsageMetricFormatApi = (typeof UsageMetricFormatApi)[keyof typeof UsageMetricFormatApi]
+export const UsageMetricFormatApi = {
+    numeric: 'numeric',
+    currency: 'currency',
+} as const
+
+export type MultipleBreakdownTypeApi = (typeof MultipleBreakdownTypeApi)[keyof typeof MultipleBreakdownTypeApi]
+export const MultipleBreakdownTypeApi = {
+    cohort: 'cohort',
+    person: 'person',
+    event: 'event',
+    event_metadata: 'event_metadata',
+    group: 'group',
+    session: 'session',
+    hogql: 'hogql',
+    revenue_analytics: 'revenue_analytics',
+} as const
+
+export type PositionApi = (typeof PositionApi)[keyof typeof PositionApi]
+export const PositionApi = {
+    start: 'start',
+    end: 'end',
+} as const
+
+export type ScaleApi = (typeof ScaleApi)[keyof typeof ScaleApi]
+export const ScaleApi = {
+    linear: 'linear',
+    logarithmic: 'logarithmic',
+} as const
+
+export type ColorModeApi = (typeof ColorModeApi)[keyof typeof ColorModeApi]
+export const ColorModeApi = {
+    light: 'light',
+    dark: 'dark',
+} as const
+
+export type DataColorTokenApi = (typeof DataColorTokenApi)[keyof typeof DataColorTokenApi]
+export const DataColorTokenApi = {
+    'preset-1': 'preset-1',
+    'preset-2': 'preset-2',
+    'preset-3': 'preset-3',
+    'preset-4': 'preset-4',
+    'preset-5': 'preset-5',
+    'preset-6': 'preset-6',
+    'preset-7': 'preset-7',
+    'preset-8': 'preset-8',
+    'preset-9': 'preset-9',
+    'preset-10': 'preset-10',
+    'preset-11': 'preset-11',
+    'preset-12': 'preset-12',
+    'preset-13': 'preset-13',
+    'preset-14': 'preset-14',
+    'preset-15': 'preset-15',
+} as const
+
+export type RetentionEntityKindApi = (typeof RetentionEntityKindApi)[keyof typeof RetentionEntityKindApi]
+export const RetentionEntityKindApi = {
+    ActionsNode: 'ActionsNode',
+    EventsNode: 'EventsNode',
+} as const
+
+export type EntityTypeApi = (typeof EntityTypeApi)[keyof typeof EntityTypeApi]
+export const EntityTypeApi = {
+    actions: 'actions',
+    events: 'events',
+    data_warehouse: 'data_warehouse',
+    new_entity: 'new_entity',
+} as const
+
+export type AIEventTypeApi = (typeof AIEventTypeApi)[keyof typeof AIEventTypeApi]
+export const AIEventTypeApi = {
+    $ai_generation: '$ai_generation',
+    $ai_embedding: '$ai_embedding',
+    $ai_span: '$ai_span',
+    $ai_trace: '$ai_trace',
+    $ai_metric: '$ai_metric',
+    $ai_feedback: '$ai_feedback',
+    $ai_evaluation: '$ai_evaluation',
+} as const
+
+export type CorrelationTypeApi = (typeof CorrelationTypeApi)[keyof typeof CorrelationTypeApi]
+export const CorrelationTypeApi = {
+    success: 'success',
+    failure: 'failure',
+} as const
+
+export type DatabaseSerializedFieldTypeApi =
+    (typeof DatabaseSerializedFieldTypeApi)[keyof typeof DatabaseSerializedFieldTypeApi]
+export const DatabaseSerializedFieldTypeApi = {
+    integer: 'integer',
+    float: 'float',
+    decimal: 'decimal',
+    string: 'string',
+    datetime: 'datetime',
+    date: 'date',
+    boolean: 'boolean',
+    array: 'array',
+    json: 'json',
+    lazy_table: 'lazy_table',
+    virtual_table: 'virtual_table',
+    field_traverser: 'field_traverser',
+    expression: 'expression',
+    view: 'view',
+    materialized_view: 'materialized_view',
+    unknown: 'unknown',
+} as const
+
+export type CustomChannelFieldApi = (typeof CustomChannelFieldApi)[keyof typeof CustomChannelFieldApi]
+export const CustomChannelFieldApi = {
+    utm_source: 'utm_source',
+    utm_medium: 'utm_medium',
+    utm_campaign: 'utm_campaign',
+    referring_domain: 'referring_domain',
+    url: 'url',
+    pathname: 'pathname',
+    hostname: 'hostname',
+} as const
+
+export type CustomChannelOperatorApi = (typeof CustomChannelOperatorApi)[keyof typeof CustomChannelOperatorApi]
+export const CustomChannelOperatorApi = {
+    exact: 'exact',
+    is_not: 'is_not',
+    is_set: 'is_set',
+    is_not_set: 'is_not_set',
+    icontains: 'icontains',
+    not_icontains: 'not_icontains',
+    regex: 'regex',
+    not_regex: 'not_regex',
+} as const
+
+export type SnapshotSourceApi = (typeof SnapshotSourceApi)[keyof typeof SnapshotSourceApi]
+export const SnapshotSourceApi = {
+    web: 'web',
+    mobile: 'mobile',
+    unknown: 'unknown',
+} as const
+
+export type HedgehogColorOptionsApi = (typeof HedgehogColorOptionsApi)[keyof typeof HedgehogColorOptionsApi]
+export const HedgehogColorOptionsApi = {
+    green: 'green',
+    red: 'red',
+    blue: 'blue',
+    purple: 'purple',
+    dark: 'dark',
+    light: 'light',
+    sepia: 'sepia',
+    invert: 'invert',
+    'invert-hue': 'invert-hue',
+    greyscale: 'greyscale',
+} as const
+
+export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
+export const DisplayTypeApi = {
+    auto: 'auto',
+    line: 'line',
+    bar: 'bar',
+} as const
+
+export type YAxisPositionApi = (typeof YAxisPositionApi)[keyof typeof YAxisPositionApi]
+export const YAxisPositionApi = {
+    left: 'left',
+    right: 'right',
+} as const
+
+export type StyleApi = (typeof StyleApi)[keyof typeof StyleApi]
+export const StyleApi = {
+    none: 'none',
+    number: 'number',
+    percent: 'percent',
+} as const
+
+export type ConversationStatusEnumApi = (typeof ConversationStatusEnumApi)[keyof typeof ConversationStatusEnumApi]
+export const ConversationStatusEnumApi = {
     idle: 'idle',
     in_progress: 'in_progress',
     canceling: 'canceling',
 } as const
 
-export type ConversationTypeEnum = (typeof ConversationTypeEnum)[keyof typeof ConversationTypeEnum]
-export const ConversationTypeEnum = {
+export type ConversationTypeEnumApi = (typeof ConversationTypeEnumApi)[keyof typeof ConversationTypeEnumApi]
+export const ConversationTypeEnumApi = {
     assistant: 'assistant',
     tool_call: 'tool_call',
     deep_research: 'deep_research',
 } as const
 
-export type CreationModeEnum = (typeof CreationModeEnum)[keyof typeof CreationModeEnum]
-export const CreationModeEnum = {
+export type CreationModeEnumApi = (typeof CreationModeEnumApi)[keyof typeof CreationModeEnumApi]
+export const CreationModeEnumApi = {
     default: 'default',
     template: 'template',
     duplicate: 'duplicate',
     unlisted: 'unlisted',
 } as const
 
-export type ExportFormatEnum = (typeof ExportFormatEnum)[keyof typeof ExportFormatEnum]
-export const ExportFormatEnum = {
+export type ExportFormatEnumApi = (typeof ExportFormatEnumApi)[keyof typeof ExportFormatEnumApi]
+export const ExportFormatEnumApi = {
     'image/png': 'image/png',
     'application/pdf': 'application/pdf',
     'text/csv': 'text/csv',
@@ -722,23 +1512,23 @@ export const ExportFormatEnum = {
     'application/json': 'application/json',
 } as const
 
-export type TargetTypeEnum = (typeof TargetTypeEnum)[keyof typeof TargetTypeEnum]
-export const TargetTypeEnum = {
+export type TargetTypeEnumApi = (typeof TargetTypeEnumApi)[keyof typeof TargetTypeEnumApi]
+export const TargetTypeEnumApi = {
     email: 'email',
     slack: 'slack',
     webhook: 'webhook',
 } as const
 
-export type FrequencyEnum = (typeof FrequencyEnum)[keyof typeof FrequencyEnum]
-export const FrequencyEnum = {
+export type FrequencyEnumApi = (typeof FrequencyEnumApi)[keyof typeof FrequencyEnumApi]
+export const FrequencyEnumApi = {
     daily: 'daily',
     weekly: 'weekly',
     monthly: 'monthly',
     yearly: 'yearly',
 } as const
 
-export type ByweekdayEnum = (typeof ByweekdayEnum)[keyof typeof ByweekdayEnum]
-export const ByweekdayEnum = {
+export type ByweekdayEnumApi = (typeof ByweekdayEnumApi)[keyof typeof ByweekdayEnumApi]
+export const ByweekdayEnumApi = {
     monday: 'monday',
     tuesday: 'tuesday',
     wednesday: 'wednesday',
@@ -748,14 +1538,24 @@ export const ByweekdayEnum = {
     sunday: 'sunday',
 } as const
 
-export const EffectiveMembershipLevelEnum = {
+export type OrganizationMembershipLevelApi =
+    (typeof OrganizationMembershipLevelApi)[keyof typeof OrganizationMembershipLevelApi]
+export const OrganizationMembershipLevelApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
     NUMBER_15: 15,
 } as const
 
-export type TimezoneEnum = (typeof TimezoneEnum)[keyof typeof TimezoneEnum]
-export const TimezoneEnum = {
+export type EffectiveMembershipLevelEnumApi =
+    (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
+export const EffectiveMembershipLevelEnumApi = {
+    NUMBER_1: 1,
+    NUMBER_8: 8,
+    NUMBER_15: 15,
+} as const
+
+export type TimezoneEnumApi = (typeof TimezoneEnumApi)[keyof typeof TimezoneEnumApi]
+export const TimezoneEnumApi = {
     'Africa/Abidjan': 'Africa/Abidjan',
     'Africa/Accra': 'Africa/Accra',
     'Africa/Addis_Ababa': 'Africa/Addis_Ababa',
@@ -1354,27 +2154,27 @@ export const TimezoneEnum = {
     Zulu: 'Zulu',
 } as const
 
-export type WeekStartDayEnum = (typeof WeekStartDayEnum)[keyof typeof WeekStartDayEnum]
-export const WeekStartDayEnum = {
+export type WeekStartDayEnumApi = (typeof WeekStartDayEnumApi)[keyof typeof WeekStartDayEnumApi]
+export const WeekStartDayEnumApi = {
     NUMBER_0: 0,
     NUMBER_1: 1,
 } as const
 
-export type BusinessModelEnum = (typeof BusinessModelEnum)[keyof typeof BusinessModelEnum]
-export const BusinessModelEnum = {
+export type BusinessModelEnumApi = (typeof BusinessModelEnumApi)[keyof typeof BusinessModelEnumApi]
+export const BusinessModelEnumApi = {
     b2b: 'b2b',
     b2c: 'b2c',
     other: 'other',
 } as const
 
-export type CreationTypeEnum = (typeof CreationTypeEnum)[keyof typeof CreationTypeEnum]
-export const CreationTypeEnum = {
+export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
+export const CreationTypeEnumApi = {
     USR: 'USR',
     GIT: 'GIT',
 } as const
 
-export type AnnotationScopeEnum = (typeof AnnotationScopeEnum)[keyof typeof AnnotationScopeEnum]
-export const AnnotationScopeEnum = {
+export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
+export const AnnotationScopeEnumApi = {
     dashboard_item: 'dashboard_item',
     dashboard: 'dashboard',
     project: 'project',
@@ -1382,8 +2182,8 @@ export const AnnotationScopeEnum = {
     recording: 'recording',
 } as const
 
-export type CohortTypeEnum = (typeof CohortTypeEnum)[keyof typeof CohortTypeEnum]
-export const CohortTypeEnum = {
+export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
+export const CohortTypeEnumApi = {
     static: 'static',
     person_property: 'person_property',
     behavioral: 'behavioral',
@@ -1391,14 +2191,17 @@ export const CohortTypeEnum = {
     analytical: 'analytical',
 } as const
 
-export type DashboardTemplateScopeEnum = (typeof DashboardTemplateScopeEnum)[keyof typeof DashboardTemplateScopeEnum]
-export const DashboardTemplateScopeEnum = {
+export type DashboardTemplateScopeEnumApi =
+    (typeof DashboardTemplateScopeEnumApi)[keyof typeof DashboardTemplateScopeEnumApi]
+export const DashboardTemplateScopeEnumApi = {
     team: 'team',
     global: 'global',
     feature_flag: 'feature_flag',
 } as const
 
-export const PropertyDefinitionPropertyTypeEnum = {
+export type PropertyDefinitionPropertyTypeEnumApi =
+    (typeof PropertyDefinitionPropertyTypeEnumApi)[keyof typeof PropertyDefinitionPropertyTypeEnumApi]
+export const PropertyDefinitionPropertyTypeEnumApi = {
     DateTime: 'DateTime',
     String: 'String',
     Numeric: 'Numeric',
@@ -1406,45 +2209,49 @@ export const PropertyDefinitionPropertyTypeEnum = {
     Duration: 'Duration',
 } as const
 
-export type ModelNameEnum = (typeof ModelNameEnum)[keyof typeof ModelNameEnum]
-export const ModelNameEnum = {
+export type ModelNameEnumApi = (typeof ModelNameEnumApi)[keyof typeof ModelNameEnumApi]
+export const ModelNameEnumApi = {
     FeatureFlag: 'FeatureFlag',
 } as const
 
-export type ToolbarModeEnum = (typeof ToolbarModeEnum)[keyof typeof ToolbarModeEnum]
-export const ToolbarModeEnum = {
+export type ToolbarModeEnumApi = (typeof ToolbarModeEnumApi)[keyof typeof ToolbarModeEnumApi]
+export const ToolbarModeEnumApi = {
     disabled: 'disabled',
     toolbar: 'toolbar',
 } as const
 
-export type ThemeModeEnum = (typeof ThemeModeEnum)[keyof typeof ThemeModeEnum]
-export const ThemeModeEnum = {
+export type ThemeModeEnumApi = (typeof ThemeModeEnumApi)[keyof typeof ThemeModeEnumApi]
+export const ThemeModeEnumApi = {
     light: 'light',
     dark: 'dark',
     system: 'system',
 } as const
 
-export type MembershipLevelEnum = (typeof MembershipLevelEnum)[keyof typeof MembershipLevelEnum]
-export const MembershipLevelEnum = {
+export type MembershipLevelEnumApi = (typeof MembershipLevelEnumApi)[keyof typeof MembershipLevelEnumApi]
+export const MembershipLevelEnumApi = {
     NUMBER_1: 1,
     NUMBER_8: 8,
     NUMBER_15: 15,
 } as const
 
-export type PluginsAccessLevelEnum = (typeof PluginsAccessLevelEnum)[keyof typeof PluginsAccessLevelEnum]
-export const PluginsAccessLevelEnum = {
+export type PluginsAccessLevelEnumApi = (typeof PluginsAccessLevelEnumApi)[keyof typeof PluginsAccessLevelEnumApi]
+export const PluginsAccessLevelEnumApi = {
     NUMBER_0: 0,
     NUMBER_3: 3,
     NUMBER_6: 6,
     NUMBER_9: 9,
 } as const
 
-export const DefaultExperimentStatsMethodEnum = {
+export type DefaultExperimentStatsMethodEnumApi =
+    (typeof DefaultExperimentStatsMethodEnumApi)[keyof typeof DefaultExperimentStatsMethodEnumApi]
+export const DefaultExperimentStatsMethodEnumApi = {
     bayesian: 'bayesian',
     frequentist: 'frequentist',
 } as const
 
-export const CreateRecordingRequestPlatformEnum = {
+export type CreateRecordingRequestPlatformEnumApi =
+    (typeof CreateRecordingRequestPlatformEnumApi)[keyof typeof CreateRecordingRequestPlatformEnumApi]
+export const CreateRecordingRequestPlatformEnumApi = {
     zoom: 'zoom',
     teams: 'teams',
     meet: 'meet',
@@ -1452,8 +2259,8 @@ export const CreateRecordingRequestPlatformEnum = {
     slack: 'slack',
 } as const
 
-export type Platform9aaEnum = (typeof Platform9aaEnum)[keyof typeof Platform9aaEnum]
-export const Platform9aaEnum = {
+export type Platform9aaEnumApi = (typeof Platform9aaEnumApi)[keyof typeof Platform9aaEnumApi]
+export const Platform9aaEnumApi = {
     zoom: 'zoom',
     teams: 'teams',
     meet: 'meet',
@@ -1461,8 +2268,8 @@ export const Platform9aaEnum = {
     slack: 'slack',
 } as const
 
-export type Status292Enum = (typeof Status292Enum)[keyof typeof Status292Enum]
-export const Status292Enum = {
+export type Status292EnumApi = (typeof Status292EnumApi)[keyof typeof Status292EnumApi]
+export const Status292EnumApi = {
     recording: 'recording',
     uploading: 'uploading',
     processing: 'processing',
@@ -1470,8 +2277,8 @@ export const Status292Enum = {
     error: 'error',
 } as const
 
-export type HogFunctionTypeEnum = (typeof HogFunctionTypeEnum)[keyof typeof HogFunctionTypeEnum]
-export const HogFunctionTypeEnum = {
+export type HogFunctionTypeEnumApi = (typeof HogFunctionTypeEnumApi)[keyof typeof HogFunctionTypeEnumApi]
+export const HogFunctionTypeEnumApi = {
     destination: 'destination',
     site_destination: 'site_destination',
     internal_destination: 'internal_destination',
@@ -1480,8 +2287,8 @@ export const HogFunctionTypeEnum = {
     transformation: 'transformation',
 } as const
 
-export type InputsSchemaItemTypeEnum = (typeof InputsSchemaItemTypeEnum)[keyof typeof InputsSchemaItemTypeEnum]
-export const InputsSchemaItemTypeEnum = {
+export type InputsSchemaItemTypeEnumApi = (typeof InputsSchemaItemTypeEnumApi)[keyof typeof InputsSchemaItemTypeEnumApi]
+export const InputsSchemaItemTypeEnumApi = {
     string: 'string',
     number: 'number',
     boolean: 'boolean',
@@ -1494,15 +2301,18 @@ export const InputsSchemaItemTypeEnum = {
     native_email: 'native_email',
 } as const
 
-export const InputsSchemaItemTemplatingEnum = {
+export type InputsSchemaItemTemplatingEnumApi =
+    (typeof InputsSchemaItemTemplatingEnumApi)[keyof typeof InputsSchemaItemTemplatingEnumApi]
+export const InputsSchemaItemTemplatingEnumApi = {
     true: true,
     false: false,
     hog: 'hog',
     liquid: 'liquid',
 } as const
 
-export type HogFunctionStatusStateEnum = (typeof HogFunctionStatusStateEnum)[keyof typeof HogFunctionStatusStateEnum]
-export const HogFunctionStatusStateEnum = {
+export type HogFunctionStatusStateEnumApi =
+    (typeof HogFunctionStatusStateEnumApi)[keyof typeof HogFunctionStatusStateEnumApi]
+export const HogFunctionStatusStateEnumApi = {
     NUMBER_0: 0,
     NUMBER_1: 1,
     NUMBER_2: 2,
@@ -1511,33 +2321,35 @@ export const HogFunctionStatusStateEnum = {
     NUMBER_12: 12,
 } as const
 
-export type SummarizeTypeEnum = (typeof SummarizeTypeEnum)[keyof typeof SummarizeTypeEnum]
-export const SummarizeTypeEnum = {
+export type SummarizeTypeEnumApi = (typeof SummarizeTypeEnumApi)[keyof typeof SummarizeTypeEnumApi]
+export const SummarizeTypeEnumApi = {
     trace: 'trace',
     event: 'event',
 } as const
 
-export type ModeEnum = (typeof ModeEnum)[keyof typeof ModeEnum]
-export const ModeEnum = {
+export type ModeEnumApi = (typeof ModeEnumApi)[keyof typeof ModeEnumApi]
+export const ModeEnumApi = {
     minimal: 'minimal',
     detailed: 'detailed',
 } as const
 
-export type EventTypeEnum = (typeof EventTypeEnum)[keyof typeof EventTypeEnum]
-export const EventTypeEnum = {
+export type EventTypeEnumApi = (typeof EventTypeEnumApi)[keyof typeof EventTypeEnumApi]
+export const EventTypeEnumApi = {
     $ai_generation: '$ai_generation',
     $ai_span: '$ai_span',
     $ai_embedding: '$ai_embedding',
     $ai_trace: '$ai_trace',
 } as const
 
-export const SessionRecordingPlaylistTypeEnum = {
+export type SessionRecordingPlaylistTypeEnumApi =
+    (typeof SessionRecordingPlaylistTypeEnumApi)[keyof typeof SessionRecordingPlaylistTypeEnumApi]
+export const SessionRecordingPlaylistTypeEnumApi = {
     collection: 'collection',
     filters: 'filters',
 } as const
 
-export type ProxyRecordStatusEnum = (typeof ProxyRecordStatusEnum)[keyof typeof ProxyRecordStatusEnum]
-export const ProxyRecordStatusEnum = {
+export type ProxyRecordStatusEnumApi = (typeof ProxyRecordStatusEnumApi)[keyof typeof ProxyRecordStatusEnumApi]
+export const ProxyRecordStatusEnumApi = {
     waiting: 'waiting',
     issuing: 'issuing',
     valid: 'valid',
@@ -1547,14 +2359,14 @@ export const ProxyRecordStatusEnum = {
     timed_out: 'timed_out',
 } as const
 
-export type ModalitiesEnum = (typeof ModalitiesEnum)[keyof typeof ModalitiesEnum]
-export const ModalitiesEnum = {
+export type ModalitiesEnumApi = (typeof ModalitiesEnumApi)[keyof typeof ModalitiesEnumApi]
+export const ModalitiesEnumApi = {
     text: 'text',
     audio: 'audio',
 } as const
 
-export type ReasoningEffortEnum = (typeof ReasoningEffortEnum)[keyof typeof ReasoningEffortEnum]
-export const ReasoningEffortEnum = {
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+export const ReasoningEffortEnumApi = {
     none: 'none',
     minimal: 'minimal',
     low: 'low',
@@ -1563,19 +2375,21 @@ export const ReasoningEffortEnum = {
     default: 'default',
 } as const
 
-export type VerbosityEnum = (typeof VerbosityEnum)[keyof typeof VerbosityEnum]
-export const VerbosityEnum = {
+export type VerbosityEnumApi = (typeof VerbosityEnumApi)[keyof typeof VerbosityEnumApi]
+export const VerbosityEnumApi = {
     concise: 'concise',
     standard: 'standard',
     verbose: 'verbose',
 } as const
 
-export type ObjectEnum = (typeof ObjectEnum)[keyof typeof ObjectEnum]
-export const ObjectEnum = {
+export type ObjectEnumApi = (typeof ObjectEnumApi)[keyof typeof ObjectEnumApi]
+export const ObjectEnumApi = {
     chatcompletion: 'chat.completion',
 } as const
 
-export const ChatCompletionResponseServiceTierEnum = {
+export type ChatCompletionResponseServiceTierEnumApi =
+    (typeof ChatCompletionResponseServiceTierEnumApi)[keyof typeof ChatCompletionResponseServiceTierEnumApi]
+export const ChatCompletionResponseServiceTierEnumApi = {
     auto: 'auto',
     default: 'default',
     flex: 'flex',
@@ -1583,21 +2397,27 @@ export const ChatCompletionResponseServiceTierEnum = {
     priority: 'priority',
 } as const
 
-export const AnthropicMessagesRequestServiceTierEnum = {
+export type AnthropicMessagesRequestServiceTierEnumApi =
+    (typeof AnthropicMessagesRequestServiceTierEnumApi)[keyof typeof AnthropicMessagesRequestServiceTierEnumApi]
+export const AnthropicMessagesRequestServiceTierEnumApi = {
     auto: 'auto',
     standard_only: 'standard_only',
 } as const
 
-export const AnthropicMessagesResponseTypeEnum = {
+export type AnthropicMessagesResponseTypeEnumApi =
+    (typeof AnthropicMessagesResponseTypeEnumApi)[keyof typeof AnthropicMessagesResponseTypeEnumApi]
+export const AnthropicMessagesResponseTypeEnumApi = {
     message: 'message',
 } as const
 
-export const AnthropicMessagesResponseRoleEnum = {
+export type AnthropicMessagesResponseRoleEnumApi =
+    (typeof AnthropicMessagesResponseRoleEnumApi)[keyof typeof AnthropicMessagesResponseRoleEnumApi]
+export const AnthropicMessagesResponseRoleEnumApi = {
     assistant: 'assistant',
 } as const
 
-export type StopReasonEnum = (typeof StopReasonEnum)[keyof typeof StopReasonEnum]
-export const StopReasonEnum = {
+export type StopReasonEnumApi = (typeof StopReasonEnumApi)[keyof typeof StopReasonEnumApi]
+export const StopReasonEnumApi = {
     end_turn: 'end_turn',
     max_tokens: 'max_tokens',
     stop_sequence: 'stop_sequence',
@@ -1606,13 +2426,17 @@ export const StopReasonEnum = {
     refusal: 'refusal',
 } as const
 
-export const AnthropicUsageServiceTierEnum = {
+export type AnthropicUsageServiceTierEnumApi =
+    (typeof AnthropicUsageServiceTierEnumApi)[keyof typeof AnthropicUsageServiceTierEnumApi]
+export const AnthropicUsageServiceTierEnumApi = {
     standard: 'standard',
     priority: 'priority',
     batch: 'batch',
 } as const
 
-export const ChatCompletionMessageRoleEnum = {
+export type ChatCompletionMessageRoleEnumApi =
+    (typeof ChatCompletionMessageRoleEnumApi)[keyof typeof ChatCompletionMessageRoleEnumApi]
+export const ChatCompletionMessageRoleEnumApi = {
     system: 'system',
     user: 'user',
     assistant: 'assistant',
@@ -1621,8 +2445,8 @@ export const ChatCompletionMessageRoleEnum = {
     developer: 'developer',
 } as const
 
-export type TaskRunDetailStatusEnum = (typeof TaskRunDetailStatusEnum)[keyof typeof TaskRunDetailStatusEnum]
-export const TaskRunDetailStatusEnum = {
+export type TaskRunDetailStatusEnumApi = (typeof TaskRunDetailStatusEnumApi)[keyof typeof TaskRunDetailStatusEnumApi]
+export const TaskRunDetailStatusEnumApi = {
     not_started: 'not_started',
     queued: 'queued',
     in_progress: 'in_progress',
@@ -1631,14 +2455,14 @@ export const TaskRunDetailStatusEnum = {
     cancelled: 'cancelled',
 } as const
 
-export type EnvironmentEnum = (typeof EnvironmentEnum)[keyof typeof EnvironmentEnum]
-export const EnvironmentEnum = {
+export type EnvironmentEnumApi = (typeof EnvironmentEnumApi)[keyof typeof EnvironmentEnumApi]
+export const EnvironmentEnumApi = {
     local: 'local',
     cloud: 'cloud',
 } as const
 
-export type TaskRunUpdateStatusEnum = (typeof TaskRunUpdateStatusEnum)[keyof typeof TaskRunUpdateStatusEnum]
-export const TaskRunUpdateStatusEnum = {
+export type TaskRunUpdateStatusEnumApi = (typeof TaskRunUpdateStatusEnumApi)[keyof typeof TaskRunUpdateStatusEnumApi]
+export const TaskRunUpdateStatusEnumApi = {
     not_started: 'not_started',
     queued: 'queued',
     in_progress: 'in_progress',
@@ -1647,7 +2471,9 @@ export const TaskRunUpdateStatusEnum = {
     cancelled: 'cancelled',
 } as const
 
-export const TaskRunArtifactUploadTypeEnum = {
+export type TaskRunArtifactUploadTypeEnumApi =
+    (typeof TaskRunArtifactUploadTypeEnumApi)[keyof typeof TaskRunArtifactUploadTypeEnumApi]
+export const TaskRunArtifactUploadTypeEnumApi = {
     plan: 'plan',
     context: 'context',
     reference: 'reference',
@@ -1655,34 +2481,40 @@ export const TaskRunArtifactUploadTypeEnum = {
     artifact: 'artifact',
 } as const
 
-export interface PaginatedAlertList {
+export interface PaginatedAlertListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Alert[]
+    results: AlertApi[]
 }
 
 /**
  * @nullable
  */
-export type AlertConfig = unknown | null
+export type AlertApiConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AlertCalculationInterval = { ...CalculationIntervalEnum, ...BlankEnum, ...NullEnum } as const
+export const AlertApiCalculationInterval = { ...CalculationIntervalEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type AlertApiCalculationInterval =
+    | (typeof AlertApiCalculationInterval)[keyof typeof AlertApiCalculationInterval]
+    | null
 
-export interface Alert {
+export interface AlertApi {
     readonly id: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     insight: number
     /** @maxLength 255 */
     name?: string
     subscribed_users: number[]
-    threshold: Threshold
+    threshold: ThresholdApi
     condition?: unknown
-    readonly state: State66aEnum
+    readonly state: State66aEnumApi
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at: string | null
@@ -1690,11 +2522,11 @@ export interface Alert {
     readonly last_checked_at: string | null
     /** @nullable */
     readonly next_check_at: string | null
-    readonly checks: readonly AlertCheck[]
+    readonly checks: readonly AlertCheckApi[]
     /** @nullable */
-    config?: AlertConfig
+    config?: AlertApiConfig
     /** @nullable */
-    calculation_interval?: AlertCalculationInterval
+    calculation_interval?: AlertApiCalculationInterval
     /** @nullable */
     snoozed_until?: string | null
     /** @nullable */
@@ -1704,28 +2536,32 @@ export interface Alert {
 /**
  * @nullable
  */
-export type PatchedAlertConfig = unknown | null
+export type PatchedAlertApiConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedAlertCalculationInterval = { ...CalculationIntervalEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedAlertApiCalculationInterval = {
+    ...CalculationIntervalEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * @nullable
  */
-export type PatchedAlertCalculationInterval =
-    | (typeof PatchedAlertCalculationInterval)[keyof typeof PatchedAlertCalculationInterval]
+export type PatchedAlertApiCalculationInterval =
+    | (typeof PatchedAlertApiCalculationInterval)[keyof typeof PatchedAlertApiCalculationInterval]
     | null
 
-export interface PatchedAlert {
+export interface PatchedAlertApi {
     readonly id?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     insight?: number
     /** @maxLength 255 */
     name?: string
     subscribed_users?: number[]
-    threshold?: Threshold
+    threshold?: ThresholdApi
     condition?: unknown
-    readonly state?: State66aEnum
+    readonly state?: State66aEnumApi
     enabled?: boolean
     /** @nullable */
     readonly last_notified_at?: string | null
@@ -1733,95 +2569,139 @@ export interface PatchedAlert {
     readonly last_checked_at?: string | null
     /** @nullable */
     readonly next_check_at?: string | null
-    readonly checks?: readonly AlertCheck[]
+    readonly checks?: readonly AlertCheckApi[]
     /** @nullable */
-    config?: PatchedAlertConfig
+    config?: PatchedAlertApiConfig
     /** @nullable */
-    calculation_interval?: PatchedAlertCalculationInterval
+    calculation_interval?: PatchedAlertApiCalculationInterval
     /** @nullable */
     snoozed_until?: string | null
     /** @nullable */
     skip_weekend?: boolean | null
 }
 
-export interface PaginatedBatchExportBackfillList {
+export interface PaginatedBatchExportBackfillListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: BatchExportBackfill[]
+    results: BatchExportBackfillApi[]
 }
 
-export interface PaginatedMaxCoreMemoryList {
+export interface BatchExportBackfillApi {
+    readonly id: string
+    readonly progress: string
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    start_at?: string | null
+    /**
+     * The end of the data interval.
+     * @nullable
+     */
+    end_at?: string | null
+    /** The status of this backfill.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportBackfillStatusEnumApi
+    /** The timestamp at which this BatchExportBackfill was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportBackfill finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportBackfill was last updated. */
+    readonly last_updated_at: string
+    /** The team this belongs to. */
+    team: number
+    /** The BatchExport this backfill belongs to. */
+    batch_export: string
+}
+
+export interface PaginatedMaxCoreMemoryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: MaxCoreMemory[]
+    results: MaxCoreMemoryApi[]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MaxCoreMemoryScrapingStatus = { ...ScrapingStatusEnum, ...BlankEnum, ...NullEnum } as const
+export const MaxCoreMemoryApiScrapingStatus = { ...ScrapingStatusEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type MaxCoreMemoryScrapingStatus =
-    | (typeof MaxCoreMemoryScrapingStatus)[keyof typeof MaxCoreMemoryScrapingStatus]
+export type MaxCoreMemoryApiScrapingStatus =
+    | (typeof MaxCoreMemoryApiScrapingStatus)[keyof typeof MaxCoreMemoryApiScrapingStatus]
     | null
 
-export interface MaxCoreMemory {
+export interface MaxCoreMemoryApi {
     readonly id: string
     text: string
     /** @nullable */
-    scraping_status?: MaxCoreMemoryScrapingStatus
+    scraping_status?: MaxCoreMemoryApiScrapingStatus
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedMaxCoreMemoryScrapingStatus = { ...ScrapingStatusEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedMaxCoreMemoryApiScrapingStatus = {
+    ...ScrapingStatusEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * @nullable
  */
-export type PatchedMaxCoreMemoryScrapingStatus =
-    | (typeof PatchedMaxCoreMemoryScrapingStatus)[keyof typeof PatchedMaxCoreMemoryScrapingStatus]
+export type PatchedMaxCoreMemoryApiScrapingStatus =
+    | (typeof PatchedMaxCoreMemoryApiScrapingStatus)[keyof typeof PatchedMaxCoreMemoryApiScrapingStatus]
     | null
 
-export interface PatchedMaxCoreMemory {
+export interface PatchedMaxCoreMemoryApi {
     readonly id?: string
     text?: string
     /** @nullable */
-    scraping_status?: PatchedMaxCoreMemoryScrapingStatus
+    scraping_status?: PatchedMaxCoreMemoryApiScrapingStatus
 }
 
-export interface DashboardCollaborator {
+export interface DashboardCollaboratorApi {
     readonly id: string
     readonly dashboard_id: number
-    readonly user: UserBasic
+    readonly user: UserBasicApi
     /**
      * @minimum 0
      * @maximum 32767
      */
-    level: DashboardRestrictionLevel
+    level: DashboardRestrictionLevelApi
     readonly added_at: string
     readonly updated_at: string
     user_uuid: string
 }
 
-export interface PaginatedErrorTrackingAssignmentRuleList {
+export interface PaginatedErrorTrackingAssignmentRuleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingAssignmentRule[]
+    results: ErrorTrackingAssignmentRuleApi[]
 }
 
 /**
  * @nullable
  */
-export type ErrorTrackingAssignmentRuleDisabledData = unknown | null
+export type ErrorTrackingAssignmentRuleApiDisabledData = unknown | null
 
-export interface ErrorTrackingAssignmentRule {
+export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
     filters: unknown
     readonly assignee: string
@@ -1831,15 +2711,15 @@ export interface ErrorTrackingAssignmentRule {
      */
     order_key: number
     /** @nullable */
-    disabled_data?: ErrorTrackingAssignmentRuleDisabledData
+    disabled_data?: ErrorTrackingAssignmentRuleApiDisabledData
 }
 
 /**
  * @nullable
  */
-export type PatchedErrorTrackingAssignmentRuleDisabledData = unknown | null
+export type PatchedErrorTrackingAssignmentRuleApiDisabledData = unknown | null
 
-export interface PatchedErrorTrackingAssignmentRule {
+export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
     filters?: unknown
     readonly assignee?: string
@@ -1849,42 +2729,51 @@ export interface PatchedErrorTrackingAssignmentRule {
      */
     order_key?: number
     /** @nullable */
-    disabled_data?: PatchedErrorTrackingAssignmentRuleDisabledData
+    disabled_data?: PatchedErrorTrackingAssignmentRuleApiDisabledData
 }
 
-export interface PaginatedErrorTrackingExternalReferenceList {
+export interface PaginatedErrorTrackingExternalReferenceListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingExternalReference[]
+    results: ErrorTrackingExternalReferenceApi[]
 }
 
-export interface PatchedErrorTrackingExternalReference {
+export interface ErrorTrackingExternalReferenceApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
+}
+
+export interface PatchedErrorTrackingExternalReferenceApi {
     readonly id?: string
-    readonly integration?: ErrorTrackingExternalReferenceIntegration
+    readonly integration?: ErrorTrackingExternalReferenceIntegrationApi
     integration_id?: number
     config?: unknown
     issue?: string
     readonly external_url?: string
 }
 
-export interface PaginatedErrorTrackingGroupingRuleList {
+export interface PaginatedErrorTrackingGroupingRuleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingGroupingRule[]
+    results: ErrorTrackingGroupingRuleApi[]
 }
 
 /**
  * @nullable
  */
-export type ErrorTrackingGroupingRuleDisabledData = unknown | null
+export type ErrorTrackingGroupingRuleApiDisabledData = unknown | null
 
-export interface ErrorTrackingGroupingRule {
+export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
     readonly assignee: string
@@ -1894,15 +2783,15 @@ export interface ErrorTrackingGroupingRule {
      */
     order_key: number
     /** @nullable */
-    disabled_data?: ErrorTrackingGroupingRuleDisabledData
+    disabled_data?: ErrorTrackingGroupingRuleApiDisabledData
 }
 
 /**
  * @nullable
  */
-export type PatchedErrorTrackingGroupingRuleDisabledData = unknown | null
+export type PatchedErrorTrackingGroupingRuleApiDisabledData = unknown | null
 
-export interface PatchedErrorTrackingGroupingRule {
+export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
     readonly assignee?: string
@@ -1912,19 +2801,19 @@ export interface PatchedErrorTrackingGroupingRule {
      */
     order_key?: number
     /** @nullable */
-    disabled_data?: PatchedErrorTrackingGroupingRuleDisabledData
+    disabled_data?: PatchedErrorTrackingGroupingRuleApiDisabledData
 }
 
-export interface PaginatedErrorTrackingSuppressionRuleList {
+export interface PaginatedErrorTrackingSuppressionRuleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingSuppressionRule[]
+    results: ErrorTrackingSuppressionRuleApi[]
 }
 
-export interface ErrorTrackingSuppressionRule {
+export interface ErrorTrackingSuppressionRuleApi {
     readonly id: string
     filters: unknown
     /**
@@ -1934,7 +2823,7 @@ export interface ErrorTrackingSuppressionRule {
     order_key: number
 }
 
-export interface PatchedErrorTrackingSuppressionRule {
+export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly id?: string
     filters?: unknown
     /**
@@ -1944,50 +2833,50 @@ export interface PatchedErrorTrackingSuppressionRule {
     order_key?: number
 }
 
-export interface PaginatedEvaluationList {
+export interface PaginatedEvaluationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Evaluation[]
+    results: EvaluationApi[]
 }
 
-export interface Evaluation {
+export interface EvaluationApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
     description?: string
     enabled?: boolean
-    evaluation_type: EvaluationTypeEnum
+    evaluation_type: EvaluationTypeEnumApi
     evaluation_config?: unknown
-    output_type: OutputTypeEnum
+    output_type: OutputTypeEnumApi
     output_config?: unknown
     conditions?: unknown
     readonly created_at: string
     readonly updated_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     deleted?: boolean
 }
 
-export interface PatchedEvaluation {
+export interface PatchedEvaluationApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
     description?: string
     enabled?: boolean
-    evaluation_type?: EvaluationTypeEnum
+    evaluation_type?: EvaluationTypeEnumApi
     evaluation_config?: unknown
-    output_type?: OutputTypeEnum
+    output_type?: OutputTypeEnumApi
     output_config?: unknown
     conditions?: unknown
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     deleted?: boolean
 }
 
-export interface Property {
+export interface PropertyApi {
     /** 
  You can use a simplified version:
 ```json
@@ -2030,17 +2919,17 @@ Or you can create more complicated queries with AND and OR:
 
 * `AND` - AND
 * `OR` - OR */
-    type?: PropertyTypeEnum
-    values: PropertyItem[]
+    type?: PropertyTypeEnumApi
+    values: PropertyItemApi[]
 }
 
-export interface PaginatedClickhouseEventList {
+export interface PaginatedClickhouseEventListApi {
     /** @nullable */
     next?: string | null
-    results?: ClickhouseEvent[]
+    results?: ClickhouseEventApi[]
 }
 
-export interface ClickhouseEvent {
+export interface ClickhouseEventApi {
     readonly id: string
     readonly distinct_id: string
     readonly properties: string
@@ -2051,30 +2940,30 @@ export interface ClickhouseEvent {
     readonly elements_chain: string
 }
 
-export interface PaginatedExternalDataSchemaList {
+export interface PaginatedExternalDataSchemaListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ExternalDataSchema[]
+    results: ExternalDataSchemaApi[]
 }
 
 /**
  * @nullable
  */
-export type ExternalDataSchemaTable = { [key: string]: unknown } | null
+export type ExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type ExternalDataSchemaSyncType = SyncTypeEnum | null
+export type ExternalDataSchemaApiSyncType = SyncTypeEnumApi | null
 
-export interface ExternalDataSchema {
+export interface ExternalDataSchemaApi {
     readonly id: string
     readonly name: string
     /** @nullable */
-    readonly table: ExternalDataSchemaTable
+    readonly table: ExternalDataSchemaApiTable
     should_sync?: boolean
     /** @nullable */
     readonly last_synced_at: string | null
@@ -2087,7 +2976,7 @@ export interface ExternalDataSchema {
     /** @nullable */
     readonly status: string | null
     /** @nullable */
-    readonly sync_type: ExternalDataSchemaSyncType
+    readonly sync_type: ExternalDataSchemaApiSyncType
     /** @nullable */
     readonly incremental_field: string | null
     /** @nullable */
@@ -2099,18 +2988,18 @@ export interface ExternalDataSchema {
 /**
  * @nullable
  */
-export type PatchedExternalDataSchemaTable = { [key: string]: unknown } | null
+export type PatchedExternalDataSchemaApiTable = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedExternalDataSchemaSyncType = SyncTypeEnum | null
+export type PatchedExternalDataSchemaApiSyncType = SyncTypeEnumApi | null
 
-export interface PatchedExternalDataSchema {
+export interface PatchedExternalDataSchemaApi {
     readonly id?: string
     readonly name?: string
     /** @nullable */
-    readonly table?: PatchedExternalDataSchemaTable
+    readonly table?: PatchedExternalDataSchemaApiTable
     should_sync?: boolean
     /** @nullable */
     readonly last_synced_at?: string | null
@@ -2123,7 +3012,7 @@ export interface PatchedExternalDataSchema {
     /** @nullable */
     readonly status?: string | null
     /** @nullable */
-    readonly sync_type?: PatchedExternalDataSchemaSyncType
+    readonly sync_type?: PatchedExternalDataSchemaApiSyncType
     /** @nullable */
     readonly incremental_field?: string | null
     /** @nullable */
@@ -2132,16 +3021,16 @@ export interface PatchedExternalDataSchema {
     readonly sync_time_of_day?: string
 }
 
-export interface PaginatedFileSystemShortcutList {
+export interface PaginatedFileSystemShortcutListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: FileSystemShortcut[]
+    results: FileSystemShortcutApi[]
 }
 
-export interface FileSystemShortcut {
+export interface FileSystemShortcutApi {
     readonly id: string
     path: string
     /** @maxLength 100 */
@@ -2156,7 +3045,7 @@ export interface FileSystemShortcut {
     readonly created_at: string
 }
 
-export interface PatchedFileSystemShortcut {
+export interface PatchedFileSystemShortcutApi {
     readonly id?: string
     path?: string
     /** @maxLength 100 */
@@ -2171,37 +3060,37 @@ export interface PatchedFileSystemShortcut {
     readonly created_at?: string
 }
 
-export interface PaginatedHeatmapsResponseList {
+export interface PaginatedHeatmapsResponseListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: HeatmapsResponse[]
+    results: HeatmapsResponseApi[]
 }
 
-export interface PaginatedHogFlowMinimalList {
+export interface PaginatedHogFlowMinimalListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: HogFlowMinimal[]
+    results: HogFlowMinimalApi[]
 }
 
 /**
  * @nullable
  */
-export type HogFlowTriggerMasking = HogFlowMasking | null
+export type HogFlowApiTriggerMasking = HogFlowMaskingApi | null
 
 /**
  * @nullable
  */
-export type HogFlowConversion = unknown | null
+export type HogFlowApiConversion = unknown | null
 
-export type HogFlowVariablesItem = { [key: string]: string }
+export type HogFlowApiVariablesItem = { [key: string]: string }
 
-export interface HogFlow {
+export interface HogFlowApi {
     readonly id: string
     /**
      * @maxLength 400
@@ -2210,36 +3099,36 @@ export interface HogFlow {
     name?: string | null
     description?: string
     readonly version: number
-    status?: StatusA5eEnum
+    status?: StatusA5eEnumApi
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly updated_at: string
     trigger?: unknown
     /** @nullable */
-    trigger_masking?: HogFlowTriggerMasking
+    trigger_masking?: HogFlowApiTriggerMasking
     /** @nullable */
-    conversion?: HogFlowConversion
-    exit_condition?: ExitConditionEnum
+    conversion?: HogFlowApiConversion
+    exit_condition?: ExitConditionEnumApi
     edges?: unknown
-    actions: HogFlowAction[]
+    actions: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action: string | null
-    variables?: HogFlowVariablesItem[]
+    variables?: HogFlowApiVariablesItem[]
 }
 
 /**
  * @nullable
  */
-export type PatchedHogFlowTriggerMasking = HogFlowMasking | null
+export type PatchedHogFlowApiTriggerMasking = HogFlowMaskingApi | null
 
 /**
  * @nullable
  */
-export type PatchedHogFlowConversion = unknown | null
+export type PatchedHogFlowApiConversion = unknown | null
 
-export type PatchedHogFlowVariablesItem = { [key: string]: string }
+export type PatchedHogFlowApiVariablesItem = { [key: string]: string }
 
-export interface PatchedHogFlow {
+export interface PatchedHogFlowApi {
     readonly id?: string
     /**
      * @maxLength 400
@@ -2248,102 +3137,102 @@ export interface PatchedHogFlow {
     name?: string | null
     description?: string
     readonly version?: number
-    status?: StatusA5eEnum
+    status?: StatusA5eEnumApi
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly updated_at?: string
     trigger?: unknown
     /** @nullable */
-    trigger_masking?: PatchedHogFlowTriggerMasking
+    trigger_masking?: PatchedHogFlowApiTriggerMasking
     /** @nullable */
-    conversion?: PatchedHogFlowConversion
-    exit_condition?: ExitConditionEnum
+    conversion?: PatchedHogFlowApiConversion
+    exit_condition?: ExitConditionEnumApi
     edges?: unknown
-    actions?: HogFlowAction[]
+    actions?: HogFlowActionApi[]
     /** @nullable */
     readonly abort_action?: string | null
-    variables?: PatchedHogFlowVariablesItem[]
+    variables?: PatchedHogFlowApiVariablesItem[]
 }
 
-export interface PaginatedInsightVariableList {
+export interface PaginatedInsightVariableListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: InsightVariable[]
+    results: InsightVariableApi[]
 }
 
 /**
  * @nullable
  */
-export type InsightVariableDefaultValue = unknown | null
+export type InsightVariableApiDefaultValue = unknown | null
 
 /**
  * @nullable
  */
-export type InsightVariableValues = unknown | null
+export type InsightVariableApiValues = unknown | null
 
-export interface InsightVariable {
+export interface InsightVariableApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
-    type: InsightVariableTypeEnum
+    type: InsightVariableTypeEnumApi
     /** @nullable */
-    default_value?: InsightVariableDefaultValue
+    default_value?: InsightVariableApiDefaultValue
     /** @nullable */
     readonly created_by: number | null
     readonly created_at: string
     /** @nullable */
     readonly code_name: string | null
     /** @nullable */
-    values?: InsightVariableValues
+    values?: InsightVariableApiValues
 }
 
 /**
  * @nullable
  */
-export type PatchedInsightVariableDefaultValue = unknown | null
+export type PatchedInsightVariableApiDefaultValue = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedInsightVariableValues = unknown | null
+export type PatchedInsightVariableApiValues = unknown | null
 
-export interface PatchedInsightVariable {
+export interface PatchedInsightVariableApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
-    type?: InsightVariableTypeEnum
+    type?: InsightVariableTypeEnumApi
     /** @nullable */
-    default_value?: PatchedInsightVariableDefaultValue
+    default_value?: PatchedInsightVariableApiDefaultValue
     /** @nullable */
     readonly created_by?: number | null
     readonly created_at?: string
     /** @nullable */
     readonly code_name?: string | null
     /** @nullable */
-    values?: PatchedInsightVariableValues
+    values?: PatchedInsightVariableApiValues
 }
 
-export interface PaginatedInsightList {
+export interface PaginatedInsightListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Insight[]
+    results: InsightApi[]
 }
 
 /**
  * @nullable
  */
-export type InsightQuery = { [key: string]: unknown } | null
+export type InsightApiQuery = { [key: string]: unknown } | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
  */
-export interface Insight {
+export interface InsightApi {
     readonly id: number
     readonly short_id: string
     /**
@@ -2357,7 +3246,7 @@ export interface Insight {
      */
     derived_name?: string | null
     /** @nullable */
-    query?: InsightQuery
+    query?: InsightApiQuery
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -2373,7 +3262,7 @@ export interface Insight {
     /** 
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
      */
-    readonly dashboard_tiles: readonly DashboardTileBasic[]
+    readonly dashboard_tiles: readonly DashboardTileBasicApi[]
     /** 
     The datetime this insight's results were generated.
     If added to one or more dashboards the insight can be refreshed separately on each.
@@ -2393,7 +3282,7 @@ export interface Insight {
     readonly columns: string
     /** @nullable */
     readonly created_at: string | null
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /**
      * @maxLength 400
      * @nullable
@@ -2403,10 +3292,10 @@ export interface Insight {
     tags?: unknown[]
     favorited?: boolean
     readonly last_modified_at: string
-    readonly last_modified_by: UserBasic
+    readonly last_modified_by: UserBasicApi
     readonly is_sample: boolean
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2424,33 +3313,33 @@ export interface Insight {
     readonly last_viewed_at: string
 }
 
-export interface PaginatedThresholdWithAlertList {
+export interface PaginatedThresholdWithAlertListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ThresholdWithAlert[]
+    results: ThresholdWithAlertApi[]
 }
 
-export interface ThresholdWithAlert {
+export interface ThresholdWithAlertApi {
     readonly id: string
     readonly created_at: string
     /** @maxLength 255 */
     name?: string
     configuration?: unknown
-    readonly alerts: readonly Alert[]
+    readonly alerts: readonly AlertApi[]
 }
 
 /**
  * @nullable
  */
-export type PatchedInsightQuery = { [key: string]: unknown } | null
+export type PatchedInsightApiQuery = { [key: string]: unknown } | null
 
 /**
  * Simplified serializer to speed response times when loading large amounts of objects.
  */
-export interface PatchedInsight {
+export interface PatchedInsightApi {
     readonly id?: number
     readonly short_id?: string
     /**
@@ -2464,7 +3353,7 @@ export interface PatchedInsight {
      */
     derived_name?: string | null
     /** @nullable */
-    query?: PatchedInsightQuery
+    query?: PatchedInsightApiQuery
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -2480,7 +3369,7 @@ export interface PatchedInsight {
     /** 
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
      */
-    readonly dashboard_tiles?: readonly DashboardTileBasic[]
+    readonly dashboard_tiles?: readonly DashboardTileBasicApi[]
     /** 
     The datetime this insight's results were generated.
     If added to one or more dashboards the insight can be refreshed separately on each.
@@ -2500,7 +3389,7 @@ export interface PatchedInsight {
     readonly columns?: string
     /** @nullable */
     readonly created_at?: string | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /**
      * @maxLength 400
      * @nullable
@@ -2510,10 +3399,10 @@ export interface PatchedInsight {
     tags?: unknown[]
     favorited?: boolean
     readonly last_modified_at?: string
-    readonly last_modified_by?: UserBasic
+    readonly last_modified_by?: UserBasicApi
     readonly is_sample?: boolean
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnum
-    readonly effective_privilege_level?: EffectivePrivilegeLevelEnum
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -2531,16 +3420,16 @@ export interface PatchedInsight {
     readonly last_viewed_at?: string
 }
 
-export interface PaginatedMessageCategoryList {
+export interface PaginatedMessageCategoryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: MessageCategory[]
+    results: MessageCategoryApi[]
 }
 
-export interface MessageCategory {
+export interface MessageCategoryApi {
     readonly id: string
     /** @maxLength 64 */
     key: string
@@ -2548,7 +3437,7 @@ export interface MessageCategory {
     name: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnum
+    category_type?: CategoryTypeEnumApi
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -2556,7 +3445,7 @@ export interface MessageCategory {
     deleted?: boolean
 }
 
-export interface PatchedMessageCategory {
+export interface PatchedMessageCategoryApi {
     readonly id?: string
     /** @maxLength 64 */
     key?: string
@@ -2564,7 +3453,7 @@ export interface PatchedMessageCategory {
     name?: string
     description?: string
     public_description?: string
-    category_type?: CategoryTypeEnum
+    category_type?: CategoryTypeEnumApi
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
@@ -2572,24 +3461,24 @@ export interface PatchedMessageCategory {
     deleted?: boolean
 }
 
-export interface PaginatedMessageTemplateList {
+export interface PaginatedMessageTemplateListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: MessageTemplate[]
+    results: MessageTemplateApi[]
 }
 
-export interface MessageTemplate {
+export interface MessageTemplateApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
     description?: string
     readonly created_at: string
     readonly updated_at: string
-    content?: MessageTemplateContent
-    readonly created_by: UserBasic
+    content?: MessageTemplateContentApi
+    readonly created_by: UserBasicApi
     /** @maxLength 24 */
     type?: string
     /** @nullable */
@@ -2597,15 +3486,15 @@ export interface MessageTemplate {
     deleted?: boolean
 }
 
-export interface PatchedMessageTemplate {
+export interface PatchedMessageTemplateApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
     description?: string
     readonly created_at?: string
     readonly updated_at?: string
-    content?: MessageTemplateContent
-    readonly created_by?: UserBasic
+    content?: MessageTemplateContentApi
+    readonly created_by?: UserBasicApi
     /** @maxLength 24 */
     type?: string
     /** @nullable */
@@ -2613,23 +3502,33 @@ export interface PatchedMessageTemplate {
     deleted?: boolean
 }
 
-export interface MetalyticsCreateRequest {
-    metric_name: MetricNameEnum
+export interface MetalyticsCreateRequestApi {
+    metric_name: MetricNameEnumApi
     instance_id: string
 }
 
-export interface PaginatedPersistedFolderList {
+export interface PaginatedPersistedFolderListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: PersistedFolder[]
+    results: PersistedFolderApi[]
 }
 
-export interface PatchedPersistedFolder {
+export interface PersistedFolderApi {
+    readonly id: string
+    type: PersistedFolderTypeEnumApi
+    /** @maxLength 64 */
+    protocol?: string
+    path?: string
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export interface PatchedPersistedFolderApi {
     readonly id?: string
-    type?: PersistedFolderTypeEnum
+    type?: PersistedFolderTypeEnumApi
     /** @maxLength 64 */
     protocol?: string
     path?: string
@@ -2637,13 +3536,13 @@ export interface PatchedPersistedFolder {
     readonly updated_at?: string
 }
 
-export interface PaginatedPluginLogEntryList {
+export interface PaginatedPluginLogEntryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: PluginLogEntry[]
+    results: PluginLogEntryApi[]
 }
 
 /**
@@ -2659,256 +3558,397 @@ Example payload:
 
 For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access).
  */
-export type QueryRequestQuery =
-    | EventsNode
-    | ActionsNode
-    | PersonsNode
-    | DataWarehouseNode
-    | EventsQuery
-    | SessionsQuery
-    | ActorsQuery
-    | GroupsQuery
-    | InsightActorsQuery
-    | InsightActorsQueryOptions
-    | SessionsTimelineQuery
-    | HogQuery
-    | HogQLQuery
-    | HogQLMetadata
-    | HogQLAutocomplete
-    | HogQLASTQuery
-    | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingSimilarIssuesQuery
-    | ErrorTrackingBreakdownsQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | ExperimentQuery
-    | ExperimentExposureQuery
-    | DocumentSimilarityQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebPageURLSearchQuery
-    | WebAnalyticsExternalSummaryQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | DataVisualizationNode
-    | DataTableNode
-    | SavedInsightNode
-    | InsightVizNode
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | FunnelCorrelationQuery
-    | DatabaseSchemaQuery
-    | LogsQuery
-    | SuggestedQuestionsQuery
-    | TeamTaxonomyQuery
-    | EventTaxonomyQuery
-    | ActorsPropertyTaxonomyQuery
-    | TracesQuery
-    | TraceQuery
-    | VectorSearchQuery
-    | UsageMetricsQuery
+export type QueryRequestApiQuery =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | PersonsNodeApi
+    | DataWarehouseNodeApi
+    | EventsQueryApi
+    | SessionsQueryApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | InsightActorsQueryApi
+    | InsightActorsQueryOptionsApi
+    | SessionsTimelineQueryApi
+    | HogQueryApi
+    | HogQLQueryApi
+    | HogQLMetadataApi
+    | HogQLAutocompleteApi
+    | HogQLASTQueryApi
+    | SessionAttributionExplorerQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingSimilarIssuesQueryApi
+    | ErrorTrackingBreakdownsQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | ExperimentQueryApi
+    | ExperimentExposureQueryApi
+    | DocumentSimilarityQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | WebPageURLSearchQueryApi
+    | WebAnalyticsExternalSummaryQueryApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | DataVisualizationNodeApi
+    | DataTableNodeApi
+    | SavedInsightNodeApi
+    | InsightVizNodeApi
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | FunnelCorrelationQueryApi
+    | DatabaseSchemaQueryApi
+    | LogsQueryApi
+    | SuggestedQuestionsQueryApi
+    | TeamTaxonomyQueryApi
+    | EventTaxonomyQueryApi
+    | ActorsPropertyTaxonomyQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
+    | VectorSearchQueryApi
+    | UsageMetricsQueryApi
 
 /**
  * @nullable
  */
-export type QueryRequestVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
+export type QueryRequestApiVariablesOverride = { [key: string]: { [key: string]: unknown } } | null
 
-export type QueryResponseAlternativeAnyOf = { [key: string]: unknown }
+export interface QueryRequestApi {
+    /** @nullable */
+    async?: boolean | null
+    /**
+     * Client provided query ID. Can be used to retrieve the status or cancel the query.
+     * @nullable
+     */
+    client_query_id?: string | null
+    /** @nullable */
+    filters_override?: DashboardFilterApi
+    /**
+     * Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.
+     * @nullable
+     */
+    name?: string | null
+    /** Submit a JSON string representing a query for PostHog data analysis, for example a HogQL query.
 
-export type QueryUpgradeRequestQuery =
-    | EventsNode
-    | ActionsNode
-    | PersonsNode
-    | DataWarehouseNode
-    | EventsQuery
-    | SessionsQuery
-    | ActorsQuery
-    | GroupsQuery
-    | InsightActorsQuery
-    | InsightActorsQueryOptions
-    | SessionsTimelineQuery
-    | HogQuery
-    | HogQLQuery
-    | HogQLMetadata
-    | HogQLAutocomplete
-    | HogQLASTQuery
-    | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingSimilarIssuesQuery
-    | ErrorTrackingBreakdownsQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | ExperimentQuery
-    | ExperimentExposureQuery
-    | DocumentSimilarityQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebPageURLSearchQuery
-    | WebAnalyticsExternalSummaryQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | DataVisualizationNode
-    | DataTableNode
-    | SavedInsightNode
-    | InsightVizNode
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | FunnelCorrelationQuery
-    | DatabaseSchemaQuery
-    | LogsQuery
-    | SuggestedQuestionsQuery
-    | TeamTaxonomyQuery
-    | EventTaxonomyQuery
-    | ActorsPropertyTaxonomyQuery
-    | TracesQuery
-    | TraceQuery
-    | VectorSearchQuery
-    | UsageMetricsQuery
+Example payload:
 
-export type QueryUpgradeResponseQuery =
-    | EventsNode
-    | ActionsNode
-    | PersonsNode
-    | DataWarehouseNode
-    | EventsQuery
-    | SessionsQuery
-    | ActorsQuery
-    | GroupsQuery
-    | InsightActorsQuery
-    | InsightActorsQueryOptions
-    | SessionsTimelineQuery
-    | HogQuery
-    | HogQLQuery
-    | HogQLMetadata
-    | HogQLAutocomplete
-    | HogQLASTQuery
-    | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingSimilarIssuesQuery
-    | ErrorTrackingBreakdownsQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | ExperimentQuery
-    | ExperimentExposureQuery
-    | DocumentSimilarityQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebPageURLSearchQuery
-    | WebAnalyticsExternalSummaryQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | DataVisualizationNode
-    | DataTableNode
-    | SavedInsightNode
-    | InsightVizNode
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | FunnelCorrelationQuery
-    | DatabaseSchemaQuery
-    | LogsQuery
-    | SuggestedQuestionsQuery
-    | TeamTaxonomyQuery
-    | EventTaxonomyQuery
-    | ActorsPropertyTaxonomyQuery
-    | TracesQuery
-    | TraceQuery
-    | VectorSearchQuery
-    | UsageMetricsQuery
+```
 
-export interface PaginatedQuickFilterList {
+{"query": {"kind": "HogQLQuery", "query": "select * from events limit 100"}}
+
+```
+
+For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
+    query: QueryRequestApiQuery
+    /**
+   * Whether results should be calculated sync or async, and how much to rely on the cache:
+- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+- `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+- `'force_async'` - kick off background calculation, even if fresh results are already cached
+- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates Background calculation can be tracked using the `query_status` response field.
+   * @nullable
+   */
+    refresh?: RefreshTypeApi
+    /** @nullable */
+    variables_override?: QueryRequestApiVariablesOverride
+}
+
+export type QueryResponseAlternativeApiAnyOf = { [key: string]: unknown }
+
+export type QueryResponseAlternativeApi =
+    | QueryResponseAlternativeApiAnyOf
+    | QueryResponseAlternative1Api
+    | QueryResponseAlternative3Api
+    | QueryResponseAlternative4Api
+    | QueryResponseAlternative5Api
+    | QueryResponseAlternative6Api
+    | QueryResponseAlternative7Api
+    | QueryResponseAlternative8Api
+    | QueryResponseAlternative9Api
+    | QueryResponseAlternative10Api
+    | QueryResponseAlternative11Api
+    | QueryResponseAlternative14Api
+    | QueryResponseAlternative15Api
+    | QueryResponseAlternative16Api
+    | QueryResponseAlternative17Api
+    | QueryResponseAlternative18Api
+    | QueryResponseAlternative19Api
+    | QueryResponseAlternative20Api
+    | QueryResponseAlternative21Api
+    | QueryResponseAlternative22Api
+    | QueryResponseAlternative23Api
+    | QueryResponseAlternative24Api
+    | QueryResponseAlternative25Api
+    | QueryResponseAlternative27Api
+    | QueryResponseAlternative28Api
+    | QueryResponseAlternative29Api
+    | QueryResponseAlternative30Api
+    | QueryResponseAlternative31Api
+    | QueryResponseAlternative32Api
+    | QueryResponseAlternative33Api
+    | QueryResponseAlternative34Api
+    | QueryResponseAlternative35Api
+    | QueryResponseAlternative36Api
+    | unknown
+    | QueryResponseAlternative37Api
+    | QueryResponseAlternative38Api
+    | QueryResponseAlternative39Api
+    | QueryResponseAlternative40Api
+    | QueryResponseAlternative41Api
+    | QueryResponseAlternative42Api
+    | QueryResponseAlternative43Api
+    | QueryResponseAlternative45Api
+    | QueryResponseAlternative46Api
+    | QueryResponseAlternative47Api
+    | QueryResponseAlternative48Api
+    | QueryResponseAlternative49Api
+    | QueryResponseAlternative50Api
+    | QueryResponseAlternative51Api
+    | QueryResponseAlternative52Api
+    | QueryResponseAlternative53Api
+    | QueryResponseAlternative55Api
+    | QueryResponseAlternative56Api
+    | QueryResponseAlternative57Api
+    | QueryResponseAlternative59Api
+    | QueryResponseAlternative60Api
+    | QueryResponseAlternative61Api
+    | QueryResponseAlternative62Api
+    | QueryResponseAlternative63Api
+    | QueryResponseAlternative64Api
+    | QueryResponseAlternative65Api
+    | QueryResponseAlternative66Api
+    | QueryResponseAlternative68Api
+    | QueryResponseAlternative69Api
+    | QueryResponseAlternative70Api
+    | QueryResponseAlternative71Api
+    | QueryResponseAlternative72Api
+    | QueryResponseAlternative73Api
+    | QueryResponseAlternative74Api
+    | QueryResponseAlternative75Api
+    | QueryResponseAlternative77Api
+    | QueryResponseAlternative78Api
+
+export interface QueryStatusResponseApi {
+    query_status: QueryStatusApi
+}
+
+export type QueryUpgradeRequestApiQuery =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | PersonsNodeApi
+    | DataWarehouseNodeApi
+    | EventsQueryApi
+    | SessionsQueryApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | InsightActorsQueryApi
+    | InsightActorsQueryOptionsApi
+    | SessionsTimelineQueryApi
+    | HogQueryApi
+    | HogQLQueryApi
+    | HogQLMetadataApi
+    | HogQLAutocompleteApi
+    | HogQLASTQueryApi
+    | SessionAttributionExplorerQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingSimilarIssuesQueryApi
+    | ErrorTrackingBreakdownsQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | ExperimentQueryApi
+    | ExperimentExposureQueryApi
+    | DocumentSimilarityQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | WebPageURLSearchQueryApi
+    | WebAnalyticsExternalSummaryQueryApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | DataVisualizationNodeApi
+    | DataTableNodeApi
+    | SavedInsightNodeApi
+    | InsightVizNodeApi
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | FunnelCorrelationQueryApi
+    | DatabaseSchemaQueryApi
+    | LogsQueryApi
+    | SuggestedQuestionsQueryApi
+    | TeamTaxonomyQueryApi
+    | EventTaxonomyQueryApi
+    | ActorsPropertyTaxonomyQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
+    | VectorSearchQueryApi
+    | UsageMetricsQueryApi
+
+export interface QueryUpgradeRequestApi {
+    query: QueryUpgradeRequestApiQuery
+}
+
+export type QueryUpgradeResponseApiQuery =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | PersonsNodeApi
+    | DataWarehouseNodeApi
+    | EventsQueryApi
+    | SessionsQueryApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | InsightActorsQueryApi
+    | InsightActorsQueryOptionsApi
+    | SessionsTimelineQueryApi
+    | HogQueryApi
+    | HogQLQueryApi
+    | HogQLMetadataApi
+    | HogQLAutocompleteApi
+    | HogQLASTQueryApi
+    | SessionAttributionExplorerQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingSimilarIssuesQueryApi
+    | ErrorTrackingBreakdownsQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | ExperimentQueryApi
+    | ExperimentExposureQueryApi
+    | DocumentSimilarityQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | WebPageURLSearchQueryApi
+    | WebAnalyticsExternalSummaryQueryApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | DataVisualizationNodeApi
+    | DataTableNodeApi
+    | SavedInsightNodeApi
+    | InsightVizNodeApi
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | FunnelCorrelationQueryApi
+    | DatabaseSchemaQueryApi
+    | LogsQueryApi
+    | SuggestedQuestionsQueryApi
+    | TeamTaxonomyQueryApi
+    | EventTaxonomyQueryApi
+    | ActorsPropertyTaxonomyQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
+    | VectorSearchQueryApi
+    | UsageMetricsQueryApi
+
+export interface QueryUpgradeResponseApi {
+    query: QueryUpgradeResponseApiQuery
+}
+
+export interface PaginatedQuickFilterListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: QuickFilter[]
+    results: QuickFilterApi[]
 }
 
 /**
  * @nullable
  */
-export type QuickFilterOptions = unknown | null
+export type QuickFilterApiOptions = unknown | null
+
+export interface QuickFilterApi {
+    readonly id: string
+    /** @maxLength 200 */
+    name: string
+    /** @maxLength 500 */
+    property_name: string
+    type?: QuickFilterTypeEnumApi
+    /** @nullable */
+    options?: QuickFilterApiOptions
+    readonly contexts: string
+    readonly created_at: string
+    readonly updated_at: string
+}
 
 /**
  * @nullable
  */
-export type PatchedQuickFilterOptions = unknown | null
+export type PatchedQuickFilterApiOptions = unknown | null
 
-export interface PatchedQuickFilter {
+export interface PatchedQuickFilterApi {
     readonly id?: string
     /** @maxLength 200 */
     name?: string
     /** @maxLength 500 */
     property_name?: string
-    type?: QuickFilterTypeEnum
+    type?: QuickFilterTypeEnumApi
     /** @nullable */
-    options?: PatchedQuickFilterOptions
+    options?: PatchedQuickFilterApiOptions
     readonly contexts?: string
     readonly created_at?: string
     readonly updated_at?: string
 }
 
-export interface PaginatedHeatmapScreenshotResponseList {
+export interface PaginatedHeatmapScreenshotResponseListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: HeatmapScreenshotResponse[]
+    results: HeatmapScreenshotResponseApi[]
 }
 
-export type HeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown }
+export type HeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
 
-export interface HeatmapScreenshotResponse {
+export interface HeatmapScreenshotResponseApi {
     readonly id: string
     readonly short_id: string
     /**
@@ -2925,21 +3965,21 @@ export interface HeatmapScreenshotResponse {
      */
     data_url?: string | null
     target_widths?: unknown
-    type?: HeatmapScreenshotResponseTypeEnum
-    readonly status: HeatmapScreenshotResponseStatusEnum
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status: HeatmapScreenshotResponseStatusEnumApi
     readonly has_content: boolean
-    readonly snapshots: readonly HeatmapScreenshotResponseSnapshotsItem[]
+    readonly snapshots: readonly HeatmapScreenshotResponseApiSnapshotsItem[]
     deleted?: boolean
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
     readonly exception: string | null
 }
 
-export type PatchedHeatmapScreenshotResponseSnapshotsItem = { [key: string]: unknown }
+export type PatchedHeatmapScreenshotResponseApiSnapshotsItem = { [key: string]: unknown }
 
-export interface PatchedHeatmapScreenshotResponse {
+export interface PatchedHeatmapScreenshotResponseApi {
     readonly id?: string
     readonly short_id?: string
     /**
@@ -2956,19 +3996,19 @@ export interface PatchedHeatmapScreenshotResponse {
      */
     data_url?: string | null
     target_widths?: unknown
-    type?: HeatmapScreenshotResponseTypeEnum
-    readonly status?: HeatmapScreenshotResponseStatusEnum
+    type?: HeatmapScreenshotResponseTypeEnumApi
+    readonly status?: HeatmapScreenshotResponseStatusEnumApi
     readonly has_content?: boolean
-    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseSnapshotsItem[]
+    readonly snapshots?: readonly PatchedHeatmapScreenshotResponseApiSnapshotsItem[]
     deleted?: boolean
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
     readonly exception?: string | null
 }
 
-export interface SessionSummaries {
+export interface SessionSummariesApi {
     /**
      * List of session IDs to summarize (max 300)
      * @minItems 1
@@ -2982,24 +4022,28 @@ export interface SessionSummaries {
     focus_area?: string
 }
 
-export interface PaginatedUserProductListList {
+export interface PaginatedUserProductListListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: UserProductList[]
+    results: UserProductListApi[]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserProductListReason = { ...ReasonEnum, ...NullEnum } as const
+export const UserProductListApiReason = { ...ReasonEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type UserProductListApiReason = (typeof UserProductListApiReason)[keyof typeof UserProductListApiReason] | null
 
-export interface UserProductList {
+export interface UserProductListApi {
     readonly id: string
     readonly product_path: string
     enabled?: boolean
     /** @nullable */
-    readonly reason: UserProductListReason
+    readonly reason: UserProductListApiReason
     /** @nullable */
     readonly reason_text: string | null
     readonly created_at: string
@@ -3008,20 +4052,20 @@ export interface UserProductList {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserProductListReason = { ...ReasonEnum, ...NullEnum } as const
+export const PatchedUserProductListApiReason = { ...ReasonEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedUserProductListReason =
-    | (typeof PatchedUserProductListReason)[keyof typeof PatchedUserProductListReason]
+export type PatchedUserProductListApiReason =
+    | (typeof PatchedUserProductListApiReason)[keyof typeof PatchedUserProductListApiReason]
     | null
 
-export interface PatchedUserProductList {
+export interface PatchedUserProductListApi {
     readonly id?: string
     readonly product_path?: string
     enabled?: boolean
     /** @nullable */
-    readonly reason?: PatchedUserProductListReason
+    readonly reason?: PatchedUserProductListApiReason
     /** @nullable */
     readonly reason_text?: string | null
     readonly created_at?: string
@@ -3029,68 +4073,68 @@ export interface PatchedUserProductList {
     readonly updated_at?: string | null
 }
 
-export interface PaginatedTableList {
+export interface PaginatedTableListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Table[]
+    results: TableApi[]
 }
 
-export interface Table {
+export interface TableApi {
     readonly id: string
     /** @nullable */
     deleted?: boolean | null
     /** @maxLength 128 */
     name: string
-    format: TableFormatEnum
-    readonly created_by: UserBasic
+    format: TableFormatEnumApi
+    readonly created_by: UserBasicApi
     readonly created_at: string
     /** @maxLength 500 */
     url_pattern: string
-    credential: Credential
+    credential: CredentialApi
     readonly columns: string
-    readonly external_data_source: SimpleExternalDataSourceSerializers
+    readonly external_data_source: SimpleExternalDataSourceSerializersApi
     readonly external_schema: string
 }
 
-export interface PatchedTable {
+export interface PatchedTableApi {
     readonly id?: string
     /** @nullable */
     deleted?: boolean | null
     /** @maxLength 128 */
     name?: string
-    format?: TableFormatEnum
-    readonly created_by?: UserBasic
+    format?: TableFormatEnumApi
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @maxLength 500 */
     url_pattern?: string
-    credential?: Credential
+    credential?: CredentialApi
     readonly columns?: string
-    readonly external_data_source?: SimpleExternalDataSourceSerializers
+    readonly external_data_source?: SimpleExternalDataSourceSerializersApi
     readonly external_schema?: string
 }
 
-export interface PaginatedViewLinkList {
+export interface PaginatedViewLinkListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ViewLink[]
+    results: ViewLinkApi[]
 }
 
 /**
  * @nullable
  */
-export type ViewLinkConfiguration = unknown | null
+export type ViewLinkApiConfiguration = unknown | null
 
-export interface ViewLink {
+export interface ViewLinkApi {
     readonly id: string
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     /** @maxLength 400 */
     source_table_name: string
@@ -3103,19 +4147,19 @@ export interface ViewLink {
     /** @maxLength 400 */
     field_name: string
     /** @nullable */
-    configuration?: ViewLinkConfiguration
+    configuration?: ViewLinkApiConfiguration
 }
 
 /**
  * @nullable
  */
-export type PatchedViewLinkConfiguration = unknown | null
+export type PatchedViewLinkApiConfiguration = unknown | null
 
-export interface PatchedViewLink {
+export interface PatchedViewLinkApi {
     readonly id?: string
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     /** @maxLength 400 */
     source_table_name?: string
@@ -3128,10 +4172,10 @@ export interface PatchedViewLink {
     /** @maxLength 400 */
     field_name?: string
     /** @nullable */
-    configuration?: PatchedViewLinkConfiguration
+    configuration?: PatchedViewLinkApiConfiguration
 }
 
-export interface ViewLinkValidation {
+export interface ViewLinkValidationApi {
     /** @maxLength 255 */
     joining_table_name: string
     /** @maxLength 255 */
@@ -3145,18 +4189,18 @@ export interface ViewLinkValidation {
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -3173,12 +4217,12 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
-export interface Threshold {
+export interface ThresholdApi {
     readonly id: string
     readonly created_at: string
     /** @maxLength 255 */
@@ -3195,12 +4239,12 @@ export interface Threshold {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface AlertCheck {
+export interface AlertCheckApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly calculated_value: number | null
-    readonly state: State66aEnum
+    readonly state: State66aEnumApi
     readonly targets_notified: boolean
 }
 
@@ -3228,8 +4272,6 @@ export interface AlertCheck {
  * `Running` - Running
  * `Starting` - Starting
  */
-export type BatchExportBackfillStatusEnum =
-    (typeof BatchExportBackfillStatusEnum)[keyof typeof BatchExportBackfillStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -3245,13 +4287,14 @@ export type BatchExportBackfillStatusEnum =
  * * `21` - Everyone in the project can edit
  * `37` - Only those invited to this dashboard can edit
  */
-export type DashboardRestrictionLevel = (typeof DashboardRestrictionLevel)[keyof typeof DashboardRestrictionLevel]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DashboardRestrictionLevel = {
-    NUMBER_21: 21,
-    NUMBER_37: 37,
-} as const
+
+export interface ErrorTrackingExternalReferenceIntegrationApi {
+    readonly id: number
+    readonly kind: KindEnumApi
+    readonly display_name: string
+}
 
 /**
  * * `llm_judge` - LLM as a judge
@@ -3273,67 +4316,67 @@ export const DashboardRestrictionLevel = {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemOperator = { ...OperatorEnum, ...BlankEnum, ...NullEnum } as const
+export const PropertyItemApiOperator = { ...OperatorEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PropertyItemOperator = (typeof PropertyItemOperator)[keyof typeof PropertyItemOperator] | null
+export type PropertyItemApiOperator = (typeof PropertyItemApiOperator)[keyof typeof PropertyItemApiOperator] | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemType = { ...PropertyItemTypeEnum, ...BlankEnum } as const
-export interface PropertyItem {
+export const PropertyItemApiType = { ...PropertyItemTypeEnumApi, ...BlankEnumApi } as const
+export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string
     /** @nullable */
-    operator?: PropertyItemOperator
-    type?: (typeof PropertyItemType)[keyof typeof PropertyItemType]
+    operator?: PropertyItemApiOperator
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface HeatmapsResponse {
-    results: HeatmapResponseItem[]
+export interface HeatmapsResponseApi {
+    results: HeatmapResponseItemApi[]
 }
 
 /**
  * @nullable
  */
-export type HogFlowMinimalTriggerMasking = unknown | null
+export type HogFlowMinimalApiTriggerMasking = unknown | null
 
 /**
  * @nullable
  */
-export type HogFlowMinimalConversion = unknown | null
+export type HogFlowMinimalApiConversion = unknown | null
 
 /**
  * @nullable
  */
-export type HogFlowMinimalVariables = unknown | null
+export type HogFlowMinimalApiVariables = unknown | null
 
-export interface HogFlowMinimal {
+export interface HogFlowMinimalApi {
     readonly id: string
     /** @nullable */
     readonly name: string | null
     readonly description: string
     readonly version: number
-    readonly status: StatusA5eEnum
+    readonly status: StatusA5eEnumApi
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly trigger: unknown
     /** @nullable */
-    readonly trigger_masking: HogFlowMinimalTriggerMasking
+    readonly trigger_masking: HogFlowMinimalApiTriggerMasking
     /** @nullable */
-    readonly conversion: HogFlowMinimalConversion
-    readonly exit_condition: ExitConditionEnum
+    readonly conversion: HogFlowMinimalApiConversion
+    readonly exit_condition: ExitConditionEnumApi
     readonly edges: unknown
     readonly actions: unknown
     /** @nullable */
     readonly abort_action: string | null
     /** @nullable */
-    readonly variables: HogFlowMinimalVariables
+    readonly variables: HogFlowMinimalApiVariables
 }
 
 /**
@@ -3347,9 +4390,9 @@ export interface HogFlowMinimal {
 /**
  * @nullable
  */
-export type HogFlowMaskingBytecode = unknown | null
+export type HogFlowMaskingApiBytecode = unknown | null
 
-export interface HogFlowMasking {
+export interface HogFlowMaskingApi {
     /**
      * @minimum 60
      * @maximum 31536000
@@ -3360,7 +4403,7 @@ export interface HogFlowMasking {
     threshold?: number | null
     hash: string
     /** @nullable */
-    bytecode?: HogFlowMaskingBytecode
+    bytecode?: HogFlowMaskingApiBytecode
 }
 
 /**
@@ -3373,38 +4416,38 @@ export interface HogFlowMasking {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogFlowActionOnError = { ...OnErrorEnum, ...NullEnum } as const
+export const HogFlowActionApiOnError = { ...OnErrorEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type HogFlowActionOnError = (typeof HogFlowActionOnError)[keyof typeof HogFlowActionOnError] | null
+export type HogFlowActionApiOnError = (typeof HogFlowActionApiOnError)[keyof typeof HogFlowActionApiOnError] | null
 
 /**
  * @nullable
  */
-export type HogFlowActionFilters = HogFunctionFilters | null
+export type HogFlowActionApiFilters = HogFunctionFiltersApi | null
 
 /**
  * @nullable
  */
-export type HogFlowActionOutputVariable = unknown | null
+export type HogFlowActionApiOutputVariable = unknown | null
 
-export interface HogFlowAction {
+export interface HogFlowActionApi {
     id: string
     /** @maxLength 400 */
     name: string
     description?: string
     /** @nullable */
-    on_error?: HogFlowActionOnError
+    on_error?: HogFlowActionApiOnError
     created_at?: number
     updated_at?: number
     /** @nullable */
-    filters?: HogFlowActionFilters
+    filters?: HogFlowActionApiFilters
     /** @maxLength 100 */
     type: string
     config: unknown
     /** @nullable */
-    output_variable?: HogFlowActionOutputVariable
+    output_variable?: HogFlowActionApiOutputVariable
 }
 
 /**
@@ -3417,15 +4460,12 @@ export interface HogFlowAction {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface DashboardTileBasic {
+export interface DashboardTileBasicApi {
     readonly id: number
     readonly dashboard_id: number
     /** @nullable */
     deleted?: boolean | null
 }
-
-export type EffectiveRestrictionLevelEnum =
-    (typeof EffectiveRestrictionLevelEnum)[keyof typeof EffectiveRestrictionLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -3441,223 +4481,357 @@ export type EffectiveRestrictionLevelEnum =
 /**
  * @nullable
  */
-export type MessageTemplateContentEmail = EmailTemplate | null
+export type MessageTemplateContentApiEmail = EmailTemplateApi | null
 
-export interface MessageTemplateContent {
-    templating?: Templating186Enum
+export interface MessageTemplateContentApi {
+    templating?: Templating186EnumApi
     /** @nullable */
-    email?: MessageTemplateContentEmail
+    email?: MessageTemplateContentApiEmail
 }
 
-export type DashboardFilterPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type EventsNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type EventsNodeKind = (typeof EventsNodeKind)[keyof typeof EventsNodeKind]
+/**
+ * * `viewed` - viewed
+ */
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventsNodeKind = {
+
+/**
+ * * `home` - Home
+ * `pinned` - Pinned
+ * `custom_products` - Custom Products
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface PluginLogEntryApi {
+    id: string
+    team_id: number
+    plugin_id: number
+    plugin_config_id: number
+    timestamp: string
+    source: PluginLogEntrySourceEnumApi
+    type: PluginLogEntryTypeEnumApi
+    message: string
+    instance_id: string
+}
+
+export type DashboardFilterApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export interface DashboardFilterApi {
+    /** @nullable */
+    breakdown_filter?: BreakdownFilterApi
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /** @nullable */
+    explicitDate?: boolean | null
+    /** @nullable */
+    properties?: DashboardFilterApiPropertiesItem[] | null
+}
+
+export type EventsNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type EventsNodeApiKind = (typeof EventsNodeApiKind)[keyof typeof EventsNodeApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const EventsNodeApiKind = {
     EventsNode: 'EventsNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventsNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const EventsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type EventsNodeMath = (typeof EventsNodeMath)[keyof typeof EventsNodeMath] | null
+export type EventsNodeApiMath = (typeof EventsNodeApiMath)[keyof typeof EventsNodeApiMath] | null
 
-export type EventsNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type EventsNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type EventsNodeResponse = { [key: string]: unknown } | null
+export type EventsNodeApiResponse = { [key: string]: unknown } | null
 
-export type ActionsNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface EventsNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: EventsNodeApiFixedPropertiesItem[] | null
+    kind?: EventsNodeApiKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    math?: EventsNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: EventsNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: EventsNodeApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export type ActionsNodeKind = (typeof ActionsNodeKind)[keyof typeof ActionsNodeKind]
+export type ActionsNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type ActionsNodeApiKind = (typeof ActionsNodeApiKind)[keyof typeof ActionsNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionsNodeKind = {
+export const ActionsNodeApiKind = {
     ActionsNode: 'ActionsNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActionsNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const ActionsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type ActionsNodeMath = (typeof ActionsNodeMath)[keyof typeof ActionsNodeMath] | null
+export type ActionsNodeApiMath = (typeof ActionsNodeApiMath)[keyof typeof ActionsNodeApiMath] | null
 
-export type ActionsNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type ActionsNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type ActionsNodeResponse = { [key: string]: unknown } | null
+export type ActionsNodeApiResponse = { [key: string]: unknown } | null
 
-export type PersonsNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface ActionsNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: ActionsNodeApiFixedPropertiesItem[] | null
+    id: number
+    kind?: ActionsNodeApiKind
+    /** @nullable */
+    math?: ActionsNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: ActionsNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: ActionsNodeApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export type PersonsNodeKind = (typeof PersonsNodeKind)[keyof typeof PersonsNodeKind]
+export type PersonsNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type PersonsNodeApiKind = (typeof PersonsNodeApiKind)[keyof typeof PersonsNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsNodeKind = {
+export const PersonsNodeApiKind = {
     PersonsNode: 'PersonsNode',
 } as const
 
-export type PersonsNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type PersonsNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type PersonsNodeResponse = { [key: string]: unknown } | null
+export type PersonsNodeApiResponse = { [key: string]: unknown } | null
 
-export interface PersonsNode {
+export interface PersonsNodeApi {
     /** @nullable */
     cohort?: number | null
     /** @nullable */
@@ -3666,28 +4840,28 @@ export interface PersonsNode {
      * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
      * @nullable
      */
-    fixedProperties?: PersonsNodeFixedPropertiesItem[] | null
-    kind?: PersonsNodeKind
+    fixedProperties?: PersonsNodeApiFixedPropertiesItem[] | null
+    kind?: PersonsNodeApiKind
     /** @nullable */
     limit?: number | null
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Properties configurable in the interface
      * @nullable
      */
-    properties?: PersonsNodePropertiesItem[] | null
+    properties?: PersonsNodeApiPropertiesItem[] | null
     /** @nullable */
-    response?: PersonsNodeResponse
+    response?: PersonsNodeApiResponse
     /** @nullable */
     search?: string | null
     /** @nullable */
-    tags?: QueryLogTags
+    tags?: QueryLogTagsApi
     /**
      * version of the node, used for schema migrations
      * @nullable
@@ -3695,296 +4869,687 @@ export interface PersonsNode {
     version?: number | null
 }
 
-export type DataWarehouseNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type DataWarehouseNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type DataWarehouseNodeKind = (typeof DataWarehouseNodeKind)[keyof typeof DataWarehouseNodeKind]
+export type DataWarehouseNodeApiKind = (typeof DataWarehouseNodeApiKind)[keyof typeof DataWarehouseNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseNodeKind = {
+export const DataWarehouseNodeApiKind = {
     DataWarehouseNode: 'DataWarehouseNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const DataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type DataWarehouseNodeMath = (typeof DataWarehouseNodeMath)[keyof typeof DataWarehouseNodeMath] | null
+export type DataWarehouseNodeApiMath = (typeof DataWarehouseNodeApiMath)[keyof typeof DataWarehouseNodeApiMath] | null
 
-export type DataWarehouseNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type DataWarehouseNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type DataWarehouseNodeResponse = { [key: string]: unknown } | null
+export type DataWarehouseNodeApiResponse = { [key: string]: unknown } | null
 
-export type EventsQueryFixedPropertiesItem =
-    | PropertyGroupFilter
-    | PropertyGroupFilterValue
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface DataWarehouseNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    distinct_id_field: string
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: DataWarehouseNodeApiFixedPropertiesItem[] | null
+    id: string
+    id_field: string
+    kind?: DataWarehouseNodeApiKind
+    /** @nullable */
+    math?: DataWarehouseNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: DataWarehouseNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: DataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export type EventsQueryKind = (typeof EventsQueryKind)[keyof typeof EventsQueryKind]
+export type EventsQueryApiFixedPropertiesItem =
+    | PropertyGroupFilterApi
+    | PropertyGroupFilterValueApi
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type EventsQueryApiKind = (typeof EventsQueryApiKind)[keyof typeof EventsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventsQueryKind = {
+export const EventsQueryApiKind = {
     EventsQuery: 'EventsQuery',
 } as const
 
-export type EventsQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type EventsQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type SessionsQueryEventPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface EventsQueryApi {
+    /**
+     * Show events matching a given action
+     * @nullable
+     */
+    actionId?: number | null
+    /**
+     * Only fetch events that happened after this timestamp
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch events that happened before this timestamp
+     * @nullable
+     */
+    before?: string | null
+    /**
+     * Limit to events matching this string
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: EventsQueryApiFixedPropertiesItem[] | null
+    kind?: EventsQueryApiKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Show events for a given person
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: EventsQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: EventsQueryResponseApi
+    /** Return a limited set of data. Required. */
+    select: string[]
+    /**
+     * source for querying events for insights
+     * @nullable
+     */
+    source?: InsightActorsQueryApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * HogQL filters to apply on returned data
+     * @nullable
+     */
+    where?: string[] | null
+}
 
-export type SessionsQueryFixedPropertiesItem =
-    | PropertyGroupFilter
-    | PropertyGroupFilterValue
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type SessionsQueryApiEventPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type SessionsQueryKind = (typeof SessionsQueryKind)[keyof typeof SessionsQueryKind]
+export type SessionsQueryApiFixedPropertiesItem =
+    | PropertyGroupFilterApi
+    | PropertyGroupFilterValueApi
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type SessionsQueryApiKind = (typeof SessionsQueryApiKind)[keyof typeof SessionsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionsQueryKind = {
+export const SessionsQueryApiKind = {
     SessionsQuery: 'SessionsQuery',
 } as const
 
-export type SessionsQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type SessionsQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type ActorsQueryFixedPropertiesItem =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
+export interface SessionsQueryApi {
+    /**
+     * Filter sessions by action - sessions that contain events matching this action
+     * @nullable
+     */
+    actionId?: number | null
+    /**
+     * Only fetch sessions that started after this timestamp
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch sessions that started before this timestamp
+     * @nullable
+     */
+    before?: string | null
+    /**
+     * Filter sessions by event name - sessions that contain this event
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Event property filters - only applies when event or actionId is set
+     * @nullable
+     */
+    eventProperties?: SessionsQueryApiEventPropertiesItem[] | null
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: SessionsQueryApiFixedPropertiesItem[] | null
+    kind?: SessionsQueryApiKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Show sessions for a given person
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: SessionsQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: SessionsQueryResponseApi
+    /** Return a limited set of data. Required. */
+    select: string[]
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /**
+     * HogQL filters to apply on returned data
+     * @nullable
+     */
+    where?: string[] | null
+}
 
-export type ActorsQueryKind = (typeof ActorsQueryKind)[keyof typeof ActorsQueryKind]
+export type ActorsQueryApiFixedPropertiesItem =
+    | PersonPropertyFilterApi
+    | CohortPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+
+export type ActorsQueryApiKind = (typeof ActorsQueryApiKind)[keyof typeof ActorsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActorsQueryKind = {
+export const ActorsQueryApiKind = {
     ActorsQuery: 'ActorsQuery',
 } as const
 
-export type ActorsQueryPropertiesAnyOfItem =
-    | PersonPropertyFilter
-    | CohortPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
+export type ActorsQueryApiPropertiesAnyOfItem =
+    | PersonPropertyFilterApi
+    | CohortPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
 
 /**
  * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
  * @nullable
  */
-export type ActorsQueryProperties = ActorsQueryPropertiesAnyOfItem[] | PropertyGroupFilterValue | null
+export type ActorsQueryApiProperties = ActorsQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterValueApi | null
 
 /**
  * @nullable
  */
-export type ActorsQuerySource =
-    | InsightActorsQuery
-    | FunnelsActorsQuery
-    | FunnelCorrelationActorsQuery
-    | StickinessActorsQuery
-    | HogQLQuery
+export type ActorsQueryApiSource =
+    | InsightActorsQueryApi
+    | FunnelsActorsQueryApi
+    | FunnelCorrelationActorsQueryApi
+    | StickinessActorsQueryApi
+    | HogQLQueryApi
     | null
 
-export type GroupsQueryKind = (typeof GroupsQueryKind)[keyof typeof GroupsQueryKind]
+export interface ActorsQueryApi {
+    /**
+     * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
+     * @nullable
+     */
+    fixedProperties?: ActorsQueryApiFixedPropertiesItem[] | null
+    kind?: ActorsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: string[] | null
+    /**
+     * Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py.
+     * @nullable
+     */
+    properties?: ActorsQueryApiProperties
+    /** @nullable */
+    response?: ActorsQueryResponseApi
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    select?: string[] | null
+    /** @nullable */
+    source?: ActorsQueryApiSource
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type GroupsQueryApiKind = (typeof GroupsQueryApiKind)[keyof typeof GroupsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const GroupsQueryKind = {
+export const GroupsQueryApiKind = {
     GroupsQuery: 'GroupsQuery',
 } as const
 
-export type GroupsQueryPropertiesItem = GroupPropertyFilter | HogQLPropertyFilter
+export type GroupsQueryApiPropertiesItem = GroupPropertyFilterApi | HogQLPropertyFilterApi
+
+export interface GroupsQueryApi {
+    group_type_index: number
+    kind?: GroupsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: string[] | null
+    /** @nullable */
+    properties?: GroupsQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: GroupsQueryResponseApi
+    /** @nullable */
+    search?: string | null
+    /** @nullable */
+    select?: string[] | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type InsightActorsQueryBreakdown = string | string[] | number | null
+export type InsightActorsQueryApiBreakdown = string | string[] | number | null
 
 /**
  * @nullable
  */
-export type InsightActorsQueryDay = string | number | null
+export type InsightActorsQueryApiDay = string | number | null
 
-export type InsightActorsQueryKind = (typeof InsightActorsQueryKind)[keyof typeof InsightActorsQueryKind]
+export type InsightActorsQueryApiKind = (typeof InsightActorsQueryApiKind)[keyof typeof InsightActorsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InsightActorsQueryKind = {
+export const InsightActorsQueryApiKind = {
     InsightActorsQuery: 'InsightActorsQuery',
 } as const
 
-export type InsightActorsQuerySource =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | WebStatsTableQuery
-    | WebOverviewQuery
+export type InsightActorsQueryApiSource =
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | WebStatsTableQueryApi
+    | WebOverviewQueryApi
 
-export type InsightActorsQueryOptionsKind =
-    (typeof InsightActorsQueryOptionsKind)[keyof typeof InsightActorsQueryOptionsKind]
+export interface InsightActorsQueryApi {
+    /** @nullable */
+    breakdown?: InsightActorsQueryApiBreakdown
+    /** @nullable */
+    compare?: CompareApi
+    /** @nullable */
+    day?: InsightActorsQueryApiDay
+    /** @nullable */
+    includeRecordings?: boolean | null
+    /**
+     * An interval selected out of available intervals in source query.
+     * @nullable
+     */
+    interval?: number | null
+    kind?: InsightActorsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ActorsQueryResponseApi
+    /** @nullable */
+    series?: number | null
+    source: InsightActorsQueryApiSource
+    /** @nullable */
+    status?: string | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type InsightActorsQueryOptionsApiKind =
+    (typeof InsightActorsQueryOptionsApiKind)[keyof typeof InsightActorsQueryOptionsApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InsightActorsQueryOptionsKind = {
+export const InsightActorsQueryOptionsApiKind = {
     InsightActorsQueryOptions: 'InsightActorsQueryOptions',
 } as const
 
-export type InsightActorsQueryOptionsSource =
-    | InsightActorsQuery
-    | FunnelsActorsQuery
-    | FunnelCorrelationActorsQuery
-    | StickinessActorsQuery
+export type InsightActorsQueryOptionsApiSource =
+    | InsightActorsQueryApi
+    | FunnelsActorsQueryApi
+    | FunnelCorrelationActorsQueryApi
+    | StickinessActorsQueryApi
 
-export type SessionsTimelineQueryKind = (typeof SessionsTimelineQueryKind)[keyof typeof SessionsTimelineQueryKind]
+export interface InsightActorsQueryOptionsApi {
+    kind?: InsightActorsQueryOptionsApiKind
+    /** @nullable */
+    response?: InsightActorsQueryOptionsResponseApi
+    source: InsightActorsQueryOptionsApiSource
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SessionsTimelineQueryApiKind =
+    (typeof SessionsTimelineQueryApiKind)[keyof typeof SessionsTimelineQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionsTimelineQueryKind = {
+export const SessionsTimelineQueryApiKind = {
     SessionsTimelineQuery: 'SessionsTimelineQuery',
 } as const
 
-export type HogQueryKind = (typeof HogQueryKind)[keyof typeof HogQueryKind]
+export interface SessionsTimelineQueryApi {
+    /**
+     * Only fetch sessions that started after this timestamp (default: '-24h')
+     * @nullable
+     */
+    after?: string | null
+    /**
+     * Only fetch sessions that started before this timestamp (default: '+5s')
+     * @nullable
+     */
+    before?: string | null
+    kind?: SessionsTimelineQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Fetch sessions only for a given person
+     * @nullable
+     */
+    personId?: string | null
+    /** @nullable */
+    response?: SessionsTimelineQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type HogQueryApiKind = (typeof HogQueryApiKind)[keyof typeof HogQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQueryKind = {
+export const HogQueryApiKind = {
     HogQuery: 'HogQuery',
 } as const
 
-export type HogQLQueryKind = (typeof HogQLQueryKind)[keyof typeof HogQLQueryKind]
+export interface HogQueryApi {
+    /** @nullable */
+    code?: string | null
+    kind?: HogQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: HogQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type HogQLQueryApiKind = (typeof HogQLQueryApiKind)[keyof typeof HogQLQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQLQueryKind = {
+export const HogQLQueryApiKind = {
     HogQLQuery: 'HogQLQuery',
 } as const
 
@@ -3992,24 +5557,62 @@ export const HogQLQueryKind = {
  * Constant values that can be referenced with the {placeholder} syntax in the query
  * @nullable
  */
-export type HogQLQueryValues = { [key: string]: unknown } | null
+export type HogQLQueryApiValues = { [key: string]: unknown } | null
 
 /**
  * Variables to be substituted into the query
  * @nullable
  */
-export type HogQLQueryVariables = { [key: string]: HogQLVariable } | null
+export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null
+
+export interface HogQLQueryApi {
+    /** @nullable */
+    explain?: boolean | null
+    /** @nullable */
+    filters?: HogQLFiltersApi
+    kind?: HogQLQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Client provided name of the query
+     * @nullable
+     */
+    name?: string | null
+    query: string
+    /** @nullable */
+    response?: HogQLQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * Constant values that can be referenced with the {placeholder} syntax in the query
+     * @nullable
+     */
+    values?: HogQLQueryApiValues
+    /**
+     * Variables to be substituted into the query
+     * @nullable
+     */
+    variables?: HogQLQueryApiVariables
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * Extra globals for the query
  * @nullable
  */
-export type HogQLMetadataGlobals = { [key: string]: unknown } | null
+export type HogQLMetadataApiGlobals = { [key: string]: unknown } | null
 
-export type HogQLMetadataKind = (typeof HogQLMetadataKind)[keyof typeof HogQLMetadataKind]
+export type HogQLMetadataApiKind = (typeof HogQLMetadataApiKind)[keyof typeof HogQLMetadataApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQLMetadataKind = {
+export const HogQLMetadataApiKind = {
     HogQLMetadata: 'HogQLMetadata',
 } as const
 
@@ -4017,71 +5620,118 @@ export const HogQLMetadataKind = {
  * Query within which "expr" and "template" are validated. Defaults to "select * from events"
  * @nullable
  */
-export type HogQLMetadataSourceQuery =
-    | EventsNode
-    | ActionsNode
-    | PersonsNode
-    | EventsQuery
-    | SessionsQuery
-    | ActorsQuery
-    | GroupsQuery
-    | InsightActorsQuery
-    | InsightActorsQueryOptions
-    | SessionsTimelineQuery
-    | HogQuery
-    | HogQLQuery
-    | HogQLMetadata
-    | HogQLAutocomplete
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebPageURLSearchQuery
-    | WebTrendsQuery
-    | WebAnalyticsExternalSummaryQuery
-    | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingSimilarIssuesQuery
-    | ErrorTrackingBreakdownsQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | LogsQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | CalendarHeatmapQuery
-    | RecordingsQuery
-    | TracesQuery
-    | TraceQuery
-    | VectorSearchQuery
-    | UsageMetricsQuery
+export type HogQLMetadataApiSourceQuery =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | PersonsNodeApi
+    | EventsQueryApi
+    | SessionsQueryApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | InsightActorsQueryApi
+    | InsightActorsQueryOptionsApi
+    | SessionsTimelineQueryApi
+    | HogQueryApi
+    | HogQLQueryApi
+    | HogQLMetadataApi
+    | HogQLAutocompleteApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | WebPageURLSearchQueryApi
+    | WebTrendsQueryApi
+    | WebAnalyticsExternalSummaryQueryApi
+    | SessionAttributionExplorerQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingSimilarIssuesQueryApi
+    | ErrorTrackingBreakdownsQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | LogsQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | CalendarHeatmapQueryApi
+    | RecordingsQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
+    | VectorSearchQueryApi
+    | UsageMetricsQueryApi
     | null
 
 /**
  * Variables to be subsituted into the query
  * @nullable
  */
-export type HogQLMetadataVariables = { [key: string]: HogQLVariable } | null
+export type HogQLMetadataApiVariables = { [key: string]: HogQLVariableApi } | null
+
+export interface HogQLMetadataApi {
+    /**
+     * Enable more verbose output, usually run from the /debug page
+     * @nullable
+     */
+    debug?: boolean | null
+    /**
+     * Extra filters applied to query via {filters}
+     * @nullable
+     */
+    filters?: HogQLFiltersApi
+    /**
+     * Extra globals for the query
+     * @nullable
+     */
+    globals?: HogQLMetadataApiGlobals
+    kind?: HogQLMetadataApiKind
+    /** Language to validate */
+    language: HogLanguageApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** Query to validate */
+    query: string
+    /** @nullable */
+    response?: HogQLMetadataResponseApi
+    /**
+     * Query within which "expr" and "template" are validated. Defaults to "select * from events"
+     * @nullable
+     */
+    sourceQuery?: HogQLMetadataApiSourceQuery
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * Variables to be subsituted into the query
+     * @nullable
+     */
+    variables?: HogQLMetadataApiVariables
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * Global values in scope
  * @nullable
  */
-export type HogQLAutocompleteGlobals = { [key: string]: unknown } | null
+export type HogQLAutocompleteApiGlobals = { [key: string]: unknown } | null
 
-export type HogQLAutocompleteKind = (typeof HogQLAutocompleteKind)[keyof typeof HogQLAutocompleteKind]
+export type HogQLAutocompleteApiKind = (typeof HogQLAutocompleteApiKind)[keyof typeof HogQLAutocompleteApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQLAutocompleteKind = {
+export const HogQLAutocompleteApiKind = {
     HogQLAutocomplete: 'HogQLAutocomplete',
 } as const
 
@@ -4089,514 +5739,1875 @@ export const HogQLAutocompleteKind = {
  * Query in whose context to validate.
  * @nullable
  */
-export type HogQLAutocompleteSourceQuery =
-    | EventsNode
-    | ActionsNode
-    | PersonsNode
-    | EventsQuery
-    | SessionsQuery
-    | ActorsQuery
-    | GroupsQuery
-    | InsightActorsQuery
-    | InsightActorsQueryOptions
-    | SessionsTimelineQuery
-    | HogQuery
-    | HogQLQuery
-    | HogQLMetadata
-    | HogQLAutocomplete
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | WebPageURLSearchQuery
-    | WebTrendsQuery
-    | WebAnalyticsExternalSummaryQuery
-    | SessionAttributionExplorerQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingSimilarIssuesQuery
-    | ErrorTrackingBreakdownsQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | LogsQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | CalendarHeatmapQuery
-    | RecordingsQuery
-    | TracesQuery
-    | TraceQuery
-    | VectorSearchQuery
-    | UsageMetricsQuery
+export type HogQLAutocompleteApiSourceQuery =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | PersonsNodeApi
+    | EventsQueryApi
+    | SessionsQueryApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | InsightActorsQueryApi
+    | InsightActorsQueryOptionsApi
+    | SessionsTimelineQueryApi
+    | HogQueryApi
+    | HogQLQueryApi
+    | HogQLMetadataApi
+    | HogQLAutocompleteApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | WebPageURLSearchQueryApi
+    | WebTrendsQueryApi
+    | WebAnalyticsExternalSummaryQueryApi
+    | SessionAttributionExplorerQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingSimilarIssuesQueryApi
+    | ErrorTrackingBreakdownsQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | LogsQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | CalendarHeatmapQueryApi
+    | RecordingsQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
+    | VectorSearchQueryApi
+    | UsageMetricsQueryApi
     | null
 
-export type HogQLASTQueryKind = (typeof HogQLASTQueryKind)[keyof typeof HogQLASTQueryKind]
+export interface HogQLAutocompleteApi {
+    /** End position of the editor word */
+    endPosition: number
+    /**
+     * Table to validate the expression against
+     * @nullable
+     */
+    filters?: HogQLFiltersApi
+    /**
+     * Global values in scope
+     * @nullable
+     */
+    globals?: HogQLAutocompleteApiGlobals
+    kind?: HogQLAutocompleteApiKind
+    /** Language to validate */
+    language: HogLanguageApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** Query to validate */
+    query: string
+    /** @nullable */
+    response?: HogQLAutocompleteResponseApi
+    /**
+     * Query in whose context to validate.
+     * @nullable
+     */
+    sourceQuery?: HogQLAutocompleteApiSourceQuery
+    /** Start position of the editor word */
+    startPosition: number
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type HogQLASTQueryApiKind = (typeof HogQLASTQueryApiKind)[keyof typeof HogQLASTQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQLASTQueryKind = {
+export const HogQLASTQueryApiKind = {
     HogQLASTQuery: 'HogQLASTQuery',
 } as const
 
-export type HogQLASTQueryQuery = { [key: string]: unknown }
+export type HogQLASTQueryApiQuery = { [key: string]: unknown }
 
 /**
  * Constant values that can be referenced with the {placeholder} syntax in the query
  * @nullable
  */
-export type HogQLASTQueryValues = { [key: string]: unknown } | null
+export type HogQLASTQueryApiValues = { [key: string]: unknown } | null
 
 /**
  * Variables to be substituted into the query
  * @nullable
  */
-export type HogQLASTQueryVariables = { [key: string]: HogQLVariable } | null
+export type HogQLASTQueryApiVariables = { [key: string]: HogQLVariableApi } | null
 
-export type SessionAttributionExplorerQueryKind =
-    (typeof SessionAttributionExplorerQueryKind)[keyof typeof SessionAttributionExplorerQueryKind]
+export interface HogQLASTQueryApi {
+    /** @nullable */
+    explain?: boolean | null
+    /** @nullable */
+    filters?: HogQLFiltersApi
+    kind?: HogQLASTQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Client provided name of the query
+     * @nullable
+     */
+    name?: string | null
+    query: HogQLASTQueryApiQuery
+    /** @nullable */
+    response?: HogQLQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * Constant values that can be referenced with the {placeholder} syntax in the query
+     * @nullable
+     */
+    values?: HogQLASTQueryApiValues
+    /**
+     * Variables to be substituted into the query
+     * @nullable
+     */
+    variables?: HogQLASTQueryApiVariables
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SessionAttributionExplorerQueryApiKind =
+    (typeof SessionAttributionExplorerQueryApiKind)[keyof typeof SessionAttributionExplorerQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionAttributionExplorerQueryKind = {
+export const SessionAttributionExplorerQueryApiKind = {
     SessionAttributionExplorerQuery: 'SessionAttributionExplorerQuery',
 } as const
 
-export type RevenueExampleEventsQueryKind =
-    (typeof RevenueExampleEventsQueryKind)[keyof typeof RevenueExampleEventsQueryKind]
+export interface SessionAttributionExplorerQueryApi {
+    /** @nullable */
+    filters?: FiltersApi
+    groupBy: SessionAttributionGroupByApi[]
+    kind?: SessionAttributionExplorerQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    response?: SessionAttributionExplorerQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueExampleEventsQueryApiKind =
+    (typeof RevenueExampleEventsQueryApiKind)[keyof typeof RevenueExampleEventsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueExampleEventsQueryKind = {
+export const RevenueExampleEventsQueryApiKind = {
     RevenueExampleEventsQuery: 'RevenueExampleEventsQuery',
 } as const
 
-export type RevenueExampleDataWarehouseTablesQueryKind =
-    (typeof RevenueExampleDataWarehouseTablesQueryKind)[keyof typeof RevenueExampleDataWarehouseTablesQueryKind]
+export interface RevenueExampleEventsQueryApi {
+    kind?: RevenueExampleEventsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    response?: RevenueExampleEventsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueExampleDataWarehouseTablesQueryApiKind =
+    (typeof RevenueExampleDataWarehouseTablesQueryApiKind)[keyof typeof RevenueExampleDataWarehouseTablesQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueExampleDataWarehouseTablesQueryKind = {
+export const RevenueExampleDataWarehouseTablesQueryApiKind = {
     RevenueExampleDataWarehouseTablesQuery: 'RevenueExampleDataWarehouseTablesQuery',
 } as const
 
-export type ErrorTrackingQueryKind = (typeof ErrorTrackingQueryKind)[keyof typeof ErrorTrackingQueryKind]
+export interface RevenueExampleDataWarehouseTablesQueryApi {
+    kind?: RevenueExampleDataWarehouseTablesQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    response?: RevenueExampleDataWarehouseTablesQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ErrorTrackingQueryApiKind = (typeof ErrorTrackingQueryApiKind)[keyof typeof ErrorTrackingQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingQueryKind = {
+export const ErrorTrackingQueryApiKind = {
     ErrorTrackingQuery: 'ErrorTrackingQuery',
 } as const
 
-export type ErrorTrackingSimilarIssuesQueryKind =
-    (typeof ErrorTrackingSimilarIssuesQueryKind)[keyof typeof ErrorTrackingSimilarIssuesQueryKind]
+export interface ErrorTrackingQueryApi {
+    /** @nullable */
+    assignee?: ErrorTrackingIssueAssigneeApi
+    dateRange: DateRangeApi
+    /** @nullable */
+    filterGroup?: PropertyGroupFilterApi
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    groupKey?: string | null
+    /** @nullable */
+    groupTypeIndex?: number | null
+    /** @nullable */
+    issueId?: string | null
+    kind?: ErrorTrackingQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    orderBy: OrderBy1Api
+    /** @nullable */
+    orderDirection?: OrderDirection1Api
+    /** @nullable */
+    personId?: string | null
+    /** @nullable */
+    response?: ErrorTrackingQueryResponseApi
+    /** @nullable */
+    revenueEntity?: RevenueEntityApi
+    /** @nullable */
+    revenuePeriod?: RevenuePeriodApi
+    /** @nullable */
+    searchQuery?: string | null
+    /** @nullable */
+    status?: Status2Api
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    volumeResolution: number
+    /** @nullable */
+    withAggregations?: boolean | null
+    /** @nullable */
+    withFirstEvent?: boolean | null
+    /** @nullable */
+    withLastEvent?: boolean | null
+}
+
+export type ErrorTrackingSimilarIssuesQueryApiKind =
+    (typeof ErrorTrackingSimilarIssuesQueryApiKind)[keyof typeof ErrorTrackingSimilarIssuesQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingSimilarIssuesQueryKind = {
+export const ErrorTrackingSimilarIssuesQueryApiKind = {
     ErrorTrackingSimilarIssuesQuery: 'ErrorTrackingSimilarIssuesQuery',
 } as const
 
-export type ErrorTrackingBreakdownsQueryKind =
-    (typeof ErrorTrackingBreakdownsQueryKind)[keyof typeof ErrorTrackingBreakdownsQueryKind]
+export interface ErrorTrackingSimilarIssuesQueryApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    issueId: string
+    kind?: ErrorTrackingSimilarIssuesQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    maxDistance?: number | null
+    /** @nullable */
+    modelName?: EmbeddingModelNameApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    rendering?: string | null
+    /** @nullable */
+    response?: ErrorTrackingSimilarIssuesQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ErrorTrackingBreakdownsQueryApiKind =
+    (typeof ErrorTrackingBreakdownsQueryApiKind)[keyof typeof ErrorTrackingBreakdownsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingBreakdownsQueryKind = {
+export const ErrorTrackingBreakdownsQueryApiKind = {
     ErrorTrackingBreakdownsQuery: 'ErrorTrackingBreakdownsQuery',
 } as const
 
-export type ErrorTrackingIssueCorrelationQueryKind =
-    (typeof ErrorTrackingIssueCorrelationQueryKind)[keyof typeof ErrorTrackingIssueCorrelationQueryKind]
+export interface ErrorTrackingBreakdownsQueryApi {
+    breakdownProperties: string[]
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    issueId: string
+    kind?: ErrorTrackingBreakdownsQueryApiKind
+    /** @nullable */
+    maxValuesPerProperty?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ErrorTrackingBreakdownsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ErrorTrackingIssueCorrelationQueryApiKind =
+    (typeof ErrorTrackingIssueCorrelationQueryApiKind)[keyof typeof ErrorTrackingIssueCorrelationQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingIssueCorrelationQueryKind = {
+export const ErrorTrackingIssueCorrelationQueryApiKind = {
     ErrorTrackingIssueCorrelationQuery: 'ErrorTrackingIssueCorrelationQuery',
 } as const
 
-export type ExperimentFunnelsQueryKind = (typeof ExperimentFunnelsQueryKind)[keyof typeof ExperimentFunnelsQueryKind]
+export interface ErrorTrackingIssueCorrelationQueryApi {
+    events: string[]
+    kind?: ErrorTrackingIssueCorrelationQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ErrorTrackingIssueCorrelationQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentFunnelsQueryApiKind =
+    (typeof ExperimentFunnelsQueryApiKind)[keyof typeof ExperimentFunnelsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentFunnelsQueryKind = {
+export const ExperimentFunnelsQueryApiKind = {
     ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
 } as const
 
-export type ExperimentTrendsQueryKind = (typeof ExperimentTrendsQueryKind)[keyof typeof ExperimentTrendsQueryKind]
+export interface ExperimentFunnelsQueryApi {
+    /** @nullable */
+    experiment_id?: number | null
+    /** @nullable */
+    fingerprint?: string | null
+    funnels_query: FunnelsQueryApi
+    kind?: ExperimentFunnelsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentFunnelsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentTrendsQueryApiKind =
+    (typeof ExperimentTrendsQueryApiKind)[keyof typeof ExperimentTrendsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentTrendsQueryKind = {
+export const ExperimentTrendsQueryApiKind = {
     ExperimentTrendsQuery: 'ExperimentTrendsQuery',
 } as const
 
-export type ExperimentQueryKind = (typeof ExperimentQueryKind)[keyof typeof ExperimentQueryKind]
+export interface ExperimentTrendsQueryApi {
+    count_query: TrendsQueryApi
+    /** @nullable */
+    experiment_id?: number | null
+    /** @nullable */
+    exposure_query?: TrendsQueryApi
+    /** @nullable */
+    fingerprint?: string | null
+    kind?: ExperimentTrendsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentTrendsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentQueryApiKind = (typeof ExperimentQueryApiKind)[keyof typeof ExperimentQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentQueryKind = {
+export const ExperimentQueryApiKind = {
     ExperimentQuery: 'ExperimentQuery',
 } as const
 
-export type ExperimentQueryMetric =
-    | ExperimentMeanMetric
-    | ExperimentFunnelMetric
-    | ExperimentRatioMetric
-    | ExperimentRetentionMetric
+export type ExperimentQueryApiMetric =
+    | ExperimentMeanMetricApi
+    | ExperimentFunnelMetricApi
+    | ExperimentRatioMetricApi
+    | ExperimentRetentionMetricApi
 
-export type ExperimentExposureQueryFeatureFlag = { [key: string]: unknown }
+export interface ExperimentQueryApi {
+    /** @nullable */
+    experiment_id?: number | null
+    kind?: ExperimentQueryApiKind
+    metric: ExperimentQueryApiMetric
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export type ExperimentExposureQueryKind = (typeof ExperimentExposureQueryKind)[keyof typeof ExperimentExposureQueryKind]
+export type ExperimentExposureQueryApiFeatureFlag = { [key: string]: unknown }
+
+export type ExperimentExposureQueryApiKind =
+    (typeof ExperimentExposureQueryApiKind)[keyof typeof ExperimentExposureQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentExposureQueryKind = {
+export const ExperimentExposureQueryApiKind = {
     ExperimentExposureQuery: 'ExperimentExposureQuery',
 } as const
 
-export type DocumentSimilarityQueryKind = (typeof DocumentSimilarityQueryKind)[keyof typeof DocumentSimilarityQueryKind]
+export interface ExperimentExposureQueryApi {
+    /** @nullable */
+    end_date?: string | null
+    /** @nullable */
+    experiment_id?: number | null
+    experiment_name: string
+    /** @nullable */
+    exposure_criteria?: ExperimentExposureCriteriaApi
+    feature_flag: ExperimentExposureQueryApiFeatureFlag
+    /** @nullable */
+    holdout?: ExperimentHoldoutTypeApi
+    kind?: ExperimentExposureQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ExperimentExposureQueryResponseApi
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DocumentSimilarityQueryApiKind =
+    (typeof DocumentSimilarityQueryApiKind)[keyof typeof DocumentSimilarityQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DocumentSimilarityQueryKind = {
+export const DocumentSimilarityQueryApiKind = {
     DocumentSimilarityQuery: 'DocumentSimilarityQuery',
 } as const
+
+export interface DocumentSimilarityQueryApi {
+    dateRange: DateRangeApi
+    distance_func: DistanceFuncApi
+    document_types: string[]
+    kind?: DocumentSimilarityQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    model: string
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    order_by: OrderByApi
+    order_direction: OrderDirectionApi
+    origin: EmbeddedDocumentApi
+    products: string[]
+    renderings: string[]
+    /** @nullable */
+    response?: DocumentSimilarityQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    threshold?: number | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebOverviewQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebOverviewQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebOverviewQueryKind = (typeof WebOverviewQueryKind)[keyof typeof WebOverviewQueryKind]
+export type WebOverviewQueryApiKind = (typeof WebOverviewQueryApiKind)[keyof typeof WebOverviewQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebOverviewQueryKind = {
+export const WebOverviewQueryApiKind = {
     WebOverviewQuery: 'WebOverviewQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebOverviewQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
-export type WebOverviewQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export const WebOverviewQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
+} as const
+export type WebOverviewQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface WebOverviewQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebOverviewQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebOverviewQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?: (typeof WebOverviewQueryApiOrderByItem)[keyof typeof WebOverviewQueryApiOrderByItem][] | null
+    properties: WebOverviewQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebOverviewQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebStatsTableQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebStatsTableQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebStatsTableQueryKind = (typeof WebStatsTableQueryKind)[keyof typeof WebStatsTableQueryKind]
+export type WebStatsTableQueryApiKind = (typeof WebStatsTableQueryApiKind)[keyof typeof WebStatsTableQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebStatsTableQueryKind = {
+export const WebStatsTableQueryApiKind = {
     WebStatsTableQuery: 'WebStatsTableQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebStatsTableQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
-export type WebStatsTableQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export const WebStatsTableQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
+} as const
+export type WebStatsTableQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface WebStatsTableQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    breakdownBy: WebStatsBreakdownApi
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebStatsTableQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeBounceRate?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** @nullable */
+    includeScrollDepth?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebStatsTableQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: (typeof WebStatsTableQueryApiOrderByItem)[keyof typeof WebStatsTableQueryApiOrderByItem][] | null
+    properties: WebStatsTableQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebStatsTableQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebExternalClicksTableQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebExternalClicksTableQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebExternalClicksTableQueryKind =
-    (typeof WebExternalClicksTableQueryKind)[keyof typeof WebExternalClicksTableQueryKind]
+export type WebExternalClicksTableQueryApiKind =
+    (typeof WebExternalClicksTableQueryApiKind)[keyof typeof WebExternalClicksTableQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebExternalClicksTableQueryKind = {
+export const WebExternalClicksTableQueryApiKind = {
     WebExternalClicksTableQuery: 'WebExternalClicksTableQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebExternalClicksTableQueryOrderByItem = {
-    ...WebAnalyticsOrderByFields,
-    ...WebAnalyticsOrderByDirection,
+export const WebExternalClicksTableQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
 } as const
-export type WebExternalClicksTableQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
+export type WebExternalClicksTableQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface WebExternalClicksTableQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebExternalClicksTableQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebExternalClicksTableQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?:
+        | (typeof WebExternalClicksTableQueryApiOrderByItem)[keyof typeof WebExternalClicksTableQueryApiOrderByItem][]
+        | null
+    properties: WebExternalClicksTableQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebExternalClicksTableQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    stripQueryParams?: boolean | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebGoalsQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebGoalsQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebGoalsQueryKind = (typeof WebGoalsQueryKind)[keyof typeof WebGoalsQueryKind]
+export type WebGoalsQueryApiKind = (typeof WebGoalsQueryApiKind)[keyof typeof WebGoalsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebGoalsQueryKind = {
+export const WebGoalsQueryApiKind = {
     WebGoalsQuery: 'WebGoalsQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebGoalsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
-export type WebGoalsQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export const WebGoalsQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
+} as const
+export type WebGoalsQueryApiPropertiesItem = EventPropertyFilterApi | PersonPropertyFilterApi | SessionPropertyFilterApi
+
+export interface WebGoalsQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebGoalsQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebGoalsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?: (typeof WebGoalsQueryApiOrderByItem)[keyof typeof WebGoalsQueryApiOrderByItem][] | null
+    properties: WebGoalsQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebGoalsQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebVitalsQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebVitalsQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebVitalsQueryKind = (typeof WebVitalsQueryKind)[keyof typeof WebVitalsQueryKind]
+export type WebVitalsQueryApiKind = (typeof WebVitalsQueryApiKind)[keyof typeof WebVitalsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsQueryKind = {
+export const WebVitalsQueryApiKind = {
     WebVitalsQuery: 'WebVitalsQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
-export type WebVitalsQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export const WebVitalsQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
+} as const
+export type WebVitalsQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
 
-export type WebVitalsQuerySource =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | WebStatsTableQuery
-    | WebOverviewQuery
+export type WebVitalsQueryApiSource =
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | WebStatsTableQueryApi
+    | WebOverviewQueryApi
+
+export interface WebVitalsQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebVitalsQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebVitalsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?: (typeof WebVitalsQueryApiOrderByItem)[keyof typeof WebVitalsQueryApiOrderByItem][] | null
+    properties: WebVitalsQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebGoalsQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    source: WebVitalsQueryApiSource
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebVitalsPathBreakdownQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebVitalsPathBreakdownQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebVitalsPathBreakdownQueryKind =
-    (typeof WebVitalsPathBreakdownQueryKind)[keyof typeof WebVitalsPathBreakdownQueryKind]
+export type WebVitalsPathBreakdownQueryApiKind =
+    (typeof WebVitalsPathBreakdownQueryApiKind)[keyof typeof WebVitalsPathBreakdownQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsPathBreakdownQueryKind = {
+export const WebVitalsPathBreakdownQueryApiKind = {
     WebVitalsPathBreakdownQuery: 'WebVitalsPathBreakdownQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsPathBreakdownQueryOrderByItem = {
-    ...WebAnalyticsOrderByFields,
-    ...WebAnalyticsOrderByDirection,
+export const WebVitalsPathBreakdownQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
 } as const
-export type WebVitalsPathBreakdownQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
+export type WebVitalsPathBreakdownQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface WebVitalsPathBreakdownQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebVitalsPathBreakdownQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebVitalsPathBreakdownQueryApiKind
+    metric: WebVitalsMetricApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?:
+        | (typeof WebVitalsPathBreakdownQueryApiOrderByItem)[keyof typeof WebVitalsPathBreakdownQueryApiOrderByItem][]
+        | null
+    percentile: WebVitalsPercentileApi
+    properties: WebVitalsPathBreakdownQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebVitalsPathBreakdownQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * @minItems 2
+     * @maxItems 2
+     */
+    thresholds: number[]
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type WebPageURLSearchQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type WebPageURLSearchQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type WebPageURLSearchQueryKind = (typeof WebPageURLSearchQueryKind)[keyof typeof WebPageURLSearchQueryKind]
+export type WebPageURLSearchQueryApiKind =
+    (typeof WebPageURLSearchQueryApiKind)[keyof typeof WebPageURLSearchQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebPageURLSearchQueryKind = {
+export const WebPageURLSearchQueryApiKind = {
     WebPageURLSearchQuery: 'WebPageURLSearchQuery',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebPageURLSearchQueryOrderByItem = {
-    ...WebAnalyticsOrderByFields,
-    ...WebAnalyticsOrderByDirection,
+export const WebPageURLSearchQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
 } as const
-export type WebPageURLSearchQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
+export type WebPageURLSearchQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
 
-export type WebAnalyticsExternalSummaryQueryKind =
-    (typeof WebAnalyticsExternalSummaryQueryKind)[keyof typeof WebAnalyticsExternalSummaryQueryKind]
+export interface WebPageURLSearchQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebPageURLSearchQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: WebPageURLSearchQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    orderBy?: (typeof WebPageURLSearchQueryApiOrderByItem)[keyof typeof WebPageURLSearchQueryApiOrderByItem][] | null
+    properties: WebPageURLSearchQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebPageURLSearchQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    searchTerm?: string | null
+    /** @nullable */
+    stripQueryParams?: boolean | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type WebAnalyticsExternalSummaryQueryApiKind =
+    (typeof WebAnalyticsExternalSummaryQueryApiKind)[keyof typeof WebAnalyticsExternalSummaryQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebAnalyticsExternalSummaryQueryKind = {
+export const WebAnalyticsExternalSummaryQueryApiKind = {
     WebAnalyticsExternalSummaryQuery: 'WebAnalyticsExternalSummaryQuery',
 } as const
 
-export type WebAnalyticsExternalSummaryQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
+export type WebAnalyticsExternalSummaryQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
 
-export type RevenueAnalyticsGrossRevenueQueryKind =
-    (typeof RevenueAnalyticsGrossRevenueQueryKind)[keyof typeof RevenueAnalyticsGrossRevenueQueryKind]
+export interface WebAnalyticsExternalSummaryQueryApi {
+    dateRange: DateRangeApi
+    kind?: WebAnalyticsExternalSummaryQueryApiKind
+    properties: WebAnalyticsExternalSummaryQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebAnalyticsExternalSummaryQueryResponseApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsGrossRevenueQueryApiKind =
+    (typeof RevenueAnalyticsGrossRevenueQueryApiKind)[keyof typeof RevenueAnalyticsGrossRevenueQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsGrossRevenueQueryKind = {
+export const RevenueAnalyticsGrossRevenueQueryApiKind = {
     RevenueAnalyticsGrossRevenueQuery: 'RevenueAnalyticsGrossRevenueQuery',
 } as const
 
-export type RevenueAnalyticsMetricsQueryKind =
-    (typeof RevenueAnalyticsMetricsQueryKind)[keyof typeof RevenueAnalyticsMetricsQueryKind]
+export interface RevenueAnalyticsGrossRevenueQueryApi {
+    breakdown: RevenueAnalyticsBreakdownApi[]
+    /** @nullable */
+    dateRange?: DateRangeApi
+    interval: SimpleIntervalTypeApi
+    kind?: RevenueAnalyticsGrossRevenueQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: RevenueAnalyticsPropertyFilterApi[]
+    /** @nullable */
+    response?: RevenueAnalyticsGrossRevenueQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsMetricsQueryApiKind =
+    (typeof RevenueAnalyticsMetricsQueryApiKind)[keyof typeof RevenueAnalyticsMetricsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsMetricsQueryKind = {
+export const RevenueAnalyticsMetricsQueryApiKind = {
     RevenueAnalyticsMetricsQuery: 'RevenueAnalyticsMetricsQuery',
 } as const
 
-export type RevenueAnalyticsMRRQueryKind =
-    (typeof RevenueAnalyticsMRRQueryKind)[keyof typeof RevenueAnalyticsMRRQueryKind]
+export interface RevenueAnalyticsMetricsQueryApi {
+    breakdown: RevenueAnalyticsBreakdownApi[]
+    /** @nullable */
+    dateRange?: DateRangeApi
+    interval: SimpleIntervalTypeApi
+    kind?: RevenueAnalyticsMetricsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: RevenueAnalyticsPropertyFilterApi[]
+    /** @nullable */
+    response?: RevenueAnalyticsMetricsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsMRRQueryApiKind =
+    (typeof RevenueAnalyticsMRRQueryApiKind)[keyof typeof RevenueAnalyticsMRRQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsMRRQueryKind = {
+export const RevenueAnalyticsMRRQueryApiKind = {
     RevenueAnalyticsMRRQuery: 'RevenueAnalyticsMRRQuery',
 } as const
 
-export type RevenueAnalyticsOverviewQueryKind =
-    (typeof RevenueAnalyticsOverviewQueryKind)[keyof typeof RevenueAnalyticsOverviewQueryKind]
+export interface RevenueAnalyticsMRRQueryApi {
+    breakdown: RevenueAnalyticsBreakdownApi[]
+    /** @nullable */
+    dateRange?: DateRangeApi
+    interval: SimpleIntervalTypeApi
+    kind?: RevenueAnalyticsMRRQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: RevenueAnalyticsPropertyFilterApi[]
+    /** @nullable */
+    response?: RevenueAnalyticsMRRQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsOverviewQueryApiKind =
+    (typeof RevenueAnalyticsOverviewQueryApiKind)[keyof typeof RevenueAnalyticsOverviewQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsOverviewQueryKind = {
+export const RevenueAnalyticsOverviewQueryApiKind = {
     RevenueAnalyticsOverviewQuery: 'RevenueAnalyticsOverviewQuery',
 } as const
 
-export type RevenueAnalyticsTopCustomersQueryKind =
-    (typeof RevenueAnalyticsTopCustomersQueryKind)[keyof typeof RevenueAnalyticsTopCustomersQueryKind]
+export interface RevenueAnalyticsOverviewQueryApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    kind?: RevenueAnalyticsOverviewQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: RevenueAnalyticsPropertyFilterApi[]
+    /** @nullable */
+    response?: RevenueAnalyticsOverviewQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RevenueAnalyticsTopCustomersQueryApiKind =
+    (typeof RevenueAnalyticsTopCustomersQueryApiKind)[keyof typeof RevenueAnalyticsTopCustomersQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsTopCustomersQueryKind = {
+export const RevenueAnalyticsTopCustomersQueryApiKind = {
     RevenueAnalyticsTopCustomersQuery: 'RevenueAnalyticsTopCustomersQuery',
 } as const
 
+export interface RevenueAnalyticsTopCustomersQueryApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    groupBy: RevenueAnalyticsTopCustomersGroupByApi
+    kind?: RevenueAnalyticsTopCustomersQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: RevenueAnalyticsPropertyFilterApi[]
+    /** @nullable */
+    response?: RevenueAnalyticsTopCustomersQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 /**
  * @nullable
  */
-export type MarketingAnalyticsTableQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type MarketingAnalyticsTableQueryApiConversionGoal =
+    | ActionConversionGoalApi
+    | CustomEventConversionGoalApi
+    | null
 
 /**
  * Draft conversion goal that can be set in the UI without saving
  * @nullable
  */
-export type MarketingAnalyticsTableQueryDraftConversionGoal =
-    | ConversionGoalFilter1
-    | ConversionGoalFilter2
-    | ConversionGoalFilter3
+export type MarketingAnalyticsTableQueryApiDraftConversionGoal =
+    | ConversionGoalFilter1Api
+    | ConversionGoalFilter2Api
+    | ConversionGoalFilter3Api
     | null
 
-export type MarketingAnalyticsTableQueryKind =
-    (typeof MarketingAnalyticsTableQueryKind)[keyof typeof MarketingAnalyticsTableQueryKind]
+export type MarketingAnalyticsTableQueryApiKind =
+    (typeof MarketingAnalyticsTableQueryApiKind)[keyof typeof MarketingAnalyticsTableQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MarketingAnalyticsTableQueryKind = {
+export const MarketingAnalyticsTableQueryApiKind = {
     MarketingAnalyticsTableQuery: 'MarketingAnalyticsTableQuery',
 } as const
 
-export type MarketingAnalyticsTableQueryOrderByItemItem = string | MarketingAnalyticsOrderByEnum
+export type MarketingAnalyticsTableQueryApiOrderByItemItem = string | MarketingAnalyticsOrderByEnumApi
 
-export type MarketingAnalyticsTableQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
+export type MarketingAnalyticsTableQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface MarketingAnalyticsTableQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Compare to date range
+     * @nullable
+     */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: MarketingAnalyticsTableQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /**
+     * Draft conversion goal that can be set in the UI without saving
+     * @nullable
+     */
+    draftConversionGoal?: MarketingAnalyticsTableQueryApiDraftConversionGoal
+    /**
+     * Filter test accounts
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Include conversion goal rows even when they don't match campaign costs table
+     * @nullable
+     */
+    includeAllConversions?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * Filter by integration type
+     * @nullable
+     */
+    integrationFilter?: IntegrationFilterApi
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: MarketingAnalyticsTableQueryApiKind
+    /**
+     * Number of rows to return
+     * @nullable
+     */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Number of rows to skip before returning rows
+     * @nullable
+     */
+    offset?: number | null
+    /**
+     * Columns to order by - similar to EventsQuery format
+     * @nullable
+     */
+    orderBy?: MarketingAnalyticsTableQueryApiOrderByItemItem[][] | null
+    properties: MarketingAnalyticsTableQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: MarketingAnalyticsTableQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Return a limited set of data. Will use default columns if empty.
+     * @nullable
+     */
+    select?: string[] | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 /**
  * @nullable
  */
-export type MarketingAnalyticsAggregatedQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type MarketingAnalyticsAggregatedQueryApiConversionGoal =
+    | ActionConversionGoalApi
+    | CustomEventConversionGoalApi
+    | null
 
 /**
  * Draft conversion goal that can be set in the UI without saving
  * @nullable
  */
-export type MarketingAnalyticsAggregatedQueryDraftConversionGoal =
-    | ConversionGoalFilter1
-    | ConversionGoalFilter2
-    | ConversionGoalFilter3
+export type MarketingAnalyticsAggregatedQueryApiDraftConversionGoal =
+    | ConversionGoalFilter1Api
+    | ConversionGoalFilter2Api
+    | ConversionGoalFilter3Api
     | null
 
-export type MarketingAnalyticsAggregatedQueryKind =
-    (typeof MarketingAnalyticsAggregatedQueryKind)[keyof typeof MarketingAnalyticsAggregatedQueryKind]
+export type MarketingAnalyticsAggregatedQueryApiKind =
+    (typeof MarketingAnalyticsAggregatedQueryApiKind)[keyof typeof MarketingAnalyticsAggregatedQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MarketingAnalyticsAggregatedQueryKind = {
+export const MarketingAnalyticsAggregatedQueryApiKind = {
     MarketingAnalyticsAggregatedQuery: 'MarketingAnalyticsAggregatedQuery',
 } as const
 
-export type MarketingAnalyticsAggregatedQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | SessionPropertyFilter
+export type MarketingAnalyticsAggregatedQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
 
-export type DataVisualizationNodeKind = (typeof DataVisualizationNodeKind)[keyof typeof DataVisualizationNodeKind]
+export interface MarketingAnalyticsAggregatedQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: MarketingAnalyticsAggregatedQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /**
+     * Draft conversion goal that can be set in the UI without saving
+     * @nullable
+     */
+    draftConversionGoal?: MarketingAnalyticsAggregatedQueryApiDraftConversionGoal
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /**
+     * Filter by integration IDs
+     * @nullable
+     */
+    integrationFilter?: IntegrationFilterApi
+    /**
+     * For Product Analytics UI compatibility only - not used in Web Analytics query execution
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: MarketingAnalyticsAggregatedQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: MarketingAnalyticsAggregatedQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: MarketingAnalyticsAggregatedQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Return a limited set of data. Will use default columns if empty.
+     * @nullable
+     */
+    select?: string[] | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DataVisualizationNodeApiKind =
+    (typeof DataVisualizationNodeApiKind)[keyof typeof DataVisualizationNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataVisualizationNodeKind = {
+export const DataVisualizationNodeApiKind = {
     DataVisualizationNode: 'DataVisualizationNode',
 } as const
 
-export type DataTableNodeKind = (typeof DataTableNodeKind)[keyof typeof DataTableNodeKind]
+export interface DataVisualizationNodeApi {
+    /** @nullable */
+    chartSettings?: ChartSettingsApi
+    /** @nullable */
+    display?: ChartDisplayTypeApi
+    kind?: DataVisualizationNodeApiKind
+    source: HogQLQueryApi
+    /** @nullable */
+    tableSettings?: TableSettingsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DataTableNodeApiKind = (typeof DataTableNodeApiKind)[keyof typeof DataTableNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataTableNodeKind = {
+export const DataTableNodeApiKind = {
     DataTableNode: 'DataTableNode',
 } as const
 
-export type DataTableNodeResponseAnyOf = { [key: string]: unknown }
+export type DataTableNodeApiResponseAnyOf = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type DataTableNodeResponse =
-    | DataTableNodeResponseAnyOf
-    | Response
-    | Response1
-    | Response2
-    | Response3
-    | Response4
-    | Response5
-    | Response6
-    | Response8
-    | Response9
-    | Response10
-    | Response11
-    | Response12
-    | Response13
-    | Response14
-    | Response15
-    | Response16
-    | Response18
-    | Response19
-    | Response20
-    | Response21
-    | Response22
-    | Response23
-    | Response24
+export type DataTableNodeApiResponse =
+    | DataTableNodeApiResponseAnyOf
+    | ResponseApi
+    | Response1Api
+    | Response2Api
+    | Response3Api
+    | Response4Api
+    | Response5Api
+    | Response6Api
+    | Response8Api
+    | Response9Api
+    | Response10Api
+    | Response11Api
+    | Response12Api
+    | Response13Api
+    | Response14Api
+    | Response15Api
+    | Response16Api
+    | Response18Api
+    | Response19Api
+    | Response20Api
+    | Response21Api
+    | Response22Api
+    | Response23Api
+    | Response24Api
     | null
 
 /**
  * Include a property filter above the table
  * @nullable
  */
-export type DataTableNodeShowPropertyFilter = boolean | TaxonomicFilterGroupType[] | null
+export type DataTableNodeApiShowPropertyFilter = boolean | TaxonomicFilterGroupTypeApi[] | null
 
 /**
  * Source of the events
  */
-export type DataTableNodeSource =
-    | EventsNode
-    | EventsQuery
-    | PersonsNode
-    | ActorsQuery
-    | GroupsQuery
-    | HogQLQuery
-    | WebOverviewQuery
-    | WebStatsTableQuery
-    | WebExternalClicksTableQuery
-    | WebGoalsQuery
-    | WebVitalsQuery
-    | WebVitalsPathBreakdownQuery
-    | SessionAttributionExplorerQuery
-    | SessionsQuery
-    | RevenueAnalyticsGrossRevenueQuery
-    | RevenueAnalyticsMetricsQuery
-    | RevenueAnalyticsMRRQuery
-    | RevenueAnalyticsOverviewQuery
-    | RevenueAnalyticsTopCustomersQuery
-    | RevenueExampleEventsQuery
-    | RevenueExampleDataWarehouseTablesQuery
-    | MarketingAnalyticsTableQuery
-    | MarketingAnalyticsAggregatedQuery
-    | ErrorTrackingQuery
-    | ErrorTrackingIssueCorrelationQuery
-    | ExperimentFunnelsQuery
-    | ExperimentTrendsQuery
-    | TracesQuery
-    | TraceQuery
+export type DataTableNodeApiSource =
+    | EventsNodeApi
+    | EventsQueryApi
+    | PersonsNodeApi
+    | ActorsQueryApi
+    | GroupsQueryApi
+    | HogQLQueryApi
+    | WebOverviewQueryApi
+    | WebStatsTableQueryApi
+    | WebExternalClicksTableQueryApi
+    | WebGoalsQueryApi
+    | WebVitalsQueryApi
+    | WebVitalsPathBreakdownQueryApi
+    | SessionAttributionExplorerQueryApi
+    | SessionsQueryApi
+    | RevenueAnalyticsGrossRevenueQueryApi
+    | RevenueAnalyticsMetricsQueryApi
+    | RevenueAnalyticsMRRQueryApi
+    | RevenueAnalyticsOverviewQueryApi
+    | RevenueAnalyticsTopCustomersQueryApi
+    | RevenueExampleEventsQueryApi
+    | RevenueExampleDataWarehouseTablesQueryApi
+    | MarketingAnalyticsTableQueryApi
+    | MarketingAnalyticsAggregatedQueryApi
+    | ErrorTrackingQueryApi
+    | ErrorTrackingIssueCorrelationQueryApi
+    | ExperimentFunnelsQueryApi
+    | ExperimentTrendsQueryApi
+    | TracesQueryApi
+    | TraceQueryApi
 
-export type SavedInsightNodeKind = (typeof SavedInsightNodeKind)[keyof typeof SavedInsightNodeKind]
+export interface DataTableNodeApi {
+    /**
+     * Can the user click on column headers to sort the table? (default: true)
+     * @nullable
+     */
+    allowSorting?: boolean | null
+    /**
+     * Columns shown in the table, unless the `source` provides them.
+     * @nullable
+     */
+    columns?: string[] | null
+    /**
+     * Context for the table, used by components like ColumnConfigurator
+     * @nullable
+     */
+    context?: DataTableNodeViewPropsContextApi
+    /**
+     * Context key for universal column configuration (e.g., "survey:123")
+     * @nullable
+     */
+    contextKey?: string | null
+    /**
+     * Default columns to use when resetting column configuration
+     * @nullable
+     */
+    defaultColumns?: string[] | null
+    /**
+     * Uses the embedded version of LemonTable
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Can expand row to show raw event data (default: true)
+     * @nullable
+     */
+    expandable?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in scenes.
+     * @nullable
+     */
+    full?: boolean | null
+    /**
+     * Columns that aren't shown in the table, even if in columns or returned data
+     * @nullable
+     */
+    hiddenColumns?: string[] | null
+    kind?: DataTableNodeApiKind
+    /**
+     * Columns that are sticky when scrolling horizontally
+     * @nullable
+     */
+    pinnedColumns?: string[] | null
+    /**
+     * Link properties via the URL (default: false)
+     * @nullable
+     */
+    propertiesViaUrl?: boolean | null
+    /** @nullable */
+    response?: DataTableNodeApiResponse
+    /**
+     * Show the kebab menu at the end of the row
+     * @nullable
+     */
+    showActions?: boolean | null
+    /**
+     * Show a button to configure the table's columns if possible
+     * @nullable
+     */
+    showColumnConfigurator?: boolean | null
+    /**
+     * Show date range selector
+     * @nullable
+     */
+    showDateRange?: boolean | null
+    /**
+     * Show the time it takes to run a query
+     * @nullable
+     */
+    showElapsedTime?: boolean | null
+    /**
+     * Include an event filter above the table (EventsNode only)
+     * @nullable
+     */
+    showEventFilter?: boolean | null
+    /**
+     * Show the export button
+     * @nullable
+     */
+    showExport?: boolean | null
+    /**
+     * Include a HogQL query editor above HogQL tables
+     * @nullable
+     */
+    showHogQLEditor?: boolean | null
+    /**
+     * Show a button to open the current query as a new insight. (default: true)
+     * @nullable
+     */
+    showOpenEditorButton?: boolean | null
+    /**
+     * Show a button to configure and persist the table's default columns if possible
+     * @nullable
+     */
+    showPersistentColumnConfigurator?: boolean | null
+    /**
+     * Include a property filter above the table
+     * @nullable
+     */
+    showPropertyFilter?: DataTableNodeApiShowPropertyFilter
+    /**
+     * Show a recording column for events with session recordings
+     * @nullable
+     */
+    showRecordingColumn?: boolean | null
+    /**
+     * Show a reload button
+     * @nullable
+     */
+    showReload?: boolean | null
+    /**
+     * Show a results table
+     * @nullable
+     */
+    showResultsTable?: boolean | null
+    /**
+     * Show saved filters feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showSavedFilters?: boolean | null
+    /**
+     * Shows a list of saved queries
+     * @nullable
+     */
+    showSavedQueries?: boolean | null
+    /**
+     * Include a free text search field (PersonsNode only)
+     * @nullable
+     */
+    showSearch?: boolean | null
+    /**
+     * Show actors query options and back to source
+     * @nullable
+     */
+    showSourceQueryOptions?: boolean | null
+    /**
+     * Show filter to exclude test accounts
+     * @nullable
+     */
+    showTestAccountFilters?: boolean | null
+    /**
+     * Show a detailed query timing breakdown
+     * @nullable
+     */
+    showTimings?: boolean | null
+    /** Source of the events */
+    source: DataTableNodeApiSource
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SavedInsightNodeApiKind = (typeof SavedInsightNodeApiKind)[keyof typeof SavedInsightNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SavedInsightNodeKind = {
+export const SavedInsightNodeApiKind = {
     SavedInsightNode: 'SavedInsightNode',
 } as const
 
@@ -4604,367 +7615,1242 @@ export const SavedInsightNodeKind = {
  * Include a property filter above the table
  * @nullable
  */
-export type SavedInsightNodeShowPropertyFilter = boolean | TaxonomicFilterGroupType[] | null
+export type SavedInsightNodeApiShowPropertyFilter = boolean | TaxonomicFilterGroupTypeApi[] | null
 
-export type InsightVizNodeKind = (typeof InsightVizNodeKind)[keyof typeof InsightVizNodeKind]
+export interface SavedInsightNodeApi {
+    /**
+     * Can the user click on column headers to sort the table? (default: true)
+     * @nullable
+     */
+    allowSorting?: boolean | null
+    /**
+     * Context for the table, used by components like ColumnConfigurator
+     * @nullable
+     */
+    context?: DataTableNodeViewPropsContextApi
+    /**
+     * Context key for universal column configuration (e.g., "survey:123")
+     * @nullable
+     */
+    contextKey?: string | null
+    /**
+     * Default columns to use when resetting column configuration
+     * @nullable
+     */
+    defaultColumns?: string[] | null
+    /**
+     * Query is embedded inside another bordered component
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Can expand row to show raw event data (default: true)
+     * @nullable
+     */
+    expandable?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in insight scene.
+     * @nullable
+     */
+    full?: boolean | null
+    /** @nullable */
+    hidePersonsModal?: boolean | null
+    /** @nullable */
+    hideTooltipOnScroll?: boolean | null
+    kind?: SavedInsightNodeApiKind
+    /**
+     * Link properties via the URL (default: false)
+     * @nullable
+     */
+    propertiesViaUrl?: boolean | null
+    shortId: string
+    /**
+     * Show the kebab menu at the end of the row
+     * @nullable
+     */
+    showActions?: boolean | null
+    /**
+     * Show a button to configure the table's columns if possible
+     * @nullable
+     */
+    showColumnConfigurator?: boolean | null
+    /** @nullable */
+    showCorrelationTable?: boolean | null
+    /**
+     * Show date range selector
+     * @nullable
+     */
+    showDateRange?: boolean | null
+    /**
+     * Show the time it takes to run a query
+     * @nullable
+     */
+    showElapsedTime?: boolean | null
+    /**
+     * Include an event filter above the table (EventsNode only)
+     * @nullable
+     */
+    showEventFilter?: boolean | null
+    /**
+     * Show the export button
+     * @nullable
+     */
+    showExport?: boolean | null
+    /** @nullable */
+    showFilters?: boolean | null
+    /** @nullable */
+    showHeader?: boolean | null
+    /**
+     * Include a HogQL query editor above HogQL tables
+     * @nullable
+     */
+    showHogQLEditor?: boolean | null
+    /** @nullable */
+    showLastComputation?: boolean | null
+    /** @nullable */
+    showLastComputationRefresh?: boolean | null
+    /**
+     * Show a button to open the current query as a new insight. (default: true)
+     * @nullable
+     */
+    showOpenEditorButton?: boolean | null
+    /**
+     * Show a button to configure and persist the table's default columns if possible
+     * @nullable
+     */
+    showPersistentColumnConfigurator?: boolean | null
+    /**
+     * Include a property filter above the table
+     * @nullable
+     */
+    showPropertyFilter?: SavedInsightNodeApiShowPropertyFilter
+    /**
+     * Show a recording column for events with session recordings
+     * @nullable
+     */
+    showRecordingColumn?: boolean | null
+    /**
+     * Show a reload button
+     * @nullable
+     */
+    showReload?: boolean | null
+    /** @nullable */
+    showResults?: boolean | null
+    /**
+     * Show a results table
+     * @nullable
+     */
+    showResultsTable?: boolean | null
+    /**
+     * Show saved filters feature for this table (requires uniqueKey)
+     * @nullable
+     */
+    showSavedFilters?: boolean | null
+    /**
+     * Shows a list of saved queries
+     * @nullable
+     */
+    showSavedQueries?: boolean | null
+    /**
+     * Include a free text search field (PersonsNode only)
+     * @nullable
+     */
+    showSearch?: boolean | null
+    /**
+     * Show actors query options and back to source
+     * @nullable
+     */
+    showSourceQueryOptions?: boolean | null
+    /** @nullable */
+    showTable?: boolean | null
+    /**
+     * Show filter to exclude test accounts
+     * @nullable
+     */
+    showTestAccountFilters?: boolean | null
+    /**
+     * Show a detailed query timing breakdown
+     * @nullable
+     */
+    showTimings?: boolean | null
+    /** @nullable */
+    suppressSessionAnalysisWarning?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /** @nullable */
+    vizSpecificOptions?: VizSpecificOptionsApi
+}
+
+export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InsightVizNodeKind = {
+export const InsightVizNodeApiKind = {
     InsightVizNode: 'InsightVizNode',
 } as const
 
-export type InsightVizNodeSource =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | WebStatsTableQuery
-    | WebOverviewQuery
+export type InsightVizNodeApiSource =
+    | TrendsQueryApi
+    | FunnelsQueryApi
+    | RetentionQueryApi
+    | PathsQueryApi
+    | StickinessQueryApi
+    | LifecycleQueryApi
+    | WebStatsTableQueryApi
+    | WebOverviewQueryApi
+
+export interface InsightVizNodeApi {
+    /**
+     * Query is embedded inside another bordered component
+     * @nullable
+     */
+    embedded?: boolean | null
+    /**
+     * Show with most visual options enabled. Used in insight scene.
+     * @nullable
+     */
+    full?: boolean | null
+    /** @nullable */
+    hidePersonsModal?: boolean | null
+    /** @nullable */
+    hideTooltipOnScroll?: boolean | null
+    kind?: InsightVizNodeApiKind
+    /** @nullable */
+    showCorrelationTable?: boolean | null
+    /** @nullable */
+    showFilters?: boolean | null
+    /** @nullable */
+    showHeader?: boolean | null
+    /** @nullable */
+    showLastComputation?: boolean | null
+    /** @nullable */
+    showLastComputationRefresh?: boolean | null
+    /** @nullable */
+    showResults?: boolean | null
+    /** @nullable */
+    showTable?: boolean | null
+    source: InsightVizNodeApiSource
+    /** @nullable */
+    suppressSessionAnalysisWarning?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+    /** @nullable */
+    vizSpecificOptions?: VizSpecificOptionsApi
+}
 
 /**
  * Whether we should be comparing against a specific conversion goal
  * @nullable
  */
-export type TrendsQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
+export type TrendsQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
 
-export type TrendsQueryKind = (typeof TrendsQueryKind)[keyof typeof TrendsQueryKind]
+export type TrendsQueryApiKind = (typeof TrendsQueryApiKind)[keyof typeof TrendsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TrendsQueryKind = {
+export const TrendsQueryApiKind = {
     TrendsQuery: 'TrendsQuery',
 } as const
 
-export type TrendsQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type TrendsQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type TrendsQueryProperties = TrendsQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type TrendsQueryApiProperties = TrendsQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type TrendsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
+export type TrendsQueryApiSeriesItem = EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi
 
-export type FunnelsQueryKind = (typeof FunnelsQueryKind)[keyof typeof FunnelsQueryKind]
+export interface TrendsQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Breakdown of the events and actions
+     * @nullable
+     */
+    breakdownFilter?: BreakdownFilterApi
+    /**
+     * Compare to date range
+     * @nullable
+     */
+    compareFilter?: CompareFilterApi
+    /**
+     * Whether we should be comparing against a specific conversion goal
+     * @nullable
+     */
+    conversionGoal?: TrendsQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: TrendsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: TrendsQueryApiProperties
+    /** @nullable */
+    response?: TrendsQueryResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: TrendsQueryApiSeriesItem[]
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * Properties specific to the trends insight
+     * @nullable
+     */
+    trendsFilter?: TrendsFilterApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelsQueryApiKind = (typeof FunnelsQueryApiKind)[keyof typeof FunnelsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelsQueryKind = {
+export const FunnelsQueryApiKind = {
     FunnelsQuery: 'FunnelsQuery',
 } as const
 
-export type FunnelsQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type FunnelsQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type FunnelsQueryProperties = FunnelsQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type FunnelsQueryApiProperties = FunnelsQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type FunnelsQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
+export type FunnelsQueryApiSeriesItem = EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi
 
-export type RetentionQueryKind = (typeof RetentionQueryKind)[keyof typeof RetentionQueryKind]
+export interface FunnelsQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Breakdown of the events and actions
+     * @nullable
+     */
+    breakdownFilter?: BreakdownFilterApi
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Properties specific to the funnels insight
+     * @nullable
+     */
+    funnelsFilter?: FunnelsFilterApi
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: FunnelsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: FunnelsQueryApiProperties
+    /** @nullable */
+    response?: FunnelsQueryResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: FunnelsQueryApiSeriesItem[]
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RetentionQueryApiKind = (typeof RetentionQueryApiKind)[keyof typeof RetentionQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionQueryKind = {
+export const RetentionQueryApiKind = {
     RetentionQuery: 'RetentionQuery',
 } as const
 
-export type RetentionQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type RetentionQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type RetentionQueryProperties = RetentionQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type RetentionQueryApiProperties = RetentionQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type PathsQueryKind = (typeof PathsQueryKind)[keyof typeof PathsQueryKind]
+export interface RetentionQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Breakdown of the events and actions
+     * @nullable
+     */
+    breakdownFilter?: BreakdownFilterApi
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    kind?: RetentionQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: RetentionQueryApiProperties
+    /** @nullable */
+    response?: RetentionQueryResponseApi
+    /** Properties specific to the retention insight */
+    retentionFilter: RetentionFilterApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type PathsQueryApiKind = (typeof PathsQueryApiKind)[keyof typeof PathsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PathsQueryKind = {
+export const PathsQueryApiKind = {
     PathsQuery: 'PathsQuery',
 } as const
 
-export type PathsQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type PathsQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type PathsQueryProperties = PathsQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type PathsQueryApiProperties = PathsQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type StickinessQueryKind = (typeof StickinessQueryKind)[keyof typeof StickinessQueryKind]
+export interface PathsQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Used for displaying paths in relation to funnel steps.
+     * @nullable
+     */
+    funnelPathsFilter?: FunnelPathsFilterApi
+    kind?: PathsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** Properties specific to the paths insight */
+    pathsFilter: PathsFilterApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: PathsQueryApiProperties
+    /** @nullable */
+    response?: PathsQueryResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type StickinessQueryApiKind = (typeof StickinessQueryApiKind)[keyof typeof StickinessQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StickinessQueryKind = {
+export const StickinessQueryApiKind = {
     StickinessQuery: 'StickinessQuery',
 } as const
 
-export type StickinessQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type StickinessQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type StickinessQueryProperties = StickinessQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type StickinessQueryApiProperties = StickinessQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type StickinessQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
+export type StickinessQueryApiSeriesItem = EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi
 
-export type LifecycleQueryKind = (typeof LifecycleQueryKind)[keyof typeof LifecycleQueryKind]
+export interface StickinessQueryApi {
+    /**
+     * Compare to date range
+     * @nullable
+     */
+    compareFilter?: CompareFilterApi
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    /**
+     * How many intervals comprise a period. Only used for cohorts, otherwise default 1.
+     * @nullable
+     */
+    intervalCount?: number | null
+    kind?: StickinessQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: StickinessQueryApiProperties
+    /** @nullable */
+    response?: StickinessQueryResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: StickinessQueryApiSeriesItem[]
+    /**
+     * Properties specific to the stickiness insight
+     * @nullable
+     */
+    stickinessFilter?: StickinessFilterApi
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LifecycleQueryApiKind = (typeof LifecycleQueryApiKind)[keyof typeof LifecycleQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LifecycleQueryKind = {
+export const LifecycleQueryApiKind = {
     LifecycleQuery: 'LifecycleQuery',
 } as const
 
-export type LifecycleQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type LifecycleQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * Property filters for all series
  * @nullable
  */
-export type LifecycleQueryProperties = LifecycleQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
+export type LifecycleQueryApiProperties = LifecycleQueryApiPropertiesAnyOfItem[] | PropertyGroupFilterApi | null
 
-export type LifecycleQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
+export type LifecycleQueryApiSeriesItem = EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi
 
-export type FunnelCorrelationQueryKind = (typeof FunnelCorrelationQueryKind)[keyof typeof FunnelCorrelationQueryKind]
+export interface LifecycleQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: LifecycleQueryApiKind
+    /**
+     * Properties specific to the lifecycle insight
+     * @nullable
+     */
+    lifecycleFilter?: LifecycleFilterApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: LifecycleQueryApiProperties
+    /** @nullable */
+    response?: LifecycleQueryResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: LifecycleQueryApiSeriesItem[]
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type FunnelCorrelationQueryApiKind =
+    (typeof FunnelCorrelationQueryApiKind)[keyof typeof FunnelCorrelationQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelCorrelationQueryKind = {
+export const FunnelCorrelationQueryApiKind = {
     FunnelCorrelationQuery: 'FunnelCorrelationQuery',
 } as const
 
-export type DatabaseSchemaQueryKind = (typeof DatabaseSchemaQueryKind)[keyof typeof DatabaseSchemaQueryKind]
+export interface FunnelCorrelationQueryApi {
+    /** @nullable */
+    funnelCorrelationEventExcludePropertyNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationEventNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationExcludeEventNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationExcludeNames?: string[] | null
+    /** @nullable */
+    funnelCorrelationNames?: string[] | null
+    funnelCorrelationType: FunnelCorrelationResultsTypeApi
+    kind?: FunnelCorrelationQueryApiKind
+    /** @nullable */
+    response?: FunnelCorrelationResponseApi
+    source: FunnelsActorsQueryApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type DatabaseSchemaQueryApiKind = (typeof DatabaseSchemaQueryApiKind)[keyof typeof DatabaseSchemaQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaQueryKind = {
+export const DatabaseSchemaQueryApiKind = {
     DatabaseSchemaQuery: 'DatabaseSchemaQuery',
 } as const
 
-export type LogsQueryKind = (typeof LogsQueryKind)[keyof typeof LogsQueryKind]
+export interface DatabaseSchemaQueryApi {
+    kind?: DatabaseSchemaQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: DatabaseSchemaQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type LogsQueryApiKind = (typeof LogsQueryApiKind)[keyof typeof LogsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LogsQueryKind = {
+export const LogsQueryApiKind = {
     LogsQuery: 'LogsQuery',
 } as const
 
-export type SuggestedQuestionsQueryKind = (typeof SuggestedQuestionsQueryKind)[keyof typeof SuggestedQuestionsQueryKind]
+export interface LogsQueryApi {
+    dateRange: DateRangeApi
+    filterGroup: PropertyGroupFilterApi
+    kind?: LogsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    liveLogsCheckpoint?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: OrderBy3Api
+    /** @nullable */
+    response?: LogsQueryResponseApi
+    /** @nullable */
+    searchTerm?: string | null
+    serviceNames: string[]
+    severityLevels: LogSeverityLevelApi[]
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type SuggestedQuestionsQueryApiKind =
+    (typeof SuggestedQuestionsQueryApiKind)[keyof typeof SuggestedQuestionsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SuggestedQuestionsQueryKind = {
+export const SuggestedQuestionsQueryApiKind = {
     SuggestedQuestionsQuery: 'SuggestedQuestionsQuery',
 } as const
 
-export type TeamTaxonomyQueryKind = (typeof TeamTaxonomyQueryKind)[keyof typeof TeamTaxonomyQueryKind]
+export interface SuggestedQuestionsQueryApi {
+    kind?: SuggestedQuestionsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: SuggestedQuestionsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TeamTaxonomyQueryApiKind = (typeof TeamTaxonomyQueryApiKind)[keyof typeof TeamTaxonomyQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TeamTaxonomyQueryKind = {
+export const TeamTaxonomyQueryApiKind = {
     TeamTaxonomyQuery: 'TeamTaxonomyQuery',
 } as const
 
-export type EventTaxonomyQueryKind = (typeof EventTaxonomyQueryKind)[keyof typeof EventTaxonomyQueryKind]
+export interface TeamTaxonomyQueryApi {
+    kind?: TeamTaxonomyQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: TeamTaxonomyQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type EventTaxonomyQueryApiKind = (typeof EventTaxonomyQueryApiKind)[keyof typeof EventTaxonomyQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventTaxonomyQueryKind = {
+export const EventTaxonomyQueryApiKind = {
     EventTaxonomyQuery: 'EventTaxonomyQuery',
 } as const
 
-export type ActorsPropertyTaxonomyQueryKind =
-    (typeof ActorsPropertyTaxonomyQueryKind)[keyof typeof ActorsPropertyTaxonomyQueryKind]
+export interface EventTaxonomyQueryApi {
+    /** @nullable */
+    actionId?: number | null
+    /** @nullable */
+    event?: string | null
+    kind?: EventTaxonomyQueryApiKind
+    /** @nullable */
+    maxPropertyValues?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    properties?: string[] | null
+    /** @nullable */
+    response?: EventTaxonomyQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ActorsPropertyTaxonomyQueryApiKind =
+    (typeof ActorsPropertyTaxonomyQueryApiKind)[keyof typeof ActorsPropertyTaxonomyQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ActorsPropertyTaxonomyQueryKind = {
+export const ActorsPropertyTaxonomyQueryApiKind = {
     ActorsPropertyTaxonomyQuery: 'ActorsPropertyTaxonomyQuery',
 } as const
 
-export type TracesQueryKind = (typeof TracesQueryKind)[keyof typeof TracesQueryKind]
+export interface ActorsPropertyTaxonomyQueryApi {
+    /** @nullable */
+    groupTypeIndex?: number | null
+    kind?: ActorsPropertyTaxonomyQueryApiKind
+    /** @nullable */
+    maxPropertyValues?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    properties: string[]
+    /** @nullable */
+    response?: ActorsPropertyTaxonomyQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TracesQueryApiKind = (typeof TracesQueryApiKind)[keyof typeof TracesQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TracesQueryKind = {
+export const TracesQueryApiKind = {
     TracesQuery: 'TracesQuery',
 } as const
 
-export type TracesQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type TracesQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type TraceQueryKind = (typeof TraceQueryKind)[keyof typeof TraceQueryKind]
+export interface TracesQueryApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    groupKey?: string | null
+    /** @nullable */
+    groupTypeIndex?: number | null
+    kind?: TracesQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Person who performed the event
+     * @nullable
+     */
+    personId?: string | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: TracesQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: TracesQueryResponseApi
+    /** @nullable */
+    showColumnConfigurator?: boolean | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type TraceQueryApiKind = (typeof TraceQueryApiKind)[keyof typeof TraceQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TraceQueryKind = {
+export const TraceQueryApiKind = {
     TraceQuery: 'TraceQuery',
 } as const
 
-export type TraceQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type TraceQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type VectorSearchQueryKind = (typeof VectorSearchQueryKind)[keyof typeof VectorSearchQueryKind]
+export interface TraceQueryApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    kind?: TraceQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: TraceQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: TraceQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    traceId: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type VectorSearchQueryApiKind = (typeof VectorSearchQueryApiKind)[keyof typeof VectorSearchQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const VectorSearchQueryKind = {
+export const VectorSearchQueryApiKind = {
     VectorSearchQuery: 'VectorSearchQuery',
 } as const
 
-export type UsageMetricsQueryKind = (typeof UsageMetricsQueryKind)[keyof typeof UsageMetricsQueryKind]
+export interface VectorSearchQueryApi {
+    embedding: number[]
+    /** @nullable */
+    embeddingVersion?: number | null
+    kind?: VectorSearchQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: VectorSearchQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type UsageMetricsQueryApiKind = (typeof UsageMetricsQueryApiKind)[keyof typeof UsageMetricsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UsageMetricsQueryKind = {
+export const UsageMetricsQueryApiKind = {
     UsageMetricsQuery: 'UsageMetricsQuery',
 } as const
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RefreshType = {
-    async: 'async',
-    async_except_on_cache_miss: 'async_except_on_cache_miss',
-    blocking: 'blocking',
-    force_async: 'force_async',
-    force_blocking: 'force_blocking',
-    force_cache: 'force_cache',
-    lazy_async: 'lazy_async',
-} as const
+export interface UsageMetricsQueryApi {
+    /**
+     * Group key. Required with group_type_index for group queries.
+     * @nullable
+     */
+    group_key?: string | null
+    /**
+     * Group type index. Required with group_key for group queries.
+     * @nullable
+     */
+    group_type_index?: number | null
+    kind?: UsageMetricsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Person ID to fetch metrics for. Mutually exclusive with group parameters.
+     * @nullable
+     */
+    person_id?: string | null
+    /** @nullable */
+    response?: UsageMetricsQueryResponseApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export interface QueryResponseAlternative1 {
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface QueryResponseAlternative1Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -4981,29 +8867,29 @@ export interface QueryResponseAlternative1 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface QueryResponseAlternative3 {
+export interface QueryResponseAlternative3Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -5021,37 +8907,37 @@ export interface QueryResponseAlternative3 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: string[] | null
 }
 
-export type QueryResponseAlternative4Kind =
-    (typeof QueryResponseAlternative4Kind)[keyof typeof QueryResponseAlternative4Kind]
+export type QueryResponseAlternative4ApiKind =
+    (typeof QueryResponseAlternative4ApiKind)[keyof typeof QueryResponseAlternative4ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative4Kind = {
+export const QueryResponseAlternative4ApiKind = {
     GroupsQuery: 'GroupsQuery',
 } as const
 
-export interface QueryResponseAlternative4 {
+export interface QueryResponseAlternative4Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -5062,51 +8948,51 @@ export interface QueryResponseAlternative4 {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    kind?: QueryResponseAlternative4Kind
+    kind?: QueryResponseAlternative4ApiKind
     limit: number
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface QueryResponseAlternative5 {
+export interface QueryResponseAlternative5Api {
     /** @nullable */
-    breakdown?: BreakdownItem[] | null
+    breakdown?: BreakdownItemApi[] | null
     /** @nullable */
-    breakdowns?: MultipleBreakdownOptions[] | null
+    breakdowns?: MultipleBreakdownOptionsApi[] | null
     /** @nullable */
-    compare?: CompareItem[] | null
+    compare?: CompareItemApi[] | null
     /** @nullable */
-    day?: DayItem[] | null
+    day?: DayItemApi[] | null
     /** @nullable */
-    interval?: IntervalItem[] | null
+    interval?: IntervalItemApi[] | null
     /** @nullable */
-    series?: Series[] | null
+    series?: SeriesApi[] | null
     /** @nullable */
-    status?: StatusItem[] | null
+    status?: StatusItemApi[] | null
 }
 
-export interface QueryResponseAlternative6 {
+export interface QueryResponseAlternative6Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5123,26 +9009,26 @@ export interface QueryResponseAlternative6 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TimelineEntry[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: TimelineEntryApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative7 {
+export interface QueryResponseAlternative7Api {
     /** @nullable */
     bytecode?: unknown[] | null
     /** @nullable */
@@ -5152,7 +9038,7 @@ export interface QueryResponseAlternative7 {
     stdout?: string | null
 }
 
-export interface QueryResponseAlternative8 {
+export interface QueryResponseAlternative8Api {
     /**
      * Executed ClickHouse query
      * @nullable
@@ -5186,12 +9072,12 @@ export interface QueryResponseAlternative8 {
      * Query metadata output
      * @nullable
      */
-    metadata?: HogQLMetadataResponse
+    metadata?: HogQLMetadataResponseApi
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
@@ -5203,18 +9089,18 @@ export interface QueryResponseAlternative8 {
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /**
      * Types of returned columns
      * @nullable
@@ -5222,34 +9108,34 @@ export interface QueryResponseAlternative8 {
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative9 {
+export interface QueryResponseAlternative9Api {
     /** @nullable */
     ch_table_names?: string[] | null
-    errors: HogQLNotice[]
+    errors: HogQLNoticeApi[]
     /** @nullable */
-    isUsingIndices?: QueryIndexUsage
+    isUsingIndices?: QueryIndexUsageApi
     /** @nullable */
     isValid?: boolean | null
-    notices: HogQLNotice[]
+    notices: HogQLNoticeApi[]
     /** @nullable */
     query?: string | null
     /** @nullable */
     table_names?: string[] | null
-    warnings: HogQLNotice[]
+    warnings: HogQLNoticeApi[]
 }
 
-export interface QueryResponseAlternative10 {
+export interface QueryResponseAlternative10Api {
     /** Whether or not the suggestions returned are complete */
     incomplete_list: boolean
-    suggestions: AutocompleteCompletionItem[]
+    suggestions: AutocompleteCompletionItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative11 {
+export interface QueryResponseAlternative11Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -5270,30 +9156,30 @@ export interface QueryResponseAlternative11 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative14 {
+export interface QueryResponseAlternative14Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -5314,28 +9200,28 @@ export interface QueryResponseAlternative14 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative15 {
+export interface QueryResponseAlternative15Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5354,30 +9240,30 @@ export interface QueryResponseAlternative15 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: SimilarIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: SimilarIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative16Results = { [key: string]: Results }
+export type QueryResponseAlternative16ApiResults = { [key: string]: ResultsApi }
 
-export interface QueryResponseAlternative16 {
+export interface QueryResponseAlternative16Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5392,26 +9278,26 @@ export interface QueryResponseAlternative16 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative16Results
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative16ApiResults
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative17 {
+export interface QueryResponseAlternative17Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -5432,186 +9318,186 @@ export interface QueryResponseAlternative17 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingCorrelatedIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingCorrelatedIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative18CredibleIntervals = { [key: string]: number[] }
+export type QueryResponseAlternative18ApiCredibleIntervals = { [key: string]: number[] }
 
-export type QueryResponseAlternative18InsightItemItem = { [key: string]: unknown }
+export type QueryResponseAlternative18ApiInsightItemItem = { [key: string]: unknown }
 
-export type QueryResponseAlternative18Kind =
-    (typeof QueryResponseAlternative18Kind)[keyof typeof QueryResponseAlternative18Kind]
+export type QueryResponseAlternative18ApiKind =
+    (typeof QueryResponseAlternative18ApiKind)[keyof typeof QueryResponseAlternative18ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative18Kind = {
+export const QueryResponseAlternative18ApiKind = {
     ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
 } as const
 
-export type QueryResponseAlternative18Probability = { [key: string]: number }
+export type QueryResponseAlternative18ApiProbability = { [key: string]: number }
 
-export interface QueryResponseAlternative18 {
-    credible_intervals: QueryResponseAlternative18CredibleIntervals
+export interface QueryResponseAlternative18Api {
+    credible_intervals: QueryResponseAlternative18ApiCredibleIntervals
     expected_loss: number
     /** @nullable */
-    funnels_query?: FunnelsQuery
-    insight: QueryResponseAlternative18InsightItemItem[][]
-    kind?: QueryResponseAlternative18Kind
-    probability: QueryResponseAlternative18Probability
-    significance_code: ExperimentSignificanceCode
+    funnels_query?: FunnelsQueryApi
+    insight: QueryResponseAlternative18ApiInsightItemItem[][]
+    kind?: QueryResponseAlternative18ApiKind
+    probability: QueryResponseAlternative18ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStats[]
+    variants: ExperimentVariantFunnelsBaseStatsApi[]
 }
 
-export type QueryResponseAlternative19CredibleIntervals = { [key: string]: number[] }
+export type QueryResponseAlternative19ApiCredibleIntervals = { [key: string]: number[] }
 
-export type QueryResponseAlternative19InsightItem = { [key: string]: unknown }
+export type QueryResponseAlternative19ApiInsightItem = { [key: string]: unknown }
 
-export type QueryResponseAlternative19Kind =
-    (typeof QueryResponseAlternative19Kind)[keyof typeof QueryResponseAlternative19Kind]
+export type QueryResponseAlternative19ApiKind =
+    (typeof QueryResponseAlternative19ApiKind)[keyof typeof QueryResponseAlternative19ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative19Kind = {
+export const QueryResponseAlternative19ApiKind = {
     ExperimentTrendsQuery: 'ExperimentTrendsQuery',
 } as const
 
-export type QueryResponseAlternative19Probability = { [key: string]: number }
+export type QueryResponseAlternative19ApiProbability = { [key: string]: number }
 
-export interface QueryResponseAlternative19 {
+export interface QueryResponseAlternative19Api {
     /** @nullable */
-    count_query?: TrendsQuery
-    credible_intervals: QueryResponseAlternative19CredibleIntervals
+    count_query?: TrendsQueryApi
+    credible_intervals: QueryResponseAlternative19ApiCredibleIntervals
     /** @nullable */
-    exposure_query?: TrendsQuery
-    insight: QueryResponseAlternative19InsightItem[]
-    kind?: QueryResponseAlternative19Kind
+    exposure_query?: TrendsQueryApi
+    insight: QueryResponseAlternative19ApiInsightItem[]
+    kind?: QueryResponseAlternative19ApiKind
     p_value: number
-    probability: QueryResponseAlternative19Probability
-    significance_code: ExperimentSignificanceCode
+    probability: QueryResponseAlternative19ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStats[]
+    variants: ExperimentVariantTrendsBaseStatsApi[]
 }
 
 /**
  * @nullable
  */
-export type QueryResponseAlternative20CredibleIntervals = { [key: string]: number[] } | null
+export type QueryResponseAlternative20ApiCredibleIntervals = { [key: string]: number[] } | null
 
-export type QueryResponseAlternative20InsightItem = { [key: string]: unknown }
+export type QueryResponseAlternative20ApiInsightItem = { [key: string]: unknown }
 
-export type QueryResponseAlternative20Kind =
-    (typeof QueryResponseAlternative20Kind)[keyof typeof QueryResponseAlternative20Kind]
+export type QueryResponseAlternative20ApiKind =
+    (typeof QueryResponseAlternative20ApiKind)[keyof typeof QueryResponseAlternative20ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative20Kind = {
+export const QueryResponseAlternative20ApiKind = {
     ExperimentQuery: 'ExperimentQuery',
 } as const
 
 /**
  * @nullable
  */
-export type QueryResponseAlternative20Metric =
-    | ExperimentMeanMetric
-    | ExperimentFunnelMetric
-    | ExperimentRatioMetric
-    | ExperimentRetentionMetric
+export type QueryResponseAlternative20ApiMetric =
+    | ExperimentMeanMetricApi
+    | ExperimentFunnelMetricApi
+    | ExperimentRatioMetricApi
+    | ExperimentRetentionMetricApi
     | null
 
 /**
  * @nullable
  */
-export type QueryResponseAlternative20Probability = { [key: string]: number } | null
+export type QueryResponseAlternative20ApiProbability = { [key: string]: number } | null
 
 /**
  * @nullable
  */
-export type QueryResponseAlternative20VariantResults =
-    | ExperimentVariantResultFrequentist[]
-    | ExperimentVariantResultBayesian[]
+export type QueryResponseAlternative20ApiVariantResults =
+    | ExperimentVariantResultFrequentistApi[]
+    | ExperimentVariantResultBayesianApi[]
     | null
 
 /**
  * @nullable
  */
-export type QueryResponseAlternative20Variants =
-    | ExperimentVariantTrendsBaseStats[]
-    | ExperimentVariantFunnelsBaseStats[]
+export type QueryResponseAlternative20ApiVariants =
+    | ExperimentVariantTrendsBaseStatsApi[]
+    | ExperimentVariantFunnelsBaseStatsApi[]
     | null
 
-export interface QueryResponseAlternative20 {
+export interface QueryResponseAlternative20Api {
     /** @nullable */
-    baseline?: ExperimentStatsBaseValidated
+    baseline?: ExperimentStatsBaseValidatedApi
     /**
      * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
      * @nullable
      */
-    breakdown_results?: ExperimentBreakdownResult[] | null
+    breakdown_results?: ExperimentBreakdownResultApi[] | null
     /** @nullable */
     clickhouse_sql?: string | null
     /** @nullable */
-    credible_intervals?: QueryResponseAlternative20CredibleIntervals
+    credible_intervals?: QueryResponseAlternative20ApiCredibleIntervals
     /** @nullable */
     hogql?: string | null
     /** @nullable */
-    insight?: QueryResponseAlternative20InsightItem[] | null
-    kind?: QueryResponseAlternative20Kind
+    insight?: QueryResponseAlternative20ApiInsightItem[] | null
+    kind?: QueryResponseAlternative20ApiKind
     /** @nullable */
-    metric?: QueryResponseAlternative20Metric
+    metric?: QueryResponseAlternative20ApiMetric
     /** @nullable */
     p_value?: number | null
     /** @nullable */
-    probability?: QueryResponseAlternative20Probability
+    probability?: QueryResponseAlternative20ApiProbability
     /** @nullable */
-    significance_code?: ExperimentSignificanceCode
+    significance_code?: ExperimentSignificanceCodeApi
     /** @nullable */
     significant?: boolean | null
     /** @nullable */
     stats_version?: number | null
     /** @nullable */
-    variant_results?: QueryResponseAlternative20VariantResults
+    variant_results?: QueryResponseAlternative20ApiVariantResults
     /** @nullable */
-    variants?: QueryResponseAlternative20Variants
+    variants?: QueryResponseAlternative20ApiVariants
 }
 
-export type QueryResponseAlternative21Kind =
-    (typeof QueryResponseAlternative21Kind)[keyof typeof QueryResponseAlternative21Kind]
+export type QueryResponseAlternative21ApiKind =
+    (typeof QueryResponseAlternative21ApiKind)[keyof typeof QueryResponseAlternative21ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative21Kind = {
+export const QueryResponseAlternative21ApiKind = {
     ExperimentExposureQuery: 'ExperimentExposureQuery',
 } as const
 
-export type QueryResponseAlternative21TotalExposures = { [key: string]: number }
+export type QueryResponseAlternative21ApiTotalExposures = { [key: string]: number }
 
-export interface QueryResponseAlternative21 {
-    date_range: DateRange
-    kind?: QueryResponseAlternative21Kind
-    timeseries: ExperimentExposureTimeSeries[]
-    total_exposures: QueryResponseAlternative21TotalExposures
+export interface QueryResponseAlternative21Api {
+    date_range: DateRangeApi
+    kind?: QueryResponseAlternative21ApiKind
+    timeseries: ExperimentExposureTimeSeriesApi[]
+    total_exposures: QueryResponseAlternative21ApiTotalExposures
 }
 
-export interface QueryResponseAlternative22 {
+export interface QueryResponseAlternative22Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5630,28 +9516,28 @@ export interface QueryResponseAlternative22 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: EmbeddingDistance[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: EmbeddingDistanceApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative23 {
+export interface QueryResponseAlternative23Api {
     /** @nullable */
     dateFrom?: string | null
     /** @nullable */
@@ -5670,30 +9556,30 @@ export interface QueryResponseAlternative23 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: WebOverviewItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: WebOverviewItemApi[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface QueryResponseAlternative24 {
+export interface QueryResponseAlternative24Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -5714,34 +9600,34 @@ export interface QueryResponseAlternative24 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface QueryResponseAlternative25 {
+export interface QueryResponseAlternative25Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -5762,32 +9648,32 @@ export interface QueryResponseAlternative25 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative27 {
+export interface QueryResponseAlternative27Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5802,30 +9688,30 @@ export interface QueryResponseAlternative27 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     /**
      * @minItems 1
      * @maxItems 1
      */
-    results: WebVitalsPathBreakdownResult[]
+    results: WebVitalsPathBreakdownResultApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative28 {
+export interface QueryResponseAlternative28Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5844,35 +9730,35 @@ export interface QueryResponseAlternative28 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: PageURL[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: PageURLApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative29Data = { [key: string]: unknown }
+export type QueryResponseAlternative29ApiData = { [key: string]: unknown }
 
-export interface QueryResponseAlternative29 {
-    data: QueryResponseAlternative29Data
+export interface QueryResponseAlternative29Api {
+    data: QueryResponseAlternative29ApiData
     /** @nullable */
-    error?: ExternalQueryError
-    status: ExternalQueryStatus
+    error?: ExternalQueryErrorApi
+    status: ExternalQueryStatusApi
 }
 
-export interface QueryResponseAlternative30 {
+export interface QueryResponseAlternative30Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -5889,26 +9775,26 @@ export interface QueryResponseAlternative30 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative31 {
+export interface QueryResponseAlternative31Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -5925,26 +9811,26 @@ export interface QueryResponseAlternative31 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative32 {
+export interface QueryResponseAlternative32Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -5961,26 +9847,26 @@ export interface QueryResponseAlternative32 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsMRRQueryResultItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsMRRQueryResultItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative33 {
+export interface QueryResponseAlternative33Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -5995,26 +9881,26 @@ export interface QueryResponseAlternative33 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsOverviewItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsOverviewItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative34 {
+export interface QueryResponseAlternative34Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6031,26 +9917,26 @@ export interface QueryResponseAlternative34 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative35 {
+export interface QueryResponseAlternative35Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6071,34 +9957,34 @@ export interface QueryResponseAlternative35 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: MarketingAnalyticsItem[][]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: MarketingAnalyticsItemApi[][]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export type QueryResponseAlternative36Results = { [key: string]: MarketingAnalyticsItem }
+export type QueryResponseAlternative36ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
-export interface QueryResponseAlternative36 {
+export interface QueryResponseAlternative36Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -6113,28 +9999,28 @@ export interface QueryResponseAlternative36 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative36Results
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative36ApiResults
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative37 {
+export interface QueryResponseAlternative37Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -6151,29 +10037,29 @@ export interface QueryResponseAlternative37 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface QueryResponseAlternative38 {
+export interface QueryResponseAlternative38Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -6191,37 +10077,37 @@ export interface QueryResponseAlternative38 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: string[] | null
 }
 
-export type QueryResponseAlternative39Kind =
-    (typeof QueryResponseAlternative39Kind)[keyof typeof QueryResponseAlternative39Kind]
+export type QueryResponseAlternative39ApiKind =
+    (typeof QueryResponseAlternative39ApiKind)[keyof typeof QueryResponseAlternative39ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative39Kind = {
+export const QueryResponseAlternative39ApiKind = {
     GroupsQuery: 'GroupsQuery',
 } as const
 
-export interface QueryResponseAlternative39 {
+export interface QueryResponseAlternative39Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -6232,34 +10118,34 @@ export interface QueryResponseAlternative39 {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    kind?: QueryResponseAlternative39Kind
+    kind?: QueryResponseAlternative39ApiKind
     limit: number
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface QueryResponseAlternative40 {
+export interface QueryResponseAlternative40Api {
     /**
      * Executed ClickHouse query
      * @nullable
@@ -6293,12 +10179,12 @@ export interface QueryResponseAlternative40 {
      * Query metadata output
      * @nullable
      */
-    metadata?: HogQLMetadataResponse
+    metadata?: HogQLMetadataResponseApi
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
@@ -6310,18 +10196,18 @@ export interface QueryResponseAlternative40 {
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /**
      * Types of returned columns
      * @nullable
@@ -6329,7 +10215,7 @@ export interface QueryResponseAlternative40 {
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative41 {
+export interface QueryResponseAlternative41Api {
     /** @nullable */
     dateFrom?: string | null
     /** @nullable */
@@ -6348,30 +10234,30 @@ export interface QueryResponseAlternative41 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: WebOverviewItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: WebOverviewItemApi[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface QueryResponseAlternative42 {
+export interface QueryResponseAlternative42Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6392,34 +10278,34 @@ export interface QueryResponseAlternative42 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface QueryResponseAlternative43 {
+export interface QueryResponseAlternative43Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6440,32 +10326,32 @@ export interface QueryResponseAlternative43 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative45 {
+export interface QueryResponseAlternative45Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -6480,30 +10366,30 @@ export interface QueryResponseAlternative45 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     /**
      * @minItems 1
      * @maxItems 1
      */
-    results: WebVitalsPathBreakdownResult[]
+    results: WebVitalsPathBreakdownResultApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative46 {
+export interface QueryResponseAlternative46Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6524,30 +10410,30 @@ export interface QueryResponseAlternative46 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative47 {
+export interface QueryResponseAlternative47Api {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -6564,29 +10450,29 @@ export interface QueryResponseAlternative47 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface QueryResponseAlternative48 {
+export interface QueryResponseAlternative48Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6603,26 +10489,26 @@ export interface QueryResponseAlternative48 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative49 {
+export interface QueryResponseAlternative49Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6639,26 +10525,26 @@ export interface QueryResponseAlternative49 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative50 {
+export interface QueryResponseAlternative50Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6675,26 +10561,26 @@ export interface QueryResponseAlternative50 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsMRRQueryResultItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsMRRQueryResultItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative51 {
+export interface QueryResponseAlternative51Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -6709,26 +10595,26 @@ export interface QueryResponseAlternative51 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsOverviewItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsOverviewItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative52 {
+export interface QueryResponseAlternative52Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6745,26 +10631,26 @@ export interface QueryResponseAlternative52 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative53 {
+export interface QueryResponseAlternative53Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6785,30 +10671,30 @@ export interface QueryResponseAlternative53 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface QueryResponseAlternative55 {
+export interface QueryResponseAlternative55Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -6829,34 +10715,34 @@ export interface QueryResponseAlternative55 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: MarketingAnalyticsItem[][]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: MarketingAnalyticsItemApi[][]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export type QueryResponseAlternative56Results = { [key: string]: MarketingAnalyticsItem }
+export type QueryResponseAlternative56ApiResults = { [key: string]: MarketingAnalyticsItemApi }
 
-export interface QueryResponseAlternative56 {
+export interface QueryResponseAlternative56Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -6871,28 +10757,28 @@ export interface QueryResponseAlternative56 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative56Results
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative56ApiResults
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative57 {
+export interface QueryResponseAlternative57Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -6913,88 +10799,88 @@ export interface QueryResponseAlternative57 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative59CredibleIntervals = { [key: string]: number[] }
+export type QueryResponseAlternative59ApiCredibleIntervals = { [key: string]: number[] }
 
-export type QueryResponseAlternative59InsightItemItem = { [key: string]: unknown }
+export type QueryResponseAlternative59ApiInsightItemItem = { [key: string]: unknown }
 
-export type QueryResponseAlternative59Kind =
-    (typeof QueryResponseAlternative59Kind)[keyof typeof QueryResponseAlternative59Kind]
+export type QueryResponseAlternative59ApiKind =
+    (typeof QueryResponseAlternative59ApiKind)[keyof typeof QueryResponseAlternative59ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative59Kind = {
+export const QueryResponseAlternative59ApiKind = {
     ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
 } as const
 
-export type QueryResponseAlternative59Probability = { [key: string]: number }
+export type QueryResponseAlternative59ApiProbability = { [key: string]: number }
 
-export interface QueryResponseAlternative59 {
-    credible_intervals: QueryResponseAlternative59CredibleIntervals
+export interface QueryResponseAlternative59Api {
+    credible_intervals: QueryResponseAlternative59ApiCredibleIntervals
     expected_loss: number
     /** @nullable */
-    funnels_query?: FunnelsQuery
-    insight: QueryResponseAlternative59InsightItemItem[][]
-    kind?: QueryResponseAlternative59Kind
-    probability: QueryResponseAlternative59Probability
-    significance_code: ExperimentSignificanceCode
+    funnels_query?: FunnelsQueryApi
+    insight: QueryResponseAlternative59ApiInsightItemItem[][]
+    kind?: QueryResponseAlternative59ApiKind
+    probability: QueryResponseAlternative59ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStats[]
+    variants: ExperimentVariantFunnelsBaseStatsApi[]
 }
 
-export type QueryResponseAlternative60CredibleIntervals = { [key: string]: number[] }
+export type QueryResponseAlternative60ApiCredibleIntervals = { [key: string]: number[] }
 
-export type QueryResponseAlternative60InsightItem = { [key: string]: unknown }
+export type QueryResponseAlternative60ApiInsightItem = { [key: string]: unknown }
 
-export type QueryResponseAlternative60Kind =
-    (typeof QueryResponseAlternative60Kind)[keyof typeof QueryResponseAlternative60Kind]
+export type QueryResponseAlternative60ApiKind =
+    (typeof QueryResponseAlternative60ApiKind)[keyof typeof QueryResponseAlternative60ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryResponseAlternative60Kind = {
+export const QueryResponseAlternative60ApiKind = {
     ExperimentTrendsQuery: 'ExperimentTrendsQuery',
 } as const
 
-export type QueryResponseAlternative60Probability = { [key: string]: number }
+export type QueryResponseAlternative60ApiProbability = { [key: string]: number }
 
-export interface QueryResponseAlternative60 {
+export interface QueryResponseAlternative60Api {
     /** @nullable */
-    count_query?: TrendsQuery
-    credible_intervals: QueryResponseAlternative60CredibleIntervals
+    count_query?: TrendsQueryApi
+    credible_intervals: QueryResponseAlternative60ApiCredibleIntervals
     /** @nullable */
-    exposure_query?: TrendsQuery
-    insight: QueryResponseAlternative60InsightItem[]
-    kind?: QueryResponseAlternative60Kind
+    exposure_query?: TrendsQueryApi
+    insight: QueryResponseAlternative60ApiInsightItem[]
+    kind?: QueryResponseAlternative60ApiKind
     p_value: number
-    probability: QueryResponseAlternative60Probability
-    significance_code: ExperimentSignificanceCode
+    probability: QueryResponseAlternative60ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStats[]
+    variants: ExperimentVariantTrendsBaseStatsApi[]
 }
 
-export interface QueryResponseAlternative61 {
+export interface QueryResponseAlternative61Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -7015,30 +10901,30 @@ export interface QueryResponseAlternative61 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LLMTrace[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LLMTraceApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative62ResultsItem = { [key: string]: unknown }
+export type QueryResponseAlternative62ApiResultsItem = { [key: string]: unknown }
 
-export interface QueryResponseAlternative62 {
+export interface QueryResponseAlternative62Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7058,26 +10944,26 @@ export interface QueryResponseAlternative62 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative62ResultsItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative62ApiResultsItem[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative63 {
+export interface QueryResponseAlternative63Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7094,26 +10980,26 @@ export interface QueryResponseAlternative63 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative64 {
+export interface QueryResponseAlternative64Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7128,26 +11014,26 @@ export interface QueryResponseAlternative64 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RetentionResult[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RetentionResultApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative65 {
+export interface QueryResponseAlternative65Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7162,28 +11048,28 @@ export interface QueryResponseAlternative65 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: PathsLink[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: PathsLinkApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative66ResultsItem = { [key: string]: unknown }
+export type QueryResponseAlternative66ApiResultsItem = { [key: string]: unknown }
 
-export interface QueryResponseAlternative66 {
+export interface QueryResponseAlternative66Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7198,26 +11084,26 @@ export interface QueryResponseAlternative66 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative66ResultsItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative66ApiResultsItem[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative68 {
+export interface QueryResponseAlternative68Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -7238,47 +11124,47 @@ export interface QueryResponseAlternative68 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: FunnelCorrelationResult
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: FunnelCorrelationResultApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export type QueryResponseAlternative69Tables = {
+export type QueryResponseAlternative69ApiTables = {
     [key: string]:
-        | DatabaseSchemaPostHogTable
-        | DatabaseSchemaSystemTable
-        | DatabaseSchemaDataWarehouseTable
-        | DatabaseSchemaViewTable
-        | DatabaseSchemaManagedViewTable
-        | DatabaseSchemaBatchExportTable
-        | DatabaseSchemaMaterializedViewTable
-        | DatabaseSchemaEndpointTable
+        | DatabaseSchemaPostHogTableApi
+        | DatabaseSchemaSystemTableApi
+        | DatabaseSchemaDataWarehouseTableApi
+        | DatabaseSchemaViewTableApi
+        | DatabaseSchemaManagedViewTableApi
+        | DatabaseSchemaBatchExportTableApi
+        | DatabaseSchemaMaterializedViewTableApi
+        | DatabaseSchemaEndpointTableApi
 }
 
-export interface QueryResponseAlternative69 {
-    joins: DataWarehouseViewLink[]
-    tables: QueryResponseAlternative69Tables
+export interface QueryResponseAlternative69Api {
+    joins: DataWarehouseViewLinkApi[]
+    tables: QueryResponseAlternative69ApiTables
 }
 
-export interface QueryResponseAlternative70 {
+export interface QueryResponseAlternative70Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -7299,32 +11185,32 @@ export interface QueryResponseAlternative70 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative71 {
+export interface QueryResponseAlternative71Api {
     questions: string[]
 }
 
-export interface QueryResponseAlternative72 {
+export interface QueryResponseAlternative72Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7339,26 +11225,26 @@ export interface QueryResponseAlternative72 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: TeamTaxonomyItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: TeamTaxonomyItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative73 {
+export interface QueryResponseAlternative73Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7373,28 +11259,30 @@ export interface QueryResponseAlternative73 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: EventTaxonomyItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: EventTaxonomyItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type QueryResponseAlternative74Results = ActorsPropertyTaxonomyResponse | ActorsPropertyTaxonomyResponse[]
+export type QueryResponseAlternative74ApiResults =
+    | ActorsPropertyTaxonomyResponseApi
+    | ActorsPropertyTaxonomyResponseApi[]
 
-export interface QueryResponseAlternative74 {
+export interface QueryResponseAlternative74Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7409,26 +11297,26 @@ export interface QueryResponseAlternative74 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: QueryResponseAlternative74Results
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: QueryResponseAlternative74ApiResults
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative75 {
+export interface QueryResponseAlternative75Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -7449,28 +11337,28 @@ export interface QueryResponseAlternative75 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LLMTrace[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LLMTraceApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative77 {
+export interface QueryResponseAlternative77Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7485,26 +11373,26 @@ export interface QueryResponseAlternative77 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: VectorSearchResponseItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: VectorSearchResponseItemApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface QueryResponseAlternative78 {
+export interface QueryResponseAlternative78Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -7519,29 +11407,77 @@ export interface QueryResponseAlternative78 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: UsageMetric[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: UsageMetricApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
 /**
  * @nullable
  */
-export type QueryStatusResults = unknown | null
+export type QueryStatusApiResults = unknown | null
+
+export interface QueryStatusApi {
+    /**
+     * Whether the query is still running. Will be true if the query is complete, even if it errored. Either result or error will be set.
+     * @nullable
+     */
+    complete?: boolean | null
+    /** @nullable */
+    dashboard_id?: number | null
+    /**
+     * When did the query execution task finish (whether successfully or not).
+     * @nullable
+     */
+    end_time?: string | null
+    /**
+     * If the query failed, this will be set to true. More information can be found in the error_message field.
+     * @nullable
+     */
+    error?: boolean | null
+    /** @nullable */
+    error_message?: string | null
+    /** @nullable */
+    expiration_time?: string | null
+    id: string
+    /** @nullable */
+    insight_id?: number | null
+    /** @nullable */
+    labels?: string[] | null
+    /**
+     * When was the query execution task picked up by a worker.
+     * @nullable
+     */
+    pickup_time?: string | null
+    /** ONLY async queries use QueryStatus. */
+    query_async?: boolean
+    /** @nullable */
+    query_progress?: ClickhouseQueryProgressApi
+    /** @nullable */
+    results?: QueryStatusApiResults
+    /**
+     * When was query execution task enqueued.
+     * @nullable
+     */
+    start_time?: string | null
+    /** @nullable */
+    task_id?: string | null
+    team_id: number
+}
 
 /**
  * * `manual-options` - manual-options
@@ -7555,8 +11491,6 @@ export type QueryStatusResults = unknown | null
  * `iframe` - Iframe
  * `recording` - Recording
  */
-export type HeatmapScreenshotResponseTypeEnum =
-    (typeof HeatmapScreenshotResponseTypeEnum)[keyof typeof HeatmapScreenshotResponseTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -7565,8 +11499,6 @@ export type HeatmapScreenshotResponseTypeEnum =
  * `completed` - Completed
  * `failed` - Failed
  */
-export type HeatmapScreenshotResponseStatusEnum =
-    (typeof HeatmapScreenshotResponseStatusEnum)[keyof typeof HeatmapScreenshotResponseStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -7593,9 +11525,9 @@ export type HeatmapScreenshotResponseStatusEnum =
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface Credential {
+export interface CredentialApi {
     readonly id: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     /** @maxLength 500 */
     access_key: string
@@ -7603,13 +11535,13 @@ export interface Credential {
     access_secret: string
 }
 
-export interface SimpleExternalDataSourceSerializers {
+export interface SimpleExternalDataSourceSerializersApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
     readonly created_by: number | null
     readonly status: string
-    readonly source_type: SourceTypeEnum
+    readonly source_type: SourceTypeEnumApi
 }
 
 /**
@@ -7700,7 +11632,7 @@ export interface SimpleExternalDataSourceSerializers {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface HeatmapResponseItem {
+export interface HeatmapResponseItemApi {
     count: number
     pointer_y: number
     pointer_relative_x: number
@@ -7716,24 +11648,24 @@ export interface HeatmapResponseItem {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type HogFunctionFiltersActionsItem = { [key: string]: unknown }
+export type HogFunctionFiltersApiActionsItem = { [key: string]: unknown }
 
-export type HogFunctionFiltersEventsItem = { [key: string]: unknown }
+export type HogFunctionFiltersApiEventsItem = { [key: string]: unknown }
 
-export type HogFunctionFiltersPropertiesItem = { [key: string]: unknown }
+export type HogFunctionFiltersApiPropertiesItem = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type HogFunctionFiltersBytecode = unknown | null
+export type HogFunctionFiltersApiBytecode = unknown | null
 
-export interface HogFunctionFilters {
-    source?: HogFunctionFiltersSourceEnum
-    actions?: HogFunctionFiltersActionsItem[]
-    events?: HogFunctionFiltersEventsItem[]
-    properties?: HogFunctionFiltersPropertiesItem[]
+export interface HogFunctionFiltersApi {
+    source?: HogFunctionFiltersSourceEnumApi
+    actions?: HogFunctionFiltersApiActionsItem[]
+    events?: HogFunctionFiltersApiEventsItem[]
+    properties?: HogFunctionFiltersApiPropertiesItem[]
     /** @nullable */
-    bytecode?: HogFunctionFiltersBytecode
+    bytecode?: HogFunctionFiltersApiBytecode
     transpiled?: unknown
     filter_test_accounts?: boolean
     bytecode_error?: string
@@ -7746,7 +11678,7 @@ export interface HogFunctionFilters {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface EmailTemplate {
+export interface EmailTemplateApi {
     subject?: string
     text?: string
     html?: string
@@ -7771,1398 +11703,643 @@ export interface EmailTemplate {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type BreakdownFilterBreakdownAnyOfItem = string | number
+export type BreakdownFilterApiBreakdownAnyOfItem = string | number
 
 /**
  * @nullable
  */
-export type BreakdownFilterBreakdown = string | BreakdownFilterBreakdownAnyOfItem[] | number | null
+export type BreakdownFilterApiBreakdown = string | BreakdownFilterApiBreakdownAnyOfItem[] | number | null
+
+export interface BreakdownFilterApi {
+    /** @nullable */
+    breakdown?: BreakdownFilterApiBreakdown
+    /** @nullable */
+    breakdown_group_type_index?: number | null
+    /** @nullable */
+    breakdown_hide_other_aggregation?: boolean | null
+    /** @nullable */
+    breakdown_histogram_bin_count?: number | null
+    /** @nullable */
+    breakdown_limit?: number | null
+    /** @nullable */
+    breakdown_normalize_url?: boolean | null
+    /** @nullable */
+    breakdown_type?: BreakdownTypeApi
+    /**
+     * @maxItems 3
+     * @nullable
+     */
+    breakdowns?: BreakdownApi[] | null
+}
 
 /**
  * Event properties
  */
-export type EventPropertyFilterType = (typeof EventPropertyFilterType)[keyof typeof EventPropertyFilterType]
+export type EventPropertyFilterApiType = (typeof EventPropertyFilterApiType)[keyof typeof EventPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventPropertyFilterType = {
+export const EventPropertyFilterApiType = {
     event: 'event',
 } as const
 
-export type EventPropertyFilterValueAnyOfItem = string | number | boolean
+export type EventPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type EventPropertyFilterValue = EventPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type EventPropertyFilterApiValue = EventPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
+
+export interface EventPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    /** @nullable */
+    operator?: PropertyOperatorApi
+    /** Event properties */
+    type?: EventPropertyFilterApiType
+    /** @nullable */
+    value?: EventPropertyFilterApiValue
+}
 
 /**
  * Person properties
  */
-export type PersonPropertyFilterType = (typeof PersonPropertyFilterType)[keyof typeof PersonPropertyFilterType]
+export type PersonPropertyFilterApiType = (typeof PersonPropertyFilterApiType)[keyof typeof PersonPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonPropertyFilterType = {
+export const PersonPropertyFilterApiType = {
     person: 'person',
 } as const
 
-export type PersonPropertyFilterValueAnyOfItem = string | number | boolean
+export type PersonPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type PersonPropertyFilterValue = PersonPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type PersonPropertyFilterApiValue = PersonPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
 
-export type ElementPropertyFilterType = (typeof ElementPropertyFilterType)[keyof typeof ElementPropertyFilterType]
+export interface PersonPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: PersonPropertyFilterApiType
+    /** @nullable */
+    value?: PersonPropertyFilterApiValue
+}
+
+export type ElementPropertyFilterApiType =
+    (typeof ElementPropertyFilterApiType)[keyof typeof ElementPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ElementPropertyFilterType = {
+export const ElementPropertyFilterApiType = {
     element: 'element',
 } as const
 
-export type ElementPropertyFilterValueAnyOfItem = string | number | boolean
+export type ElementPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type ElementPropertyFilterValue = ElementPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type ElementPropertyFilterApiValue = ElementPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
 
-export type EventMetadataPropertyFilterType =
-    (typeof EventMetadataPropertyFilterType)[keyof typeof EventMetadataPropertyFilterType]
+export interface ElementPropertyFilterApi {
+    key: KeyApi
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: ElementPropertyFilterApiType
+    /** @nullable */
+    value?: ElementPropertyFilterApiValue
+}
+
+export type EventMetadataPropertyFilterApiType =
+    (typeof EventMetadataPropertyFilterApiType)[keyof typeof EventMetadataPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EventMetadataPropertyFilterType = {
+export const EventMetadataPropertyFilterApiType = {
     event_metadata: 'event_metadata',
 } as const
 
-export type EventMetadataPropertyFilterValueAnyOfItem = string | number | boolean
+export type EventMetadataPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type EventMetadataPropertyFilterValue =
-    | EventMetadataPropertyFilterValueAnyOfItem[]
+export type EventMetadataPropertyFilterApiValue =
+    | EventMetadataPropertyFilterApiValueAnyOfItem[]
     | string
     | number
     | boolean
     | null
 
-export type SessionPropertyFilterType = (typeof SessionPropertyFilterType)[keyof typeof SessionPropertyFilterType]
+export interface EventMetadataPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: EventMetadataPropertyFilterApiType
+    /** @nullable */
+    value?: EventMetadataPropertyFilterApiValue
+}
+
+export type SessionPropertyFilterApiType =
+    (typeof SessionPropertyFilterApiType)[keyof typeof SessionPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionPropertyFilterType = {
+export const SessionPropertyFilterApiType = {
     session: 'session',
 } as const
 
-export type SessionPropertyFilterValueAnyOfItem = string | number | boolean
+export type SessionPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type SessionPropertyFilterValue = SessionPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type SessionPropertyFilterApiValue = SessionPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
 
-export type CohortPropertyFilterKey = (typeof CohortPropertyFilterKey)[keyof typeof CohortPropertyFilterKey]
+export interface SessionPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: SessionPropertyFilterApiType
+    /** @nullable */
+    value?: SessionPropertyFilterApiValue
+}
+
+export type CohortPropertyFilterApiKey = (typeof CohortPropertyFilterApiKey)[keyof typeof CohortPropertyFilterApiKey]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortPropertyFilterKey = {
+export const CohortPropertyFilterApiKey = {
     id: 'id',
 } as const
 
-export type CohortPropertyFilterType = (typeof CohortPropertyFilterType)[keyof typeof CohortPropertyFilterType]
+export type CohortPropertyFilterApiType = (typeof CohortPropertyFilterApiType)[keyof typeof CohortPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortPropertyFilterType = {
+export const CohortPropertyFilterApiType = {
     cohort: 'cohort',
 } as const
 
-export type RecordingPropertyFilterKey = DurationType | string
+export interface CohortPropertyFilterApi {
+    /** @nullable */
+    cohort_name?: string | null
+    key?: CohortPropertyFilterApiKey
+    /** @nullable */
+    label?: string | null
+    /** @nullable */
+    operator?: PropertyOperatorApi
+    type?: CohortPropertyFilterApiType
+    value: number
+}
 
-export type RecordingPropertyFilterType = (typeof RecordingPropertyFilterType)[keyof typeof RecordingPropertyFilterType]
+export type RecordingPropertyFilterApiKey = DurationTypeApi | string
+
+export type RecordingPropertyFilterApiType =
+    (typeof RecordingPropertyFilterApiType)[keyof typeof RecordingPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RecordingPropertyFilterType = {
+export const RecordingPropertyFilterApiType = {
     recording: 'recording',
 } as const
 
-export type RecordingPropertyFilterValueAnyOfItem = string | number | boolean
+export type RecordingPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type RecordingPropertyFilterValue = RecordingPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type RecordingPropertyFilterApiValue =
+    | RecordingPropertyFilterApiValueAnyOfItem[]
+    | string
+    | number
+    | boolean
+    | null
 
-export type LogEntryPropertyFilterType = (typeof LogEntryPropertyFilterType)[keyof typeof LogEntryPropertyFilterType]
+export interface RecordingPropertyFilterApi {
+    key: RecordingPropertyFilterApiKey
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: RecordingPropertyFilterApiType
+    /** @nullable */
+    value?: RecordingPropertyFilterApiValue
+}
+
+export type LogEntryPropertyFilterApiType =
+    (typeof LogEntryPropertyFilterApiType)[keyof typeof LogEntryPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LogEntryPropertyFilterType = {
+export const LogEntryPropertyFilterApiType = {
     log_entry: 'log_entry',
 } as const
 
-export type LogEntryPropertyFilterValueAnyOfItem = string | number | boolean
+export type LogEntryPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type LogEntryPropertyFilterValue = LogEntryPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type LogEntryPropertyFilterApiValue =
+    | LogEntryPropertyFilterApiValueAnyOfItem[]
+    | string
+    | number
+    | boolean
+    | null
 
-export type GroupPropertyFilterType = (typeof GroupPropertyFilterType)[keyof typeof GroupPropertyFilterType]
+export interface LogEntryPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: LogEntryPropertyFilterApiType
+    /** @nullable */
+    value?: LogEntryPropertyFilterApiValue
+}
+
+export type GroupPropertyFilterApiType = (typeof GroupPropertyFilterApiType)[keyof typeof GroupPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const GroupPropertyFilterType = {
+export const GroupPropertyFilterApiType = {
     group: 'group',
 } as const
 
-export type GroupPropertyFilterValueAnyOfItem = string | number | boolean
+export type GroupPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type GroupPropertyFilterValue = GroupPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type GroupPropertyFilterApiValue = GroupPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
+
+export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_type_index?: number | null
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: GroupPropertyFilterApiType
+    /** @nullable */
+    value?: GroupPropertyFilterApiValue
+}
 
 /**
  * Event property with "$feature/" prepended
  */
-export type FeaturePropertyFilterType = (typeof FeaturePropertyFilterType)[keyof typeof FeaturePropertyFilterType]
+export type FeaturePropertyFilterApiType =
+    (typeof FeaturePropertyFilterApiType)[keyof typeof FeaturePropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FeaturePropertyFilterType = {
+export const FeaturePropertyFilterApiType = {
     feature: 'feature',
 } as const
 
-export type FeaturePropertyFilterValueAnyOfItem = string | number | boolean
+export type FeaturePropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type FeaturePropertyFilterValue = FeaturePropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type FeaturePropertyFilterApiValue = FeaturePropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
+
+export interface FeaturePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Event property with "$feature/" prepended */
+    type?: FeaturePropertyFilterApiType
+    /** @nullable */
+    value?: FeaturePropertyFilterApiValue
+}
 
 /**
  * Only flag_evaluates_to operator is allowed for flag dependencies
  */
-export type FlagPropertyFilterOperator = (typeof FlagPropertyFilterOperator)[keyof typeof FlagPropertyFilterOperator]
+export type FlagPropertyFilterApiOperator =
+    (typeof FlagPropertyFilterApiOperator)[keyof typeof FlagPropertyFilterApiOperator]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FlagPropertyFilterOperator = {
+export const FlagPropertyFilterApiOperator = {
     flag_evaluates_to: 'flag_evaluates_to',
 } as const
 
 /**
  * Feature flag dependency
  */
-export type FlagPropertyFilterType = (typeof FlagPropertyFilterType)[keyof typeof FlagPropertyFilterType]
+export type FlagPropertyFilterApiType = (typeof FlagPropertyFilterApiType)[keyof typeof FlagPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FlagPropertyFilterType = {
+export const FlagPropertyFilterApiType = {
     flag: 'flag',
 } as const
 
 /**
  * The value can be true, false, or a variant name
  */
-export type FlagPropertyFilterValue = boolean | string
+export type FlagPropertyFilterApiValue = boolean | string
 
-export type HogQLPropertyFilterType = (typeof HogQLPropertyFilterType)[keyof typeof HogQLPropertyFilterType]
+export interface FlagPropertyFilterApi {
+    /** The key should be the flag ID */
+    key: string
+    /** @nullable */
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: FlagPropertyFilterApiOperator
+    /** Feature flag dependency */
+    type?: FlagPropertyFilterApiType
+    /** The value can be true, false, or a variant name */
+    value: FlagPropertyFilterApiValue
+}
+
+export type HogQLPropertyFilterApiType = (typeof HogQLPropertyFilterApiType)[keyof typeof HogQLPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogQLPropertyFilterType = {
+export const HogQLPropertyFilterApiType = {
     hogql: 'hogql',
 } as const
 
-export type HogQLPropertyFilterValueAnyOfItem = string | number | boolean
+export type HogQLPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type HogQLPropertyFilterValue = HogQLPropertyFilterValueAnyOfItem[] | string | number | boolean | null
+export type HogQLPropertyFilterApiValue = HogQLPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
 
-export type DataWarehousePropertyFilterType =
-    (typeof DataWarehousePropertyFilterType)[keyof typeof DataWarehousePropertyFilterType]
+export interface HogQLPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    type?: HogQLPropertyFilterApiType
+    /** @nullable */
+    value?: HogQLPropertyFilterApiValue
+}
+
+export interface EmptyPropertyFilterApi {
+    [key: string]: unknown
+}
+
+export type DataWarehousePropertyFilterApiType =
+    (typeof DataWarehousePropertyFilterApiType)[keyof typeof DataWarehousePropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehousePropertyFilterType = {
+export const DataWarehousePropertyFilterApiType = {
     data_warehouse: 'data_warehouse',
 } as const
 
-export type DataWarehousePropertyFilterValueAnyOfItem = string | number | boolean
+export type DataWarehousePropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type DataWarehousePropertyFilterValue =
-    | DataWarehousePropertyFilterValueAnyOfItem[]
+export type DataWarehousePropertyFilterApiValue =
+    | DataWarehousePropertyFilterApiValueAnyOfItem[]
     | string
     | number
     | boolean
     | null
 
-export type DataWarehousePersonPropertyFilterType =
-    (typeof DataWarehousePersonPropertyFilterType)[keyof typeof DataWarehousePersonPropertyFilterType]
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: DataWarehousePropertyFilterApiType
+    /** @nullable */
+    value?: DataWarehousePropertyFilterApiValue
+}
+
+export type DataWarehousePersonPropertyFilterApiType =
+    (typeof DataWarehousePersonPropertyFilterApiType)[keyof typeof DataWarehousePersonPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehousePersonPropertyFilterType = {
+export const DataWarehousePersonPropertyFilterApiType = {
     data_warehouse_person_property: 'data_warehouse_person_property',
 } as const
 
-export type DataWarehousePersonPropertyFilterValueAnyOfItem = string | number | boolean
+export type DataWarehousePersonPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type DataWarehousePersonPropertyFilterValue =
-    | DataWarehousePersonPropertyFilterValueAnyOfItem[]
+export type DataWarehousePersonPropertyFilterApiValue =
+    | DataWarehousePersonPropertyFilterApiValueAnyOfItem[]
     | string
     | number
     | boolean
     | null
 
-export type ErrorTrackingIssueFilterType =
-    (typeof ErrorTrackingIssueFilterType)[keyof typeof ErrorTrackingIssueFilterType]
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: DataWarehousePersonPropertyFilterApiType
+    /** @nullable */
+    value?: DataWarehousePersonPropertyFilterApiValue
+}
+
+export type ErrorTrackingIssueFilterApiType =
+    (typeof ErrorTrackingIssueFilterApiType)[keyof typeof ErrorTrackingIssueFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingIssueFilterType = {
+export const ErrorTrackingIssueFilterApiType = {
     error_tracking_issue: 'error_tracking_issue',
 } as const
 
-export type ErrorTrackingIssueFilterValueAnyOfItem = string | number | boolean
+export type ErrorTrackingIssueFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type ErrorTrackingIssueFilterValue = ErrorTrackingIssueFilterValueAnyOfItem[] | string | number | boolean | null
-
-export type LogPropertyFilterType = (typeof LogPropertyFilterType)[keyof typeof LogPropertyFilterType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LogPropertyFilterType = {
-    log: 'log',
-} as const
-
-export type LogPropertyFilterValueAnyOfItem = string | number | boolean
-
-/**
- * @nullable
- */
-export type LogPropertyFilterValue = LogPropertyFilterValueAnyOfItem[] | string | number | boolean | null
-
-export type RevenueAnalyticsPropertyFilterType =
-    (typeof RevenueAnalyticsPropertyFilterType)[keyof typeof RevenueAnalyticsPropertyFilterType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsPropertyFilterType = {
-    revenue_analytics: 'revenue_analytics',
-} as const
-
-export type RevenueAnalyticsPropertyFilterValueAnyOfItem = string | number | boolean
-
-/**
- * @nullable
- */
-export type RevenueAnalyticsPropertyFilterValue =
-    | RevenueAnalyticsPropertyFilterValueAnyOfItem[]
+export type ErrorTrackingIssueFilterApiValue =
+    | ErrorTrackingIssueFilterApiValueAnyOfItem[]
     | string
     | number
     | boolean
     | null
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BaseMathType = {
-    total: 'total',
-    dau: 'dau',
-    weekly_active: 'weekly_active',
-    monthly_active: 'monthly_active',
-    unique_session: 'unique_session',
-    first_time_for_user: 'first_time_for_user',
-    first_matching_event_for_user: 'first_matching_event_for_user',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelMathType = {
-    total: 'total',
-    first_time_for_user: 'first_time_for_user',
-    first_time_for_user_with_filters: 'first_time_for_user_with_filters',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyMathType = {
-    avg: 'avg',
-    sum: 'sum',
-    min: 'min',
-    max: 'max',
-    median: 'median',
-    p75: 'p75',
-    p90: 'p90',
-    p95: 'p95',
-    p99: 'p99',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CountPerActorMathType = {
-    avg_count_per_actor: 'avg_count_per_actor',
-    min_count_per_actor: 'min_count_per_actor',
-    max_count_per_actor: 'max_count_per_actor',
-    median_count_per_actor: 'median_count_per_actor',
-    p75_count_per_actor: 'p75_count_per_actor',
-    p90_count_per_actor: 'p90_count_per_actor',
-    p95_count_per_actor: 'p95_count_per_actor',
-    p99_count_per_actor: 'p99_count_per_actor',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentMetricMathType = {
-    total: 'total',
-    sum: 'sum',
-    unique_session: 'unique_session',
-    min: 'min',
-    max: 'max',
-    avg: 'avg',
-    dau: 'dau',
-    unique_group: 'unique_group',
-    hogql: 'hogql',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CalendarHeatmapMathType = {
-    total: 'total',
-    dau: 'dau',
-} as const
-
-export type MathGroupTypeIndex = (typeof MathGroupTypeIndex)[keyof typeof MathGroupTypeIndex]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MathGroupTypeIndex = {
-    NUMBER_0: 0,
-    NUMBER_1: 1,
-    NUMBER_2: 2,
-    NUMBER_3: 3,
-    NUMBER_4: 4,
-} as const
-
-export type PropertyGroupFilterValueValuesItem =
-    | PropertyGroupFilterValue
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type FunnelsActorsQueryFunnelStepBreakdownAnyOfItem = number | string | number
-
-/**
- * The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.
- * @nullable
- */
-export type FunnelsActorsQueryFunnelStepBreakdown =
-    | number
-    | string
-    | number
-    | FunnelsActorsQueryFunnelStepBreakdownAnyOfItem[]
-    | null
-
-export type FunnelsActorsQueryKind = (typeof FunnelsActorsQueryKind)[keyof typeof FunnelsActorsQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelsActorsQueryKind = {
-    FunnelsActorsQuery: 'FunnelsActorsQuery',
-} as const
-
-/**
- * @nullable
- */
-export type FunnelCorrelationActorsQueryFunnelCorrelationPersonEntity =
-    | EventsNode
-    | ActionsNode
-    | DataWarehouseNode
-    | null
-
-export type FunnelCorrelationActorsQueryFunnelCorrelationPropertyValuesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type FunnelCorrelationActorsQueryKind =
-    (typeof FunnelCorrelationActorsQueryKind)[keyof typeof FunnelCorrelationActorsQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelCorrelationActorsQueryKind = {
-    FunnelCorrelationActorsQuery: 'FunnelCorrelationActorsQuery',
-} as const
-
-/**
- * @nullable
- */
-export type StickinessActorsQueryDay = string | number | null
-
-export type StickinessActorsQueryKind = (typeof StickinessActorsQueryKind)[keyof typeof StickinessActorsQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StickinessActorsQueryKind = {
-    StickinessActorsQuery: 'StickinessActorsQuery',
-} as const
-
-export type GroupsQueryResponseKind = (typeof GroupsQueryResponseKind)[keyof typeof GroupsQueryResponseKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const GroupsQueryResponseKind = {
-    GroupsQuery: 'GroupsQuery',
-} as const
-
-export type Compare = (typeof Compare)[keyof typeof Compare]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Compare = {
-    current: 'current',
-    previous: 'previous',
-} as const
-
-export type HogQLFiltersPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-/**
- * @nullable
- */
-export type HogQLVariableValue = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogLanguage = {
-    hog: 'hog',
-    hogJson: 'hogJson',
-    hogQL: 'hogQL',
-    hogQLExpr: 'hogQLExpr',
-    hogTemplate: 'hogTemplate',
-    liquid: 'liquid',
-} as const
-
-/**
- * @nullable
- */
-export type WebTrendsQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
-
-export type WebTrendsQueryKind = (typeof WebTrendsQueryKind)[keyof typeof WebTrendsQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebTrendsQueryKind = {
-    WebTrendsQuery: 'WebTrendsQuery',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebTrendsQueryOrderByItem = { ...WebAnalyticsOrderByFields, ...WebAnalyticsOrderByDirection } as const
-export type WebTrendsQueryPropertiesItem = EventPropertyFilter | PersonPropertyFilter | SessionPropertyFilter
-
-/**
- * Whether we should be comparing against a specific conversion goal
- * @nullable
- */
-export type CalendarHeatmapQueryConversionGoal = ActionConversionGoal | CustomEventConversionGoal | null
-
-export type CalendarHeatmapQueryKind = (typeof CalendarHeatmapQueryKind)[keyof typeof CalendarHeatmapQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CalendarHeatmapQueryKind = {
-    CalendarHeatmapQuery: 'CalendarHeatmapQuery',
-} as const
-
-export type CalendarHeatmapQueryPropertiesAnyOfItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-/**
- * Property filters for all series
- * @nullable
- */
-export type CalendarHeatmapQueryProperties = CalendarHeatmapQueryPropertiesAnyOfItem[] | PropertyGroupFilter | null
-
-export type CalendarHeatmapQuerySeriesItem = EventsNode | ActionsNode | DataWarehouseNode
-
-export type RecordingsQueryActionsItem = { [key: string]: unknown }
-
-export type RecordingsQueryEventsItem = { [key: string]: unknown }
-
-export type RecordingsQueryHavingPredicatesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type RecordingsQueryKind = (typeof RecordingsQueryKind)[keyof typeof RecordingsQueryKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RecordingsQueryKind = {
-    RecordingsQuery: 'RecordingsQuery',
-} as const
-
-export type RecordingsQueryPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-/**
- * @nullable
- */
-export type RecordingsQueryUserModifiedFilters = { [key: string]: unknown } | null
-
-export interface Filters {
+export interface ErrorTrackingIssueFilterApi {
+    key: string
     /** @nullable */
-    dateRange?: DateRange
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: ErrorTrackingIssueFilterApiType
     /** @nullable */
-    properties?: SessionPropertyFilter[] | null
+    value?: ErrorTrackingIssueFilterApiValue
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionAttributionGroupBy = {
-    ChannelType: 'ChannelType',
-    Medium: 'Medium',
-    Source: 'Source',
-    Campaign: 'Campaign',
-    AdIds: 'AdIds',
-    ReferringDomain: 'ReferringDomain',
-    InitialURL: 'InitialURL',
-} as const
-
-export type ErrorTrackingIssueAssigneeId = string | number
-
-export type OrderBy1 = (typeof OrderBy1)[keyof typeof OrderBy1]
+export type LogPropertyFilterApiType = (typeof LogPropertyFilterApiType)[keyof typeof LogPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrderBy1 = {
-    last_seen: 'last_seen',
-    first_seen: 'first_seen',
-    occurrences: 'occurrences',
-    users: 'users',
-    sessions: 'sessions',
-    revenue: 'revenue',
+export const LogPropertyFilterApiType = {
+    log: 'log',
 } as const
 
-export type OrderDirection1 = (typeof OrderDirection1)[keyof typeof OrderDirection1]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrderDirection1 = {
-    ASC: 'ASC',
-    DESC: 'DESC',
-} as const
-
-export type RevenueEntity = (typeof RevenueEntity)[keyof typeof RevenueEntity]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueEntity = {
-    person: 'person',
-    group_0: 'group_0',
-    group_1: 'group_1',
-    group_2: 'group_2',
-    group_3: 'group_3',
-    group_4: 'group_4',
-} as const
-
-export type RevenuePeriod = (typeof RevenuePeriod)[keyof typeof RevenuePeriod]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenuePeriod = {
-    all_time: 'all_time',
-    last_30_days: 'last_30_days',
-} as const
-
-export type Status2 = (typeof Status2)[keyof typeof Status2]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Status2 = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
-    all: 'all',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EmbeddingModelName = {
-    'text-embedding-3-small-1536': 'text-embedding-3-small-1536',
-    'text-embedding-3-large-3072': 'text-embedding-3-large-3072',
-} as const
-
-export type ErrorTrackingBreakdownsQueryResponseResults = { [key: string]: Results }
-
-export type ExperimentFunnelsQueryResponseCredibleIntervals = { [key: string]: number[] }
-
-export type ExperimentFunnelsQueryResponseInsightItemItem = { [key: string]: unknown }
-
-export type ExperimentFunnelsQueryResponseKind =
-    (typeof ExperimentFunnelsQueryResponseKind)[keyof typeof ExperimentFunnelsQueryResponseKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentFunnelsQueryResponseKind = {
-    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
-} as const
-
-export type ExperimentFunnelsQueryResponseProbability = { [key: string]: number }
-
-export type ExperimentTrendsQueryResponseCredibleIntervals = { [key: string]: number[] }
-
-export type ExperimentTrendsQueryResponseInsightItem = { [key: string]: unknown }
-
-export type ExperimentTrendsQueryResponseKind =
-    (typeof ExperimentTrendsQueryResponseKind)[keyof typeof ExperimentTrendsQueryResponseKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentTrendsQueryResponseKind = {
-    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-} as const
-
-export type ExperimentTrendsQueryResponseProbability = { [key: string]: number }
-
-export type ExperimentMeanMetricKind = (typeof ExperimentMeanMetricKind)[keyof typeof ExperimentMeanMetricKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentMeanMetricKind = {
-    ExperimentMetric: 'ExperimentMetric',
-} as const
-
-export type ExperimentMeanMetricMetricType =
-    (typeof ExperimentMeanMetricMetricType)[keyof typeof ExperimentMeanMetricMetricType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentMeanMetricMetricType = {
-    mean: 'mean',
-} as const
+export type LogPropertyFilterApiValueAnyOfItem = string | number | boolean
 
 /**
  * @nullable
  */
-export type ExperimentMeanMetricResponse = { [key: string]: unknown } | null
+export type LogPropertyFilterApiValue = LogPropertyFilterApiValueAnyOfItem[] | string | number | boolean | null
 
-export type ExperimentMeanMetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode
+export interface LogPropertyFilterApi {
+    key: string
+    /** @nullable */
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: LogPropertyFilterApiType
+    /** @nullable */
+    value?: LogPropertyFilterApiValue
+}
 
-export type ExperimentFunnelMetricKind = (typeof ExperimentFunnelMetricKind)[keyof typeof ExperimentFunnelMetricKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentFunnelMetricKind = {
-    ExperimentMetric: 'ExperimentMetric',
-} as const
-
-export type ExperimentFunnelMetricMetricType =
-    (typeof ExperimentFunnelMetricMetricType)[keyof typeof ExperimentFunnelMetricMetricType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentFunnelMetricMetricType = {
-    funnel: 'funnel',
-} as const
-
-/**
- * @nullable
- */
-export type ExperimentFunnelMetricResponse = { [key: string]: unknown } | null
-
-export type ExperimentFunnelMetricSeriesItem = EventsNode | ActionsNode
-
-export type ExperimentRatioMetricDenominator = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-export type ExperimentRatioMetricKind = (typeof ExperimentRatioMetricKind)[keyof typeof ExperimentRatioMetricKind]
+export type RevenueAnalyticsPropertyFilterApiType =
+    (typeof RevenueAnalyticsPropertyFilterApiType)[keyof typeof RevenueAnalyticsPropertyFilterApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentRatioMetricKind = {
-    ExperimentMetric: 'ExperimentMetric',
-} as const
-
-export type ExperimentRatioMetricMetricType =
-    (typeof ExperimentRatioMetricMetricType)[keyof typeof ExperimentRatioMetricMetricType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentRatioMetricMetricType = {
-    ratio: 'ratio',
-} as const
-
-export type ExperimentRatioMetricNumerator = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-/**
- * @nullable
- */
-export type ExperimentRatioMetricResponse = { [key: string]: unknown } | null
-
-export type ExperimentRetentionMetricCompletionEvent = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-export type ExperimentRetentionMetricKind =
-    (typeof ExperimentRetentionMetricKind)[keyof typeof ExperimentRetentionMetricKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentRetentionMetricKind = {
-    ExperimentMetric: 'ExperimentMetric',
-} as const
-
-export type ExperimentRetentionMetricMetricType =
-    (typeof ExperimentRetentionMetricMetricType)[keyof typeof ExperimentRetentionMetricMetricType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentRetentionMetricMetricType = {
-    retention: 'retention',
-} as const
-
-/**
- * @nullable
- */
-export type ExperimentRetentionMetricResponse = { [key: string]: unknown } | null
-
-export type ExperimentRetentionMetricStartEvent = EventsNode | ActionsNode | ExperimentDataWarehouseNode
-
-/**
- * @nullable
- */
-export type ExperimentQueryResponseCredibleIntervals = { [key: string]: number[] } | null
-
-export type ExperimentQueryResponseInsightItem = { [key: string]: unknown }
-
-export type ExperimentQueryResponseKind = (typeof ExperimentQueryResponseKind)[keyof typeof ExperimentQueryResponseKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentQueryResponseKind = {
-    ExperimentQuery: 'ExperimentQuery',
-} as const
-
-/**
- * @nullable
- */
-export type ExperimentQueryResponseMetric =
-    | ExperimentMeanMetric
-    | ExperimentFunnelMetric
-    | ExperimentRatioMetric
-    | ExperimentRetentionMetric
-    | null
-
-/**
- * @nullable
- */
-export type ExperimentQueryResponseProbability = { [key: string]: number } | null
-
-/**
- * @nullable
- */
-export type ExperimentQueryResponseVariantResults =
-    | ExperimentVariantResultFrequentist[]
-    | ExperimentVariantResultBayesian[]
-    | null
-
-/**
- * @nullable
- */
-export type ExperimentQueryResponseVariants =
-    | ExperimentVariantTrendsBaseStats[]
-    | ExperimentVariantFunnelsBaseStats[]
-    | null
-
-/**
- * @nullable
- */
-export type ExperimentExposureCriteriaExposureConfig = ExperimentEventExposureConfig | ActionsNode | null
-
-export type ExperimentExposureQueryResponseKind =
-    (typeof ExperimentExposureQueryResponseKind)[keyof typeof ExperimentExposureQueryResponseKind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentExposureQueryResponseKind = {
-    ExperimentExposureQuery: 'ExperimentExposureQuery',
-} as const
-
-export type ExperimentExposureQueryResponseTotalExposures = { [key: string]: number }
-
-export type DistanceFunc = (typeof DistanceFunc)[keyof typeof DistanceFunc]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DistanceFunc = {
-    L1Distance: 'L1Distance',
-    L2Distance: 'L2Distance',
-    cosineDistance: 'cosineDistance',
-} as const
-
-export type OrderBy = (typeof OrderBy)[keyof typeof OrderBy]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrderBy = {
-    distance: 'distance',
-    timestamp: 'timestamp',
-} as const
-
-export type OrderDirection = (typeof OrderDirection)[keyof typeof OrderDirection]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrderDirection = {
-    asc: 'asc',
-    desc: 'desc',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const IntervalType = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebAnalyticsOrderByFields = {
-    Visitors: 'Visitors',
-    Views: 'Views',
-    Clicks: 'Clicks',
-    BounceRate: 'BounceRate',
-    AverageScrollPercentage: 'AverageScrollPercentage',
-    ScrollGt80Percentage: 'ScrollGt80Percentage',
-    TotalConversions: 'TotalConversions',
-    UniqueConversions: 'UniqueConversions',
-    ConversionRate: 'ConversionRate',
-    ConvertingUsers: 'ConvertingUsers',
-    RageClicks: 'RageClicks',
-    DeadClicks: 'DeadClicks',
-    Errors: 'Errors',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebAnalyticsOrderByDirection = {
-    ASC: 'ASC',
-    DESC: 'DESC',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebStatsBreakdown = {
-    Page: 'Page',
-    InitialPage: 'InitialPage',
-    ExitPage: 'ExitPage',
-    ExitClick: 'ExitClick',
-    PreviousPage: 'PreviousPage',
-    ScreenName: 'ScreenName',
-    InitialChannelType: 'InitialChannelType',
-    InitialReferringDomain: 'InitialReferringDomain',
-    InitialUTMSource: 'InitialUTMSource',
-    InitialUTMCampaign: 'InitialUTMCampaign',
-    InitialUTMMedium: 'InitialUTMMedium',
-    InitialUTMTerm: 'InitialUTMTerm',
-    InitialUTMContent: 'InitialUTMContent',
-    InitialUTMSourceMediumCampaign: 'InitialUTMSourceMediumCampaign',
-    Browser: 'Browser',
-    OS: 'OS',
-    Viewport: 'Viewport',
-    DeviceType: 'DeviceType',
-    Country: 'Country',
-    Region: 'Region',
-    City: 'City',
-    Timezone: 'Timezone',
-    Language: 'Language',
-    FrustrationMetrics: 'FrustrationMetrics',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsMetric = {
-    INP: 'INP',
-    LCP: 'LCP',
-    CLS: 'CLS',
-    FCP: 'FCP',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebVitalsPercentile = {
-    p75: 'p75',
-    p90: 'p90',
-    p99: 'p99',
-} as const
-
-export type WebAnalyticsExternalSummaryQueryResponseData = { [key: string]: unknown }
-
-export type RevenueAnalyticsBreakdownType =
-    (typeof RevenueAnalyticsBreakdownType)[keyof typeof RevenueAnalyticsBreakdownType]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsBreakdownType = {
+export const RevenueAnalyticsPropertyFilterApiType = {
     revenue_analytics: 'revenue_analytics',
 } as const
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SimpleIntervalType = {
-    day: 'day',
-    month: 'month',
-} as const
+export type RevenueAnalyticsPropertyFilterApiValueAnyOfItem = string | number | boolean
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsTopCustomersGroupBy = {
-    month: 'month',
-    all: 'all',
-} as const
-
-export type ConversionGoalFilter1FixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type ConversionGoalFilter1Kind = (typeof ConversionGoalFilter1Kind)[keyof typeof ConversionGoalFilter1Kind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter1Kind = {
-    EventsNode: 'EventsNode',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter1Math = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
-    unique_group: 'unique_group',
-    hogql: 'hogql',
-} as const
 /**
  * @nullable
  */
-export type ConversionGoalFilter1Math =
-    | (typeof ConversionGoalFilter1Math)[keyof typeof ConversionGoalFilter1Math]
+export type RevenueAnalyticsPropertyFilterApiValue =
+    | RevenueAnalyticsPropertyFilterApiValueAnyOfItem[]
+    | string
+    | number
+    | boolean
     | null
 
-export type ConversionGoalFilter1PropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-/**
- * @nullable
- */
-export type ConversionGoalFilter1Response = { [key: string]: unknown } | null
-
-export type ConversionGoalFilter1SchemaMap = { [key: string]: string | unknown }
-
-export interface ConversionGoalFilter1 {
-    conversion_goal_id: string
-    conversion_goal_name: string
+export interface RevenueAnalyticsPropertyFilterApi {
+    key: string
     /** @nullable */
-    custom_name?: string | null
-    /**
-     * The event or `null` for all events.
-     * @nullable
-     */
-    event?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: ConversionGoalFilter1FixedPropertiesItem[] | null
-    kind?: ConversionGoalFilter1Kind
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: RevenueAnalyticsPropertyFilterApiType
     /** @nullable */
-    limit?: number | null
-    /** @nullable */
-    math?: ConversionGoalFilter1Math
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Columns to order by
-     * @nullable
-     */
-    orderBy?: string[] | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ConversionGoalFilter1PropertiesItem[] | null
-    /** @nullable */
-    response?: ConversionGoalFilter1Response
-    schema_map: ConversionGoalFilter1SchemaMap
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
+    value?: RevenueAnalyticsPropertyFilterApiValue
 }
 
-export type ConversionGoalFilter2FixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type ConversionGoalFilter2Kind = (typeof ConversionGoalFilter2Kind)[keyof typeof ConversionGoalFilter2Kind]
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter2Kind = {
-    ActionsNode: 'ActionsNode',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter2Math = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
-    unique_group: 'unique_group',
-    hogql: 'hogql',
-} as const
-/**
- * @nullable
- */
-export type ConversionGoalFilter2Math =
-    | (typeof ConversionGoalFilter2Math)[keyof typeof ConversionGoalFilter2Math]
-    | null
 
-export type ConversionGoalFilter2PropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
-/**
- * @nullable
- */
-export type ConversionGoalFilter2Response = { [key: string]: unknown } | null
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type ConversionGoalFilter2SchemaMap = { [key: string]: string | unknown }
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface ConversionGoalFilter2 {
-    conversion_goal_id: string
-    conversion_goal_name: string
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface RevenueCurrencyPropertyConfigApi {
     /** @nullable */
-    custom_name?: string | null
-    /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
-     * @nullable
-     */
-    fixedProperties?: ConversionGoalFilter2FixedPropertiesItem[] | null
-    id: number
-    kind?: ConversionGoalFilter2Kind
+    property?: string | null
     /** @nullable */
-    math?: ConversionGoalFilter2Math
-    /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ConversionGoalFilter2PropertiesItem[] | null
-    /** @nullable */
-    response?: ConversionGoalFilter2Response
-    schema_map: ConversionGoalFilter2SchemaMap
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
+    static?: CurrencyCodeApi
 }
 
-export type ConversionGoalFilter3FixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type ConversionGoalFilter3Kind = (typeof ConversionGoalFilter3Kind)[keyof typeof ConversionGoalFilter3Kind]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter3Kind = {
-    DataWarehouseNode: 'DataWarehouseNode',
-} as const
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ConversionGoalFilter3Math = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
-    unique_group: 'unique_group',
-    hogql: 'hogql',
-} as const
-/**
- * @nullable
- */
-export type ConversionGoalFilter3Math =
-    | (typeof ConversionGoalFilter3Math)[keyof typeof ConversionGoalFilter3Math]
-    | null
-
-export type ConversionGoalFilter3PropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-/**
- * @nullable
- */
-export type ConversionGoalFilter3Response = { [key: string]: unknown } | null
-
-export type ConversionGoalFilter3SchemaMap = { [key: string]: string | unknown }
-
-export interface ConversionGoalFilter3 {
-    conversion_goal_id: string
-    conversion_goal_name: string
+export interface HogQLQueryModifiersApi {
     /** @nullable */
-    custom_name?: string | null
-    distinct_id_field: string
+    bounceRateDurationSeconds?: number | null
     /** @nullable */
-    dw_source_type?: string | null
+    bounceRatePageViewMode?: BounceRatePageViewModeApi
+    /** @nullable */
+    convertToProjectTimezone?: boolean | null
+    /** @nullable */
+    customChannelTypeRules?: CustomChannelRuleApi[] | null
+    /** @nullable */
+    dataWarehouseEventsModifiers?: DataWarehouseEventsModifierApi[] | null
+    /** @nullable */
+    debug?: boolean | null
+    /** @nullable */
+    formatCsvAllowDoubleQuotes?: boolean | null
+    /** @nullable */
+    inCohortVia?: InCohortViaApi
+    /** @nullable */
+    materializationMode?: MaterializationModeApi
+    /** @nullable */
+    optimizeJoinedFilters?: boolean | null
+    /** @nullable */
+    optimizeProjections?: boolean | null
+    /** @nullable */
+    personsArgMaxVersion?: PersonsArgMaxVersionApi
+    /** @nullable */
+    personsJoinMode?: PersonsJoinModeApi
+    /** @nullable */
+    personsOnEventsMode?: PersonsOnEventsModeApi
+    /** @nullable */
+    propertyGroupsMode?: PropertyGroupsModeApi
+    /** @nullable */
+    s3TableUseInvalidColumns?: boolean | null
+    /** @nullable */
+    sessionTableVersion?: SessionTableVersionApi
+    /** @nullable */
+    sessionsV2JoinMode?: SessionsV2JoinModeApi
+    /** @nullable */
+    timings?: boolean | null
+    /** @nullable */
+    useMaterializedViews?: boolean | null
     /**
-     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * Try to automatically convert HogQL queries to use preaggregated tables at the AST level *
      * @nullable
      */
-    fixedProperties?: ConversionGoalFilter3FixedPropertiesItem[] | null
-    id: string
-    id_field: string
-    kind?: ConversionGoalFilter3Kind
+    usePreaggregatedTableTransforms?: boolean | null
     /** @nullable */
-    math?: ConversionGoalFilter3Math
+    usePresortedEventsTable?: boolean | null
     /** @nullable */
-    math_group_type_index?: MathGroupTypeIndex
-    /** @nullable */
-    math_hogql?: string | null
-    /** @nullable */
-    math_multiplier?: number | null
-    /** @nullable */
-    math_property?: string | null
-    /** @nullable */
-    math_property_revenue_currency?: RevenueCurrencyPropertyConfig
-    /** @nullable */
-    math_property_type?: string | null
-    /** @nullable */
-    name?: string | null
-    /** @nullable */
-    optionalInFunnel?: boolean | null
-    /**
-     * Properties configurable in the interface
-     * @nullable
-     */
-    properties?: ConversionGoalFilter3PropertiesItem[] | null
-    /** @nullable */
-    response?: ConversionGoalFilter3Response
-    schema_map: ConversionGoalFilter3SchemaMap
-    table_name: string
-    timestamp_field: string
-    /**
-     * version of the node, used for schema migrations
-     * @nullable
-     */
-    version?: number | null
+    useWebAnalyticsPreAggregatedTables?: boolean | null
 }
 
-export type MarketingAnalyticsOrderByEnum =
-    (typeof MarketingAnalyticsOrderByEnum)[keyof typeof MarketingAnalyticsOrderByEnum]
+export interface QueryLogTagsApi {
+    /**
+     * Product responsible for this query. Use string, there's no need to churn the Schema when we add a new product *
+     * @nullable
+     */
+    productKey?: string | null
+    /**
+     * Scene where this query is shown in the UI. Use string, there's no need to churn the Schema when we add a new Scene *
+     * @nullable
+     */
+    scene?: string | null
+}
 
-export type MarketingAnalyticsAggregatedQueryResponseResults = { [key: string]: MarketingAnalyticsItem }
+export interface PropertyGroupFilterApi {
+    type: FilterLogicalOperatorApi
+    values: PropertyGroupFilterValueApi[]
+}
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ChartDisplayType = {
-    ActionsLineGraph: 'ActionsLineGraph',
-    ActionsBar: 'ActionsBar',
-    ActionsUnstackedBar: 'ActionsUnstackedBar',
-    ActionsStackedBar: 'ActionsStackedBar',
-    ActionsAreaGraph: 'ActionsAreaGraph',
-    ActionsLineGraphCumulative: 'ActionsLineGraphCumulative',
-    BoldNumber: 'BoldNumber',
-    ActionsPie: 'ActionsPie',
-    ActionsBarValue: 'ActionsBarValue',
-    ActionsTable: 'ActionsTable',
-    WorldMap: 'WorldMap',
-    CalendarHeatmap: 'CalendarHeatmap',
-} as const
+export type PropertyGroupFilterValueApiValuesItem =
+    | PropertyGroupFilterValueApi
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export interface Response {
+export interface PropertyGroupFilterValueApi {
+    type: FilterLogicalOperatorApi
+    values: PropertyGroupFilterValueApiValuesItem[]
+}
+
+export interface EventsQueryResponseApi {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -9179,29 +12356,68 @@ export interface Response {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface Response1 {
+export interface SessionsQueryResponseApi {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+}
+
+export interface ActorsQueryResponseApi {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -9219,36 +12435,200 @@ export interface Response1 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: string[] | null
 }
 
-export type Response2Kind = (typeof Response2Kind)[keyof typeof Response2Kind]
+export type FunnelsActorsQueryApiFunnelStepBreakdownAnyOfItem = number | string | number
+
+/**
+ * The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.
+ * @nullable
+ */
+export type FunnelsActorsQueryApiFunnelStepBreakdown =
+    | number
+    | string
+    | number
+    | FunnelsActorsQueryApiFunnelStepBreakdownAnyOfItem[]
+    | null
+
+export type FunnelsActorsQueryApiKind = (typeof FunnelsActorsQueryApiKind)[keyof typeof FunnelsActorsQueryApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Response2Kind = {
+export const FunnelsActorsQueryApiKind = {
+    FunnelsActorsQuery: 'FunnelsActorsQuery',
+} as const
+
+export interface FunnelsActorsQueryApi {
+    /**
+     * Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons.
+     * @nullable
+     */
+    funnelStep?: number | null
+    /**
+     * The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts.
+     * @nullable
+     */
+    funnelStepBreakdown?: FunnelsActorsQueryApiFunnelStepBreakdown
+    /** @nullable */
+    funnelTrendsDropOff?: boolean | null
+    /**
+     * Used together with `funnelTrendsDropOff` for funnels time conversion date for the persons modal.
+     * @nullable
+     */
+    funnelTrendsEntrancePeriodStart?: string | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: FunnelsActorsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ActorsQueryResponseApi
+    source: FunnelsQueryApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * @nullable
+ */
+export type FunnelCorrelationActorsQueryApiFunnelCorrelationPersonEntity =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | DataWarehouseNodeApi
+    | null
+
+export type FunnelCorrelationActorsQueryApiFunnelCorrelationPropertyValuesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type FunnelCorrelationActorsQueryApiKind =
+    (typeof FunnelCorrelationActorsQueryApiKind)[keyof typeof FunnelCorrelationActorsQueryApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const FunnelCorrelationActorsQueryApiKind = {
+    FunnelCorrelationActorsQuery: 'FunnelCorrelationActorsQuery',
+} as const
+
+export interface FunnelCorrelationActorsQueryApi {
+    /** @nullable */
+    funnelCorrelationPersonConverted?: boolean | null
+    /** @nullable */
+    funnelCorrelationPersonEntity?: FunnelCorrelationActorsQueryApiFunnelCorrelationPersonEntity
+    /** @nullable */
+    funnelCorrelationPropertyValues?: FunnelCorrelationActorsQueryApiFunnelCorrelationPropertyValuesItem[] | null
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: FunnelCorrelationActorsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    response?: ActorsQueryResponseApi
+    source: FunnelCorrelationQueryApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * @nullable
+ */
+export type StickinessActorsQueryApiDay = string | number | null
+
+export type StickinessActorsQueryApiKind =
+    (typeof StickinessActorsQueryApiKind)[keyof typeof StickinessActorsQueryApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const StickinessActorsQueryApiKind = {
+    StickinessActorsQuery: 'StickinessActorsQuery',
+} as const
+
+export interface StickinessActorsQueryApi {
+    /** @nullable */
+    compare?: CompareApi
+    /** @nullable */
+    day?: StickinessActorsQueryApiDay
+    /** @nullable */
+    includeRecordings?: boolean | null
+    kind?: StickinessActorsQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    operator?: StickinessOperatorApi
+    /** @nullable */
+    response?: ActorsQueryResponseApi
+    /** @nullable */
+    series?: number | null
+    source: StickinessQueryApi
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type GroupsQueryResponseApiKind = (typeof GroupsQueryResponseApiKind)[keyof typeof GroupsQueryResponseApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const GroupsQueryResponseApiKind = {
     GroupsQuery: 'GroupsQuery',
 } as const
 
-export interface Response2 {
+export interface GroupsQueryResponseApi {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -9259,34 +12639,128 @@ export interface Response2 {
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql: string
-    kind?: Response2Kind
+    kind?: GroupsQueryResponseApiKind
     limit: number
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     offset: number
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface Response3 {
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface InsightActorsQueryOptionsResponseApi {
+    /** @nullable */
+    breakdown?: BreakdownItemApi[] | null
+    /** @nullable */
+    breakdowns?: MultipleBreakdownOptionsApi[] | null
+    /** @nullable */
+    compare?: CompareItemApi[] | null
+    /** @nullable */
+    day?: DayItemApi[] | null
+    /** @nullable */
+    interval?: IntervalItemApi[] | null
+    /** @nullable */
+    series?: SeriesApi[] | null
+    /** @nullable */
+    status?: StatusItemApi[] | null
+}
+
+export interface SessionsTimelineQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: TimelineEntryApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface HogQueryResponseApi {
+    /** @nullable */
+    bytecode?: unknown[] | null
+    /** @nullable */
+    coloredBytecode?: unknown[] | null
+    results: unknown
+    /** @nullable */
+    stdout?: string | null
+}
+
+export type HogQLFiltersApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export interface HogQLFiltersApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    properties?: HogQLFiltersApiPropertiesItem[] | null
+}
+
+export interface HogQLQueryResponseApi {
     /**
      * Executed ClickHouse query
      * @nullable
@@ -9320,12 +12794,12 @@ export interface Response3 {
      * Query metadata output
      * @nullable
      */
-    metadata?: HogQLMetadataResponse
+    metadata?: HogQLMetadataResponseApi
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
@@ -9337,18 +12811,18 @@ export interface Response3 {
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /**
      * Types of returned columns
      * @nullable
@@ -9356,7 +12830,1201 @@ export interface Response3 {
     types?: unknown[] | null
 }
 
-export interface Response4 {
+/**
+ * @nullable
+ */
+export type HogQLVariableApiValue = unknown | null
+
+export interface HogQLVariableApi {
+    code_name: string
+    /** @nullable */
+    isNull?: boolean | null
+    /** @nullable */
+    value?: HogQLVariableApiValue
+    variableId: string
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface HogQLMetadataResponseApi {
+    /** @nullable */
+    ch_table_names?: string[] | null
+    errors: HogQLNoticeApi[]
+    /** @nullable */
+    isUsingIndices?: QueryIndexUsageApi
+    /** @nullable */
+    isValid?: boolean | null
+    notices: HogQLNoticeApi[]
+    /** @nullable */
+    query?: string | null
+    /** @nullable */
+    table_names?: string[] | null
+    warnings: HogQLNoticeApi[]
+}
+
+/**
+ * @nullable
+ */
+export type WebTrendsQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
+
+export type WebTrendsQueryApiKind = (typeof WebTrendsQueryApiKind)[keyof typeof WebTrendsQueryApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebTrendsQueryApiKind = {
+    WebTrendsQuery: 'WebTrendsQuery',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const WebTrendsQueryApiOrderByItem = {
+    ...WebAnalyticsOrderByFieldsApi,
+    ...WebAnalyticsOrderByDirectionApi,
+} as const
+export type WebTrendsQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | SessionPropertyFilterApi
+
+export interface WebTrendsQueryApi {
+    /**
+     * Groups aggregation - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** @nullable */
+    compareFilter?: CompareFilterApi
+    /** @nullable */
+    conversionGoal?: WebTrendsQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    doPathCleaning?: boolean | null
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    includeRevenue?: boolean | null
+    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    interval: IntervalTypeApi
+    kind?: WebTrendsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    metrics: WebTrendsMetricApi[]
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    orderBy?: (typeof WebTrendsQueryApiOrderByItem)[keyof typeof WebTrendsQueryApiOrderByItem][] | null
+    properties: WebTrendsQueryApiPropertiesItem[]
+    /** @nullable */
+    response?: WebTrendsQueryResponseApi
+    /** @nullable */
+    sampling?: WebAnalyticsSamplingApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    useSessionsTable?: boolean | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * Whether we should be comparing against a specific conversion goal
+ * @nullable
+ */
+export type CalendarHeatmapQueryApiConversionGoal = ActionConversionGoalApi | CustomEventConversionGoalApi | null
+
+export type CalendarHeatmapQueryApiKind = (typeof CalendarHeatmapQueryApiKind)[keyof typeof CalendarHeatmapQueryApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const CalendarHeatmapQueryApiKind = {
+    CalendarHeatmapQuery: 'CalendarHeatmapQuery',
+} as const
+
+export type CalendarHeatmapQueryApiPropertiesAnyOfItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+/**
+ * Property filters for all series
+ * @nullable
+ */
+export type CalendarHeatmapQueryApiProperties =
+    | CalendarHeatmapQueryApiPropertiesAnyOfItem[]
+    | PropertyGroupFilterApi
+    | null
+
+export type CalendarHeatmapQueryApiSeriesItem = EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi
+
+export interface CalendarHeatmapQueryApi {
+    /**
+     * Groups aggregation
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /**
+     * Properties specific to the trends insight
+     * @nullable
+     */
+    calendarHeatmapFilter?: CalendarHeatmapFilterApi
+    /**
+     * Whether we should be comparing against a specific conversion goal
+     * @nullable
+     */
+    conversionGoal?: CalendarHeatmapQueryApiConversionGoal
+    /**
+     * Colors used in the insight's visualization
+     * @nullable
+     */
+    dataColorTheme?: number | null
+    /**
+     * Date range for the query
+     * @nullable
+     */
+    dateRange?: DateRangeApi
+    /**
+     * Exclude internal and test users by applying the respective filters
+     * @nullable
+     */
+    filterTestAccounts?: boolean | null
+    /**
+     * Granularity of the response. Can be one of `hour`, `day`, `week` or `month`
+     * @nullable
+     */
+    interval?: IntervalTypeApi
+    kind?: CalendarHeatmapQueryApiKind
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Property filters for all series
+     * @nullable
+     */
+    properties?: CalendarHeatmapQueryApiProperties
+    /** @nullable */
+    response?: CalendarHeatmapResponseApi
+    /**
+     * Sampling rate
+     * @nullable
+     */
+    samplingFactor?: number | null
+    /** Events and actions to include */
+    series: CalendarHeatmapQueryApiSeriesItem[]
+    /**
+     * Tags that will be added to the Query log comment
+     * @nullable
+     */
+    tags?: QueryLogTagsApi
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type RecordingsQueryApiActionsItem = { [key: string]: unknown }
+
+export type RecordingsQueryApiEventsItem = { [key: string]: unknown }
+
+export type RecordingsQueryApiHavingPredicatesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type RecordingsQueryApiKind = (typeof RecordingsQueryApiKind)[keyof typeof RecordingsQueryApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RecordingsQueryApiKind = {
+    RecordingsQuery: 'RecordingsQuery',
+} as const
+
+export type RecordingsQueryApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+/**
+ * @nullable
+ */
+export type RecordingsQueryApiUserModifiedFilters = { [key: string]: unknown } | null
+
+export interface RecordingsQueryApi {
+    /** @nullable */
+    actions?: RecordingsQueryApiActionsItem[] | null
+    /**
+     * Cursor for pagination. Contains the ordering value and session_id from the last record of the previous page.
+     * @nullable
+     */
+    after?: string | null
+    /** @nullable */
+    comment_text?: RecordingPropertyFilterApi
+    /** @nullable */
+    console_log_filters?: LogEntryPropertyFilterApi[] | null
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /** @nullable */
+    distinct_ids?: string[] | null
+    /** @nullable */
+    events?: RecordingsQueryApiEventsItem[] | null
+    /** @nullable */
+    filter_test_accounts?: boolean | null
+    /** @nullable */
+    having_predicates?: RecordingsQueryApiHavingPredicatesItem[] | null
+    kind?: RecordingsQueryApiKind
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /** @nullable */
+    operand?: FilterLogicalOperatorApi
+    /** @nullable */
+    order?: RecordingOrderApi
+    /**
+     * Replay originally had all ordering as descending by specifying the field name, this runs counter to Django behavior where the field name specifies ascending sorting (e.g. the_field_name) and -the_field_name would indicate descending order to avoid invalidating or migrating all existing filters we keep DESC as the default or allow specification of an explicit order direction here
+     * @nullable
+     */
+    order_direction?: RecordingOrderDirectionApi
+    /** @nullable */
+    person_uuid?: string | null
+    /** @nullable */
+    properties?: RecordingsQueryApiPropertiesItem[] | null
+    /** @nullable */
+    response?: RecordingsQueryResponseApi
+    /** @nullable */
+    session_ids?: string[] | null
+    /**
+     * If provided, this recording will be fetched and prepended to the results, even if it doesn't match the filters
+     * @nullable
+     */
+    session_recording_id?: string | null
+    /** @nullable */
+    tags?: QueryLogTagsApi
+    /** @nullable */
+    user_modified_filters?: RecordingsQueryApiUserModifiedFilters
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface HogQLAutocompleteResponseApi {
+    /** Whether or not the suggestions returned are complete */
+    incomplete_list: boolean
+    suggestions: AutocompleteCompletionItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface FiltersApi {
+    /** @nullable */
+    dateRange?: DateRangeApi
+    /** @nullable */
+    properties?: SessionPropertyFilterApi[] | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface SessionAttributionExplorerQueryResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface RevenueExampleEventsQueryResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface RevenueExampleDataWarehouseTablesQueryResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type ErrorTrackingIssueAssigneeApiId = string | number
+
+export interface ErrorTrackingIssueAssigneeApi {
+    id: ErrorTrackingIssueAssigneeApiId
+    type: ErrorTrackingIssueAssigneeTypeApi
+}
+
+export interface DateRangeApi {
+    /** @nullable */
+    date_from?: string | null
+    /** @nullable */
+    date_to?: string | null
+    /**
+     * Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.
+     * @nullable
+     */
+    explicitDate?: boolean | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface ErrorTrackingQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingIssueApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface ErrorTrackingSimilarIssuesQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: SimilarIssueApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type ErrorTrackingBreakdownsQueryResponseApiResults = { [key: string]: ResultsApi }
+
+export interface ErrorTrackingBreakdownsQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingBreakdownsQueryResponseApiResults
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface ErrorTrackingIssueCorrelationQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingCorrelatedIssueApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type ExperimentFunnelsQueryResponseApiCredibleIntervals = { [key: string]: number[] }
+
+export type ExperimentFunnelsQueryResponseApiInsightItemItem = { [key: string]: unknown }
+
+export type ExperimentFunnelsQueryResponseApiKind =
+    (typeof ExperimentFunnelsQueryResponseApiKind)[keyof typeof ExperimentFunnelsQueryResponseApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentFunnelsQueryResponseApiKind = {
+    ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
+} as const
+
+export type ExperimentFunnelsQueryResponseApiProbability = { [key: string]: number }
+
+export interface ExperimentFunnelsQueryResponseApi {
+    credible_intervals: ExperimentFunnelsQueryResponseApiCredibleIntervals
+    expected_loss: number
+    /** @nullable */
+    funnels_query?: FunnelsQueryApi
+    insight: ExperimentFunnelsQueryResponseApiInsightItemItem[][]
+    kind?: ExperimentFunnelsQueryResponseApiKind
+    probability: ExperimentFunnelsQueryResponseApiProbability
+    significance_code: ExperimentSignificanceCodeApi
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantFunnelsBaseStatsApi[]
+}
+
+export type ExperimentTrendsQueryResponseApiCredibleIntervals = { [key: string]: number[] }
+
+export type ExperimentTrendsQueryResponseApiInsightItem = { [key: string]: unknown }
+
+export type ExperimentTrendsQueryResponseApiKind =
+    (typeof ExperimentTrendsQueryResponseApiKind)[keyof typeof ExperimentTrendsQueryResponseApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentTrendsQueryResponseApiKind = {
+    ExperimentTrendsQuery: 'ExperimentTrendsQuery',
+} as const
+
+export type ExperimentTrendsQueryResponseApiProbability = { [key: string]: number }
+
+export interface ExperimentTrendsQueryResponseApi {
+    /** @nullable */
+    count_query?: TrendsQueryApi
+    credible_intervals: ExperimentTrendsQueryResponseApiCredibleIntervals
+    /** @nullable */
+    exposure_query?: TrendsQueryApi
+    insight: ExperimentTrendsQueryResponseApiInsightItem[]
+    kind?: ExperimentTrendsQueryResponseApiKind
+    p_value: number
+    probability: ExperimentTrendsQueryResponseApiProbability
+    significance_code: ExperimentSignificanceCodeApi
+    significant: boolean
+    /** @nullable */
+    stats_version?: number | null
+    variants: ExperimentVariantTrendsBaseStatsApi[]
+}
+
+export type ExperimentMeanMetricApiKind = (typeof ExperimentMeanMetricApiKind)[keyof typeof ExperimentMeanMetricApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentMeanMetricApiKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentMeanMetricApiMetricType =
+    (typeof ExperimentMeanMetricApiMetricType)[keyof typeof ExperimentMeanMetricApiMetricType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentMeanMetricApiMetricType = {
+    mean: 'mean',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentMeanMetricApiResponse = { [key: string]: unknown } | null
+
+export type ExperimentMeanMetricApiSource = EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+
+export interface ExperimentMeanMetricApi {
+    /** @nullable */
+    breakdownFilter?: BreakdownFilterApi
+    /** @nullable */
+    conversion_window?: number | null
+    /** @nullable */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi
+    /** @nullable */
+    fingerprint?: string | null
+    /** @nullable */
+    goal?: ExperimentMetricGoalApi
+    /** @nullable */
+    ignore_zeros?: boolean | null
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentMeanMetricApiKind
+    /** @nullable */
+    lower_bound_percentile?: number | null
+    metric_type?: ExperimentMeanMetricApiMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentMeanMetricApiResponse
+    /** @nullable */
+    sharedMetricId?: number | null
+    source: ExperimentMeanMetricApiSource
+    /** @nullable */
+    upper_bound_percentile?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentFunnelMetricApiKind =
+    (typeof ExperimentFunnelMetricApiKind)[keyof typeof ExperimentFunnelMetricApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentFunnelMetricApiKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentFunnelMetricApiMetricType =
+    (typeof ExperimentFunnelMetricApiMetricType)[keyof typeof ExperimentFunnelMetricApiMetricType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentFunnelMetricApiMetricType = {
+    funnel: 'funnel',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
+
+export type ExperimentFunnelMetricApiSeriesItem = EventsNodeApi | ActionsNodeApi
+
+export interface ExperimentFunnelMetricApi {
+    /** @nullable */
+    breakdownFilter?: BreakdownFilterApi
+    /** @nullable */
+    conversion_window?: number | null
+    /** @nullable */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi
+    /** @nullable */
+    fingerprint?: string | null
+    /** @nullable */
+    funnel_order_type?: StepOrderValueApi
+    /** @nullable */
+    goal?: ExperimentMetricGoalApi
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentFunnelMetricApiKind
+    metric_type?: ExperimentFunnelMetricApiMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentFunnelMetricApiResponse
+    series: ExperimentFunnelMetricApiSeriesItem[]
+    /** @nullable */
+    sharedMetricId?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentRatioMetricApiDenominator = EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+
+export type ExperimentRatioMetricApiKind =
+    (typeof ExperimentRatioMetricApiKind)[keyof typeof ExperimentRatioMetricApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentRatioMetricApiKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentRatioMetricApiMetricType =
+    (typeof ExperimentRatioMetricApiMetricType)[keyof typeof ExperimentRatioMetricApiMetricType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentRatioMetricApiMetricType = {
+    ratio: 'ratio',
+} as const
+
+export type ExperimentRatioMetricApiNumerator = EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+
+/**
+ * @nullable
+ */
+export type ExperimentRatioMetricApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentRatioMetricApi {
+    /** @nullable */
+    breakdownFilter?: BreakdownFilterApi
+    /** @nullable */
+    conversion_window?: number | null
+    /** @nullable */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi
+    denominator: ExperimentRatioMetricApiDenominator
+    /** @nullable */
+    fingerprint?: string | null
+    /** @nullable */
+    goal?: ExperimentMetricGoalApi
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentRatioMetricApiKind
+    metric_type?: ExperimentRatioMetricApiMetricType
+    /** @nullable */
+    name?: string | null
+    numerator: ExperimentRatioMetricApiNumerator
+    /** @nullable */
+    response?: ExperimentRatioMetricApiResponse
+    /** @nullable */
+    sharedMetricId?: number | null
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ExperimentRetentionMetricApiCompletionEvent =
+    | EventsNodeApi
+    | ActionsNodeApi
+    | ExperimentDataWarehouseNodeApi
+
+export type ExperimentRetentionMetricApiKind =
+    (typeof ExperimentRetentionMetricApiKind)[keyof typeof ExperimentRetentionMetricApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentRetentionMetricApiKind = {
+    ExperimentMetric: 'ExperimentMetric',
+} as const
+
+export type ExperimentRetentionMetricApiMetricType =
+    (typeof ExperimentRetentionMetricApiMetricType)[keyof typeof ExperimentRetentionMetricApiMetricType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentRetentionMetricApiMetricType = {
+    retention: 'retention',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentRetentionMetricApiResponse = { [key: string]: unknown } | null
+
+export type ExperimentRetentionMetricApiStartEvent = EventsNodeApi | ActionsNodeApi | ExperimentDataWarehouseNodeApi
+
+export interface ExperimentRetentionMetricApi {
+    /** @nullable */
+    breakdownFilter?: BreakdownFilterApi
+    completion_event: ExperimentRetentionMetricApiCompletionEvent
+    /** @nullable */
+    conversion_window?: number | null
+    /** @nullable */
+    conversion_window_unit?: FunnelConversionWindowTimeUnitApi
+    /** @nullable */
+    fingerprint?: string | null
+    /** @nullable */
+    goal?: ExperimentMetricGoalApi
+    /** @nullable */
+    isSharedMetric?: boolean | null
+    kind?: ExperimentRetentionMetricApiKind
+    metric_type?: ExperimentRetentionMetricApiMetricType
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    response?: ExperimentRetentionMetricApiResponse
+    retention_window_end: number
+    retention_window_start: number
+    retention_window_unit: FunnelConversionWindowTimeUnitApi
+    /** @nullable */
+    sharedMetricId?: number | null
+    start_event: ExperimentRetentionMetricApiStartEvent
+    start_handling: StartHandlingApi
+    /** @nullable */
+    uuid?: string | null
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseApiCredibleIntervals = { [key: string]: number[] } | null
+
+export type ExperimentQueryResponseApiInsightItem = { [key: string]: unknown }
+
+export type ExperimentQueryResponseApiKind =
+    (typeof ExperimentQueryResponseApiKind)[keyof typeof ExperimentQueryResponseApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentQueryResponseApiKind = {
+    ExperimentQuery: 'ExperimentQuery',
+} as const
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseApiMetric =
+    | ExperimentMeanMetricApi
+    | ExperimentFunnelMetricApi
+    | ExperimentRatioMetricApi
+    | ExperimentRetentionMetricApi
+    | null
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseApiProbability = { [key: string]: number } | null
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseApiVariantResults =
+    | ExperimentVariantResultFrequentistApi[]
+    | ExperimentVariantResultBayesianApi[]
+    | null
+
+/**
+ * @nullable
+ */
+export type ExperimentQueryResponseApiVariants =
+    | ExperimentVariantTrendsBaseStatsApi[]
+    | ExperimentVariantFunnelsBaseStatsApi[]
+    | null
+
+export interface ExperimentQueryResponseApi {
+    /** @nullable */
+    baseline?: ExperimentStatsBaseValidatedApi
+    /**
+     * Results grouped by breakdown value. When present, baseline and variant_results contain aggregated data.
+     * @nullable
+     */
+    breakdown_results?: ExperimentBreakdownResultApi[] | null
+    /** @nullable */
+    clickhouse_sql?: string | null
+    /** @nullable */
+    credible_intervals?: ExperimentQueryResponseApiCredibleIntervals
+    /** @nullable */
+    hogql?: string | null
+    /** @nullable */
+    insight?: ExperimentQueryResponseApiInsightItem[] | null
+    kind?: ExperimentQueryResponseApiKind
+    /** @nullable */
+    metric?: ExperimentQueryResponseApiMetric
+    /** @nullable */
+    p_value?: number | null
+    /** @nullable */
+    probability?: ExperimentQueryResponseApiProbability
+    /** @nullable */
+    significance_code?: ExperimentSignificanceCodeApi
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    stats_version?: number | null
+    /** @nullable */
+    variant_results?: ExperimentQueryResponseApiVariantResults
+    /** @nullable */
+    variants?: ExperimentQueryResponseApiVariants
+}
+
+/**
+ * @nullable
+ */
+export type ExperimentExposureCriteriaApiExposureConfig = ExperimentEventExposureConfigApi | ActionsNodeApi | null
+
+export interface ExperimentExposureCriteriaApi {
+    /** @nullable */
+    exposure_config?: ExperimentExposureCriteriaApiExposureConfig
+    /** @nullable */
+    filterTestAccounts?: boolean | null
+    /** @nullable */
+    multiple_variant_handling?: MultipleVariantHandlingApi
+}
+
+export interface ExperimentHoldoutTypeApi {
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    created_by?: UserBasicTypeApi
+    /** @nullable */
+    description?: string | null
+    filters: FeatureFlagGroupTypeApi[]
+    /** @nullable */
+    id?: number | null
+    name: string
+    /** @nullable */
+    updated_at?: string | null
+}
+
+export type ExperimentExposureQueryResponseApiKind =
+    (typeof ExperimentExposureQueryResponseApiKind)[keyof typeof ExperimentExposureQueryResponseApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentExposureQueryResponseApiKind = {
+    ExperimentExposureQuery: 'ExperimentExposureQuery',
+} as const
+
+export type ExperimentExposureQueryResponseApiTotalExposures = { [key: string]: number }
+
+export interface ExperimentExposureQueryResponseApi {
+    date_range: DateRangeApi
+    kind?: ExperimentExposureQueryResponseApiKind
+    timeseries: ExperimentExposureTimeSeriesApi[]
+    total_exposures: ExperimentExposureQueryResponseApiTotalExposures
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface EmbeddedDocumentApi {
+    document_id: string
+    document_type: string
+    product: string
+    timestamp: string
+}
+
+export interface DocumentSimilarityQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: EmbeddingDistanceApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface CompareFilterApi {
+    /**
+     * Whether to compare the current date range to a previous date range.
+     * @nullable
+     */
+    compare?: boolean | null
+    /**
+     * The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago.
+     * @nullable
+     */
+    compare_to?: string | null
+}
+
+export interface ActionConversionGoalApi {
+    actionId: number
+}
+
+export interface CustomEventConversionGoalApi {
+    customEventName: string
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface WebOverviewQueryResponseApi {
     /** @nullable */
     dateFrom?: string | null
     /** @nullable */
@@ -9375,30 +14043,39 @@ export interface Response4 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: WebOverviewItem[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: WebOverviewItemApi[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface Response5 {
+export interface WebAnalyticsSamplingApi {
+    /** @nullable */
+    enabled?: boolean | null
+    /** @nullable */
+    forceSamplingRate?: SamplingRateApi
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface WebStatsTableQueryResponseApi {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -9419,34 +14096,34 @@ export interface Response5 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
     /** @nullable */
     usedPreAggregatedTables?: boolean | null
 }
 
-export interface Response6 {
+export interface WebExternalClicksTableQueryResponseApi {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -9467,32 +14144,82 @@ export interface Response6 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface Response8 {
+export interface WebGoalsQueryResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[]
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface WebVitalsPathBreakdownQueryResponseApi {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -9507,32 +14234,30 @@ export interface Response8 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     /**
      * @minItems 1
      * @maxItems 1
      */
-    results: WebVitalsPathBreakdownResult[]
+    results: WebVitalsPathBreakdownResultApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface Response9 {
-    /** @nullable */
-    columns?: unknown[] | null
+export interface WebPageURLSearchQueryResponseApi {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -9551,30 +14276,745 @@ export interface Response9 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
-    /** @nullable */
-    offset?: number | null
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: PageURLApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type WebAnalyticsExternalSummaryQueryResponseApiData = { [key: string]: unknown }
+
+export interface WebAnalyticsExternalSummaryQueryResponseApi {
+    data: WebAnalyticsExternalSummaryQueryResponseApiData
+    /** @nullable */
+    error?: ExternalQueryErrorApi
+    status: ExternalQueryStatusApi
+}
+
+export type RevenueAnalyticsBreakdownApiType =
+    (typeof RevenueAnalyticsBreakdownApiType)[keyof typeof RevenueAnalyticsBreakdownApiType]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const RevenueAnalyticsBreakdownApiType = {
+    revenue_analytics: 'revenue_analytics',
+} as const
+
+export interface RevenueAnalyticsBreakdownApi {
+    property: string
+    type?: RevenueAnalyticsBreakdownApiType
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface RevenueAnalyticsGrossRevenueQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface RevenueAnalyticsMetricsQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
+}
+
+export interface RevenueAnalyticsMRRQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsMRRQueryResultItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface RevenueAnalyticsOverviewQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsOverviewItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface RevenueAnalyticsTopCustomersQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type ConversionGoalFilter1ApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type ConversionGoalFilter1ApiKind =
+    (typeof ConversionGoalFilter1ApiKind)[keyof typeof ConversionGoalFilter1ApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter1ApiKind = {
+    EventsNode: 'EventsNode',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter1ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter1ApiMath =
+    | (typeof ConversionGoalFilter1ApiMath)[keyof typeof ConversionGoalFilter1ApiMath]
+    | null
+
+export type ConversionGoalFilter1ApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter1ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter1Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: ConversionGoalFilter1ApiFixedPropertiesItem[] | null
+    kind?: ConversionGoalFilter1ApiKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    math?: ConversionGoalFilter1ApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: ConversionGoalFilter1ApiPropertiesItem[] | null
+    /** @nullable */
+    response?: ConversionGoalFilter1ApiResponse
+    schema_map: ConversionGoalFilter1ApiSchemaMap
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ConversionGoalFilter2ApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type ConversionGoalFilter2ApiKind =
+    (typeof ConversionGoalFilter2ApiKind)[keyof typeof ConversionGoalFilter2ApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter2ApiKind = {
+    ActionsNode: 'ActionsNode',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter2ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter2ApiMath =
+    | (typeof ConversionGoalFilter2ApiMath)[keyof typeof ConversionGoalFilter2ApiMath]
+    | null
+
+export type ConversionGoalFilter2ApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter2ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter2Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: ConversionGoalFilter2ApiFixedPropertiesItem[] | null
+    id: number
+    kind?: ConversionGoalFilter2ApiKind
+    /** @nullable */
+    math?: ConversionGoalFilter2ApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: ConversionGoalFilter2ApiPropertiesItem[] | null
+    /** @nullable */
+    response?: ConversionGoalFilter2ApiResponse
+    schema_map: ConversionGoalFilter2ApiSchemaMap
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export type ConversionGoalFilter3ApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type ConversionGoalFilter3ApiKind =
+    (typeof ConversionGoalFilter3ApiKind)[keyof typeof ConversionGoalFilter3ApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter3ApiKind = {
+    DataWarehouseNode: 'DataWarehouseNode',
+} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ConversionGoalFilter3ApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter3ApiMath =
+    | (typeof ConversionGoalFilter3ApiMath)[keyof typeof ConversionGoalFilter3ApiMath]
+    | null
+
+export type ConversionGoalFilter3ApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+/**
+ * @nullable
+ */
+export type ConversionGoalFilter3ApiResponse = { [key: string]: unknown } | null
+
+export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknown }
+
+export interface ConversionGoalFilter3Api {
+    conversion_goal_id: string
+    conversion_goal_name: string
+    /** @nullable */
+    custom_name?: string | null
+    distinct_id_field: string
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: ConversionGoalFilter3ApiFixedPropertiesItem[] | null
+    id: string
+    id_field: string
+    kind?: ConversionGoalFilter3ApiKind
+    /** @nullable */
+    math?: ConversionGoalFilter3ApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: ConversionGoalFilter3ApiPropertiesItem[] | null
+    /** @nullable */
+    response?: ConversionGoalFilter3ApiResponse
+    schema_map: ConversionGoalFilter3ApiSchemaMap
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export interface IntegrationFilterApi {
+    /**
+     * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
+     * @nullable
+     */
+    integrationSourceIds?: string[] | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface MarketingAnalyticsTableQueryResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: MarketingAnalyticsItemApi[][]
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export interface Response10 {
+export type MarketingAnalyticsAggregatedQueryResponseApiResults = { [key: string]: MarketingAnalyticsItemApi }
+
+export interface MarketingAnalyticsAggregatedQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: MarketingAnalyticsAggregatedQueryResponseApiResults
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface ChartSettingsApi {
+    /** @nullable */
+    goalLines?: GoalLineApi[] | null
+    /** @nullable */
+    leftYAxisSettings?: YAxisSettingsApi
+    /** @nullable */
+    rightYAxisSettings?: YAxisSettingsApi
+    /** @nullable */
+    seriesBreakdownColumn?: string | null
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showTotalRow?: boolean | null
+    /** @nullable */
+    showXAxisBorder?: boolean | null
+    /** @nullable */
+    showXAxisTicks?: boolean | null
+    /** @nullable */
+    showYAxisBorder?: boolean | null
+    /**
+     * Whether we fill the bars to 100% in stacked mode
+     * @nullable
+     */
+    stackBars100?: boolean | null
+    /** @nullable */
+    xAxis?: ChartAxisApi
+    /** @nullable */
+    yAxis?: ChartAxisApi[] | null
+    /**
+     * Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero
+     * @nullable
+     */
+    yAxisAtZero?: boolean | null
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface TableSettingsApi {
+    /** @nullable */
+    columns?: ChartAxisApi[] | null
+    /** @nullable */
+    conditionalFormatting?: ConditionalFormattingRuleApi[] | null
+}
+
+export interface DataTableNodeViewPropsContextApi {
+    /** @nullable */
+    eventDefinitionId?: string | null
+    type: DataTableNodeViewPropsContextTypeApi
+}
+
+export interface ResponseApi {
     columns: unknown[]
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
@@ -9591,103 +15031,188 @@ export interface Response10 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[][]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     types: string[]
 }
 
-export interface Response11 {
+export interface Response1Api {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
     /** @nullable */
-    columns?: string[] | null
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    limit: number
+    /** @nullable */
+    missing_actors_count?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    offset: number
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: string[] | null
+}
+
+export type Response2ApiKind = (typeof Response2ApiKind)[keyof typeof Response2ApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const Response2ApiKind = {
+    GroupsQuery: 'GroupsQuery',
+} as const
+
+export interface Response2Api {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    kind?: Response2ApiKind
+    limit: number
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    offset: number
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+}
+
+export interface Response3Api {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
      */
     error?: string | null
     /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
      * Generated HogQL query.
      * @nullable
      */
     hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Query metadata output
+     * @nullable
+     */
+    metadata?: HogQLMetadataResponseApi
     /**
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
+    resolved_date_range?: ResolvedDateRangeResponseApi
     results: unknown[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
 }
 
-export interface Response12 {
+export interface Response4Api {
     /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface Response13 {
+    dateFrom?: string | null
     /** @nullable */
-    columns?: string[] | null
+    dateTo?: string | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -9702,96 +15227,30 @@ export interface Response13 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsMRRQueryResultItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface Response14 {
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: RevenueAnalyticsOverviewItem[]
-    /**
-     * Measured timings for different parts of the query generation process
-     * @nullable
-     */
-    timings?: QueryTiming[] | null
-}
-
-export interface Response15 {
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: WebOverviewItemApi[]
     /** @nullable */
-    columns?: string[] | null
-    /**
-     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
-     * @nullable
-     */
-    error?: string | null
-    /**
-     * Generated HogQL query.
-     * @nullable
-     */
-    hogql?: string | null
-    /**
-     * Modifiers used when performing the query
-     * @nullable
-     */
-    modifiers?: HogQLQueryModifiers
-    /**
-     * Query status indicates whether next to the provided data, a query is still running.
-     * @nullable
-     */
-    query_status?: QueryStatus
-    /**
-     * The date range used for the query
-     * @nullable
-     */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
 }
 
-export interface Response16 {
+export interface Response5Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -9812,30 +15271,34 @@ export interface Response16 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: unknown
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[]
+    /** @nullable */
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
 }
 
-export interface Response18 {
+export interface Response6Api {
     /** @nullable */
     columns?: unknown[] | null
     /**
@@ -9856,34 +15319,32 @@ export interface Response18 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: MarketingAnalyticsItem[][]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[]
     /** @nullable */
-    samplingRate?: SamplingRate
+    samplingRate?: SamplingRateApi
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
     /** @nullable */
     types?: unknown[] | null
 }
 
-export type Response19Results = { [key: string]: MarketingAnalyticsItem }
-
-export interface Response19 {
+export interface Response8Api {
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -9898,28 +15359,419 @@ export interface Response19 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: Response19Results
-    /** @nullable */
-    samplingRate?: SamplingRate
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    /**
+     * @minItems 1
+     * @maxItems 1
+     */
+    results: WebVitalsPathBreakdownResultApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface Response20 {
+export interface Response9Api {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface Response10Api {
+    columns: unknown[]
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /** Generated HogQL query. */
+    hogql: string
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[][]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    types: string[]
+}
+
+export interface Response11Api {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response12Api {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response13Api {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsMRRQueryResultItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response14Api {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RevenueAnalyticsOverviewItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response15Api {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response16Api {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export interface Response18Api {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: MarketingAnalyticsItemApi[][]
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type Response19ApiResults = { [key: string]: MarketingAnalyticsItemApi }
+
+export interface Response19Api {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: Response19ApiResults
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface Response20Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -9940,28 +15792,28 @@ export interface Response20 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export interface Response21 {
+export interface Response21Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -9982,86 +15834,86 @@ export interface Response21 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: ErrorTrackingCorrelatedIssue[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ErrorTrackingCorrelatedIssueApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type Response22CredibleIntervals = { [key: string]: number[] }
+export type Response22ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response22InsightItemItem = { [key: string]: unknown }
+export type Response22ApiInsightItemItem = { [key: string]: unknown }
 
-export type Response22Kind = (typeof Response22Kind)[keyof typeof Response22Kind]
+export type Response22ApiKind = (typeof Response22ApiKind)[keyof typeof Response22ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Response22Kind = {
+export const Response22ApiKind = {
     ExperimentFunnelsQuery: 'ExperimentFunnelsQuery',
 } as const
 
-export type Response22Probability = { [key: string]: number }
+export type Response22ApiProbability = { [key: string]: number }
 
-export interface Response22 {
-    credible_intervals: Response22CredibleIntervals
+export interface Response22Api {
+    credible_intervals: Response22ApiCredibleIntervals
     expected_loss: number
     /** @nullable */
-    funnels_query?: FunnelsQuery
-    insight: Response22InsightItemItem[][]
-    kind?: Response22Kind
-    probability: Response22Probability
-    significance_code: ExperimentSignificanceCode
+    funnels_query?: FunnelsQueryApi
+    insight: Response22ApiInsightItemItem[][]
+    kind?: Response22ApiKind
+    probability: Response22ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantFunnelsBaseStats[]
+    variants: ExperimentVariantFunnelsBaseStatsApi[]
 }
 
-export type Response23CredibleIntervals = { [key: string]: number[] }
+export type Response23ApiCredibleIntervals = { [key: string]: number[] }
 
-export type Response23InsightItem = { [key: string]: unknown }
+export type Response23ApiInsightItem = { [key: string]: unknown }
 
-export type Response23Kind = (typeof Response23Kind)[keyof typeof Response23Kind]
+export type Response23ApiKind = (typeof Response23ApiKind)[keyof typeof Response23ApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Response23Kind = {
+export const Response23ApiKind = {
     ExperimentTrendsQuery: 'ExperimentTrendsQuery',
 } as const
 
-export type Response23Probability = { [key: string]: number }
+export type Response23ApiProbability = { [key: string]: number }
 
-export interface Response23 {
+export interface Response23Api {
     /** @nullable */
-    count_query?: TrendsQuery
-    credible_intervals: Response23CredibleIntervals
+    count_query?: TrendsQueryApi
+    credible_intervals: Response23ApiCredibleIntervals
     /** @nullable */
-    exposure_query?: TrendsQuery
-    insight: Response23InsightItem[]
-    kind?: Response23Kind
+    exposure_query?: TrendsQueryApi
+    insight: Response23ApiInsightItem[]
+    kind?: Response23ApiKind
     p_value: number
-    probability: Response23Probability
-    significance_code: ExperimentSignificanceCode
+    probability: Response23ApiProbability
+    significance_code: ExperimentSignificanceCodeApi
     significant: boolean
     /** @nullable */
     stats_version?: number | null
-    variants: ExperimentVariantTrendsBaseStats[]
+    variants: ExperimentVariantTrendsBaseStatsApi[]
 }
 
-export interface Response24 {
+export interface Response24Api {
     /** @nullable */
     columns?: string[] | null
     /**
@@ -10082,341 +15934,1602 @@ export interface Response24 {
      * Modifiers used when performing the query
      * @nullable
      */
-    modifiers?: HogQLQueryModifiers
+    modifiers?: HogQLQueryModifiersApi
     /** @nullable */
     offset?: number | null
     /**
      * Query status indicates whether next to the provided data, a query is still running.
      * @nullable
      */
-    query_status?: QueryStatus
+    query_status?: QueryStatusApi
     /**
      * The date range used for the query
      * @nullable
      */
-    resolved_date_range?: ResolvedDateRangeResponse
-    results: LLMTrace[]
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LLMTraceApi[]
     /**
      * Measured timings for different parts of the query generation process
      * @nullable
      */
-    timings?: QueryTiming[] | null
+    timings?: QueryTimingApi[] | null
 }
 
-export type TaxonomicFilterGroupType = (typeof TaxonomicFilterGroupType)[keyof typeof TaxonomicFilterGroupType]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TaxonomicFilterGroupType = {
-    metadata: 'metadata',
-    actions: 'actions',
-    cohorts: 'cohorts',
-    cohorts_with_all: 'cohorts_with_all',
-    data_warehouse: 'data_warehouse',
-    data_warehouse_properties: 'data_warehouse_properties',
-    data_warehouse_person_properties: 'data_warehouse_person_properties',
-    elements: 'elements',
-    events: 'events',
-    internal_events: 'internal_events',
-    internal_event_properties: 'internal_event_properties',
-    event_properties: 'event_properties',
-    event_feature_flags: 'event_feature_flags',
-    event_metadata: 'event_metadata',
-    numerical_event_properties: 'numerical_event_properties',
-    person_properties: 'person_properties',
-    pageview_urls: 'pageview_urls',
-    screens: 'screens',
-    custom_events: 'custom_events',
-    wildcard: 'wildcard',
-    groups: 'groups',
-    persons: 'persons',
-    feature_flags: 'feature_flags',
-    insights: 'insights',
-    experiments: 'experiments',
-    plugins: 'plugins',
-    dashboards: 'dashboards',
-    name_groups: 'name_groups',
-    session_properties: 'session_properties',
-    hogql_expression: 'hogql_expression',
-    notebooks: 'notebooks',
-    log_entries: 'log_entries',
-    error_tracking_issues: 'error_tracking_issues',
-    log_attributes: 'log_attributes',
-    replay: 'replay',
-    revenue_analytics_properties: 'revenue_analytics_properties',
-    resources: 'resources',
-    error_tracking_properties: 'error_tracking_properties',
-    activity_log_properties: 'activity_log_properties',
-    max_ai_context: 'max_ai_context',
-} as const
 
-export type TrendsQueryResponseResultsItem = { [key: string]: unknown }
+export interface VizSpecificOptionsApi {
+    /** @nullable */
+    ActionsPie?: ActionsPieApi
+    /** @nullable */
+    RETENTION?: RetentionApi
+}
 
-export type TrendsFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
+export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
-export type TrendsFilterResultCustomizationsAnyOfTwo = { [key: string]: ResultCustomizationByPosition }
+export interface TrendsQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Wether more breakdown values are available.
+     * @nullable
+     */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: TrendsQueryResponseApiResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type TrendsFilterApiResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValueApi }
+
+export type TrendsFilterApiResultCustomizationsAnyOfTwo = { [key: string]: ResultCustomizationByPositionApi }
 
 /**
  * Customizations for the appearance of result datasets.
  * @nullable
  */
-export type TrendsFilterResultCustomizations =
-    | TrendsFilterResultCustomizationsAnyOf
-    | TrendsFilterResultCustomizationsAnyOfTwo
+export type TrendsFilterApiResultCustomizations =
+    | TrendsFilterApiResultCustomizationsAnyOf
+    | TrendsFilterApiResultCustomizationsAnyOfTwo
     | null
 
-export type FunnelsFilterExclusionsItem = FunnelExclusionEventsNode | FunnelExclusionActionsNode
+export interface TrendsFilterApi {
+    /** @nullable */
+    aggregationAxisFormat?: AggregationAxisFormatApi
+    /** @nullable */
+    aggregationAxisPostfix?: string | null
+    /** @nullable */
+    aggregationAxisPrefix?: string | null
+    /** @nullable */
+    breakdown_histogram_bin_count?: number | null
+    /** @nullable */
+    confidenceLevel?: number | null
+    /** @nullable */
+    decimalPlaces?: number | null
+    /**
+     * detailed results table
+     * @nullable
+     */
+    detailedResultsAggregationType?: DetailedResultsAggregationTypeApi
+    /** @nullable */
+    display?: ChartDisplayTypeApi
+    /** @nullable */
+    formula?: string | null
+    /**
+     * List of formulas with optional custom names. Takes precedence over formula/formulas if set.
+     * @nullable
+     */
+    formulaNodes?: TrendsFormulaNodeApi[] | null
+    /** @nullable */
+    formulas?: string[] | null
+    /**
+     * Goal Lines
+     * @nullable
+     */
+    goalLines?: GoalLineApi[] | null
+    /** @nullable */
+    hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    minDecimalPlaces?: number | null
+    /** @nullable */
+    movingAverageIntervals?: number | null
+    /**
+     * Wether result datasets are associated by their values or by their order.
+     * @nullable
+     */
+    resultCustomizationBy?: ResultCustomizationByApi
+    /**
+     * Customizations for the appearance of result datasets.
+     * @nullable
+     */
+    resultCustomizations?: TrendsFilterApiResultCustomizations
+    /** @nullable */
+    showAlertThresholdLines?: boolean | null
+    /** @nullable */
+    showConfidenceIntervals?: boolean | null
+    /** @nullable */
+    showLabelsOnSeries?: boolean | null
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showMovingAverage?: boolean | null
+    /** @nullable */
+    showMultipleYAxes?: boolean | null
+    /** @nullable */
+    showPercentStackView?: boolean | null
+    /** @nullable */
+    showTrendLines?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    smoothingIntervals?: number | null
+    /** @nullable */
+    yAxisScaleType?: YAxisScaleTypeApi
+}
+
+export type FunnelsFilterApiExclusionsItem = FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi
 
 /**
  * Customizations for the appearance of result datasets.
  * @nullable
  */
-export type FunnelsFilterResultCustomizations = { [key: string]: ResultCustomizationByValue } | null
+export type FunnelsFilterApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
-export type StickinessQueryResponseResultsItem = { [key: string]: unknown }
+export interface FunnelsFilterApi {
+    /** @nullable */
+    binCount?: number | null
+    /** @nullable */
+    breakdownAttributionType?: BreakdownAttributionTypeApi
+    /** @nullable */
+    breakdownAttributionValue?: number | null
+    /** @nullable */
+    exclusions?: FunnelsFilterApiExclusionsItem[] | null
+    /** @nullable */
+    funnelAggregateByHogQL?: string | null
+    /** @nullable */
+    funnelFromStep?: number | null
+    /** @nullable */
+    funnelOrderType?: StepOrderValueApi
+    /** @nullable */
+    funnelStepReference?: FunnelStepReferenceApi
+    /**
+     * To select the range of steps for trends & time to convert funnels, 0-indexed
+     * @nullable
+     */
+    funnelToStep?: number | null
+    /** @nullable */
+    funnelVizType?: FunnelVizTypeApi
+    /** @nullable */
+    funnelWindowInterval?: number | null
+    /** @nullable */
+    funnelWindowIntervalUnit?: FunnelConversionWindowTimeUnitApi
+    /**
+     * Goal Lines
+     * @nullable
+     */
+    goalLines?: GoalLineApi[] | null
+    /** @nullable */
+    hiddenLegendBreakdowns?: string[] | null
+    /** @nullable */
+    layout?: FunnelLayoutApi
+    /**
+     * Customizations for the appearance of result datasets.
+     * @nullable
+     */
+    resultCustomizations?: FunnelsFilterApiResultCustomizations
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    useUdf?: boolean | null
+}
 
-export type StickinessFilterResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValue }
+export interface FunnelsQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    isUdf?: boolean | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
 
-export type StickinessFilterResultCustomizationsAnyOfTwo = { [key: string]: ResultCustomizationByPosition }
+export interface RetentionQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: RetentionResultApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface RetentionFilterApi {
+    /** @nullable */
+    cumulative?: boolean | null
+    /** @nullable */
+    dashboardDisplay?: RetentionDashboardDisplayTypeApi
+    /**
+     * controls the display of the retention graph
+     * @nullable
+     */
+    display?: ChartDisplayTypeApi
+    /** @nullable */
+    meanRetentionCalculation?: MeanRetentionCalculationApi
+    /** @nullable */
+    minimumOccurrences?: number | null
+    /** @nullable */
+    period?: RetentionPeriodApi
+    /**
+     * Custom brackets for retention calculations
+     * @nullable
+     */
+    retentionCustomBrackets?: number[] | null
+    /**
+     * Whether retention is with regard to initial cohort size, or that of the previous period.
+     * @nullable
+     */
+    retentionReference?: RetentionReferenceApi
+    /** @nullable */
+    retentionType?: RetentionTypeApi
+    /** @nullable */
+    returningEntity?: RetentionEntityApi
+    /**
+     * The selected interval to display across all cohorts (null = show all intervals for each cohort)
+     * @nullable
+     */
+    selectedInterval?: number | null
+    /** @nullable */
+    showTrendLines?: boolean | null
+    /** @nullable */
+    targetEntity?: RetentionEntityApi
+    /**
+     * The time window mode to use for retention calculations
+     * @nullable
+     */
+    timeWindowMode?: TimeWindowModeApi
+    /** @nullable */
+    totalIntervals?: number | null
+}
+
+export interface FunnelPathsFilterApi {
+    /** @nullable */
+    funnelPathType?: FunnelPathTypeApi
+    funnelSource: FunnelsQueryApi
+    /** @nullable */
+    funnelStep?: number | null
+}
+
+export interface PathsFilterApi {
+    /** @nullable */
+    edgeLimit?: number | null
+    /** @nullable */
+    endPoint?: string | null
+    /** @nullable */
+    excludeEvents?: string[] | null
+    /** @nullable */
+    includeEventTypes?: PathTypeApi[] | null
+    /** @nullable */
+    localPathCleaningFilters?: PathCleaningFilterApi[] | null
+    /** @nullable */
+    maxEdgeWeight?: number | null
+    /** @nullable */
+    minEdgeWeight?: number | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathDropoffKey?: string | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathEndKey?: string | null
+    /** @nullable */
+    pathGroupings?: string[] | null
+    /** @nullable */
+    pathReplacements?: boolean | null
+    /**
+     * Relevant only within actors query
+     * @nullable
+     */
+    pathStartKey?: string | null
+    /** @nullable */
+    pathsHogQLExpression?: string | null
+    /** @nullable */
+    showFullUrls?: boolean | null
+    /** @nullable */
+    startPoint?: string | null
+    /** @nullable */
+    stepLimit?: number | null
+}
+
+export interface PathsQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: PathsLinkApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type StickinessQueryResponseApiResultsItem = { [key: string]: unknown }
+
+export interface StickinessQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: StickinessQueryResponseApiResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type StickinessFilterApiResultCustomizationsAnyOf = { [key: string]: ResultCustomizationByValueApi }
+
+export type StickinessFilterApiResultCustomizationsAnyOfTwo = { [key: string]: ResultCustomizationByPositionApi }
 
 /**
  * Customizations for the appearance of result datasets.
  * @nullable
  */
-export type StickinessFilterResultCustomizations =
-    | StickinessFilterResultCustomizationsAnyOf
-    | StickinessFilterResultCustomizationsAnyOfTwo
+export type StickinessFilterApiResultCustomizations =
+    | StickinessFilterApiResultCustomizationsAnyOf
+    | StickinessFilterApiResultCustomizationsAnyOfTwo
     | null
 
-export type LifecycleQueryResponseResultsItem = { [key: string]: unknown }
+export interface StickinessFilterApi {
+    /** @nullable */
+    computedAs?: StickinessComputationModeApi
+    /** @nullable */
+    display?: ChartDisplayTypeApi
+    /** @nullable */
+    hiddenLegendIndexes?: number[] | null
+    /**
+     * Whether result datasets are associated by their values or by their order.
+     * @nullable
+     */
+    resultCustomizationBy?: ResultCustomizationByApi
+    /**
+     * Customizations for the appearance of result datasets.
+     * @nullable
+     */
+    resultCustomizations?: StickinessFilterApiResultCustomizations
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showMultipleYAxes?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    stickinessCriteria?: StickinessCriteriaApi
+}
+
+export interface LifecycleFilterApi {
+    /** @nullable */
+    showLegend?: boolean | null
+    /** @nullable */
+    showValuesOnSeries?: boolean | null
+    /** @nullable */
+    stacked?: boolean | null
+    /** @nullable */
+    toggledLifecycles?: LifecycleToggleApi[] | null
+}
+
+export type LifecycleQueryResponseApiResultsItem = { [key: string]: unknown }
+
+export interface LifecycleQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LifecycleQueryResponseApiResultsItem[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelCorrelationResultsType = {
-    events: 'events',
-    properties: 'properties',
-    event_with_properties: 'event_with_properties',
-} as const
 
-export type DatabaseSchemaQueryResponseTables = {
+export interface FunnelCorrelationResponseApi {
+    /** @nullable */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: FunnelCorrelationResultApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /** @nullable */
+    types?: unknown[] | null
+}
+
+export type DatabaseSchemaQueryResponseApiTables = {
     [key: string]:
-        | DatabaseSchemaPostHogTable
-        | DatabaseSchemaSystemTable
-        | DatabaseSchemaDataWarehouseTable
-        | DatabaseSchemaViewTable
-        | DatabaseSchemaManagedViewTable
-        | DatabaseSchemaBatchExportTable
-        | DatabaseSchemaMaterializedViewTable
-        | DatabaseSchemaEndpointTable
+        | DatabaseSchemaPostHogTableApi
+        | DatabaseSchemaSystemTableApi
+        | DatabaseSchemaDataWarehouseTableApi
+        | DatabaseSchemaViewTableApi
+        | DatabaseSchemaManagedViewTableApi
+        | DatabaseSchemaBatchExportTableApi
+        | DatabaseSchemaMaterializedViewTableApi
+        | DatabaseSchemaEndpointTableApi
 }
 
-export type OrderBy3 = (typeof OrderBy3)[keyof typeof OrderBy3]
+export interface DatabaseSchemaQueryResponseApi {
+    joins: DataWarehouseViewLinkApi[]
+    tables: DatabaseSchemaQueryResponseApiTables
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrderBy3 = {
-    latest: 'latest',
-    earliest: 'earliest',
-} as const
+
+export interface LogsQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: unknown
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LogSeverityLevel = {
-    trace: 'trace',
-    debug: 'debug',
-    info: 'info',
-    warn: 'warn',
-    error: 'error',
-    fatal: 'fatal',
-} as const
 
-export type ActorsPropertyTaxonomyQueryResponseResults =
-    | ActorsPropertyTaxonomyResponse
-    | ActorsPropertyTaxonomyResponse[]
+export interface SuggestedQuestionsQueryResponseApi {
+    questions: string[]
+}
 
-export type BreakdownItemValue = string | number
+export interface TeamTaxonomyQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: TeamTaxonomyItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
 
-export interface CompareItem {
+export interface EventTaxonomyQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: EventTaxonomyItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export type ActorsPropertyTaxonomyQueryResponseApiResults =
+    | ActorsPropertyTaxonomyResponseApi
+    | ActorsPropertyTaxonomyResponseApi[]
+
+export interface ActorsPropertyTaxonomyQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: ActorsPropertyTaxonomyQueryResponseApiResults
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface TracesQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LLMTraceApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface TraceQueryResponseApi {
+    /** @nullable */
+    columns?: string[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: LLMTraceApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface VectorSearchQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: VectorSearchResponseItemApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface UsageMetricsQueryResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: UsageMetricApi[]
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
+
+export interface ResolvedDateRangeResponseApi {
+    date_from: string
+    date_to: string
+}
+
+export interface QueryTimingApi {
+    /** Key. Shortened to 'k' to save on data. */
+    k: string
+    /** Time in seconds. Shortened to 't' to save on data. */
+    t: number
+}
+
+export type BreakdownItemApiValue = string | number
+
+export interface BreakdownItemApi {
+    label: string
+    value: BreakdownItemApiValue
+}
+
+export interface MultipleBreakdownOptionsApi {
+    values: BreakdownItemApi[]
+}
+
+export interface CompareItemApi {
     label: string
     value: string
 }
 
-export type DayItemValue = string | string | number
+export type DayItemApiValue = string | string | number
 
-export interface DayItem {
+export interface DayItemApi {
     label: string
-    value: DayItemValue
+    value: DayItemApiValue
 }
 
-export interface IntervalItem {
+export interface IntervalItemApi {
     label: string
     /** An interval selected out of available intervals in source query */
     value: number
 }
 
-export interface Series {
+export interface SeriesApi {
     label: string
     value: number
 }
 
-export interface StatusItem {
+export interface StatusItemApi {
     label: string
     value: string
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const QueryIndexUsage = {
-    undecisive: 'undecisive',
-    no: 'no',
-    partial: 'partial',
-    yes: 'yes',
-} as const
+export interface TimelineEntryApi {
+    events: EventTypeApi[]
+    /**
+     * Duration of the recording in seconds.
+     * @nullable
+     */
+    recording_duration_s?: number | null
+    /**
+     * Session ID. None means out-of-session events
+     * @nullable
+     */
+    sessionId?: string | null
+}
 
-export interface Results {
-    total_count: number
-    values: BreakdownValue[]
+export interface HogQLNoticeApi {
+    /** @nullable */
+    end?: number | null
+    /** @nullable */
+    fix?: string | null
+    message: string
+    /** @nullable */
+    start?: number | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentSignificanceCode = {
-    significant: 'significant',
-    not_enough_exposure: 'not_enough_exposure',
-    low_win_probability: 'low_win_probability',
-    high_loss: 'high_loss',
-    high_p_value: 'high_p_value',
-} as const
 
-export type ExperimentBreakdownResultBreakdownValueItem = string | number | number
+export interface AutocompleteCompletionItemApi {
+    /**
+     * A human-readable string with additional information about this item, like type or symbol information.
+     * @nullable
+     */
+    detail?: string | null
+    /**
+     * A human-readable string that represents a doc-comment.
+     * @nullable
+     */
+    documentation?: string | null
+    /** A string or snippet that should be inserted in a document when selecting this completion. */
+    insertText: string
+    /** The kind of this completion item. Based on the kind an icon is chosen by the editor. */
+    kind: AutocompleteCompletionItemKindApi
+    /** The label of this completion item. By default this is also the text that is inserted when selecting this completion. */
+    label: string
+}
+
+export interface ErrorTrackingIssueApi {
+    /** @nullable */
+    aggregations?: ErrorTrackingIssueAggregationsApi
+    /** @nullable */
+    assignee?: ErrorTrackingIssueAssigneeApi
+    /** @nullable */
+    cohort?: ErrorTrackingIssueCohortApi
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    external_issues?: ErrorTrackingExternalReferenceApi[] | null
+    /** @nullable */
+    first_event?: FirstEventApi
+    first_seen: string
+    /** @nullable */
+    function?: string | null
+    id: string
+    /** @nullable */
+    last_event?: LastEventApi
+    last_seen: string
+    /** @nullable */
+    library?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    revenue?: number | null
+    /** @nullable */
+    source?: string | null
+    status: StatusApi
+}
+
+export interface SimilarIssueApi {
+    description: string
+    distance: number
+    first_seen: string
+    id: string
+    /** @nullable */
+    library?: string | null
+    name: string
+    status: string
+}
+
+export interface ResultsApi {
+    total_count: number
+    values: BreakdownValueApi[]
+}
+
+export interface ErrorTrackingCorrelatedIssueApi {
+    /** @nullable */
+    assignee?: ErrorTrackingIssueAssigneeApi
+    /** @nullable */
+    cohort?: ErrorTrackingIssueCohortApi
+    /** @nullable */
+    description?: string | null
+    event: string
+    /** @nullable */
+    external_issues?: ErrorTrackingExternalReferenceApi[] | null
+    first_seen: string
+    id: string
+    last_seen: string
+    /** @nullable */
+    library?: string | null
+    /** @nullable */
+    name?: string | null
+    odds_ratio: number
+    population: PopulationApi
+    status: StatusApi
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface ExperimentVariantFunnelsBaseStatsApi {
+    failure_count: number
+    key: string
+    success_count: number
+}
+
+export interface ExperimentVariantTrendsBaseStatsApi {
+    absolute_exposure: number
+    count: number
+    exposure: number
+    key: string
+}
+
+export interface ExperimentStatsBaseValidatedApi {
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionDataApi[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailureApi[] | null
+}
+
+export type ExperimentBreakdownResultApiBreakdownValueItem = string | number | number
 
 /**
  * Test variant results with statistical comparisons for this breakdown
  */
-export type ExperimentBreakdownResultVariants = ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
+export type ExperimentBreakdownResultApiVariants =
+    | ExperimentVariantResultFrequentistApi[]
+    | ExperimentVariantResultBayesianApi[]
 
-export type ExperimentVariantResultFrequentistMethod =
-    (typeof ExperimentVariantResultFrequentistMethod)[keyof typeof ExperimentVariantResultFrequentistMethod]
+export interface ExperimentBreakdownResultApi {
+    /** Control variant stats for this breakdown */
+    baseline: ExperimentStatsBaseValidatedApi
+    /** The breakdown values as an array (e.g., ["MacOS", "Chrome"] for multi-breakdown, ["Chrome"] for single) Although `BreakdownKeyType` could be an array, we only use the array form for the breakdown_value. The way `BreakdownKeyType` is defined is problematic. It should be treated as a primitive and allow for the types using it to define if it's and array or an optional value. */
+    breakdown_value: ExperimentBreakdownResultApiBreakdownValueItem[]
+    /** Test variant results with statistical comparisons for this breakdown */
+    variants: ExperimentBreakdownResultApiVariants
+}
+
+export type ExperimentVariantResultFrequentistApiMethod =
+    (typeof ExperimentVariantResultFrequentistApiMethod)[keyof typeof ExperimentVariantResultFrequentistApiMethod]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentVariantResultFrequentistMethod = {
+export const ExperimentVariantResultFrequentistApiMethod = {
     frequentist: 'frequentist',
 } as const
 
-export type ExperimentVariantResultBayesianMethod =
-    (typeof ExperimentVariantResultBayesianMethod)[keyof typeof ExperimentVariantResultBayesianMethod]
+export interface ExperimentVariantResultFrequentistApi {
+    /**
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     */
+    confidence_interval?: number[] | null
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    method?: ExperimentVariantResultFrequentistApiMethod
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    p_value?: number | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionDataApi[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailureApi[] | null
+}
+
+export type ExperimentVariantResultBayesianApiMethod =
+    (typeof ExperimentVariantResultBayesianApiMethod)[keyof typeof ExperimentVariantResultBayesianApiMethod]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentVariantResultBayesianMethod = {
+export const ExperimentVariantResultBayesianApiMethod = {
     bayesian: 'bayesian',
 } as const
 
+export interface ExperimentVariantResultBayesianApi {
+    /** @nullable */
+    chance_to_win?: number | null
+    /**
+     * @minItems 2
+     * @maxItems 2
+     * @nullable
+     */
+    credible_interval?: number[] | null
+    /** @nullable */
+    denominator_sum?: number | null
+    /** @nullable */
+    denominator_sum_squares?: number | null
+    key: string
+    method?: ExperimentVariantResultBayesianApiMethod
+    number_of_samples: number
+    /** @nullable */
+    numerator_denominator_sum_product?: number | null
+    /** @nullable */
+    significant?: boolean | null
+    /** @nullable */
+    step_counts?: number[] | null
+    /** @nullable */
+    step_sessions?: SessionDataApi[][] | null
+    sum: number
+    sum_squares: number
+    /** @nullable */
+    validation_failures?: ExperimentStatsValidationFailureApi[] | null
+}
+
+export interface ExperimentExposureTimeSeriesApi {
+    days: string[]
+    exposure_counts: number[]
+    variant: string
+}
+
+export interface EmbeddingDistanceApi {
+    distance: number
+    /** @nullable */
+    origin?: EmbeddingRecordApi
+    result: EmbeddingRecordApi
+}
+
+export interface WebOverviewItemApi {
+    /** @nullable */
+    changeFromPreviousPct?: number | null
+    /** @nullable */
+    isIncreaseBad?: boolean | null
+    key: string
+    kind: WebAnalyticsItemKindApi
+    /** @nullable */
+    previous?: number | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+    /** @nullable */
+    value?: number | null
+}
+
+export interface SamplingRateApi {
+    /** @nullable */
+    denominator?: number | null
+    numerator: number
+}
+
+export interface WebVitalsPathBreakdownResultApi {
+    good: WebVitalsPathBreakdownResultItemApi[]
+    needs_improvements: WebVitalsPathBreakdownResultItemApi[]
+    poor: WebVitalsPathBreakdownResultItemApi[]
+}
+
+export interface PageURLApi {
+    count: number
+    url: string
+}
+
+export interface ExternalQueryErrorApi {
+    code: ExternalQueryErrorCodeApi
+    detail: string
+}
+
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExternalQueryStatus = {
-    success: 'success',
-    error: 'error',
-} as const
+
+export interface RevenueAnalyticsMRRQueryResultItemApi {
+    churn: unknown
+    contraction: unknown
+    expansion: unknown
+    new: unknown
+    total: unknown
+}
+
+export interface RevenueAnalyticsOverviewItemApi {
+    key: RevenueAnalyticsOverviewItemKeyApi
+    value: number
+}
 
 /**
  * @nullable
  */
-export type MarketingAnalyticsItemPrevious = number | string | null
+export type MarketingAnalyticsItemApiPrevious = number | string | null
 
 /**
  * @nullable
  */
-export type MarketingAnalyticsItemValue = number | string | null
+export type MarketingAnalyticsItemApiValue = number | string | null
+
+export interface MarketingAnalyticsItemApi {
+    /** @nullable */
+    changeFromPreviousPct?: number | null
+    /** @nullable */
+    hasComparison?: boolean | null
+    /** @nullable */
+    isIncreaseBad?: boolean | null
+    key: string
+    kind: WebAnalyticsItemKindApi
+    /** @nullable */
+    previous?: MarketingAnalyticsItemApiPrevious
+    /** @nullable */
+    value?: MarketingAnalyticsItemApiValue
+}
 
 /**
  * @nullable
  */
-export type LLMTraceInputState = unknown | null
+export type LLMTraceApiInputState = unknown | null
 
 /**
  * @nullable
  */
-export type LLMTraceOutputState = unknown | null
+export type LLMTraceApiOutputState = unknown | null
+
+export interface LLMTraceApi {
+    /** @nullable */
+    aiSessionId?: string | null
+    createdAt: string
+    /** @nullable */
+    errorCount?: number | null
+    events: LLMTraceEventApi[]
+    id: string
+    /** @nullable */
+    inputCost?: number | null
+    /** @nullable */
+    inputState?: LLMTraceApiInputState
+    /** @nullable */
+    inputTokens?: number | null
+    /** @nullable */
+    outputCost?: number | null
+    /** @nullable */
+    outputState?: LLMTraceApiOutputState
+    /** @nullable */
+    outputTokens?: number | null
+    person: LLMTracePersonApi
+    /** @nullable */
+    totalCost?: number | null
+    /** @nullable */
+    totalLatency?: number | null
+    /** @nullable */
+    traceName?: string | null
+}
 
 /**
  * Optional breakdown value for retention cohorts
  * @nullable
  */
-export type RetentionResultBreakdownValue = string | number | null
+export type RetentionResultApiBreakdownValue = string | number | null
 
-export type DatabaseSchemaPostHogTableFields = { [key: string]: DatabaseSchemaField }
+export interface RetentionResultApi {
+    /**
+     * Optional breakdown value for retention cohorts
+     * @nullable
+     */
+    breakdown_value?: RetentionResultApiBreakdownValue
+    date: string
+    label: string
+    values: RetentionValueApi[]
+}
 
-export type DatabaseSchemaPostHogTableType =
-    (typeof DatabaseSchemaPostHogTableType)[keyof typeof DatabaseSchemaPostHogTableType]
+export interface PathsLinkApi {
+    average_conversion_time: number
+    source: string
+    target: string
+    value: number
+}
+
+export interface FunnelCorrelationResultApi {
+    events: EventOddsRatioSerializedApi[]
+    skewed: boolean
+}
+
+export interface DataWarehouseViewLinkApi {
+    /** @nullable */
+    configuration?: DataWarehouseViewLinkConfigurationApi
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    created_by?: UserBasicTypeApi
+    /** @nullable */
+    field_name?: string | null
+    id: string
+    /** @nullable */
+    joining_table_key?: string | null
+    /** @nullable */
+    joining_table_name?: string | null
+    /** @nullable */
+    source_table_key?: string | null
+    /** @nullable */
+    source_table_name?: string | null
+}
+
+export type DatabaseSchemaPostHogTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaPostHogTableApiType =
+    (typeof DatabaseSchemaPostHogTableApiType)[keyof typeof DatabaseSchemaPostHogTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaPostHogTableType = {
+export const DatabaseSchemaPostHogTableApiType = {
     posthog: 'posthog',
 } as const
 
-export type DatabaseSchemaSystemTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaPostHogTableApi {
+    fields: DatabaseSchemaPostHogTableApiFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaPostHogTableApiType
+}
 
-export type DatabaseSchemaSystemTableType =
-    (typeof DatabaseSchemaSystemTableType)[keyof typeof DatabaseSchemaSystemTableType]
+export type DatabaseSchemaSystemTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaSystemTableApiType =
+    (typeof DatabaseSchemaSystemTableApiType)[keyof typeof DatabaseSchemaSystemTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaSystemTableType = {
+export const DatabaseSchemaSystemTableApiType = {
     system: 'system',
 } as const
 
-export type DatabaseSchemaDataWarehouseTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaSystemTableApi {
+    fields: DatabaseSchemaSystemTableApiFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaSystemTableApiType
+}
 
-export type DatabaseSchemaDataWarehouseTableType =
-    (typeof DatabaseSchemaDataWarehouseTableType)[keyof typeof DatabaseSchemaDataWarehouseTableType]
+export type DatabaseSchemaDataWarehouseTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaDataWarehouseTableApiType =
+    (typeof DatabaseSchemaDataWarehouseTableApiType)[keyof typeof DatabaseSchemaDataWarehouseTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaDataWarehouseTableType = {
+export const DatabaseSchemaDataWarehouseTableApiType = {
     data_warehouse: 'data_warehouse',
 } as const
 
-export type DatabaseSchemaViewTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaDataWarehouseTableApi {
+    fields: DatabaseSchemaDataWarehouseTableApiFields
+    format: string
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    schema?: DatabaseSchemaSchemaApi
+    /** @nullable */
+    source?: DatabaseSchemaSourceApi
+    type?: DatabaseSchemaDataWarehouseTableApiType
+    url_pattern: string
+}
 
-export type DatabaseSchemaViewTableType = (typeof DatabaseSchemaViewTableType)[keyof typeof DatabaseSchemaViewTableType]
+export type DatabaseSchemaViewTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaViewTableApiType =
+    (typeof DatabaseSchemaViewTableApiType)[keyof typeof DatabaseSchemaViewTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaViewTableType = {
+export const DatabaseSchemaViewTableApiType = {
     view: 'view',
 } as const
 
-export type DatabaseSchemaManagedViewTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaViewTableApi {
+    fields: DatabaseSchemaViewTableApiFields
+    id: string
+    name: string
+    query: HogQLQueryApi
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaViewTableApiType
+}
 
-export type DatabaseSchemaManagedViewTableType =
-    (typeof DatabaseSchemaManagedViewTableType)[keyof typeof DatabaseSchemaManagedViewTableType]
+export type DatabaseSchemaManagedViewTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaManagedViewTableApiType =
+    (typeof DatabaseSchemaManagedViewTableApiType)[keyof typeof DatabaseSchemaManagedViewTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaManagedViewTableType = {
+export const DatabaseSchemaManagedViewTableApiType = {
     managed_view: 'managed_view',
 } as const
 
-export type DatabaseSchemaBatchExportTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaManagedViewTableApi {
+    fields: DatabaseSchemaManagedViewTableApiFields
+    id: string
+    kind: DatabaseSchemaManagedViewTableKindApi
+    name: string
+    query: HogQLQueryApi
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    source_id?: string | null
+    type?: DatabaseSchemaManagedViewTableApiType
+}
 
-export type DatabaseSchemaBatchExportTableType =
-    (typeof DatabaseSchemaBatchExportTableType)[keyof typeof DatabaseSchemaBatchExportTableType]
+export type DatabaseSchemaBatchExportTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaBatchExportTableApiType =
+    (typeof DatabaseSchemaBatchExportTableApiType)[keyof typeof DatabaseSchemaBatchExportTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaBatchExportTableType = {
+export const DatabaseSchemaBatchExportTableApiType = {
     batch_export: 'batch_export',
 } as const
 
-export type DatabaseSchemaMaterializedViewTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaBatchExportTableApi {
+    fields: DatabaseSchemaBatchExportTableApiFields
+    id: string
+    name: string
+    /** @nullable */
+    row_count?: number | null
+    type?: DatabaseSchemaBatchExportTableApiType
+}
 
-export type DatabaseSchemaMaterializedViewTableType =
-    (typeof DatabaseSchemaMaterializedViewTableType)[keyof typeof DatabaseSchemaMaterializedViewTableType]
+export type DatabaseSchemaMaterializedViewTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaMaterializedViewTableApiType =
+    (typeof DatabaseSchemaMaterializedViewTableApiType)[keyof typeof DatabaseSchemaMaterializedViewTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaMaterializedViewTableType = {
+export const DatabaseSchemaMaterializedViewTableApiType = {
     materialized_view: 'materialized_view',
 } as const
 
-export type DatabaseSchemaEndpointTableFields = { [key: string]: DatabaseSchemaField }
+export interface DatabaseSchemaMaterializedViewTableApi {
+    fields: DatabaseSchemaMaterializedViewTableApiFields
+    id: string
+    /** @nullable */
+    last_run_at?: string | null
+    name: string
+    query: HogQLQueryApi
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    status?: string | null
+    type?: DatabaseSchemaMaterializedViewTableApiType
+}
 
-export type DatabaseSchemaEndpointTableType =
-    (typeof DatabaseSchemaEndpointTableType)[keyof typeof DatabaseSchemaEndpointTableType]
+export type DatabaseSchemaEndpointTableApiFields = { [key: string]: DatabaseSchemaFieldApi }
+
+export type DatabaseSchemaEndpointTableApiType =
+    (typeof DatabaseSchemaEndpointTableApiType)[keyof typeof DatabaseSchemaEndpointTableApiType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaEndpointTableType = {
+export const DatabaseSchemaEndpointTableApiType = {
     endpoint: 'endpoint',
 } as const
 
-export type ActorsPropertyTaxonomyResponseSampleValuesItem = string | number | boolean | number
+export interface DatabaseSchemaEndpointTableApi {
+    fields: DatabaseSchemaEndpointTableApiFields
+    id: string
+    name: string
+    query: HogQLQueryApi
+    /** @nullable */
+    row_count?: number | null
+    /** @nullable */
+    status?: string | null
+    type?: DatabaseSchemaEndpointTableApiType
+}
+
+export interface TeamTaxonomyItemApi {
+    count: number
+    event: string
+}
+
+export interface EventTaxonomyItemApi {
+    property: string
+    sample_count: number
+    sample_values: string[]
+}
+
+export type ActorsPropertyTaxonomyResponseApiSampleValuesItem = string | number | boolean | number
+
+export interface ActorsPropertyTaxonomyResponseApi {
+    sample_count: number
+    sample_values: ActorsPropertyTaxonomyResponseApiSampleValuesItem[]
+}
+
+export interface VectorSearchResponseItemApi {
+    distance: number
+    id: string
+}
+
+export interface UsageMetricApi {
+    /** @nullable */
+    change_from_previous_pct?: number | null
+    display: UsageMetricDisplayApi
+    format: UsageMetricFormatApi
+    id: string
+    interval: number
+    name: string
+    previous: number
+    value: number
+}
+
+export interface ClickhouseQueryProgressApi {
+    active_cpu_time: number
+    bytes_read: number
+    estimated_rows_total: number
+    rows_read: number
+    time_elapsed: number
+}
 
 /**
  * * `Supabase` - Supabase
@@ -10459,540 +17572,487 @@ export type ActorsPropertyTaxonomyResponseSampleValuesItem = string | number | b
  * * `events` - events
  * `person-updates` - person-updates
  */
-export type HogFunctionFiltersSourceEnum =
-    (typeof HogFunctionFiltersSourceEnum)[keyof typeof HogFunctionFiltersSourceEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BreakdownType = {
-    cohort: 'cohort',
-    person: 'person',
-    event: 'event',
-    event_metadata: 'event_metadata',
-    group: 'group',
-    session: 'session',
-    hogql: 'hogql',
-    data_warehouse: 'data_warehouse',
-    data_warehouse_person_property: 'data_warehouse_person_property',
-    revenue_analytics: 'revenue_analytics',
-} as const
-
-export type BreakdownProperty = string | number
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyOperator = {
-    exact: 'exact',
-    is_not: 'is_not',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
-    gt: 'gt',
-    gte: 'gte',
-    lt: 'lt',
-    lte: 'lte',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    is_date_exact: 'is_date_exact',
-    is_date_before: 'is_date_before',
-    is_date_after: 'is_date_after',
-    between: 'between',
-    not_between: 'not_between',
-    min: 'min',
-    max: 'max',
-    in: 'in',
-    not_in: 'not_in',
-    is_cleaned_path_exact: 'is_cleaned_path_exact',
-    flag_evaluates_to: 'flag_evaluates_to',
-} as const
 
-export type Key = (typeof Key)[keyof typeof Key]
+export type BreakdownApiProperty = string | number
+
+export interface BreakdownApi {
+    /** @nullable */
+    group_type_index?: number | null
+    /** @nullable */
+    histogram_bin_count?: number | null
+    /** @nullable */
+    normalize_url?: boolean | null
+    property: BreakdownApiProperty
+    /** @nullable */
+    type?: MultipleBreakdownTypeApi
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Key = {
-    tag_name: 'tag_name',
-    text: 'text',
-    href: 'href',
-    selector: 'selector',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DurationType = {
-    duration: 'duration',
-    active_seconds: 'active_seconds',
-    inactive_seconds: 'inactive_seconds',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CurrencyCode = {
-    AED: 'AED',
-    AFN: 'AFN',
-    ALL: 'ALL',
-    AMD: 'AMD',
-    ANG: 'ANG',
-    AOA: 'AOA',
-    ARS: 'ARS',
-    AUD: 'AUD',
-    AWG: 'AWG',
-    AZN: 'AZN',
-    BAM: 'BAM',
-    BBD: 'BBD',
-    BDT: 'BDT',
-    BGN: 'BGN',
-    BHD: 'BHD',
-    BIF: 'BIF',
-    BMD: 'BMD',
-    BND: 'BND',
-    BOB: 'BOB',
-    BRL: 'BRL',
-    BSD: 'BSD',
-    BTC: 'BTC',
-    BTN: 'BTN',
-    BWP: 'BWP',
-    BYN: 'BYN',
-    BZD: 'BZD',
-    CAD: 'CAD',
-    CDF: 'CDF',
-    CHF: 'CHF',
-    CLP: 'CLP',
-    CNY: 'CNY',
-    COP: 'COP',
-    CRC: 'CRC',
-    CVE: 'CVE',
-    CZK: 'CZK',
-    DJF: 'DJF',
-    DKK: 'DKK',
-    DOP: 'DOP',
-    DZD: 'DZD',
-    EGP: 'EGP',
-    ERN: 'ERN',
-    ETB: 'ETB',
-    EUR: 'EUR',
-    FJD: 'FJD',
-    GBP: 'GBP',
-    GEL: 'GEL',
-    GHS: 'GHS',
-    GIP: 'GIP',
-    GMD: 'GMD',
-    GNF: 'GNF',
-    GTQ: 'GTQ',
-    GYD: 'GYD',
-    HKD: 'HKD',
-    HNL: 'HNL',
-    HRK: 'HRK',
-    HTG: 'HTG',
-    HUF: 'HUF',
-    IDR: 'IDR',
-    ILS: 'ILS',
-    INR: 'INR',
-    IQD: 'IQD',
-    IRR: 'IRR',
-    ISK: 'ISK',
-    JMD: 'JMD',
-    JOD: 'JOD',
-    JPY: 'JPY',
-    KES: 'KES',
-    KGS: 'KGS',
-    KHR: 'KHR',
-    KMF: 'KMF',
-    KRW: 'KRW',
-    KWD: 'KWD',
-    KYD: 'KYD',
-    KZT: 'KZT',
-    LAK: 'LAK',
-    LBP: 'LBP',
-    LKR: 'LKR',
-    LRD: 'LRD',
-    LTL: 'LTL',
-    LVL: 'LVL',
-    LSL: 'LSL',
-    LYD: 'LYD',
-    MAD: 'MAD',
-    MDL: 'MDL',
-    MGA: 'MGA',
-    MKD: 'MKD',
-    MMK: 'MMK',
-    MNT: 'MNT',
-    MOP: 'MOP',
-    MRU: 'MRU',
-    MTL: 'MTL',
-    MUR: 'MUR',
-    MVR: 'MVR',
-    MWK: 'MWK',
-    MXN: 'MXN',
-    MYR: 'MYR',
-    MZN: 'MZN',
-    NAD: 'NAD',
-    NGN: 'NGN',
-    NIO: 'NIO',
-    NOK: 'NOK',
-    NPR: 'NPR',
-    NZD: 'NZD',
-    OMR: 'OMR',
-    PAB: 'PAB',
-    PEN: 'PEN',
-    PGK: 'PGK',
-    PHP: 'PHP',
-    PKR: 'PKR',
-    PLN: 'PLN',
-    PYG: 'PYG',
-    QAR: 'QAR',
-    RON: 'RON',
-    RSD: 'RSD',
-    RUB: 'RUB',
-    RWF: 'RWF',
-    SAR: 'SAR',
-    SBD: 'SBD',
-    SCR: 'SCR',
-    SDG: 'SDG',
-    SEK: 'SEK',
-    SGD: 'SGD',
-    SRD: 'SRD',
-    SSP: 'SSP',
-    STN: 'STN',
-    SYP: 'SYP',
-    SZL: 'SZL',
-    THB: 'THB',
-    TJS: 'TJS',
-    TMT: 'TMT',
-    TND: 'TND',
-    TOP: 'TOP',
-    TRY: 'TRY',
-    TTD: 'TTD',
-    TWD: 'TWD',
-    TZS: 'TZS',
-    UAH: 'UAH',
-    UGX: 'UGX',
-    USD: 'USD',
-    UYU: 'UYU',
-    UZS: 'UZS',
-    VES: 'VES',
-    VND: 'VND',
-    VUV: 'VUV',
-    WST: 'WST',
-    XAF: 'XAF',
-    XCD: 'XCD',
-    XOF: 'XOF',
-    XPF: 'XPF',
-    YER: 'YER',
-    ZAR: 'ZAR',
-    ZMW: 'ZMW',
-} as const
-
-export type BounceRatePageViewMode = (typeof BounceRatePageViewMode)[keyof typeof BounceRatePageViewMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BounceRatePageViewMode = {
-    count_pageviews: 'count_pageviews',
-    uniq_urls: 'uniq_urls',
-    uniq_page_screen_autocaptures: 'uniq_page_screen_autocaptures',
-} as const
-
-export type InCohortVia = (typeof InCohortVia)[keyof typeof InCohortVia]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const InCohortVia = {
-    auto: 'auto',
-    leftjoin: 'leftjoin',
-    subquery: 'subquery',
-    leftjoin_conjoined: 'leftjoin_conjoined',
-} as const
 
-export type MaterializationMode = (typeof MaterializationMode)[keyof typeof MaterializationMode]
+export interface CustomChannelRuleApi {
+    channel_type: string
+    combiner: FilterLogicalOperatorApi
+    id: string
+    items: CustomChannelConditionApi[]
+}
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MaterializationMode = {
-    auto: 'auto',
-    legacy_null_as_string: 'legacy_null_as_string',
-    legacy_null_as_null: 'legacy_null_as_null',
-    disabled: 'disabled',
-} as const
-
-export type PersonsArgMaxVersion = (typeof PersonsArgMaxVersion)[keyof typeof PersonsArgMaxVersion]
+export interface DataWarehouseEventsModifierApi {
+    distinct_id_field: string
+    id_field: string
+    table_name: string
+    timestamp_field: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsArgMaxVersion = {
-    auto: 'auto',
-    v1: 'v1',
-    v2: 'v2',
-} as const
-
-export type PersonsJoinMode = (typeof PersonsJoinMode)[keyof typeof PersonsJoinMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsJoinMode = {
-    inner: 'inner',
-    left: 'left',
-} as const
-
-export type PersonsOnEventsMode = (typeof PersonsOnEventsMode)[keyof typeof PersonsOnEventsMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PersonsOnEventsMode = {
-    disabled: 'disabled',
-    person_id_no_override_properties_on_events: 'person_id_no_override_properties_on_events',
-    person_id_override_properties_on_events: 'person_id_override_properties_on_events',
-    person_id_override_properties_joined: 'person_id_override_properties_joined',
-} as const
-
-export type PropertyGroupsMode = (typeof PropertyGroupsMode)[keyof typeof PropertyGroupsMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyGroupsMode = {
-    enabled: 'enabled',
-    disabled: 'disabled',
-    optimized: 'optimized',
-} as const
-
-export type SessionTableVersion = (typeof SessionTableVersion)[keyof typeof SessionTableVersion]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionTableVersion = {
-    auto: 'auto',
-    v1: 'v1',
-    v2: 'v2',
-    v3: 'v3',
-} as const
-
-export type SessionsV2JoinMode = (typeof SessionsV2JoinMode)[keyof typeof SessionsV2JoinMode]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionsV2JoinMode = {
-    string: 'string',
-    uuid: 'uuid',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FilterLogicalOperator = {
-    AND: 'AND',
-    OR: 'OR',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StickinessOperator = {
-    gte: 'gte',
-    lte: 'lte',
-    exact: 'exact',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebTrendsMetric = {
-    UniqueUsers: 'UniqueUsers',
-    PageViews: 'PageViews',
-    Sessions: 'Sessions',
-    Bounces: 'Bounces',
-    SessionDuration: 'SessionDuration',
-    TotalSessions: 'TotalSessions',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RecordingOrder = {
-    duration: 'duration',
-    recording_duration: 'recording_duration',
-    inactive_seconds: 'inactive_seconds',
-    active_seconds: 'active_seconds',
-    start_time: 'start_time',
-    console_error_count: 'console_error_count',
-    click_count: 'click_count',
-    keypress_count: 'keypress_count',
-    mouse_activity_count: 'mouse_activity_count',
-    activity_score: 'activity_score',
-    recording_ttl: 'recording_ttl',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RecordingOrderDirection = {
-    ASC: 'ASC',
-    DESC: 'DESC',
-} as const
+
+export interface WebTrendsQueryResponseApi {
+    /**
+     * Executed ClickHouse query
+     * @nullable
+     */
+    clickhouse?: string | null
+    /**
+     * Returned columns
+     * @nullable
+     */
+    columns?: unknown[] | null
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Query explanation output
+     * @nullable
+     */
+    explain?: string[] | null
+    /** @nullable */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /** @nullable */
+    limit?: number | null
+    /**
+     * Query metadata output
+     * @nullable
+     */
+    metadata?: HogQLMetadataResponseApi
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /** @nullable */
+    offset?: number | null
+    /**
+     * Input query string
+     * @nullable
+     */
+    query?: string | null
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: WebTrendsItemApi[]
+    /** @nullable */
+    samplingRate?: SamplingRateApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+    /**
+     * Types of returned columns
+     * @nullable
+     */
+    types?: unknown[] | null
+    /** @nullable */
+    usedPreAggregatedTables?: boolean | null
+}
+
+export interface CalendarHeatmapFilterApi {
+    /** @nullable */
+    dummy?: string | null
+}
+
+export interface CalendarHeatmapResponseApi {
+    /**
+     * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Wether more breakdown values are available.
+     * @nullable
+     */
+    hasMore?: boolean | null
+    /**
+     * Generated HogQL query.
+     * @nullable
+     */
+    hogql?: string | null
+    /**
+     * Modifiers used when performing the query
+     * @nullable
+     */
+    modifiers?: HogQLQueryModifiersApi
+    /**
+     * Query status indicates whether next to the provided data, a query is still running.
+     * @nullable
+     */
+    query_status?: QueryStatusApi
+    /**
+     * The date range used for the query
+     * @nullable
+     */
+    resolved_date_range?: ResolvedDateRangeResponseApi
+    results: EventsHeatMapStructuredResultApi
+    /**
+     * Measured timings for different parts of the query generation process
+     * @nullable
+     */
+    timings?: QueryTimingApi[] | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ErrorTrackingIssueAssigneeType = {
-    user: 'user',
-    role: 'role',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelConversionWindowTimeUnit = {
-    second: 'second',
-    minute: 'minute',
-    hour: 'hour',
-    day: 'day',
-    week: 'week',
-    month: 'month',
-} as const
+
+export interface RecordingsQueryResponseApi {
+    has_next: boolean
+    /**
+     * Cursor for the next page. Contains the ordering value and session_id from the last record.
+     * @nullable
+     */
+    next_cursor?: string | null
+    results: SessionRecordingTypeApi[]
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentMetricGoal = {
-    increase: 'increase',
-    decrease: 'decrease',
-} as const
-
-export type ExperimentDataWarehouseNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
-
-export type ExperimentDataWarehouseNodeKind =
-    (typeof ExperimentDataWarehouseNodeKind)[keyof typeof ExperimentDataWarehouseNodeKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentDataWarehouseNodeKind = {
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export type ExperimentDataWarehouseNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type ExperimentDataWarehouseNodeApiKind =
+    (typeof ExperimentDataWarehouseNodeApiKind)[keyof typeof ExperimentDataWarehouseNodeApiKind]
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const ExperimentDataWarehouseNodeApiKind = {
     ExperimentDataWarehouseNode: 'ExperimentDataWarehouseNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentDataWarehouseNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const ExperimentDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type ExperimentDataWarehouseNodeMath =
-    | (typeof ExperimentDataWarehouseNodeMath)[keyof typeof ExperimentDataWarehouseNodeMath]
+export type ExperimentDataWarehouseNodeApiMath =
+    | (typeof ExperimentDataWarehouseNodeApiMath)[keyof typeof ExperimentDataWarehouseNodeApiMath]
     | null
 
-export type ExperimentDataWarehouseNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type ExperimentDataWarehouseNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type ExperimentDataWarehouseNodeResponse = { [key: string]: unknown } | null
+export type ExperimentDataWarehouseNodeApiResponse = { [key: string]: unknown } | null
+
+export interface ExperimentDataWarehouseNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    data_warehouse_join_key: string
+    events_join_key: string
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: ExperimentDataWarehouseNodeApiFixedPropertiesItem[] | null
+    kind?: ExperimentDataWarehouseNodeApiKind
+    /** @nullable */
+    math?: ExperimentDataWarehouseNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: ExperimentDataWarehouseNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: ExperimentDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StepOrderValue = {
-    strict: 'strict',
-    unordered: 'unordered',
-    ordered: 'ordered',
-} as const
-
-export type StartHandling = (typeof StartHandling)[keyof typeof StartHandling]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StartHandling = {
-    first_seen: 'first_seen',
-    last_seen: 'last_seen',
-} as const
 
-export type ExperimentEventExposureConfigKind =
-    (typeof ExperimentEventExposureConfigKind)[keyof typeof ExperimentEventExposureConfigKind]
+export type ExperimentEventExposureConfigApiKind =
+    (typeof ExperimentEventExposureConfigApiKind)[keyof typeof ExperimentEventExposureConfigApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentEventExposureConfigKind = {
+export const ExperimentEventExposureConfigApiKind = {
     ExperimentEventExposureConfig: 'ExperimentEventExposureConfig',
 } as const
 
-export type ExperimentEventExposureConfigPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type ExperimentEventExposureConfigApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type ExperimentEventExposureConfigResponse = { [key: string]: unknown } | null
+export type ExperimentEventExposureConfigApiResponse = { [key: string]: unknown } | null
 
-export type MultipleVariantHandling = (typeof MultipleVariantHandling)[keyof typeof MultipleVariantHandling]
+export interface ExperimentEventExposureConfigApi {
+    event: string
+    kind?: ExperimentEventExposureConfigApiKind
+    properties: ExperimentEventExposureConfigApiPropertiesItem[]
+    /** @nullable */
+    response?: ExperimentEventExposureConfigApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MultipleVariantHandling = {
-    exclude: 'exclude',
-    first_seen: 'first_seen',
-} as const
 
 /**
  * @nullable
  */
-export type UserBasicTypeIsEmailVerified = unknown | null
+export type UserBasicTypeApiIsEmailVerified = unknown | null
 
-export type FeatureFlagGroupTypePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface UserBasicTypeApi {
+    distinct_id: string
+    email: string
+    first_name: string
+    /** @nullable */
+    hedgehog_config?: MinimalHedgehogConfigApi
+    id: number
+    /** @nullable */
+    is_email_verified?: UserBasicTypeApiIsEmailVerified
+    /** @nullable */
+    last_name?: string | null
+    /** @nullable */
+    role_at_organization?: string | null
+    uuid: string
+}
+
+export type FeatureFlagGroupTypeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export interface FeatureFlagGroupTypeApi {
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    properties?: FeatureFlagGroupTypeApiPropertiesItem[] | null
+    /** @nullable */
+    rollout_percentage?: number | null
+    /** @nullable */
+    sort_key?: string | null
+    /** @nullable */
+    users_affected?: number | null
+    /** @nullable */
+    variant?: string | null
+}
+
+export interface GoalLineApi {
+    /** @nullable */
+    borderColor?: string | null
+    /** @nullable */
+    displayIfCrossed?: boolean | null
+    /** @nullable */
+    displayLabel?: boolean | null
+    label: string
+    /** @nullable */
+    position?: PositionApi
+    value: number
+}
+
+export interface YAxisSettingsApi {
+    /** @nullable */
+    scale?: ScaleApi
+    /** @nullable */
+    showGridLines?: boolean | null
+    /** @nullable */
+    showTicks?: boolean | null
+    /**
+     * Whether the Y axis should start at zero
+     * @nullable
+     */
+    startAtZero?: boolean | null
+}
+
+export interface ChartAxisApi {
+    column: string
+    /** @nullable */
+    settings?: SettingsApi
+}
+
+export interface ConditionalFormattingRuleApi {
+    bytecode: unknown[]
+    color: string
+    /** @nullable */
+    colorMode?: ColorModeApi
+    columnName: string
+    id: string
+    input: string
+    templateId: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataTableNodeViewPropsContextType = {
-    event_definition: 'event_definition',
-    team_columns: 'team_columns',
-} as const
 
-export interface ActionsPie {
+export interface ActionsPieApi {
     /** @nullable */
     disableHoverOffset?: boolean | null
     /** @nullable */
     hideAggregation?: boolean | null
 }
 
-export interface Retention {
+export interface RetentionApi {
     /** @nullable */
     hideLineGraph?: boolean | null
     /** @nullable */
@@ -11001,544 +18061,713 @@ export interface Retention {
     useSmallLayout?: boolean | null
 }
 
-export type AggregationAxisFormat = (typeof AggregationAxisFormat)[keyof typeof AggregationAxisFormat]
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AggregationAxisFormat = {
-    numeric: 'numeric',
-    duration: 'duration',
-    duration_ms: 'duration_ms',
-    percentage: 'percentage',
-    percentage_scaled: 'percentage_scaled',
-    currency: 'currency',
-} as const
 
-export type DetailedResultsAggregationType =
-    (typeof DetailedResultsAggregationType)[keyof typeof DetailedResultsAggregationType]
+export interface TrendsFormulaNodeApi {
+    /**
+     * Optional user-defined name for the formula
+     * @nullable
+     */
+    custom_name?: string | null
+    formula: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DetailedResultsAggregationType = {
-    total: 'total',
-    average: 'average',
-    median: 'median',
-} as const
+
+export type ResultCustomizationByValueApiAssignmentBy =
+    (typeof ResultCustomizationByValueApiAssignmentBy)[keyof typeof ResultCustomizationByValueApiAssignmentBy]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ResultCustomizationBy = {
-    value: 'value',
-    position: 'position',
-} as const
-
-export type ResultCustomizationByValueAssignmentBy =
-    (typeof ResultCustomizationByValueAssignmentBy)[keyof typeof ResultCustomizationByValueAssignmentBy]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ResultCustomizationByValueAssignmentBy = {
+export const ResultCustomizationByValueApiAssignmentBy = {
     value: 'value',
 } as const
 
-export type ResultCustomizationByPositionAssignmentBy =
-    (typeof ResultCustomizationByPositionAssignmentBy)[keyof typeof ResultCustomizationByPositionAssignmentBy]
+export interface ResultCustomizationByValueApi {
+    assignmentBy?: ResultCustomizationByValueApiAssignmentBy
+    /** @nullable */
+    color?: DataColorTokenApi
+    /** @nullable */
+    hidden?: boolean | null
+}
+
+export type ResultCustomizationByPositionApiAssignmentBy =
+    (typeof ResultCustomizationByPositionApiAssignmentBy)[keyof typeof ResultCustomizationByPositionApiAssignmentBy]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ResultCustomizationByPositionAssignmentBy = {
+export const ResultCustomizationByPositionApiAssignmentBy = {
     position: 'position',
 } as const
 
-export type YAxisScaleType = (typeof YAxisScaleType)[keyof typeof YAxisScaleType]
+export interface ResultCustomizationByPositionApi {
+    assignmentBy?: ResultCustomizationByPositionApiAssignmentBy
+    /** @nullable */
+    color?: DataColorTokenApi
+    /** @nullable */
+    hidden?: boolean | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const YAxisScaleType = {
-    log10: 'log10',
-    linear: 'linear',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BreakdownAttributionType = {
-    first_touch: 'first_touch',
-    last_touch: 'last_touch',
-    all_events: 'all_events',
-    step: 'step',
-} as const
 
-export type FunnelExclusionEventsNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type FunnelExclusionEventsNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type FunnelExclusionEventsNodeKind =
-    (typeof FunnelExclusionEventsNodeKind)[keyof typeof FunnelExclusionEventsNodeKind]
+export type FunnelExclusionEventsNodeApiKind =
+    (typeof FunnelExclusionEventsNodeApiKind)[keyof typeof FunnelExclusionEventsNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelExclusionEventsNodeKind = {
+export const FunnelExclusionEventsNodeApiKind = {
     EventsNode: 'EventsNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelExclusionEventsNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const FunnelExclusionEventsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type FunnelExclusionEventsNodeMath =
-    | (typeof FunnelExclusionEventsNodeMath)[keyof typeof FunnelExclusionEventsNodeMath]
+export type FunnelExclusionEventsNodeApiMath =
+    | (typeof FunnelExclusionEventsNodeApiMath)[keyof typeof FunnelExclusionEventsNodeApiMath]
     | null
 
-export type FunnelExclusionEventsNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type FunnelExclusionEventsNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type FunnelExclusionEventsNodeResponse = { [key: string]: unknown } | null
+export type FunnelExclusionEventsNodeApiResponse = { [key: string]: unknown } | null
 
-export type FunnelExclusionActionsNodeFixedPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export interface FunnelExclusionEventsNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * The event or `null` for all events.
+     * @nullable
+     */
+    event?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: FunnelExclusionEventsNodeApiFixedPropertiesItem[] | null
+    funnelFromStep: number
+    funnelToStep: number
+    kind?: FunnelExclusionEventsNodeApiKind
+    /** @nullable */
+    limit?: number | null
+    /** @nullable */
+    math?: FunnelExclusionEventsNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: FunnelExclusionEventsNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: FunnelExclusionEventsNodeApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
-export type FunnelExclusionActionsNodeKind =
-    (typeof FunnelExclusionActionsNodeKind)[keyof typeof FunnelExclusionActionsNodeKind]
+export type FunnelExclusionActionsNodeApiFixedPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
+
+export type FunnelExclusionActionsNodeApiKind =
+    (typeof FunnelExclusionActionsNodeApiKind)[keyof typeof FunnelExclusionActionsNodeApiKind]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelExclusionActionsNodeKind = {
+export const FunnelExclusionActionsNodeApiKind = {
     ActionsNode: 'ActionsNode',
 } as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelExclusionActionsNodeMath = {
-    ...BaseMathType,
-    ...FunnelMathType,
-    ...PropertyMathType,
-    ...CountPerActorMathType,
-    ...ExperimentMetricMathType,
-    ...CalendarHeatmapMathType,
+export const FunnelExclusionActionsNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
     unique_group: 'unique_group',
     hogql: 'hogql',
 } as const
 /**
  * @nullable
  */
-export type FunnelExclusionActionsNodeMath =
-    | (typeof FunnelExclusionActionsNodeMath)[keyof typeof FunnelExclusionActionsNodeMath]
+export type FunnelExclusionActionsNodeApiMath =
+    | (typeof FunnelExclusionActionsNodeApiMath)[keyof typeof FunnelExclusionActionsNodeApiMath]
     | null
 
-export type FunnelExclusionActionsNodePropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type FunnelExclusionActionsNodeApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
 /**
  * @nullable
  */
-export type FunnelExclusionActionsNodeResponse = { [key: string]: unknown } | null
+export type FunnelExclusionActionsNodeApiResponse = { [key: string]: unknown } | null
+
+export interface FunnelExclusionActionsNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?: FunnelExclusionActionsNodeApiFixedPropertiesItem[] | null
+    funnelFromStep: number
+    funnelToStep: number
+    id: number
+    kind?: FunnelExclusionActionsNodeApiKind
+    /** @nullable */
+    math?: FunnelExclusionActionsNodeApiMath
+    /** @nullable */
+    math_group_type_index?: MathGroupTypeIndexApi
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    /** @nullable */
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?: FunnelExclusionActionsNodeApiPropertiesItem[] | null
+    /** @nullable */
+    response?: FunnelExclusionActionsNodeApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelStepReference = {
-    total: 'total',
-    previous: 'previous',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelVizType = {
-    steps: 'steps',
-    time_to_convert: 'time_to_convert',
-    trends: 'trends',
-} as const
-
-export type FunnelLayout = (typeof FunnelLayout)[keyof typeof FunnelLayout]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelLayout = {
-    horizontal: 'horizontal',
-    vertical: 'vertical',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionDashboardDisplayType = {
-    table_only: 'table_only',
-    graph_only: 'graph_only',
-    all: 'all',
-} as const
-
-export type MeanRetentionCalculation = (typeof MeanRetentionCalculation)[keyof typeof MeanRetentionCalculation]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MeanRetentionCalculation = {
-    simple: 'simple',
-    weighted: 'weighted',
-    none: 'none',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionPeriod = {
-    Hour: 'Hour',
-    Day: 'Day',
-    Week: 'Week',
-    Month: 'Month',
-} as const
-
-export type RetentionReference = (typeof RetentionReference)[keyof typeof RetentionReference]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionReference = {
-    total: 'total',
-    previous: 'previous',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionType = {
-    retention_recurring: 'retention_recurring',
-    retention_first_time: 'retention_first_time',
-    retention_first_ever_occurrence: 'retention_first_ever_occurrence',
-} as const
 
 /**
  * @nullable
  */
-export type RetentionEntityId = string | number | null
+export type RetentionEntityApiId = string | number | null
 
-export type RetentionEntityPropertiesItem =
-    | EventPropertyFilter
-    | PersonPropertyFilter
-    | ElementPropertyFilter
-    | EventMetadataPropertyFilter
-    | SessionPropertyFilter
-    | CohortPropertyFilter
-    | RecordingPropertyFilter
-    | LogEntryPropertyFilter
-    | GroupPropertyFilter
-    | FeaturePropertyFilter
-    | FlagPropertyFilter
-    | HogQLPropertyFilter
-    | EmptyPropertyFilter
-    | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter
-    | ErrorTrackingIssueFilter
-    | LogPropertyFilter
-    | RevenueAnalyticsPropertyFilter
+export type RetentionEntityApiPropertiesItem =
+    | EventPropertyFilterApi
+    | PersonPropertyFilterApi
+    | ElementPropertyFilterApi
+    | EventMetadataPropertyFilterApi
+    | SessionPropertyFilterApi
+    | CohortPropertyFilterApi
+    | RecordingPropertyFilterApi
+    | LogEntryPropertyFilterApi
+    | GroupPropertyFilterApi
+    | FeaturePropertyFilterApi
+    | FlagPropertyFilterApi
+    | HogQLPropertyFilterApi
+    | EmptyPropertyFilterApi
+    | DataWarehousePropertyFilterApi
+    | DataWarehousePersonPropertyFilterApi
+    | ErrorTrackingIssueFilterApi
+    | LogPropertyFilterApi
+    | RevenueAnalyticsPropertyFilterApi
 
-export type TimeWindowMode = (typeof TimeWindowMode)[keyof typeof TimeWindowMode]
+export interface RetentionEntityApi {
+    /** @nullable */
+    custom_name?: string | null
+    /** @nullable */
+    id?: RetentionEntityApiId
+    /** @nullable */
+    kind?: RetentionEntityKindApi
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    order?: number | null
+    /**
+     * filters on the event
+     * @nullable
+     */
+    properties?: RetentionEntityApiPropertiesItem[] | null
+    /** @nullable */
+    type?: EntityTypeApi
+    /** @nullable */
+    uuid?: string | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const TimeWindowMode = {
-    strict_calendar_dates: 'strict_calendar_dates',
-    '24_hour_windows': '24_hour_windows',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FunnelPathType = {
-    funnel_path_before_step: 'funnel_path_before_step',
-    funnel_path_between_steps: 'funnel_path_between_steps',
-    funnel_path_after_step: 'funnel_path_after_step',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PathType = {
-    $pageview: '$pageview',
-    $screen: '$screen',
-    custom_event: 'custom_event',
-    hogql: 'hogql',
-} as const
+
+export interface PathCleaningFilterApi {
+    /** @nullable */
+    alias?: string | null
+    /** @nullable */
+    order?: number | null
+    /** @nullable */
+    regex?: string | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const StickinessComputationMode = {
-    non_cumulative: 'non_cumulative',
-    cumulative: 'cumulative',
-} as const
 
-export interface StickinessCriteria {
-    operator: StickinessOperator
+export interface StickinessCriteriaApi {
+    operator: StickinessOperatorApi
     value: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const LifecycleToggle = {
-    new: 'new',
-    resurrecting: 'resurrecting',
-    returning: 'returning',
-    dormant: 'dormant',
-} as const
 
-export type EventTypeProperties = { [key: string]: unknown }
+export type EventTypeApiProperties = { [key: string]: unknown }
+
+export interface EventTypeApi {
+    distinct_id: string
+    elements: ElementTypeApi[]
+    /** @nullable */
+    elements_chain?: string | null
+    event: string
+    id: string
+    /** @nullable */
+    person?: PersonApi
+    /** @nullable */
+    person_id?: string | null
+    /** @nullable */
+    person_mode?: string | null
+    properties: EventTypeApiProperties
+    timestamp: string
+    /** @nullable */
+    uuid?: string | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AutocompleteCompletionItemKind = {
-    Method: 'Method',
-    Function: 'Function',
-    Constructor: 'Constructor',
-    Field: 'Field',
-    Variable: 'Variable',
-    Class: 'Class',
-    Struct: 'Struct',
-    Interface: 'Interface',
-    Module: 'Module',
-    Property: 'Property',
-    Event: 'Event',
-    Operator: 'Operator',
-    Unit: 'Unit',
-    Value: 'Value',
-    Constant: 'Constant',
-    Enum: 'Enum',
-    EnumMember: 'EnumMember',
-    Keyword: 'Keyword',
-    Text: 'Text',
-    Color: 'Color',
-    File: 'File',
-    Reference: 'Reference',
-    Customcolor: 'Customcolor',
-    Folder: 'Folder',
-    TypeParameter: 'TypeParameter',
-    User: 'User',
-    Issue: 'Issue',
-    Snippet: 'Snippet',
-} as const
 
-export interface FirstEvent {
+export interface ErrorTrackingIssueAggregationsApi {
+    occurrences: number
+    sessions: number
+    users: number
+    /** @nullable */
+    volumeRange?: number[] | null
+    volume_buckets: VolumeBucketApi[]
+}
+
+export interface ErrorTrackingIssueCohortApi {
+    id: number
+    name: string
+}
+
+export interface FirstEventApi {
     distinct_id: string
     properties: string
     timestamp: string
     uuid: string
 }
 
-export interface LastEvent {
+export interface LastEventApi {
     distinct_id: string
     properties: string
     timestamp: string
     uuid: string
 }
 
-export type Status = (typeof Status)[keyof typeof Status]
-
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Status = {
-    archived: 'archived',
-    active: 'active',
-    resolved: 'resolved',
-    pending_release: 'pending_release',
-    suppressed: 'suppressed',
-} as const
 
-export interface Population {
+export interface BreakdownValueApi {
+    count: number
+    value: string
+}
+
+export interface PopulationApi {
     both: number
     exception_only: number
     neither: number
     success_only: number
 }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentStatsValidationFailure = {
-    'not-enough-exposures': 'not-enough-exposures',
-    'baseline-mean-is-zero': 'baseline-mean-is-zero',
-    'not-enough-metric-data': 'not-enough-metric-data',
-} as const
+export interface SessionDataApi {
+    event_uuid: string
+    person_id: string
+    session_id: string
+    timestamp: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const WebAnalyticsItemKind = {
-    unit: 'unit',
-    duration_s: 'duration_s',
-    percentage: 'percentage',
-    currency: 'currency',
-} as const
+
+export interface EmbeddingRecordApi {
+    document_id: string
+    document_type: string
+    model_name: EmbeddingModelNameApi
+    product: string
+    rendering: string
+    timestamp: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExternalQueryErrorCode = {
-    platform_access_required: 'platform_access_required',
-    query_execution_failed: 'query_execution_failed',
-} as const
+
+export interface WebVitalsPathBreakdownResultItemApi {
+    path: string
+    value: number
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RevenueAnalyticsOverviewItemKey = {
-    revenue: 'revenue',
-    paying_customer_count: 'paying_customer_count',
-    avg_revenue_per_customer: 'avg_revenue_per_customer',
-} as const
-
-export type LLMTraceEventEvent = AIEventType | string
-
-export type LLMTraceEventProperties = { [key: string]: unknown }
-
-export type LLMTracePersonProperties = { [key: string]: unknown }
-
-export type DatabaseSchemaFieldChainItem = string | number
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSchemaManagedViewTableKind = {
-    revenue_analytics_charge: 'revenue_analytics_charge',
-    revenue_analytics_customer: 'revenue_analytics_customer',
-    revenue_analytics_product: 'revenue_analytics_product',
-    revenue_analytics_revenue_item: 'revenue_analytics_revenue_item',
-    revenue_analytics_subscription: 'revenue_analytics_subscription',
-} as const
+
+export type LLMTraceEventApiEvent = AIEventTypeApi | string
+
+export type LLMTraceEventApiProperties = { [key: string]: unknown }
+
+export interface LLMTraceEventApi {
+    createdAt: string
+    event: LLMTraceEventApiEvent
+    id: string
+    properties: LLMTraceEventApiProperties
+}
+
+export type LLMTracePersonApiProperties = { [key: string]: unknown }
+
+export interface LLMTracePersonApi {
+    created_at: string
+    distinct_id: string
+    properties: LLMTracePersonApiProperties
+    uuid: string
+}
+
+export interface RetentionValueApi {
+    count: number
+    /** @nullable */
+    label?: string | null
+}
+
+export interface EventOddsRatioSerializedApi {
+    correlation_type: CorrelationTypeApi
+    event: EventDefinitionApi
+    failure_count: number
+    odds_ratio: number
+    success_count: number
+}
+
+export interface DataWarehouseViewLinkConfigurationApi {
+    /** @nullable */
+    experiments_optimized?: boolean | null
+    /** @nullable */
+    experiments_timestamp_key?: string | null
+}
+
+export type DatabaseSchemaFieldApiChainItem = string | number
+
+export interface DatabaseSchemaFieldApi {
+    /** @nullable */
+    chain?: DatabaseSchemaFieldApiChainItem[] | null
+    /** @nullable */
+    fields?: string[] | null
+    hogql_value: string
+    /** @nullable */
+    id?: string | null
+    name: string
+    schema_valid: boolean
+    /** @nullable */
+    table?: string | null
+    type: DatabaseSerializedFieldTypeApi
+}
+
+export interface DatabaseSchemaSchemaApi {
+    id: string
+    incremental: boolean
+    /** @nullable */
+    last_synced_at?: string | null
+    name: string
+    should_sync: boolean
+    /** @nullable */
+    status?: string | null
+}
+
+export interface DatabaseSchemaSourceApi {
+    id: string
+    /** @nullable */
+    last_synced_at?: string | null
+    prefix: string
+    source_type: string
+    status: string
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UsageMetricDisplay = {
-    number: 'number',
-    sparkline: 'sparkline',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UsageMetricFormat = {
-    numeric: 'numeric',
-    currency: 'currency',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MultipleBreakdownType = {
-    cohort: 'cohort',
-    person: 'person',
-    event: 'event',
-    event_metadata: 'event_metadata',
-    group: 'group',
-    session: 'session',
-    hogql: 'hogql',
-    revenue_analytics: 'revenue_analytics',
-} as const
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * @nullable
  */
-export type CustomChannelConditionValue = string | string[] | null
+export type CustomChannelConditionApiValue = string | string[] | null
 
-export type Position = (typeof Position)[keyof typeof Position]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Position = {
-    start: 'start',
-    end: 'end',
-} as const
-
-export type Scale = (typeof Scale)[keyof typeof Scale]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Scale = {
-    linear: 'linear',
-    logarithmic: 'logarithmic',
-} as const
-
-export interface Settings {
+export interface CustomChannelConditionApi {
+    id: string
+    key: CustomChannelFieldApi
+    op: CustomChannelOperatorApi
     /** @nullable */
-    display?: ChartSettingsDisplay
-    /** @nullable */
-    formatting?: ChartSettingsFormatting
+    value?: CustomChannelConditionApiValue
 }
 
-export type ColorMode = (typeof ColorMode)[keyof typeof ColorMode]
+export interface WebTrendsItemApi {
+    bucket: string
+    metrics: MetricsApi
+}
+
+export interface EventsHeatMapStructuredResultApi {
+    allAggregations: number
+    columnAggregations: EventsHeatMapColumnAggregationResultApi[]
+    data: EventsHeatMapDataResultApi[]
+    rowAggregations: EventsHeatMapRowAggregationResultApi[]
+}
+
+export interface SessionRecordingTypeApi {
+    /** @nullable */
+    active_seconds?: number | null
+    /**
+     * calculated on the backend so that we can sort by it, definition may change over time
+     * @nullable
+     */
+    activity_score?: number | null
+    /** @nullable */
+    click_count?: number | null
+    /** @nullable */
+    console_error_count?: number | null
+    /** @nullable */
+    console_log_count?: number | null
+    /** @nullable */
+    console_warn_count?: number | null
+    /** @nullable */
+    distinct_id?: string | null
+    /** @nullable */
+    email?: string | null
+    /** When the recording ends in ISO format. */
+    end_time: string
+    /**
+     * When the recording expires, in ISO format.
+     * @nullable
+     */
+    expiry_time?: string | null
+    id: string
+    /** @nullable */
+    inactive_seconds?: number | null
+    /** @nullable */
+    keypress_count?: number | null
+    /**
+     * List of matching events. *
+     * @nullable
+     */
+    matching_events?: MatchedRecordingApi[] | null
+    /**
+     * count of all mouse activity in the recording, not just clicks
+     * @nullable
+     */
+    mouse_activity_count?: number | null
+    /**
+     * whether we have received data for this recording in the last 5 minutes (assumes the recording was loaded from ClickHouse)
+     *
+     * @nullable
+     */
+    ongoing?: boolean | null
+    /** @nullable */
+    person?: PersonTypeApi
+    /** Length of recording in seconds. */
+    recording_duration: number
+    /**
+     * Number of whole days left until the recording expires.
+     * @nullable
+     */
+    recording_ttl?: number | null
+    /**
+     * retention period for this recording
+     * @nullable
+     */
+    retention_period_days?: number | null
+    snapshot_source: SnapshotSourceApi
+    /** When the recording starts in ISO format. */
+    start_time: string
+    /** @nullable */
+    start_url?: string | null
+    /** @nullable */
+    summary?: string | null
+    /** Whether this recording has been viewed by you already. */
+    viewed: boolean
+    /** user ids of other users who have viewed this recording */
+    viewers: string[]
+}
+
+export interface MinimalHedgehogConfigApi {
+    accessories: string[]
+    /** @nullable */
+    color?: HedgehogColorOptionsApi
+    use_as_profile: boolean
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ColorMode = {
-    light: 'light',
-    dark: 'dark',
-} as const
-
-export type DataColorToken = (typeof DataColorToken)[keyof typeof DataColorToken]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataColorToken = {
-    'preset-1': 'preset-1',
-    'preset-2': 'preset-2',
-    'preset-3': 'preset-3',
-    'preset-4': 'preset-4',
-    'preset-5': 'preset-5',
-    'preset-6': 'preset-6',
-    'preset-7': 'preset-7',
-    'preset-8': 'preset-8',
-    'preset-9': 'preset-9',
-    'preset-10': 'preset-10',
-    'preset-11': 'preset-11',
-    'preset-12': 'preset-12',
-    'preset-13': 'preset-13',
-    'preset-14': 'preset-14',
-    'preset-15': 'preset-15',
-} as const
+
+export interface SettingsApi {
+    /** @nullable */
+    display?: ChartSettingsDisplayApi
+    /** @nullable */
+    formatting?: ChartSettingsFormattingApi
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const RetentionEntityKind = {
-    ActionsNode: 'ActionsNode',
-    EventsNode: 'EventsNode',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const EntityType = {
-    actions: 'actions',
-    events: 'events',
-    data_warehouse: 'data_warehouse',
-    new_entity: 'new_entity',
-} as const
 
-export type ElementTypeAttributes = { [key: string]: string }
+// eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface Person {
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export type ElementTypeApiAttributes = { [key: string]: string }
+
+export interface ElementTypeApi {
+    /** @nullable */
+    attr_class?: string[] | null
+    /** @nullable */
+    attr_id?: string | null
+    attributes: ElementTypeApiAttributes
+    /** @nullable */
+    href?: string | null
+    /** @nullable */
+    nth_child?: number | null
+    /** @nullable */
+    nth_of_type?: number | null
+    /** @nullable */
+    order?: number | null
+    tag_name: string
+    /** @nullable */
+    text?: string | null
+}
+
+export interface PersonApi {
     readonly id: number
     readonly name: string
     readonly distinct_ids: readonly string[]
@@ -11547,76 +18776,30 @@ export interface Person {
     readonly uuid: string
 }
 
-export interface VolumeBucket {
+export interface VolumeBucketApi {
     label: string
     value: number
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AIEventType = {
-    $ai_generation: '$ai_generation',
-    $ai_embedding: '$ai_embedding',
-    $ai_span: '$ai_span',
-    $ai_trace: '$ai_trace',
-    $ai_metric: '$ai_metric',
-    $ai_feedback: '$ai_feedback',
-    $ai_evaluation: '$ai_evaluation',
-} as const
-
-export type CorrelationType = (typeof CorrelationType)[keyof typeof CorrelationType]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CorrelationType = {
-    success: 'success',
-    failure: 'failure',
-} as const
 
-export type EventDefinitionProperties = { [key: string]: unknown }
+export type EventDefinitionApiProperties = { [key: string]: unknown }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DatabaseSerializedFieldType = {
-    integer: 'integer',
-    float: 'float',
-    decimal: 'decimal',
-    string: 'string',
-    datetime: 'datetime',
-    date: 'date',
-    boolean: 'boolean',
-    array: 'array',
-    json: 'json',
-    lazy_table: 'lazy_table',
-    virtual_table: 'virtual_table',
-    field_traverser: 'field_traverser',
-    expression: 'expression',
-    view: 'view',
-    materialized_view: 'materialized_view',
-    unknown: 'unknown',
-} as const
+export interface EventDefinitionApi {
+    elements: unknown[]
+    event: string
+    properties: EventDefinitionApiProperties
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CustomChannelField = {
-    utm_source: 'utm_source',
-    utm_medium: 'utm_medium',
-    utm_campaign: 'utm_campaign',
-    referring_domain: 'referring_domain',
-    url: 'url',
-    pathname: 'pathname',
-    hostname: 'hostname',
-} as const
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CustomChannelOperator = {
-    exact: 'exact',
-    is_not: 'is_not',
-    is_set: 'is_set',
-    is_not_set: 'is_not_set',
-    icontains: 'icontains',
-    not_icontains: 'not_icontains',
-    regex: 'regex',
-    not_regex: 'not_regex',
-} as const
 
-export interface Metrics {
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface MetricsApi {
     /** @nullable */
     Bounces?: number | null
     /** @nullable */
@@ -11631,76 +18814,103 @@ export interface Metrics {
     UniqueUsers?: number | null
 }
 
-export type PersonTypeProperties = { [key: string]: unknown }
+export interface EventsHeatMapColumnAggregationResultApi {
+    column: number
+    value: number
+}
 
-export type SnapshotSource = (typeof SnapshotSource)[keyof typeof SnapshotSource]
+export interface EventsHeatMapDataResultApi {
+    column: number
+    row: number
+    value: number
+}
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SnapshotSource = {
-    web: 'web',
-    mobile: 'mobile',
-    unknown: 'unknown',
-} as const
+export interface EventsHeatMapRowAggregationResultApi {
+    row: number
+    value: number
+}
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HedgehogColorOptions = {
-    green: 'green',
-    red: 'red',
-    blue: 'blue',
-    purple: 'purple',
-    dark: 'dark',
-    light: 'light',
-    sepia: 'sepia',
-    invert: 'invert',
-    'invert-hue': 'invert-hue',
-    greyscale: 'greyscale',
-} as const
+export interface MatchedRecordingApi {
+    events: MatchedRecordingEventApi[]
+    /** @nullable */
+    session_id?: string | null
+}
 
-export type DisplayType = (typeof DisplayType)[keyof typeof DisplayType]
+export type PersonTypeApiProperties = { [key: string]: unknown }
 
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DisplayType = {
-    auto: 'auto',
-    line: 'line',
-    bar: 'bar',
-} as const
-
-export type YAxisPosition = (typeof YAxisPosition)[keyof typeof YAxisPosition]
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const YAxisPosition = {
-    left: 'left',
-    right: 'right',
-} as const
-
-export type Style = (typeof Style)[keyof typeof Style]
+export interface PersonTypeApi {
+    /** @nullable */
+    created_at?: string | null
+    distinct_ids: string[]
+    /** @nullable */
+    id?: string | null
+    /** @nullable */
+    is_identified?: boolean | null
+    /** @nullable */
+    name?: string | null
+    properties: PersonTypeApiProperties
+    /** @nullable */
+    uuid?: string | null
+}
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const Style = {
-    none: 'none',
-    number: 'number',
-    percent: 'percent',
-} as const
 
-export interface PaginatedConversationList {
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface ChartSettingsDisplayApi {
+    /** @nullable */
+    color?: string | null
+    /** @nullable */
+    displayType?: DisplayTypeApi
+    /** @nullable */
+    label?: string | null
+    /** @nullable */
+    trendLine?: boolean | null
+    /** @nullable */
+    yAxisPosition?: YAxisPositionApi
+}
+
+export interface ChartSettingsFormattingApi {
+    /** @nullable */
+    decimalPlaces?: number | null
+    /** @nullable */
+    prefix?: string | null
+    /** @nullable */
+    style?: StyleApi
+    /** @nullable */
+    suffix?: string | null
+}
+
+export interface MatchedRecordingEventApi {
+    timestamp: string
+    uuid: string
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface PaginatedConversationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Conversation[]
+    results: ConversationApi[]
 }
 
-export type MessageContextualTools = { [key: string]: unknown }
+export type MessageApiContextualTools = { [key: string]: unknown }
 
-export interface Message {
+export interface MessageApi {
     /**
      * @maxLength 40000
      * @nullable
      */
     content: string | null
     conversation: string
-    contextual_tools?: MessageContextualTools
+    contextual_tools?: MessageApiContextualTools
     ui_context?: unknown
     billing_context?: unknown
     trace_id: string
@@ -11708,25 +18918,43 @@ export interface Message {
     deep_research_mode?: boolean
 }
 
-export type ConversationMessagesItem = { [key: string]: unknown }
+export type ConversationApiMessagesItem = { [key: string]: unknown }
 
-export type PatchedConversationMessagesItem = { [key: string]: unknown }
+export interface ConversationApi {
+    readonly id: string
+    readonly status: ConversationStatusEnumApi
+    /**
+     * Title of the conversation.
+     * @nullable
+     */
+    readonly title: string | null
+    readonly user: UserBasicApi
+    /** @nullable */
+    readonly created_at: string | null
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly type: ConversationTypeEnumApi
+    readonly messages: readonly ConversationApiMessagesItem[]
+    readonly has_unsupported_content: boolean
+}
 
-export interface PatchedConversation {
+export type PatchedConversationApiMessagesItem = { [key: string]: unknown }
+
+export interface PatchedConversationApi {
     readonly id?: string
-    readonly status?: ConversationStatusEnum
+    readonly status?: ConversationStatusEnumApi
     /**
      * Title of the conversation.
      * @nullable
      */
     readonly title?: string | null
-    readonly user?: UserBasic
+    readonly user?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
     /** @nullable */
     readonly updated_at?: string | null
-    readonly type?: ConversationTypeEnum
-    readonly messages?: readonly PatchedConversationMessagesItem[]
+    readonly type?: ConversationTypeEnumApi
+    readonly messages?: readonly PatchedConversationApiMessagesItem[]
     readonly has_unsupported_content?: boolean
 }
 
@@ -11746,38 +18974,38 @@ export interface PatchedConversation {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface PaginatedDashboardBasicList {
+export interface PaginatedDashboardBasicListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DashboardBasic[]
+    results: DashboardBasicApi[]
 }
 
-export type DashboardFilters = { [key: string]: unknown }
+export type DashboardApiFilters = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type DashboardVariables = { [key: string]: unknown } | null
+export type DashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardPersistedFilters = { [key: string]: unknown } | null
+export type DashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type DashboardPersistedVariables = { [key: string]: unknown } | null
+export type DashboardApiPersistedVariables = { [key: string]: unknown } | null
 
-export type DashboardTilesItem = { [key: string]: unknown }
+export type DashboardApiTilesItem = { [key: string]: unknown }
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface Dashboard {
+export interface DashboardApi {
     readonly id: number
     /**
      * @maxLength 400
@@ -11787,17 +19015,17 @@ export interface Dashboard {
     description?: string
     pinned?: boolean
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     last_accessed_at?: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     readonly is_shared: boolean
     deleted?: boolean
-    readonly creation_mode: CreationModeEnum
-    readonly filters: DashboardFilters
+    readonly creation_mode: CreationModeEnumApi
+    readonly filters: DashboardApiFilters
     /** @nullable */
-    readonly variables: DashboardVariables
+    readonly variables: DashboardApiVariables
     breakdown_colors?: unknown
     /** @nullable */
     data_color_theme_id?: number | null
@@ -11806,9 +19034,9 @@ export interface Dashboard {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevel
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    restriction_level?: DashboardRestrictionLevelApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -11818,12 +19046,12 @@ export interface Dashboard {
     /** @nullable */
     last_refresh?: string | null
     /** @nullable */
-    readonly persisted_filters: DashboardPersistedFilters
+    readonly persisted_filters: DashboardApiPersistedFilters
     /** @nullable */
-    readonly persisted_variables: DashboardPersistedVariables
+    readonly persisted_variables: DashboardApiPersistedVariables
     readonly team_id: number
     /** @nullable */
-    readonly tiles: readonly DashboardTilesItem[] | null
+    readonly tiles: readonly DashboardApiTilesItem[] | null
     use_template?: string
     /** @nullable */
     use_dashboard?: number | null
@@ -11831,40 +19059,45 @@ export interface Dashboard {
     _create_in_folder?: string
 }
 
-export interface SharingConfiguration {
+/**
+ * @nullable
+ */
+export type SharingConfigurationApiSettings = unknown | null
+
+export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
     /** @nullable */
     readonly access_token: string | null
     /** @nullable */
-    settings?: SharingConfigurationSettings
+    settings?: SharingConfigurationApiSettings
     password_required?: boolean
     readonly share_passwords: string
 }
 
-export type PatchedDashboardFilters = { [key: string]: unknown }
+export type PatchedDashboardApiFilters = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type PatchedDashboardVariables = { [key: string]: unknown } | null
+export type PatchedDashboardApiVariables = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardPersistedFilters = { [key: string]: unknown } | null
+export type PatchedDashboardApiPersistedFilters = { [key: string]: unknown } | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardPersistedVariables = { [key: string]: unknown } | null
+export type PatchedDashboardApiPersistedVariables = { [key: string]: unknown } | null
 
-export type PatchedDashboardTilesItem = { [key: string]: unknown }
+export type PatchedDashboardApiTilesItem = { [key: string]: unknown }
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface PatchedDashboard {
+export interface PatchedDashboardApi {
     readonly id?: number
     /**
      * @maxLength 400
@@ -11874,17 +19107,17 @@ export interface PatchedDashboard {
     description?: string
     pinned?: boolean
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /** @nullable */
     last_accessed_at?: string | null
     /** @nullable */
     readonly last_viewed_at?: string | null
     readonly is_shared?: boolean
     deleted?: boolean
-    readonly creation_mode?: CreationModeEnum
-    readonly filters?: PatchedDashboardFilters
+    readonly creation_mode?: CreationModeEnumApi
+    readonly filters?: PatchedDashboardApiFilters
     /** @nullable */
-    readonly variables?: PatchedDashboardVariables
+    readonly variables?: PatchedDashboardApiVariables
     breakdown_colors?: unknown
     /** @nullable */
     data_color_theme_id?: number | null
@@ -11893,9 +19126,9 @@ export interface PatchedDashboard {
      * @minimum 0
      * @maximum 32767
      */
-    restriction_level?: DashboardRestrictionLevel
-    readonly effective_restriction_level?: EffectiveRestrictionLevelEnum
-    readonly effective_privilege_level?: EffectivePrivilegeLevelEnum
+    restriction_level?: DashboardRestrictionLevelApi
+    readonly effective_restriction_level?: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level?: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -11905,12 +19138,12 @@ export interface PatchedDashboard {
     /** @nullable */
     last_refresh?: string | null
     /** @nullable */
-    readonly persisted_filters?: PatchedDashboardPersistedFilters
+    readonly persisted_filters?: PatchedDashboardApiPersistedFilters
     /** @nullable */
-    readonly persisted_variables?: PatchedDashboardPersistedVariables
+    readonly persisted_variables?: PatchedDashboardApiPersistedVariables
     readonly team_id?: number
     /** @nullable */
-    readonly tiles?: readonly PatchedDashboardTilesItem[] | null
+    readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
     use_template?: string
     /** @nullable */
     use_dashboard?: number | null
@@ -11918,34 +19151,34 @@ export interface PatchedDashboard {
     _create_in_folder?: string
 }
 
-export interface PaginatedExportedAssetList {
+export interface PaginatedExportedAssetListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ExportedAsset[]
+    results: ExportedAssetApi[]
 }
 
 /**
  * @nullable
  */
-export type ExportedAssetExportContext = unknown | null
+export type ExportedAssetApiExportContext = unknown | null
 
 /**
  * Standard ExportedAsset serializer that doesn't return content.
  */
-export interface ExportedAsset {
+export interface ExportedAssetApi {
     readonly id: number
     /** @nullable */
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
-    export_format: ExportFormatEnum
+    export_format: ExportFormatEnumApi
     readonly created_at: string
     readonly has_content: string
     /** @nullable */
-    export_context?: ExportedAssetExportContext
+    export_context?: ExportedAssetApiExportContext
     readonly filename: string
     /** @nullable */
     readonly expires_after: string | null
@@ -11953,21 +19186,21 @@ export interface ExportedAsset {
     readonly exception: string | null
 }
 
-export interface PaginatedFileSystemList {
+export interface PaginatedFileSystemListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: FileSystem[]
+    results: FileSystemApi[]
 }
 
 /**
  * @nullable
  */
-export type FileSystemMeta = unknown | null
+export type FileSystemApiMeta = unknown | null
 
-export interface FileSystem {
+export interface FileSystemApi {
     readonly id: string
     path: string
     /** @nullable */
@@ -11982,7 +19215,7 @@ export interface FileSystem {
     /** @nullable */
     href?: string | null
     /** @nullable */
-    meta?: FileSystemMeta
+    meta?: FileSystemApiMeta
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at: string
@@ -11993,9 +19226,9 @@ export interface FileSystem {
 /**
  * @nullable
  */
-export type PatchedFileSystemMeta = unknown | null
+export type PatchedFileSystemApiMeta = unknown | null
 
-export interface PatchedFileSystem {
+export interface PatchedFileSystemApi {
     readonly id?: string
     path?: string
     /** @nullable */
@@ -12010,7 +19243,7 @@ export interface PatchedFileSystem {
     /** @nullable */
     href?: string | null
     /** @nullable */
-    meta?: PatchedFileSystemMeta
+    meta?: PatchedFileSystemApiMeta
     /** @nullable */
     shortcut?: boolean | null
     readonly created_at?: string
@@ -12018,20 +19251,20 @@ export interface PatchedFileSystem {
     readonly last_viewed_at?: string | null
 }
 
-export interface PaginatedGroupList {
+export interface PaginatedGroupListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Group[]
+    results: GroupApi[]
 }
 
 /**
  * @nullable
  */
-export type CreateGroupGroupProperties = unknown | null
+export type CreateGroupApiGroupProperties = unknown | null
 
-export interface CreateGroup {
+export interface CreateGroupApi {
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -12040,59 +19273,71 @@ export interface CreateGroup {
     /** @maxLength 400 */
     group_key: string
     /** @nullable */
-    group_properties?: CreateGroupGroupProperties
+    group_properties?: CreateGroupApiGroupProperties
 }
 
-export interface PaginatedIntegrationList {
+export interface GroupApi {
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    group_type_index: number
+    /** @maxLength 400 */
+    group_key: string
+    group_properties?: unknown
+    readonly created_at: string
+}
+
+export interface PaginatedIntegrationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Integration[]
+    results: IntegrationApi[]
 }
 
 /**
  * Standard Integration serializer.
  */
-export interface Integration {
+export interface IntegrationApi {
     readonly id: number
-    kind: KindEnum
+    kind: KindEnumApi
     config?: unknown
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly errors: string
     readonly display_name: string
 }
 
-export interface PaginatedSubscriptionList {
+export interface PaginatedSubscriptionListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Subscription[]
+    results: SubscriptionApi[]
 }
 
 /**
  * Standard Subscription serializer.
  */
-export interface Subscription {
+export interface SubscriptionApi {
     readonly id: number
     /** @nullable */
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
-    target_type: TargetTypeEnum
+    target_type: TargetTypeEnumApi
     target_value: string
-    frequency: FrequencyEnum
+    frequency: FrequencyEnumApi
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
     /** @nullable */
-    byweekday?: ByweekdayEnum[] | null
+    byweekday?: ByweekdayEnumApi[] | null
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -12109,7 +19354,7 @@ export interface Subscription {
     /** @nullable */
     until_date?: string | null
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     deleted?: boolean
     /**
      * @maxLength 100
@@ -12126,22 +19371,22 @@ export interface Subscription {
 /**
  * Standard Subscription serializer.
  */
-export interface PatchedSubscription {
+export interface PatchedSubscriptionApi {
     readonly id?: number
     /** @nullable */
     dashboard?: number | null
     /** @nullable */
     insight?: number | null
-    target_type?: TargetTypeEnum
+    target_type?: TargetTypeEnumApi
     target_value?: string
-    frequency?: FrequencyEnum
+    frequency?: FrequencyEnumApi
     /**
      * @minimum -2147483648
      * @maximum 2147483647
      */
     interval?: number
     /** @nullable */
-    byweekday?: ByweekdayEnum[] | null
+    byweekday?: ByweekdayEnumApi[] | null
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -12158,7 +19403,7 @@ export interface PatchedSubscription {
     /** @nullable */
     until_date?: string | null
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     deleted?: boolean
     /**
      * @maxLength 100
@@ -12172,16 +19417,16 @@ export interface PatchedSubscription {
     invite_message?: string | null
 }
 
-export interface PaginatedOrganizationDomainList {
+export interface PaginatedOrganizationDomainListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: OrganizationDomain[]
+    results: OrganizationDomainApi[]
 }
 
-export interface OrganizationDomain {
+export interface OrganizationDomainApi {
     readonly id: string
     /** @maxLength 128 */
     domain: string
@@ -12216,7 +19461,7 @@ export interface OrganizationDomain {
     readonly scim_bearer_token: string | null
 }
 
-export interface PatchedOrganizationDomain {
+export interface PatchedOrganizationDomainApi {
     readonly id?: string
     /** @maxLength 128 */
     domain?: string
@@ -12251,22 +19496,22 @@ export interface PatchedOrganizationDomain {
     readonly scim_bearer_token?: string | null
 }
 
-export interface PaginatedOrganizationInviteList {
+export interface PaginatedOrganizationInviteListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: OrganizationInvite[]
+    results: OrganizationInviteApi[]
 }
 
 /**
  * List of team IDs and corresponding access levels to private projects.
  * @nullable
  */
-export type OrganizationInvitePrivateProjectAccess = unknown | null
+export type OrganizationInviteApiPrivateProjectAccess = unknown | null
 
-export interface OrganizationInvite {
+export interface OrganizationInviteApi {
     readonly id: string
     /** @maxLength 254 */
     target_email: string
@@ -12277,10 +19522,10 @@ export interface OrganizationInvite {
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevel
+    level?: OrganizationMembershipLevelApi
     /** Check if invite is older than INVITE_DAYS_VALIDITY days. */
     readonly is_expired: boolean
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -12289,28 +19534,28 @@ export interface OrganizationInvite {
      * List of team IDs and corresponding access levels to private projects.
      * @nullable
      */
-    private_project_access?: OrganizationInvitePrivateProjectAccess
+    private_project_access?: OrganizationInviteApiPrivateProjectAccess
     send_email?: boolean
     combine_pending_invites?: boolean
 }
 
-export interface PaginatedOrganizationMemberList {
+export interface PaginatedOrganizationMemberListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: OrganizationMember[]
+    results: OrganizationMemberApi[]
 }
 
-export interface OrganizationMember {
+export interface OrganizationMemberApi {
     readonly id: string
-    readonly user: UserBasic
+    readonly user: UserBasicApi
     /**
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevel
+    level?: OrganizationMembershipLevelApi
     readonly joined_at: string
     readonly updated_at: string
     readonly is_2fa_enabled: boolean
@@ -12318,14 +19563,14 @@ export interface OrganizationMember {
     readonly last_login: string
 }
 
-export interface PatchedOrganizationMember {
+export interface PatchedOrganizationMemberApi {
     readonly id?: string
-    readonly user?: UserBasic
+    readonly user?: UserBasicApi
     /**
      * @minimum 0
      * @maximum 32767
      */
-    level?: OrganizationMembershipLevel
+    level?: OrganizationMembershipLevelApi
     readonly joined_at?: string
     readonly updated_at?: string
     readonly is_2fa_enabled?: boolean
@@ -12333,95 +19578,99 @@ export interface PatchedOrganizationMember {
     readonly last_login?: string
 }
 
-export interface PaginatedProjectBackwardCompatBasicList {
+export interface PaginatedProjectBackwardCompatBasicListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ProjectBackwardCompatBasic[]
+    results: ProjectBackwardCompatBasicApi[]
 }
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatEffectiveMembershipLevel = EffectiveMembershipLevelEnum | null
+export type ProjectBackwardCompatApiEffectiveMembershipLevel = EffectiveMembershipLevelEnumApi | null
 
-export type ProjectBackwardCompatGroupTypesItem = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type ProjectBackwardCompatPathCleaningFilters = unknown | null
+export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatCorrelationConfig = unknown | null
+export type ProjectBackwardCompatApiPathCleaningFilters = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatAutocaptureWebVitalsAllowedMetrics = unknown | null
+export type ProjectBackwardCompatApiCorrelationConfig = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatAutocaptureExceptionsErrorsToIgnore = unknown | null
+export type ProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatSessionRecordingLinkedFlag = unknown | null
+export type ProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatSessionRecordingNetworkPayloadCaptureConfig = unknown | null
+export type ProjectBackwardCompatApiSessionRecordingLinkedFlag = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatSessionRecordingMaskingConfig = unknown | null
+export type ProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatSessionReplayConfig = unknown | null
+export type ProjectBackwardCompatApiSessionRecordingMaskingConfig = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatSurveyConfig = unknown | null
+export type ProjectBackwardCompatApiSessionReplayConfig = unknown | null
+
+/**
+ * @nullable
+ */
+export type ProjectBackwardCompatApiSurveyConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ProjectBackwardCompatWeekStartDay = { ...WeekStartDayEnum, ...NullEnum } as const
+export const ProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi, ...NullEnumApi } as const
 /**
  * @minimum -32768
  * @maximum 32767
  * @nullable
  */
-export type ProjectBackwardCompatWeekStartDay =
-    | (typeof ProjectBackwardCompatWeekStartDay)[keyof typeof ProjectBackwardCompatWeekStartDay]
+export type ProjectBackwardCompatApiWeekStartDay =
+    | (typeof ProjectBackwardCompatApiWeekStartDay)[keyof typeof ProjectBackwardCompatApiWeekStartDay]
     | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatExtraSettings = unknown | null
+export type ProjectBackwardCompatApiExtraSettings = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatModifiers = unknown | null
+export type ProjectBackwardCompatApiModifiers = unknown | null
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatHasCompletedOnboardingFor = unknown | null
+export type ProjectBackwardCompatApiHasCompletedOnboardingFor = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ProjectBackwardCompatBusinessModel = { ...BusinessModelEnum, ...BlankEnum, ...NullEnum } as const
+export const ProjectBackwardCompatApiBusinessModel = {
+    ...BusinessModelEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
 
@@ -12430,8 +19679,8 @@ export const ProjectBackwardCompatBusinessModel = { ...BusinessModelEnum, ...Bla
 * `other` - Other
  * @nullable
  */
-export type ProjectBackwardCompatBusinessModel =
-    | (typeof ProjectBackwardCompatBusinessModel)[keyof typeof ProjectBackwardCompatBusinessModel]
+export type ProjectBackwardCompatApiBusinessModel =
+    | (typeof ProjectBackwardCompatApiBusinessModel)[keyof typeof ProjectBackwardCompatApiBusinessModel]
     | null
 
 /**
@@ -12440,7 +19689,7 @@ passthrough fields. This allows the meaning of `Team` to change from "project" t
 backward compatibility of the REST API.
 Do not use this in greenfield endpoints!
  */
-export interface ProjectBackwardCompat {
+export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
@@ -12455,9 +19704,9 @@ export interface ProjectBackwardCompat {
     product_description?: string | null
     readonly created_at: string
     /** @nullable */
-    readonly effective_membership_level: ProjectBackwardCompatEffectiveMembershipLevel
+    readonly effective_membership_level: ProjectBackwardCompatApiEffectiveMembershipLevel
     readonly has_group_types: boolean
-    readonly group_types: readonly ProjectBackwardCompatGroupTypesItem[]
+    readonly group_types: readonly ProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token: string | null
     readonly updated_at: string
@@ -12476,14 +19725,14 @@ export interface ProjectBackwardCompat {
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
     /** @nullable */
-    path_cleaning_filters?: ProjectBackwardCompatPathCleaningFilters
+    path_cleaning_filters?: ProjectBackwardCompatApiPathCleaningFilters
     is_demo?: boolean
-    timezone?: TimezoneEnum
+    timezone?: TimezoneEnumApi
     data_attributes?: unknown
     /** @nullable */
     person_display_name_properties?: string[] | null
     /** @nullable */
-    correlation_config?: ProjectBackwardCompatCorrelationConfig
+    correlation_config?: ProjectBackwardCompatApiCorrelationConfig
     /** @nullable */
     autocapture_opt_out?: boolean | null
     /** @nullable */
@@ -12491,9 +19740,9 @@ export interface ProjectBackwardCompat {
     /** @nullable */
     autocapture_web_vitals_opt_in?: boolean | null
     /** @nullable */
-    autocapture_web_vitals_allowed_metrics?: ProjectBackwardCompatAutocaptureWebVitalsAllowedMetrics
+    autocapture_web_vitals_allowed_metrics?: ProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics
     /** @nullable */
-    autocapture_exceptions_errors_to_ignore?: ProjectBackwardCompatAutocaptureExceptionsErrorsToIgnore
+    autocapture_exceptions_errors_to_ignore?: ProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore
     /** @nullable */
     capture_console_log_opt_in?: boolean | null
     /** @nullable */
@@ -12511,22 +19760,22 @@ export interface ProjectBackwardCompat {
      */
     session_recording_minimum_duration_milliseconds?: number | null
     /** @nullable */
-    session_recording_linked_flag?: ProjectBackwardCompatSessionRecordingLinkedFlag
+    session_recording_linked_flag?: ProjectBackwardCompatApiSessionRecordingLinkedFlag
     /** @nullable */
-    session_recording_network_payload_capture_config?: ProjectBackwardCompatSessionRecordingNetworkPayloadCaptureConfig
+    session_recording_network_payload_capture_config?: ProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig
     /** @nullable */
-    session_recording_masking_config?: ProjectBackwardCompatSessionRecordingMaskingConfig
+    session_recording_masking_config?: ProjectBackwardCompatApiSessionRecordingMaskingConfig
     /** @nullable */
-    session_replay_config?: ProjectBackwardCompatSessionReplayConfig
+    session_replay_config?: ProjectBackwardCompatApiSessionReplayConfig
     /** @nullable */
-    survey_config?: ProjectBackwardCompatSurveyConfig
+    survey_config?: ProjectBackwardCompatApiSurveyConfig
     access_control?: boolean
     /**
      * @minimum -32768
      * @maximum 32767
      * @nullable
      */
-    week_start_day?: ProjectBackwardCompatWeekStartDay
+    week_start_day?: ProjectBackwardCompatApiWeekStartDay
     /** @nullable */
     primary_dashboard?: number | null
     /** @nullable */
@@ -12537,12 +19786,12 @@ export interface ProjectBackwardCompat {
     /** @nullable */
     inject_web_apps?: boolean | null
     /** @nullable */
-    extra_settings?: ProjectBackwardCompatExtraSettings
+    extra_settings?: ProjectBackwardCompatApiExtraSettings
     /** @nullable */
-    modifiers?: ProjectBackwardCompatModifiers
+    modifiers?: ProjectBackwardCompatApiModifiers
     readonly default_modifiers: string
     /** @nullable */
-    has_completed_onboarding_for?: ProjectBackwardCompatHasCompletedOnboardingFor
+    has_completed_onboarding_for?: ProjectBackwardCompatApiHasCompletedOnboardingFor
     /** @nullable */
     surveys_opt_in?: boolean | null
     /** @nullable */
@@ -12564,89 +19813,93 @@ export interface ProjectBackwardCompat {
 * `other` - Other
    * @nullable
    */
-    business_model?: ProjectBackwardCompatBusinessModel
+    business_model?: ProjectBackwardCompatApiBusinessModel
 }
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatEffectiveMembershipLevel = EffectiveMembershipLevelEnum | null
+export type PatchedProjectBackwardCompatApiEffectiveMembershipLevel = EffectiveMembershipLevelEnumApi | null
 
-export type PatchedProjectBackwardCompatGroupTypesItem = { [key: string]: unknown }
-
-/**
- * @nullable
- */
-export type PatchedProjectBackwardCompatPathCleaningFilters = unknown | null
+export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatCorrelationConfig = unknown | null
+export type PatchedProjectBackwardCompatApiPathCleaningFilters = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatAutocaptureWebVitalsAllowedMetrics = unknown | null
+export type PatchedProjectBackwardCompatApiCorrelationConfig = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatAutocaptureExceptionsErrorsToIgnore = unknown | null
+export type PatchedProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatSessionRecordingLinkedFlag = unknown | null
+export type PatchedProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatSessionRecordingNetworkPayloadCaptureConfig = unknown | null
+export type PatchedProjectBackwardCompatApiSessionRecordingLinkedFlag = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatSessionRecordingMaskingConfig = unknown | null
+export type PatchedProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatSessionReplayConfig = unknown | null
+export type PatchedProjectBackwardCompatApiSessionRecordingMaskingConfig = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatSurveyConfig = unknown | null
+export type PatchedProjectBackwardCompatApiSessionReplayConfig = unknown | null
+
+/**
+ * @nullable
+ */
+export type PatchedProjectBackwardCompatApiSurveyConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedProjectBackwardCompatWeekStartDay = { ...WeekStartDayEnum, ...NullEnum } as const
+export const PatchedProjectBackwardCompatApiWeekStartDay = { ...WeekStartDayEnumApi, ...NullEnumApi } as const
 /**
  * @minimum -32768
  * @maximum 32767
  * @nullable
  */
-export type PatchedProjectBackwardCompatWeekStartDay =
-    | (typeof PatchedProjectBackwardCompatWeekStartDay)[keyof typeof PatchedProjectBackwardCompatWeekStartDay]
+export type PatchedProjectBackwardCompatApiWeekStartDay =
+    | (typeof PatchedProjectBackwardCompatApiWeekStartDay)[keyof typeof PatchedProjectBackwardCompatApiWeekStartDay]
     | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatExtraSettings = unknown | null
+export type PatchedProjectBackwardCompatApiExtraSettings = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatModifiers = unknown | null
+export type PatchedProjectBackwardCompatApiModifiers = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedProjectBackwardCompatHasCompletedOnboardingFor = unknown | null
+export type PatchedProjectBackwardCompatApiHasCompletedOnboardingFor = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedProjectBackwardCompatBusinessModel = { ...BusinessModelEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedProjectBackwardCompatApiBusinessModel = {
+    ...BusinessModelEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * Whether this project serves B2B or B2C customers, used to optimize the UI layout.
 
@@ -12655,8 +19908,8 @@ export const PatchedProjectBackwardCompatBusinessModel = { ...BusinessModelEnum,
 * `other` - Other
  * @nullable
  */
-export type PatchedProjectBackwardCompatBusinessModel =
-    | (typeof PatchedProjectBackwardCompatBusinessModel)[keyof typeof PatchedProjectBackwardCompatBusinessModel]
+export type PatchedProjectBackwardCompatApiBusinessModel =
+    | (typeof PatchedProjectBackwardCompatApiBusinessModel)[keyof typeof PatchedProjectBackwardCompatApiBusinessModel]
     | null
 
 /**
@@ -12665,7 +19918,7 @@ passthrough fields. This allows the meaning of `Team` to change from "project" t
 backward compatibility of the REST API.
 Do not use this in greenfield endpoints!
  */
-export interface PatchedProjectBackwardCompat {
+export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
     /**
@@ -12680,9 +19933,9 @@ export interface PatchedProjectBackwardCompat {
     product_description?: string | null
     readonly created_at?: string
     /** @nullable */
-    readonly effective_membership_level?: PatchedProjectBackwardCompatEffectiveMembershipLevel
+    readonly effective_membership_level?: PatchedProjectBackwardCompatApiEffectiveMembershipLevel
     readonly has_group_types?: boolean
-    readonly group_types?: readonly PatchedProjectBackwardCompatGroupTypesItem[]
+    readonly group_types?: readonly PatchedProjectBackwardCompatApiGroupTypesItem[]
     /** @nullable */
     readonly live_events_token?: string | null
     readonly updated_at?: string
@@ -12701,14 +19954,14 @@ export interface PatchedProjectBackwardCompat {
     /** @nullable */
     test_account_filters_default_checked?: boolean | null
     /** @nullable */
-    path_cleaning_filters?: PatchedProjectBackwardCompatPathCleaningFilters
+    path_cleaning_filters?: PatchedProjectBackwardCompatApiPathCleaningFilters
     is_demo?: boolean
-    timezone?: TimezoneEnum
+    timezone?: TimezoneEnumApi
     data_attributes?: unknown
     /** @nullable */
     person_display_name_properties?: string[] | null
     /** @nullable */
-    correlation_config?: PatchedProjectBackwardCompatCorrelationConfig
+    correlation_config?: PatchedProjectBackwardCompatApiCorrelationConfig
     /** @nullable */
     autocapture_opt_out?: boolean | null
     /** @nullable */
@@ -12716,9 +19969,9 @@ export interface PatchedProjectBackwardCompat {
     /** @nullable */
     autocapture_web_vitals_opt_in?: boolean | null
     /** @nullable */
-    autocapture_web_vitals_allowed_metrics?: PatchedProjectBackwardCompatAutocaptureWebVitalsAllowedMetrics
+    autocapture_web_vitals_allowed_metrics?: PatchedProjectBackwardCompatApiAutocaptureWebVitalsAllowedMetrics
     /** @nullable */
-    autocapture_exceptions_errors_to_ignore?: PatchedProjectBackwardCompatAutocaptureExceptionsErrorsToIgnore
+    autocapture_exceptions_errors_to_ignore?: PatchedProjectBackwardCompatApiAutocaptureExceptionsErrorsToIgnore
     /** @nullable */
     capture_console_log_opt_in?: boolean | null
     /** @nullable */
@@ -12736,22 +19989,22 @@ export interface PatchedProjectBackwardCompat {
      */
     session_recording_minimum_duration_milliseconds?: number | null
     /** @nullable */
-    session_recording_linked_flag?: PatchedProjectBackwardCompatSessionRecordingLinkedFlag
+    session_recording_linked_flag?: PatchedProjectBackwardCompatApiSessionRecordingLinkedFlag
     /** @nullable */
-    session_recording_network_payload_capture_config?: PatchedProjectBackwardCompatSessionRecordingNetworkPayloadCaptureConfig
+    session_recording_network_payload_capture_config?: PatchedProjectBackwardCompatApiSessionRecordingNetworkPayloadCaptureConfig
     /** @nullable */
-    session_recording_masking_config?: PatchedProjectBackwardCompatSessionRecordingMaskingConfig
+    session_recording_masking_config?: PatchedProjectBackwardCompatApiSessionRecordingMaskingConfig
     /** @nullable */
-    session_replay_config?: PatchedProjectBackwardCompatSessionReplayConfig
+    session_replay_config?: PatchedProjectBackwardCompatApiSessionReplayConfig
     /** @nullable */
-    survey_config?: PatchedProjectBackwardCompatSurveyConfig
+    survey_config?: PatchedProjectBackwardCompatApiSurveyConfig
     access_control?: boolean
     /**
      * @minimum -32768
      * @maximum 32767
      * @nullable
      */
-    week_start_day?: PatchedProjectBackwardCompatWeekStartDay
+    week_start_day?: PatchedProjectBackwardCompatApiWeekStartDay
     /** @nullable */
     primary_dashboard?: number | null
     /** @nullable */
@@ -12762,12 +20015,12 @@ export interface PatchedProjectBackwardCompat {
     /** @nullable */
     inject_web_apps?: boolean | null
     /** @nullable */
-    extra_settings?: PatchedProjectBackwardCompatExtraSettings
+    extra_settings?: PatchedProjectBackwardCompatApiExtraSettings
     /** @nullable */
-    modifiers?: PatchedProjectBackwardCompatModifiers
+    modifiers?: PatchedProjectBackwardCompatApiModifiers
     readonly default_modifiers?: string
     /** @nullable */
-    has_completed_onboarding_for?: PatchedProjectBackwardCompatHasCompletedOnboardingFor
+    has_completed_onboarding_for?: PatchedProjectBackwardCompatApiHasCompletedOnboardingFor
     /** @nullable */
     surveys_opt_in?: boolean | null
     /** @nullable */
@@ -12789,48 +20042,48 @@ export interface PatchedProjectBackwardCompat {
 * `other` - Other
    * @nullable
    */
-    business_model?: PatchedProjectBackwardCompatBusinessModel
+    business_model?: PatchedProjectBackwardCompatApiBusinessModel
 }
 
-export interface PaginatedRoleList {
+export interface PaginatedRoleListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Role[]
+    results: RoleApi[]
 }
 
-export interface Role {
+export interface RoleApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly members: string
     readonly is_default: string
 }
 
-export interface PatchedRole {
+export interface PatchedRoleApi {
     readonly id?: string
     /** @maxLength 200 */
     name?: string
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly members?: string
     readonly is_default?: string
 }
 
-export interface PaginatedAnnotationList {
+export interface PaginatedAnnotationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Annotation[]
+    results: AnnotationApi[]
 }
 
-export interface Annotation {
+export interface AnnotationApi {
     readonly id: number
     /**
      * @maxLength 400
@@ -12839,7 +20092,7 @@ export interface Annotation {
     content?: string | null
     /** @nullable */
     date_marker?: string | null
-    creation_type?: CreationTypeEnum
+    creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
@@ -12852,15 +20105,15 @@ export interface Annotation {
     readonly insight_name: string | null
     /** @nullable */
     readonly insight_derived_name: string | null
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
     readonly updated_at: string
     deleted?: boolean
-    scope?: AnnotationScopeEnum
+    scope?: AnnotationScopeEnumApi
 }
 
-export interface PatchedAnnotation {
+export interface PatchedAnnotationApi {
     readonly id?: number
     /**
      * @maxLength 400
@@ -12869,7 +20122,7 @@ export interface PatchedAnnotation {
     content?: string | null
     /** @nullable */
     date_marker?: string | null
-    creation_type?: CreationTypeEnum
+    creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
     /** @nullable */
@@ -12882,21 +20135,21 @@ export interface PatchedAnnotation {
     readonly insight_name?: string | null
     /** @nullable */
     readonly insight_derived_name?: string | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
     readonly updated_at?: string
     deleted?: boolean
-    scope?: AnnotationScopeEnum
+    scope?: AnnotationScopeEnumApi
 }
 
-export interface PaginatedCohortList {
+export interface PaginatedCohortListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Cohort[]
+    results: CohortApi[]
 }
 
 /**
@@ -12955,15 +20208,15 @@ export interface PaginatedCohortList {
         }
  * @nullable
  */
-export type CohortFilters = unknown | null
+export type CohortApiFilters = unknown | null
 
 /**
  * @nullable
  */
-export type CohortQuery = unknown | null
+export type CohortApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const CohortCohortType = { ...CohortTypeEnum, ...BlankEnum, ...NullEnum } as const
+export const CohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * Type of cohort based on filter complexity
 
@@ -12974,9 +20227,9 @@ export const CohortCohortType = { ...CohortTypeEnum, ...BlankEnum, ...NullEnum }
 * `analytical` - analytical
  * @nullable
  */
-export type CohortCohortType = (typeof CohortCohortType)[keyof typeof CohortCohortType] | null
+export type CohortApiCohortType = (typeof CohortApiCohortType)[keyof typeof CohortApiCohortType] | null
 
-export interface Cohort {
+export interface CohortApi {
     readonly id: number
     /**
      * @maxLength 400
@@ -13043,11 +20296,11 @@ export interface Cohort {
         }
    * @nullable
    */
-    filters?: CohortFilters
+    filters?: CohortApiFilters
     /** @nullable */
-    query?: CohortQuery
+    query?: CohortApiQuery
     readonly is_calculating: boolean
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly created_at: string | null
     /** @nullable */
@@ -13066,7 +20319,7 @@ export interface Cohort {
 * `analytical` - analytical
    * @nullable
    */
-    cohort_type?: CohortCohortType
+    cohort_type?: CohortApiCohortType
     readonly experiment_set: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
@@ -13128,15 +20381,15 @@ export interface Cohort {
         }
  * @nullable
  */
-export type PatchedCohortFilters = unknown | null
+export type PatchedCohortApiFilters = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedCohortQuery = unknown | null
+export type PatchedCohortApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedCohortCohortType = { ...CohortTypeEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedCohortApiCohortType = { ...CohortTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * Type of cohort based on filter complexity
 
@@ -13147,9 +20400,11 @@ export const PatchedCohortCohortType = { ...CohortTypeEnum, ...BlankEnum, ...Nul
 * `analytical` - analytical
  * @nullable
  */
-export type PatchedCohortCohortType = (typeof PatchedCohortCohortType)[keyof typeof PatchedCohortCohortType] | null
+export type PatchedCohortApiCohortType =
+    | (typeof PatchedCohortApiCohortType)[keyof typeof PatchedCohortApiCohortType]
+    | null
 
-export interface PatchedCohort {
+export interface PatchedCohortApi {
     readonly id?: number
     /**
      * @maxLength 400
@@ -13216,11 +20471,11 @@ export interface PatchedCohort {
         }
    * @nullable
    */
-    filters?: PatchedCohortFilters
+    filters?: PatchedCohortApiFilters
     /** @nullable */
-    query?: PatchedCohortQuery
+    query?: PatchedCohortApiQuery
     readonly is_calculating?: boolean
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /** @nullable */
     readonly created_at?: string | null
     /** @nullable */
@@ -13239,43 +20494,43 @@ export interface PatchedCohort {
 * `analytical` - analytical
    * @nullable
    */
-    cohort_type?: PatchedCohortCohortType
+    cohort_type?: PatchedCohortApiCohortType
     readonly experiment_set?: readonly number[]
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
 
-export interface PatchedAddPersonsToStaticCohortRequest {
+export interface PatchedAddPersonsToStaticCohortRequestApi {
     /** List of person UUIDs to add to the cohort */
     person_ids?: string[]
 }
 
-export interface PatchedRemovePersonRequest {
+export interface PatchedRemovePersonRequestApi {
     /** Person UUID to remove from the cohort */
     person_id?: string
 }
 
-export interface PaginatedCommentList {
+export interface PaginatedCommentListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Comment[]
+    results: CommentApi[]
 }
 
 /**
  * @nullable
  */
-export type CommentRichContent = unknown | null
+export type CommentApiRichContent = unknown | null
 
 /**
  * @nullable
  */
-export type CommentItemContext = unknown | null
+export type CommentApiItemContext = unknown | null
 
-export interface Comment {
+export interface CommentApi {
     readonly id: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -13283,7 +20538,7 @@ export interface Comment {
     /** @nullable */
     content?: string | null
     /** @nullable */
-    rich_content?: CommentRichContent
+    rich_content?: CommentApiRichContent
     readonly version: number
     readonly created_at: string
     /**
@@ -13292,7 +20547,7 @@ export interface Comment {
      */
     item_id?: string | null
     /** @nullable */
-    item_context?: CommentItemContext
+    item_context?: CommentApiItemContext
     /** @maxLength 79 */
     scope: string
     /** @nullable */
@@ -13302,16 +20557,16 @@ export interface Comment {
 /**
  * @nullable
  */
-export type PatchedCommentRichContent = unknown | null
+export type PatchedCommentApiRichContent = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedCommentItemContext = unknown | null
+export type PatchedCommentApiItemContext = unknown | null
 
-export interface PatchedComment {
+export interface PatchedCommentApi {
     readonly id?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /** @nullable */
     deleted?: boolean | null
     mentions?: number[]
@@ -13319,7 +20574,7 @@ export interface PatchedComment {
     /** @nullable */
     content?: string | null
     /** @nullable */
-    rich_content?: PatchedCommentRichContent
+    rich_content?: PatchedCommentApiRichContent
     readonly version?: number
     readonly created_at?: string
     /**
@@ -13328,41 +20583,47 @@ export interface PatchedComment {
      */
     item_id?: string | null
     /** @nullable */
-    item_context?: PatchedCommentItemContext
+    item_context?: PatchedCommentApiItemContext
     /** @maxLength 79 */
     scope?: string
     /** @nullable */
     source_comment?: string | null
 }
 
-export interface PaginatedDashboardTemplateList {
+export interface PaginatedDashboardTemplateListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DashboardTemplate[]
+    results: DashboardTemplateApi[]
 }
 
 /**
  * @nullable
  */
-export type DashboardTemplateDashboardFilters = unknown | null
+export type DashboardTemplateApiDashboardFilters = unknown | null
 
 /**
  * @nullable
  */
-export type DashboardTemplateTiles = unknown | null
+export type DashboardTemplateApiTiles = unknown | null
 
 /**
  * @nullable
  */
-export type DashboardTemplateVariables = unknown | null
+export type DashboardTemplateApiVariables = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DashboardTemplateScope = { ...DashboardTemplateScopeEnum, ...BlankEnum, ...NullEnum } as const
+export const DashboardTemplateApiScope = { ...DashboardTemplateScopeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type DashboardTemplateApiScope =
+    | (typeof DashboardTemplateApiScope)[keyof typeof DashboardTemplateApiScope]
+    | null
 
-export interface DashboardTemplate {
+export interface DashboardTemplateApi {
     readonly id: string
     /**
      * @maxLength 400
@@ -13375,13 +20636,13 @@ export interface DashboardTemplate {
      */
     dashboard_description?: string | null
     /** @nullable */
-    dashboard_filters?: DashboardTemplateDashboardFilters
+    dashboard_filters?: DashboardTemplateApiDashboardFilters
     /** @nullable */
     tags?: string[] | null
     /** @nullable */
-    tiles?: DashboardTemplateTiles
+    tiles?: DashboardTemplateApiTiles
     /** @nullable */
-    variables?: DashboardTemplateVariables
+    variables?: DashboardTemplateApiVariables
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -13396,7 +20657,7 @@ export interface DashboardTemplate {
     /** @nullable */
     readonly team_id: number | null
     /** @nullable */
-    scope?: DashboardTemplateScope
+    scope?: DashboardTemplateApiScope
     /** @nullable */
     availability_contexts?: string[] | null
 }
@@ -13404,28 +20665,32 @@ export interface DashboardTemplate {
 /**
  * @nullable
  */
-export type PatchedDashboardTemplateDashboardFilters = unknown | null
+export type PatchedDashboardTemplateApiDashboardFilters = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardTemplateTiles = unknown | null
+export type PatchedDashboardTemplateApiTiles = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedDashboardTemplateVariables = unknown | null
+export type PatchedDashboardTemplateApiVariables = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedDashboardTemplateScope = { ...DashboardTemplateScopeEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedDashboardTemplateApiScope = {
+    ...DashboardTemplateScopeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * @nullable
  */
-export type PatchedDashboardTemplateScope =
-    | (typeof PatchedDashboardTemplateScope)[keyof typeof PatchedDashboardTemplateScope]
+export type PatchedDashboardTemplateApiScope =
+    | (typeof PatchedDashboardTemplateApiScope)[keyof typeof PatchedDashboardTemplateApiScope]
     | null
 
-export interface PatchedDashboardTemplate {
+export interface PatchedDashboardTemplateApi {
     readonly id?: string
     /**
      * @maxLength 400
@@ -13438,13 +20703,13 @@ export interface PatchedDashboardTemplate {
      */
     dashboard_description?: string | null
     /** @nullable */
-    dashboard_filters?: PatchedDashboardTemplateDashboardFilters
+    dashboard_filters?: PatchedDashboardTemplateApiDashboardFilters
     /** @nullable */
     tags?: string[] | null
     /** @nullable */
-    tiles?: PatchedDashboardTemplateTiles
+    tiles?: PatchedDashboardTemplateApiTiles
     /** @nullable */
-    variables?: PatchedDashboardTemplateVariables
+    variables?: PatchedDashboardTemplateApiVariables
     /** @nullable */
     deleted?: boolean | null
     /** @nullable */
@@ -13459,75 +20724,89 @@ export interface PatchedDashboardTemplate {
     /** @nullable */
     readonly team_id?: number | null
     /** @nullable */
-    scope?: PatchedDashboardTemplateScope
+    scope?: PatchedDashboardTemplateApiScope
     /** @nullable */
     availability_contexts?: string[] | null
 }
 
-export interface PaginatedPropertyDefinitionList {
+export interface PaginatedPropertyDefinitionListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: PropertyDefinition[]
+    results: PropertyDefinitionApi[]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyDefinitionPropertyType = {
-    ...PropertyDefinitionPropertyTypeEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const PropertyDefinitionApiPropertyType = {
+    ...PropertyDefinitionPropertyTypeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * @nullable
  */
-export type PropertyDefinitionPropertyType =
-    | (typeof PropertyDefinitionPropertyType)[keyof typeof PropertyDefinitionPropertyType]
-    | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedPropertyDefinitionPropertyType = {
-    ...PropertyDefinitionPropertyTypeEnum,
-    ...BlankEnum,
-    ...NullEnum,
-} as const
-/**
- * @nullable
- */
-export type PatchedPropertyDefinitionPropertyType =
-    | (typeof PatchedPropertyDefinitionPropertyType)[keyof typeof PatchedPropertyDefinitionPropertyType]
+export type PropertyDefinitionApiPropertyType =
+    | (typeof PropertyDefinitionApiPropertyType)[keyof typeof PropertyDefinitionApiPropertyType]
     | null
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface PatchedPropertyDefinition {
+export interface PropertyDefinitionApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    is_numerical?: boolean
+    /** @nullable */
+    property_type?: PropertyDefinitionApiPropertyType
+    tags?: unknown[]
+    readonly is_seen_on_filtered_events: string
+}
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedPropertyDefinitionApiPropertyType = {
+    ...PropertyDefinitionPropertyTypeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
+/**
+ * @nullable
+ */
+export type PatchedPropertyDefinitionApiPropertyType =
+    | (typeof PatchedPropertyDefinitionApiPropertyType)[keyof typeof PatchedPropertyDefinitionApiPropertyType]
+    | null
+
+/**
+ * Serializer mixin that resolves appropriate response for tags depending on license.
+ */
+export interface PatchedPropertyDefinitionApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
     is_numerical?: boolean
     /** @nullable */
-    property_type?: PatchedPropertyDefinitionPropertyType
+    property_type?: PatchedPropertyDefinitionApiPropertyType
     tags?: unknown[]
     readonly is_seen_on_filtered_events?: string
 }
 
-export interface PaginatedScheduledChangeList {
+export interface PaginatedScheduledChangeListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ScheduledChange[]
+    results: ScheduledChangeApi[]
 }
 
-export interface ScheduledChange {
+export interface ScheduledChangeApi {
     readonly id: number
     readonly team_id: number
     /** @maxLength 200 */
     record_id: string
-    model_name: ModelNameEnum
+    model_name: ModelNameEnumApi
     payload?: unknown
     scheduled_at: string
     /** @nullable */
@@ -13538,16 +20817,16 @@ export interface ScheduledChange {
      */
     readonly failure_reason: string | null
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly updated_at: string
 }
 
-export interface PatchedScheduledChange {
+export interface PatchedScheduledChangeApi {
     readonly id?: number
     readonly team_id?: number
     /** @maxLength 200 */
     record_id?: string
-    model_name?: ModelNameEnum
+    model_name?: ModelNameEnumApi
     payload?: unknown
     scheduled_at?: string
     /** @nullable */
@@ -13558,46 +20837,46 @@ export interface PatchedScheduledChange {
      */
     readonly failure_reason?: string | null
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly updated_at?: string
 }
 
-export interface PaginatedUserList {
+export interface PaginatedUserListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: User[]
+    results: UserApi[]
 }
 
-export type UserNotificationSettings = { [key: string]: unknown }
+export type UserApiNotificationSettings = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserToolbarMode = { ...ToolbarModeEnum, ...BlankEnum, ...NullEnum } as const
+export const UserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserToolbarMode = (typeof UserToolbarMode)[keyof typeof UserToolbarMode] | null
+export type UserApiToolbarMode = (typeof UserApiToolbarMode)[keyof typeof UserApiToolbarMode] | null
 
 /**
  * @nullable
  */
-export type UserHasSeenProductIntroFor = unknown | null
+export type UserApiHasSeenProductIntroFor = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserThemeMode = { ...ThemeModeEnum, ...BlankEnum, ...NullEnum } as const
+export const UserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserThemeMode = (typeof UserThemeMode)[keyof typeof UserThemeMode] | null
+export type UserApiThemeMode = (typeof UserApiThemeMode)[keyof typeof UserApiThemeMode] | null
 
 /**
  * @nullable
  */
-export type UserHedgehogConfig = unknown | null
+export type UserApiHedgehogConfig = unknown | null
 
-export interface User {
+export interface UserApi {
     readonly date_joined: string
     readonly uuid: string
     /** @nullable */
@@ -13612,11 +20891,11 @@ export interface User {
     readonly pending_email: string | null
     /** @nullable */
     readonly is_email_verified: boolean | null
-    notification_settings?: UserNotificationSettings
+    notification_settings?: UserApiNotificationSettings
     /** @nullable */
     anonymize_data?: boolean | null
     /** @nullable */
-    toolbar_mode?: UserToolbarMode
+    toolbar_mode?: UserApiToolbarMode
     readonly has_password: boolean
     readonly id: number
     /** Designates whether the user can log into this admin site. */
@@ -13627,9 +20906,9 @@ export interface User {
     readonly is_impersonated_until: string | null
     /** @nullable */
     readonly sensitive_session_expires_at: string | null
-    readonly team: TeamBasic
-    readonly organization: Organization
-    readonly organizations: readonly OrganizationBasic[]
+    readonly team: TeamBasicApi
+    readonly organization: OrganizationApi
+    readonly organizations: readonly OrganizationBasicApi[]
     set_current_organization?: string
     set_current_team?: string
     /** @maxLength 128 */
@@ -13640,44 +20919,46 @@ export interface User {
     readonly has_social_auth: boolean
     readonly has_sso_enforcement: boolean
     /** @nullable */
-    has_seen_product_intro_for?: UserHasSeenProductIntroFor
-    readonly scene_personalisation: readonly ScenePersonalisationBasic[]
+    has_seen_product_intro_for?: UserApiHasSeenProductIntroFor
+    readonly scene_personalisation: readonly ScenePersonalisationBasicApi[]
     /** @nullable */
-    theme_mode?: UserThemeMode
+    theme_mode?: UserApiThemeMode
     /** @nullable */
-    hedgehog_config?: UserHedgehogConfig
+    hedgehog_config?: UserApiHedgehogConfig
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    role_at_organization?: RoleAtOrganizationEnum
+    role_at_organization?: RoleAtOrganizationEnumApi
 }
 
-export type PatchedUserNotificationSettings = { [key: string]: unknown }
+export type PatchedUserApiNotificationSettings = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserToolbarMode = { ...ToolbarModeEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedUserApiToolbarMode = { ...ToolbarModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedUserToolbarMode = (typeof PatchedUserToolbarMode)[keyof typeof PatchedUserToolbarMode] | null
+export type PatchedUserApiToolbarMode =
+    | (typeof PatchedUserApiToolbarMode)[keyof typeof PatchedUserApiToolbarMode]
+    | null
 
 /**
  * @nullable
  */
-export type PatchedUserHasSeenProductIntroFor = unknown | null
+export type PatchedUserApiHasSeenProductIntroFor = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedUserThemeMode = { ...ThemeModeEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedUserApiThemeMode = { ...ThemeModeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedUserThemeMode = (typeof PatchedUserThemeMode)[keyof typeof PatchedUserThemeMode] | null
+export type PatchedUserApiThemeMode = (typeof PatchedUserApiThemeMode)[keyof typeof PatchedUserApiThemeMode] | null
 
 /**
  * @nullable
  */
-export type PatchedUserHedgehogConfig = unknown | null
+export type PatchedUserApiHedgehogConfig = unknown | null
 
-export interface PatchedUser {
+export interface PatchedUserApi {
     readonly date_joined?: string
     readonly uuid?: string
     /** @nullable */
@@ -13692,11 +20973,11 @@ export interface PatchedUser {
     readonly pending_email?: string | null
     /** @nullable */
     readonly is_email_verified?: boolean | null
-    notification_settings?: PatchedUserNotificationSettings
+    notification_settings?: PatchedUserApiNotificationSettings
     /** @nullable */
     anonymize_data?: boolean | null
     /** @nullable */
-    toolbar_mode?: PatchedUserToolbarMode
+    toolbar_mode?: PatchedUserApiToolbarMode
     readonly has_password?: boolean
     readonly id?: number
     /** Designates whether the user can log into this admin site. */
@@ -13707,9 +20988,9 @@ export interface PatchedUser {
     readonly is_impersonated_until?: string | null
     /** @nullable */
     readonly sensitive_session_expires_at?: string | null
-    readonly team?: TeamBasic
-    readonly organization?: Organization
-    readonly organizations?: readonly OrganizationBasic[]
+    readonly team?: TeamBasicApi
+    readonly organization?: OrganizationApi
+    readonly organizations?: readonly OrganizationBasicApi[]
     set_current_organization?: string
     set_current_team?: string
     /** @maxLength 128 */
@@ -13720,39 +21001,39 @@ export interface PatchedUser {
     readonly has_social_auth?: boolean
     readonly has_sso_enforcement?: boolean
     /** @nullable */
-    has_seen_product_intro_for?: PatchedUserHasSeenProductIntroFor
-    readonly scene_personalisation?: readonly ScenePersonalisationBasic[]
+    has_seen_product_intro_for?: PatchedUserApiHasSeenProductIntroFor
+    readonly scene_personalisation?: readonly ScenePersonalisationBasicApi[]
     /** @nullable */
-    theme_mode?: PatchedUserThemeMode
+    theme_mode?: PatchedUserApiThemeMode
     /** @nullable */
-    hedgehog_config?: PatchedUserHedgehogConfig
+    hedgehog_config?: PatchedUserApiHedgehogConfig
     /** @nullable */
     allow_sidebar_suggestions?: boolean | null
-    role_at_organization?: RoleAtOrganizationEnum
+    role_at_organization?: RoleAtOrganizationEnumApi
 }
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface DashboardBasic {
+export interface DashboardBasicApi {
     readonly id: number
     /** @nullable */
     readonly name: string | null
     readonly description: string
     readonly pinned: boolean
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     readonly last_accessed_at: string | null
     /** @nullable */
     readonly last_viewed_at: string | null
     readonly is_shared: boolean
     readonly deleted: boolean
-    readonly creation_mode: CreationModeEnum
+    readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
-    readonly restriction_level: DashboardRestrictionLevel
-    readonly effective_restriction_level: EffectiveRestrictionLevelEnum
-    readonly effective_privilege_level: EffectivePrivilegeLevelEnum
+    readonly restriction_level: DashboardRestrictionLevelApi
+    readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
+    readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -13820,19 +21101,13 @@ export interface DashboardBasic {
  * `8` - administrator
  * `15` - owner
  */
-export type OrganizationMembershipLevel = (typeof OrganizationMembershipLevel)[keyof typeof OrganizationMembershipLevel]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrganizationMembershipLevel = {
-    NUMBER_1: 1,
-    NUMBER_8: 8,
-    NUMBER_15: 15,
-} as const
 
 /**
  * @nullable
  */
-export type ProjectBackwardCompatBasicHasCompletedOnboardingFor = unknown | null
+export type ProjectBackwardCompatBasicApiHasCompletedOnboardingFor = unknown | null
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
@@ -13840,7 +21115,7 @@ passthrough fields. This allows the meaning of `Team` to change from "project" t
 backward compatibility of the REST API.
 Do not use this in greenfield endpoints!
  */
-export interface ProjectBackwardCompatBasic {
+export interface ProjectBackwardCompatBasicApi {
     readonly id: number
     readonly uuid: string
     readonly organization: string
@@ -13848,15 +21123,12 @@ export interface ProjectBackwardCompatBasic {
     readonly name: string
     readonly completed_snippet_onboarding: boolean
     /** @nullable */
-    readonly has_completed_onboarding_for: ProjectBackwardCompatBasicHasCompletedOnboardingFor
+    readonly has_completed_onboarding_for: ProjectBackwardCompatBasicApiHasCompletedOnboardingFor
     readonly ingested_event: boolean
     readonly is_demo: boolean
-    readonly timezone: TimezoneEnum
+    readonly timezone: TimezoneEnumApi
     readonly access_control: boolean
 }
-
-export type EffectiveMembershipLevelEnum =
-    (typeof EffectiveMembershipLevelEnum)[keyof typeof EffectiveMembershipLevelEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -14518,8 +21790,6 @@ export type EffectiveMembershipLevelEnum =
  * `Boolean` - Boolean
  * `Duration` - Duration
  */
-export type PropertyDefinitionPropertyTypeEnum =
-    (typeof PropertyDefinitionPropertyTypeEnum)[keyof typeof PropertyDefinitionPropertyTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -14539,13 +21809,13 @@ export type PropertyDefinitionPropertyTypeEnum =
 /**
  * @nullable
  */
-export type TeamBasicHasCompletedOnboardingFor = unknown | null
+export type TeamBasicApiHasCompletedOnboardingFor = unknown | null
 
 /**
  * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
 Also used for nested serializers.
  */
-export interface TeamBasic {
+export interface TeamBasicApi {
     readonly id: number
     readonly uuid: string
     readonly organization: string
@@ -14558,27 +21828,27 @@ export interface TeamBasic {
     readonly name: string
     readonly completed_snippet_onboarding: boolean
     /** @nullable */
-    readonly has_completed_onboarding_for: TeamBasicHasCompletedOnboardingFor
+    readonly has_completed_onboarding_for: TeamBasicApiHasCompletedOnboardingFor
     readonly ingested_event: boolean
     readonly is_demo: boolean
-    readonly timezone: TimezoneEnum
+    readonly timezone: TimezoneEnumApi
     readonly access_control: boolean
 }
 
 /**
  * @nullable
  */
-export type OrganizationMembershipLevelProperty = MembershipLevelEnum | null
+export type OrganizationApiMembershipLevel = MembershipLevelEnumApi | null
 
-export type OrganizationTeamsItem = { [key: string]: unknown }
+export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
-export type OrganizationProjectsItem = { [key: string]: unknown }
+export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const OrganizationDefaultExperimentStatsMethod = {
-    ...DefaultExperimentStatsMethodEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const OrganizationApiDefaultExperimentStatsMethod = {
+    ...DefaultExperimentStatsMethodEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * Default statistical method for new experiments in this organization.
@@ -14587,11 +21857,11 @@ export const OrganizationDefaultExperimentStatsMethod = {
 * `frequentist` - Frequentist
  * @nullable
  */
-export type OrganizationDefaultExperimentStatsMethod =
-    | (typeof OrganizationDefaultExperimentStatsMethod)[keyof typeof OrganizationDefaultExperimentStatsMethod]
+export type OrganizationApiDefaultExperimentStatsMethod =
+    | (typeof OrganizationApiDefaultExperimentStatsMethod)[keyof typeof OrganizationApiDefaultExperimentStatsMethod]
     | null
 
-export interface Organization {
+export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
     name: string
@@ -14602,10 +21872,10 @@ export interface Organization {
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
-    readonly membership_level: OrganizationMembershipLevelProperty
-    readonly plugins_access_level: PluginsAccessLevelEnum
-    readonly teams: readonly OrganizationTeamsItem[]
-    readonly projects: readonly OrganizationProjectsItem[]
+    readonly membership_level: OrganizationApiMembershipLevel
+    readonly plugins_access_level: PluginsAccessLevelEnumApi
+    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
     is_member_join_email_enabled?: boolean
@@ -14628,7 +21898,7 @@ export interface Organization {
 * `frequentist` - Frequentist
    * @nullable
    */
-    default_experiment_stats_method?: OrganizationDefaultExperimentStatsMethod
+    default_experiment_stats_method?: OrganizationApiDefaultExperimentStatsMethod
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -14641,13 +21911,13 @@ export interface Organization {
 /**
  * @nullable
  */
-export type OrganizationBasicMembershipLevel = MembershipLevelEnum | null
+export type OrganizationBasicApiMembershipLevel = MembershipLevelEnumApi | null
 
 /**
  * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
 Also used for nested serializers.
  */
-export interface OrganizationBasic {
+export interface OrganizationBasicApi {
     readonly id: string
     /** @maxLength 64 */
     name: string
@@ -14659,11 +21929,11 @@ export interface OrganizationBasic {
     /** @nullable */
     readonly logo_media_id: string | null
     /** @nullable */
-    readonly membership_level: OrganizationBasicMembershipLevel
+    readonly membership_level: OrganizationBasicApiMembershipLevel
     members_can_use_personal_api_keys?: boolean
 }
 
-export interface ScenePersonalisationBasic {
+export interface ScenePersonalisationBasicApi {
     /** @maxLength 200 */
     scene: string
     /** @nullable */
@@ -14693,24 +21963,22 @@ export interface ScenePersonalisationBasic {
  * * `bayesian` - Bayesian
  * `frequentist` - Frequentist
  */
-export type DefaultExperimentStatsMethodEnum =
-    (typeof DefaultExperimentStatsMethodEnum)[keyof typeof DefaultExperimentStatsMethodEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface PaginatedDesktopRecordingList {
+export interface PaginatedDesktopRecordingListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DesktopRecording[]
+    results: DesktopRecordingApi[]
 }
 
 /**
  * Request body for creating a new recording
  */
-export interface CreateRecordingRequest {
+export interface CreateRecordingRequestApi {
     /** Meeting platform being recorded
 
 * `zoom` - zoom
@@ -14718,13 +21986,13 @@ export interface CreateRecordingRequest {
 * `meet` - meet
 * `desktop_audio` - desktop_audio
 * `slack` - slack */
-    platform?: CreateRecordingRequestPlatformEnum
+    platform?: CreateRecordingRequestPlatformEnumApi
 }
 
 /**
  * Response for creating a new recording (includes upload_token)
  */
-export interface CreateRecordingResponse {
+export interface CreateRecordingResponseApi {
     readonly id: string
     readonly team: number
     /** @nullable */
@@ -14732,7 +22000,7 @@ export interface CreateRecordingResponse {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnum
+    platform: Platform9aaEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -14749,7 +22017,7 @@ export interface CreateRecordingResponse {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292Enum
+    status?: Status292EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -14769,11 +22037,11 @@ export interface CreateRecordingResponse {
     participants?: string[]
     readonly transcript_text: string
     /** Transcript segments with timestamps */
-    transcript_segments?: TranscriptSegment[]
+    transcript_segments?: TranscriptSegmentApi[]
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: Task[]
+    extracted_tasks?: TaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -14787,7 +22055,7 @@ export interface CreateRecordingResponse {
     upload_token: string
 }
 
-export interface DesktopRecording {
+export interface DesktopRecordingApi {
     readonly id: string
     readonly team: number
     /** @nullable */
@@ -14795,7 +22063,7 @@ export interface DesktopRecording {
     readonly sdk_upload_id: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform: Platform9aaEnum
+    platform: Platform9aaEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -14812,7 +22080,7 @@ export interface DesktopRecording {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292Enum
+    status?: Status292EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -14832,11 +22100,11 @@ export interface DesktopRecording {
     participants?: string[]
     readonly transcript_text: string
     /** Transcript segments with timestamps */
-    transcript_segments?: TranscriptSegment[]
+    transcript_segments?: TranscriptSegmentApi[]
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: Task[]
+    extracted_tasks?: TaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -14848,7 +22116,7 @@ export interface DesktopRecording {
     readonly updated_at: string
 }
 
-export interface PatchedDesktopRecording {
+export interface PatchedDesktopRecordingApi {
     readonly id?: string
     readonly team?: number
     /** @nullable */
@@ -14856,7 +22124,7 @@ export interface PatchedDesktopRecording {
     readonly sdk_upload_id?: string
     /** @nullable */
     recall_recording_id?: string | null
-    platform?: Platform9aaEnum
+    platform?: Platform9aaEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -14873,7 +22141,7 @@ export interface PatchedDesktopRecording {
      * @nullable
      */
     duration_seconds?: number | null
-    status?: Status292Enum
+    status?: Status292EnumApi
     /** @nullable */
     notes?: string | null
     /** @nullable */
@@ -14893,11 +22161,11 @@ export interface PatchedDesktopRecording {
     participants?: string[]
     readonly transcript_text?: string
     /** Transcript segments with timestamps */
-    transcript_segments?: TranscriptSegment[]
+    transcript_segments?: TranscriptSegmentApi[]
     /** @nullable */
     summary?: string | null
     /** AI-extracted tasks from transcript */
-    extracted_tasks?: Task[]
+    extracted_tasks?: TaskApi[]
     /** @nullable */
     tasks_generated_at?: string | null
     /** @nullable */
@@ -14912,9 +22180,9 @@ export interface PatchedDesktopRecording {
 /**
  * Serializer for appending transcript segments (supports batched real-time uploads)
  */
-export interface AppendSegments {
+export interface AppendSegmentsApi {
     /** @minItems 1 */
-    segments: TranscriptSegment[]
+    segments: TranscriptSegmentApi[]
 }
 
 /**
@@ -14924,8 +22192,6 @@ export interface AppendSegments {
  * `desktop_audio` - desktop_audio
  * `slack` - slack
  */
-export type CreateRecordingRequestPlatformEnum =
-    (typeof CreateRecordingRequestPlatformEnum)[keyof typeof CreateRecordingRequestPlatformEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -14952,7 +22218,7 @@ export type CreateRecordingRequestPlatformEnum =
 /**
  * Serializer for individual transcript segments from AssemblyAI
  */
-export interface TranscriptSegment {
+export interface TranscriptSegmentApi {
     /**
      * Milliseconds from recording start
      * @nullable
@@ -14976,46 +22242,50 @@ export interface TranscriptSegment {
 /**
  * Serializer for extracted tasks
  */
-export interface Task {
+export interface TaskApi {
     title: string
     description?: string
     /** @nullable */
     assignee?: string | null
 }
 
-export interface PaginatedHogFunctionMinimalList {
+export interface PaginatedHogFunctionMinimalListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: HogFunctionMinimal[]
+    results: HogFunctionMinimalApi[]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const HogFunctionType = { ...HogFunctionTypeEnum, ...NullEnum } as const
+export const HogFunctionApiType = { ...HogFunctionTypeEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type HogFunctionApiType = (typeof HogFunctionApiType)[keyof typeof HogFunctionApiType] | null
 
 /**
  * @nullable
  */
-export type HogFunctionBytecode = unknown | null
+export type HogFunctionApiBytecode = unknown | null
 
-export type HogFunctionInputs = { [key: string]: InputsItem }
-
-/**
- * @nullable
- */
-export type HogFunctionMaskingProperty = HogFunctionMasking | null
+export type HogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
  * @nullable
  */
-export type HogFunctionStatusProperty = HogFunctionStatus | null
+export type HogFunctionApiMasking = HogFunctionMaskingApi | null
 
-export interface HogFunction {
+/**
+ * @nullable
+ */
+export type HogFunctionApiStatus = HogFunctionStatusApi | null
+
+export interface HogFunctionApi {
     readonly id: string
     /** @nullable */
-    type?: HogFunctionType
+    type?: HogFunctionApiType
     /**
      * @maxLength 400
      * @nullable
@@ -15023,32 +22293,32 @@ export interface HogFunction {
     name?: string | null
     description?: string
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly updated_at: string
     enabled?: boolean
     deleted?: boolean
     hog?: string
     /** @nullable */
-    readonly bytecode: HogFunctionBytecode
+    readonly bytecode: HogFunctionApiBytecode
     /** @nullable */
     readonly transpiled: string | null
-    inputs_schema?: InputsSchemaItem[]
-    inputs?: HogFunctionInputs
-    filters?: HogFunctionFilters
+    inputs_schema?: InputsSchemaItemApi[]
+    inputs?: HogFunctionApiInputs
+    filters?: HogFunctionFiltersApi
     /** @nullable */
-    masking?: HogFunctionMaskingProperty
+    masking?: HogFunctionApiMasking
     /** @nullable */
-    mappings?: Mappings[] | null
+    mappings?: MappingsApi[] | null
     /** @nullable */
     icon_url?: string | null
-    readonly template: HogFunctionTemplate
+    readonly template: HogFunctionTemplateApi
     /**
      * @maxLength 400
      * @nullable
      */
     template_id?: string | null
     /** @nullable */
-    readonly status: HogFunctionStatusProperty
+    readonly status: HogFunctionApiStatus
     /**
      * @minimum 0
      * @maximum 32767
@@ -15059,33 +22329,35 @@ export interface HogFunction {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedHogFunctionType = { ...HogFunctionTypeEnum, ...NullEnum } as const
+export const PatchedHogFunctionApiType = { ...HogFunctionTypeEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedHogFunctionType = (typeof PatchedHogFunctionType)[keyof typeof PatchedHogFunctionType] | null
-
-/**
- * @nullable
- */
-export type PatchedHogFunctionBytecode = unknown | null
-
-export type PatchedHogFunctionInputs = { [key: string]: InputsItem }
+export type PatchedHogFunctionApiType =
+    | (typeof PatchedHogFunctionApiType)[keyof typeof PatchedHogFunctionApiType]
+    | null
 
 /**
  * @nullable
  */
-export type PatchedHogFunctionMasking = HogFunctionMasking | null
+export type PatchedHogFunctionApiBytecode = unknown | null
+
+export type PatchedHogFunctionApiInputs = { [key: string]: InputsItemApi }
 
 /**
  * @nullable
  */
-export type PatchedHogFunctionStatus = HogFunctionStatus | null
+export type PatchedHogFunctionApiMasking = HogFunctionMaskingApi | null
 
-export interface PatchedHogFunction {
+/**
+ * @nullable
+ */
+export type PatchedHogFunctionApiStatus = HogFunctionStatusApi | null
+
+export interface PatchedHogFunctionApi {
     readonly id?: string
     /** @nullable */
-    type?: PatchedHogFunctionType
+    type?: PatchedHogFunctionApiType
     /**
      * @maxLength 400
      * @nullable
@@ -15093,32 +22365,32 @@ export interface PatchedHogFunction {
     name?: string | null
     description?: string
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly updated_at?: string
     enabled?: boolean
     deleted?: boolean
     hog?: string
     /** @nullable */
-    readonly bytecode?: PatchedHogFunctionBytecode
+    readonly bytecode?: PatchedHogFunctionApiBytecode
     /** @nullable */
     readonly transpiled?: string | null
-    inputs_schema?: InputsSchemaItem[]
-    inputs?: PatchedHogFunctionInputs
-    filters?: HogFunctionFilters
+    inputs_schema?: InputsSchemaItemApi[]
+    inputs?: PatchedHogFunctionApiInputs
+    filters?: HogFunctionFiltersApi
     /** @nullable */
-    masking?: PatchedHogFunctionMasking
+    masking?: PatchedHogFunctionApiMasking
     /** @nullable */
-    mappings?: Mappings[] | null
+    mappings?: MappingsApi[] | null
     /** @nullable */
     icon_url?: string | null
-    readonly template?: HogFunctionTemplate
+    readonly template?: HogFunctionTemplateApi
     /**
      * @maxLength 400
      * @nullable
      */
     template_id?: string | null
     /** @nullable */
-    readonly status?: PatchedHogFunctionStatus
+    readonly status?: PatchedHogFunctionApiStatus
     /**
      * @minimum 0
      * @maximum 32767
@@ -15131,14 +22403,14 @@ export interface PatchedHogFunction {
 /**
  * @nullable
  */
-export type HogFunctionMinimalFilters = unknown | null
+export type HogFunctionMinimalApiFilters = unknown | null
 
 /**
  * @nullable
  */
-export type HogFunctionMinimalStatus = HogFunctionStatus | null
+export type HogFunctionMinimalApiStatus = HogFunctionStatusApi | null
 
-export interface HogFunctionMinimal {
+export interface HogFunctionMinimalApi {
     readonly id: string
     /** @nullable */
     readonly type: string | null
@@ -15146,17 +22418,17 @@ export interface HogFunctionMinimal {
     readonly name: string | null
     readonly description: string
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly updated_at: string
     readonly enabled: boolean
     readonly hog: string
     /** @nullable */
-    readonly filters: HogFunctionMinimalFilters
+    readonly filters: HogFunctionMinimalApiFilters
     /** @nullable */
     readonly icon_url: string | null
-    readonly template: HogFunctionTemplate
+    readonly template: HogFunctionTemplateApi
     /** @nullable */
-    readonly status: HogFunctionMinimalStatus
+    readonly status: HogFunctionMinimalApiStatus
     /** @nullable */
     readonly execution_order: number | null
 }
@@ -15172,13 +22444,13 @@ export interface HogFunctionMinimal {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type InputsSchemaItemChoicesItem = { [key: string]: unknown }
+export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
 
-export interface InputsSchemaItem {
-    type: InputsSchemaItemTypeEnum
+export interface InputsSchemaItemApi {
+    type: InputsSchemaItemTypeEnumApi
     key: string
     label?: string
-    choices?: InputsSchemaItemChoicesItem[]
+    choices?: InputsSchemaItemApiChoicesItem[]
     required?: boolean
     default?: unknown
     secret?: boolean
@@ -15189,12 +22461,12 @@ export interface InputsSchemaItem {
     requires_field?: string
     integration_field?: string
     requiredScopes?: string
-    templating?: InputsSchemaItemTemplatingEnum
+    templating?: InputsSchemaItemTemplatingEnumApi
 }
 
-export interface InputsItem {
+export interface InputsItemApi {
     value?: string
-    templating?: Templating186Enum
+    templating?: Templating186EnumApi
     readonly bytecode: readonly unknown[]
     readonly order: number
     readonly transpiled: unknown
@@ -15203,9 +22475,9 @@ export interface InputsItem {
 /**
  * @nullable
  */
-export type HogFunctionMaskingBytecode = unknown | null
+export type HogFunctionMaskingApiBytecode = unknown | null
 
-export interface HogFunctionMasking {
+export interface HogFunctionMaskingApi {
     /**
      * @minimum 60
      * @maximum 86400
@@ -15215,29 +22487,29 @@ export interface HogFunctionMasking {
     threshold?: number | null
     hash: string
     /** @nullable */
-    bytecode?: HogFunctionMaskingBytecode
+    bytecode?: HogFunctionMaskingApiBytecode
 }
 
-export type MappingsInputs = { [key: string]: InputsItem }
+export type MappingsApiInputs = { [key: string]: InputsItemApi }
 
-export interface Mappings {
+export interface MappingsApi {
     name?: string
-    inputs_schema?: InputsSchemaItem[]
-    inputs?: MappingsInputs
-    filters?: HogFunctionFilters
+    inputs_schema?: InputsSchemaItemApi[]
+    inputs?: MappingsApiInputs
+    filters?: HogFunctionFiltersApi
 }
 
 /**
  * @nullable
  */
-export type HogFunctionTemplateFilters = unknown | null
+export type HogFunctionTemplateApiFilters = unknown | null
 
 /**
  * @nullable
  */
-export type HogFunctionTemplateMasking = unknown | null
+export type HogFunctionTemplateApiMasking = unknown | null
 
-export interface HogFunctionTemplate {
+export interface HogFunctionTemplateApi {
     id: string
     /** @maxLength 400 */
     name: string
@@ -15256,11 +22528,16 @@ export interface HogFunctionTemplate {
     /** @nullable */
     icon_url?: string | null
     /** @nullable */
-    filters?: HogFunctionTemplateFilters
+    filters?: HogFunctionTemplateApiFilters
     /** @nullable */
-    masking?: HogFunctionTemplateMasking
+    masking?: HogFunctionTemplateApiMasking
     /** @nullable */
-    mapping_templates?: HogFunctionMappingTemplate[] | null
+    mapping_templates?: HogFunctionMappingTemplateApi[] | null
+}
+
+export interface HogFunctionStatusApi {
+    state: HogFunctionStatusStateEnumApi
+    tokens: number
 }
 
 /**
@@ -15284,36 +22561,34 @@ export interface HogFunctionTemplate {
  * `hog` - hog
  * `liquid` - liquid
  */
-export type InputsSchemaItemTemplatingEnum =
-    (typeof InputsSchemaItemTemplatingEnum)[keyof typeof InputsSchemaItemTemplatingEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * @nullable
  */
-export type HogFunctionMappingTemplateFilters = unknown | null
+export type HogFunctionMappingTemplateApiFilters = unknown | null
 
 /**
  * @nullable
  */
-export type HogFunctionMappingTemplateInputs = unknown | null
+export type HogFunctionMappingTemplateApiInputs = unknown | null
 
 /**
  * @nullable
  */
-export type HogFunctionMappingTemplateInputsSchema = unknown | null
+export type HogFunctionMappingTemplateApiInputsSchema = unknown | null
 
-export interface HogFunctionMappingTemplate {
+export interface HogFunctionMappingTemplateApi {
     name: string
     /** @nullable */
     include_by_default?: boolean | null
     /** @nullable */
-    filters?: HogFunctionMappingTemplateFilters
+    filters?: HogFunctionMappingTemplateApiFilters
     /** @nullable */
-    inputs?: HogFunctionMappingTemplateInputs
+    inputs?: HogFunctionMappingTemplateApiInputs
     /** @nullable */
-    inputs_schema?: HogFunctionMappingTemplateInputsSchema
+    inputs_schema?: HogFunctionMappingTemplateApiInputsSchema
 }
 
 /**
@@ -15327,51 +22602,51 @@ export interface HogFunctionMappingTemplate {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface SummarizeRequest {
+export interface SummarizeRequestApi {
     /** Type of entity to summarize
 
 * `trace` - trace
 * `event` - event */
-    summarize_type: SummarizeTypeEnum
+    summarize_type: SummarizeTypeEnumApi
     /** Summary detail level: 'minimal' for 3-5 points, 'detailed' for 5-10 points
 
 * `minimal` - minimal
 * `detailed` - detailed */
-    mode?: ModeEnum
+    mode?: ModeEnumApi
     /** Data to summarize. For traces: {trace, hierarchy}. For events: {event}. */
     data: unknown
     /** Force regenerate summary, bypassing cache */
     force_refresh?: boolean
 }
 
-export interface SummarizeResponse {
+export interface SummarizeResponseApi {
     /** Structured AI-generated summary with flow, bullets, and optional notes */
-    summary: StructuredSummary
+    summary: StructuredSummaryApi
     /** Line-numbered text representation that the summary references */
     text_repr: string
     /** Metadata about the summarization */
     metadata?: unknown
 }
 
-export interface TextReprRequest {
+export interface TextReprRequestApi {
     /** Type of LLM event to stringify
 
 * `$ai_generation` - $ai_generation
 * `$ai_span` - $ai_span
 * `$ai_embedding` - $ai_embedding
 * `$ai_trace` - $ai_trace */
-    event_type: EventTypeEnum
+    event_type: EventTypeEnumApi
     /** Event data to stringify. For traces, should include 'trace' and 'hierarchy' fields. */
     data: unknown
     /** Optional configuration for text generation */
-    options?: TextReprOptions
+    options?: TextReprOptionsApi
 }
 
-export interface TextReprResponse {
+export interface TextReprResponseApi {
     /** Generated text representation of the event */
     text: string
     /** Metadata about the text representation */
-    metadata: TextReprMetadata
+    metadata: TextReprMetadataApi
 }
 
 /**
@@ -15388,15 +22663,15 @@ export interface TextReprResponse {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface StructuredSummary {
+export interface StructuredSummaryApi {
     /** Concise title (no longer than 10 words) summarizing the trace/event */
     title: string
     /** Mermaid flowchart code showing the main flow */
     flow_diagram: string
     /** Main summary bullets */
-    summary_bullets: SummaryBullet[]
+    summary_bullets: SummaryBulletApi[]
     /** Interesting notes (0-2 for minimal, more for detailed) */
-    interesting_notes: InterestingNote[]
+    interesting_notes: InterestingNoteApi[]
 }
 
 /**
@@ -15408,7 +22683,7 @@ export interface StructuredSummary {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface TextReprOptions {
+export interface TextReprOptionsApi {
     /** Maximum length of generated text (default: 4000000) */
     max_length?: number
     /** Use truncation for long content within events (default: true) */
@@ -15431,7 +22706,7 @@ export interface TextReprOptions {
     include_line_numbers?: boolean
 }
 
-export interface TextReprMetadata {
+export interface TextReprMetadataApi {
     event_type?: string
     event_id?: string
     trace_id?: string
@@ -15441,31 +22716,37 @@ export interface TextReprMetadata {
     error?: string
 }
 
-export interface SummaryBullet {
+export interface SummaryBulletApi {
     text: string
     line_refs: string
 }
 
-export interface InterestingNote {
+export interface InterestingNoteApi {
     text: string
     line_refs: string
 }
 
-export interface PaginatedSessionRecordingPlaylistList {
+export interface PaginatedSessionRecordingPlaylistListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SessionRecordingPlaylist[]
+    results: SessionRecordingPlaylistApi[]
 }
 
-export type SessionRecordingPlaylistRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
+export type SessionRecordingPlaylistApiRecordingsCounts = { [key: string]: { [key: string]: number | boolean | null } }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SessionRecordingPlaylistType = { ...SessionRecordingPlaylistTypeEnum, ...NullEnum } as const
+export const SessionRecordingPlaylistApiType = { ...SessionRecordingPlaylistTypeEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type SessionRecordingPlaylistApiType =
+    | (typeof SessionRecordingPlaylistApiType)[keyof typeof SessionRecordingPlaylistApiType]
+    | null
 
-export interface SessionRecordingPlaylist {
+export interface SessionRecordingPlaylistApi {
     readonly id: number
     readonly short_id: string
     /**
@@ -15481,33 +22762,36 @@ export interface SessionRecordingPlaylist {
     description?: string
     pinned?: boolean
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     deleted?: boolean
     filters?: unknown
     readonly last_modified_at: string
-    readonly last_modified_by: UserBasic
-    readonly recordings_counts: SessionRecordingPlaylistRecordingsCounts
+    readonly last_modified_by: UserBasicApi
+    readonly recordings_counts: SessionRecordingPlaylistApiRecordingsCounts
     /** @nullable */
-    readonly type: SessionRecordingPlaylistType
+    readonly type: SessionRecordingPlaylistApiType
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic: boolean
     _create_in_folder?: string
 }
 
-export type PatchedSessionRecordingPlaylistRecordingsCounts = {
+export type PatchedSessionRecordingPlaylistApiRecordingsCounts = {
     [key: string]: { [key: string]: number | boolean | null }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedSessionRecordingPlaylistType = { ...SessionRecordingPlaylistTypeEnum, ...NullEnum } as const
+export const PatchedSessionRecordingPlaylistApiType = {
+    ...SessionRecordingPlaylistTypeEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * @nullable
  */
-export type PatchedSessionRecordingPlaylistType =
-    | (typeof PatchedSessionRecordingPlaylistType)[keyof typeof PatchedSessionRecordingPlaylistType]
+export type PatchedSessionRecordingPlaylistApiType =
+    | (typeof PatchedSessionRecordingPlaylistApiType)[keyof typeof PatchedSessionRecordingPlaylistApiType]
     | null
 
-export interface PatchedSessionRecordingPlaylist {
+export interface PatchedSessionRecordingPlaylistApi {
     readonly id?: number
     readonly short_id?: string
     /**
@@ -15523,29 +22807,29 @@ export interface PatchedSessionRecordingPlaylist {
     description?: string
     pinned?: boolean
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     deleted?: boolean
     filters?: unknown
     readonly last_modified_at?: string
-    readonly last_modified_by?: UserBasic
-    readonly recordings_counts?: PatchedSessionRecordingPlaylistRecordingsCounts
+    readonly last_modified_by?: UserBasicApi
+    readonly recordings_counts?: PatchedSessionRecordingPlaylistApiRecordingsCounts
     /** @nullable */
-    readonly type?: PatchedSessionRecordingPlaylistType
+    readonly type?: PatchedSessionRecordingPlaylistApiType
     /** Return whether this is a synthetic playlist */
     readonly is_synthetic?: boolean
     _create_in_folder?: string
 }
 
-export interface PaginatedSessionRecordingList {
+export interface PaginatedSessionRecordingListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: SessionRecording[]
+    results: SessionRecordingApi[]
 }
 
-export interface SessionRecording {
+export interface SessionRecordingApi {
     readonly id: string
     /** @nullable */
     readonly distinct_id: string | null
@@ -15574,7 +22858,7 @@ export interface SessionRecording {
     readonly console_error_count: number | null
     /** @nullable */
     readonly start_url: string | null
-    person?: MinimalPerson
+    person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days: number | null
     readonly expiry_time: string
@@ -15586,7 +22870,7 @@ export interface SessionRecording {
     readonly activity_score: number | null
 }
 
-export interface PatchedSessionRecording {
+export interface PatchedSessionRecordingApi {
     readonly id?: string
     /** @nullable */
     readonly distinct_id?: string | null
@@ -15615,7 +22899,7 @@ export interface PatchedSessionRecording {
     readonly console_error_count?: number | null
     /** @nullable */
     readonly start_url?: string | null
-    person?: MinimalPerson
+    person?: MinimalPersonApi
     /** @nullable */
     readonly retention_period_days?: number | null
     readonly expiry_time?: string
@@ -15631,12 +22915,10 @@ export interface PatchedSessionRecording {
  * * `collection` - Collection
  * `filters` - Filters
  */
-export type SessionRecordingPlaylistTypeEnum =
-    (typeof SessionRecordingPlaylistTypeEnum)[keyof typeof SessionRecordingPlaylistTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface MinimalPerson {
+export interface MinimalPersonApi {
     readonly id: number
     readonly name: string
     readonly distinct_ids: string
@@ -15645,29 +22927,29 @@ export interface MinimalPerson {
     readonly uuid: string
 }
 
-export interface PaginatedOrganizationList {
+export interface PaginatedOrganizationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Organization[]
+    results: OrganizationApi[]
 }
 
 /**
  * @nullable
  */
-export type PatchedOrganizationMembershipLevel = MembershipLevelEnum | null
+export type PatchedOrganizationApiMembershipLevel = MembershipLevelEnumApi | null
 
-export type PatchedOrganizationTeamsItem = { [key: string]: unknown }
+export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
 
-export type PatchedOrganizationProjectsItem = { [key: string]: unknown }
+export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedOrganizationDefaultExperimentStatsMethod = {
-    ...DefaultExperimentStatsMethodEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const PatchedOrganizationApiDefaultExperimentStatsMethod = {
+    ...DefaultExperimentStatsMethodEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * Default statistical method for new experiments in this organization.
@@ -15676,11 +22958,11 @@ export const PatchedOrganizationDefaultExperimentStatsMethod = {
 * `frequentist` - Frequentist
  * @nullable
  */
-export type PatchedOrganizationDefaultExperimentStatsMethod =
-    | (typeof PatchedOrganizationDefaultExperimentStatsMethod)[keyof typeof PatchedOrganizationDefaultExperimentStatsMethod]
+export type PatchedOrganizationApiDefaultExperimentStatsMethod =
+    | (typeof PatchedOrganizationApiDefaultExperimentStatsMethod)[keyof typeof PatchedOrganizationApiDefaultExperimentStatsMethod]
     | null
 
-export interface PatchedOrganization {
+export interface PatchedOrganizationApi {
     readonly id?: string
     /** @maxLength 64 */
     name?: string
@@ -15691,10 +22973,10 @@ export interface PatchedOrganization {
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
-    readonly membership_level?: PatchedOrganizationMembershipLevel
-    readonly plugins_access_level?: PluginsAccessLevelEnum
-    readonly teams?: readonly PatchedOrganizationTeamsItem[]
-    readonly projects?: readonly PatchedOrganizationProjectsItem[]
+    readonly membership_level?: PatchedOrganizationApiMembershipLevel
+    readonly plugins_access_level?: PluginsAccessLevelEnumApi
+    readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
+    readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features?: readonly unknown[] | null
     is_member_join_email_enabled?: boolean
@@ -15717,7 +22999,7 @@ export interface PatchedOrganization {
 * `frequentist` - Frequentist
    * @nullable
    */
-    default_experiment_stats_method?: PatchedOrganizationDefaultExperimentStatsMethod
+    default_experiment_stats_method?: PatchedOrganizationApiDefaultExperimentStatsMethod
     /** Default setting for 'Discard client IP data' for new projects in this organization. */
     default_anonymize_ips?: boolean
     /**
@@ -15727,21 +23009,21 @@ export interface PatchedOrganization {
     default_role_id?: string | null
 }
 
-export interface PaginatedProxyRecordList {
+export interface PaginatedProxyRecordListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ProxyRecord[]
+    results: ProxyRecordApi[]
 }
 
-export interface ProxyRecord {
+export interface ProxyRecordApi {
     readonly id: string
     /** @maxLength 64 */
     domain: string
     readonly target_cname: string
-    readonly status: ProxyRecordStatusEnum
+    readonly status: ProxyRecordStatusEnumApi
     /** @nullable */
     readonly message: string | null
     readonly created_at: string
@@ -15750,12 +23032,12 @@ export interface ProxyRecord {
     readonly created_by: number | null
 }
 
-export interface PatchedProxyRecord {
+export interface PatchedProxyRecordApi {
     readonly id?: string
     /** @maxLength 64 */
     domain?: string
     readonly target_cname?: string
-    readonly status?: ProxyRecordStatusEnum
+    readonly status?: ProxyRecordStatusEnumApi
     /** @nullable */
     readonly message?: string | null
     readonly created_at?: string
@@ -15764,20 +23046,20 @@ export interface PatchedProxyRecord {
     readonly created_by?: number | null
 }
 
-export interface PaginatedRoleMembershipList {
+export interface PaginatedRoleMembershipListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: RoleMembership[]
+    results: RoleMembershipApi[]
 }
 
-export interface RoleMembership {
+export interface RoleMembershipApi {
     readonly id: string
     readonly role_id: string
-    readonly organization_member: OrganizationMember
-    readonly user: UserBasic
+    readonly organization_member: OrganizationMemberApi
+    readonly user: UserBasicApi
     readonly joined_at: string
     readonly updated_at: string
     user_uuid: string
@@ -15795,13 +23077,13 @@ export interface RoleMembership {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type ChatCompletionRequestMessagesItem = { [key: string]: unknown }
+export type ChatCompletionRequestApiMessagesItem = { [key: string]: unknown }
 
-export interface ChatCompletionRequest {
+export interface ChatCompletionRequestApi {
     /** The model to use for completion (e.g., 'gpt-4', 'gpt-3.5-turbo') */
     model: string
     /** List of message objects with 'role' and 'content' */
-    messages: ChatCompletionRequestMessagesItem[]
+    messages: ChatCompletionRequestApiMessagesItem[]
     /**
      * Sampling temperature between 0 and 2
      * @minimum 0
@@ -15870,7 +23152,7 @@ export interface ChatCompletionRequest {
      */
     top_logprobs?: number
     /** Output modalities */
-    modalities?: ModalitiesEnum[]
+    modalities?: ModalitiesEnumApi[]
     /** Prediction content for speculative decoding */
     prediction?: unknown
     /** Audio input parameters */
@@ -15883,13 +23165,13 @@ export interface ChatCompletionRequest {
 * `medium` - medium
 * `high` - high
 * `default` - default */
-    reasoning_effort?: ReasoningEffortEnum
+    reasoning_effort?: ReasoningEffortEnumApi
     /** Controls the verbosity level of the model's output
 
 * `concise` - concise
 * `standard` - standard
 * `verbose` - verbose */
-    verbosity?: VerbosityEnum
+    verbosity?: VerbosityEnumApi
     /** Whether to store the output for model distillation or evals */
     store?: boolean
     /** Web search tool configuration */
@@ -15903,44 +23185,47 @@ export interface ChatCompletionRequest {
 /**
  * @nullable
  */
-export type ChatCompletionResponseUsage = ChatCompletionUsage | null
+export type ChatCompletionResponseApiUsage = ChatCompletionUsageApi | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ChatCompletionResponseServiceTier = { ...ChatCompletionResponseServiceTierEnum, ...NullEnum } as const
+export const ChatCompletionResponseApiServiceTier = {
+    ...ChatCompletionResponseServiceTierEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * @nullable
  */
-export type ChatCompletionResponseServiceTier =
-    | (typeof ChatCompletionResponseServiceTier)[keyof typeof ChatCompletionResponseServiceTier]
+export type ChatCompletionResponseApiServiceTier =
+    | (typeof ChatCompletionResponseApiServiceTier)[keyof typeof ChatCompletionResponseApiServiceTier]
     | null
 
-export interface ChatCompletionResponse {
+export interface ChatCompletionResponseApi {
     id: string
-    object: ObjectEnum
+    object: ObjectEnumApi
     created: number
     model: string
-    choices: ChatCompletionChoice[]
+    choices: ChatCompletionChoiceApi[]
     /** @nullable */
-    usage?: ChatCompletionResponseUsage
+    usage?: ChatCompletionResponseApiUsage
     /** @nullable */
     system_fingerprint?: string | null
     /** @nullable */
-    service_tier?: ChatCompletionResponseServiceTier
+    service_tier?: ChatCompletionResponseApiServiceTier
 }
 
-export type ErrorResponseError = { [key: string]: unknown }
+export type ErrorResponseApiError = { [key: string]: unknown }
 
-export interface ErrorResponse {
-    error: ErrorResponseError
+export interface ErrorResponseApi {
+    error: ErrorResponseApiError
 }
 
-export type AnthropicMessagesRequestMessagesItem = { [key: string]: unknown }
+export type AnthropicMessagesRequestApiMessagesItem = { [key: string]: unknown }
 
-export interface AnthropicMessagesRequest {
+export interface AnthropicMessagesRequestApi {
     /** The model to use for completion (e.g., 'claude-3-5-sonnet-20241022') */
     model: string
     /** List of message objects with 'role' and 'content' */
-    messages: AnthropicMessagesRequestMessagesItem[]
+    messages: AnthropicMessagesRequestApiMessagesItem[]
     /**
      * Maximum number of tokens to generate
      * @minimum 1
@@ -15981,31 +23266,31 @@ export interface AnthropicMessagesRequest {
 
 * `auto` - auto
 * `standard_only` - standard_only */
-    service_tier?: AnthropicMessagesRequestServiceTierEnum
+    service_tier?: AnthropicMessagesRequestServiceTierEnumApi
 }
 
-export type AnthropicMessagesResponseContentItem = { [key: string]: unknown }
+export type AnthropicMessagesResponseApiContentItem = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicMessagesResponseStopReason = { ...StopReasonEnum, ...NullEnum } as const
+export const AnthropicMessagesResponseApiStopReason = { ...StopReasonEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type AnthropicMessagesResponseStopReason =
-    | (typeof AnthropicMessagesResponseStopReason)[keyof typeof AnthropicMessagesResponseStopReason]
+export type AnthropicMessagesResponseApiStopReason =
+    | (typeof AnthropicMessagesResponseApiStopReason)[keyof typeof AnthropicMessagesResponseApiStopReason]
     | null
 
-export interface AnthropicMessagesResponse {
+export interface AnthropicMessagesResponseApi {
     id: string
-    type: AnthropicMessagesResponseTypeEnum
-    role: AnthropicMessagesResponseRoleEnum
-    content: AnthropicMessagesResponseContentItem[]
+    type: AnthropicMessagesResponseTypeEnumApi
+    role: AnthropicMessagesResponseRoleEnumApi
+    content: AnthropicMessagesResponseApiContentItem[]
     model: string
     /** @nullable */
-    stop_reason: AnthropicMessagesResponseStopReason
+    stop_reason: AnthropicMessagesResponseApiStopReason
     /** @nullable */
     stop_sequence?: string | null
-    usage: AnthropicUsage
+    usage: AnthropicUsageApi
 }
 
 /**
@@ -16040,9 +23325,9 @@ export interface AnthropicMessagesResponse {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface ChatCompletionChoice {
+export interface ChatCompletionChoiceApi {
     index: number
-    message: ChatCompletionMessage
+    message: ChatCompletionMessageApi
     /** @nullable */
     finish_reason: string | null
 }
@@ -16050,21 +23335,21 @@ export interface ChatCompletionChoice {
 /**
  * @nullable
  */
-export type ChatCompletionUsageCompletionTokensDetails = unknown | null
+export type ChatCompletionUsageApiCompletionTokensDetails = unknown | null
 
 /**
  * @nullable
  */
-export type ChatCompletionUsagePromptTokensDetails = unknown | null
+export type ChatCompletionUsageApiPromptTokensDetails = unknown | null
 
-export interface ChatCompletionUsage {
+export interface ChatCompletionUsageApi {
     prompt_tokens: number
     completion_tokens: number
     total_tokens: number
     /** @nullable */
-    completion_tokens_details?: ChatCompletionUsageCompletionTokensDetails
+    completion_tokens_details?: ChatCompletionUsageApiCompletionTokensDetails
     /** @nullable */
-    prompt_tokens_details?: ChatCompletionUsagePromptTokensDetails
+    prompt_tokens_details?: ChatCompletionUsageApiPromptTokensDetails
 }
 
 /**
@@ -16074,8 +23359,6 @@ export interface ChatCompletionUsage {
  * `scale` - scale
  * `priority` - priority
  */
-export type ChatCompletionResponseServiceTierEnum =
-    (typeof ChatCompletionResponseServiceTierEnum)[keyof typeof ChatCompletionResponseServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -16083,24 +23366,18 @@ export type ChatCompletionResponseServiceTierEnum =
  * * `auto` - auto
  * `standard_only` - standard_only
  */
-export type AnthropicMessagesRequestServiceTierEnum =
-    (typeof AnthropicMessagesRequestServiceTierEnum)[keyof typeof AnthropicMessagesRequestServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * * `message` - message
  */
-export type AnthropicMessagesResponseTypeEnum =
-    (typeof AnthropicMessagesResponseTypeEnum)[keyof typeof AnthropicMessagesResponseTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * * `assistant` - assistant
  */
-export type AnthropicMessagesResponseRoleEnum =
-    (typeof AnthropicMessagesResponseRoleEnum)[keyof typeof AnthropicMessagesResponseRoleEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -16118,18 +23395,18 @@ export type AnthropicMessagesResponseRoleEnum =
 /**
  * @nullable
  */
-export type AnthropicUsageServerToolUse = unknown | null
+export type AnthropicUsageApiServerToolUse = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const AnthropicUsageServiceTier = { ...AnthropicUsageServiceTierEnum, ...NullEnum } as const
+export const AnthropicUsageApiServiceTier = { ...AnthropicUsageServiceTierEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type AnthropicUsageServiceTier =
-    | (typeof AnthropicUsageServiceTier)[keyof typeof AnthropicUsageServiceTier]
+export type AnthropicUsageApiServiceTier =
+    | (typeof AnthropicUsageApiServiceTier)[keyof typeof AnthropicUsageApiServiceTier]
     | null
 
-export interface AnthropicUsage {
+export interface AnthropicUsageApi {
     input_tokens: number
     output_tokens: number
     /** @nullable */
@@ -16137,13 +23414,13 @@ export interface AnthropicUsage {
     /** @nullable */
     cache_read_input_tokens?: number | null
     /** @nullable */
-    server_tool_use?: AnthropicUsageServerToolUse
+    server_tool_use?: AnthropicUsageApiServerToolUse
     /** @nullable */
-    service_tier?: AnthropicUsageServiceTier
+    service_tier?: AnthropicUsageApiServiceTier
 }
 
-export interface ChatCompletionMessage {
-    role: ChatCompletionMessageRoleEnum
+export interface ChatCompletionMessageApi {
+    role: ChatCompletionMessageRoleEnumApi
     /** @nullable */
     content?: string | null
     name?: string
@@ -16156,8 +23433,6 @@ export interface ChatCompletionMessage {
  * `priority` - priority
  * `batch` - batch
  */
-export type AnthropicUsageServiceTierEnum =
-    (typeof AnthropicUsageServiceTierEnum)[keyof typeof AnthropicUsageServiceTierEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
@@ -16169,27 +23444,25 @@ export type AnthropicUsageServiceTierEnum =
  * `tool` - tool
  * `developer` - developer
  */
-export type ChatCompletionMessageRoleEnum =
-    (typeof ChatCompletionMessageRoleEnum)[keyof typeof ChatCompletionMessageRoleEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface PaginatedTaskRunDetailList {
+export interface PaginatedTaskRunDetailListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: TaskRunDetail[]
+    results: TaskRunDetailApi[]
 }
 
 /**
  * Run output data (e.g., PR URL, commit SHA, etc.)
  * @nullable
  */
-export type TaskRunDetailOutput = unknown | null
+export type TaskRunDetailApiOutput = unknown | null
 
-export interface TaskRunDetail {
+export interface TaskRunDetailApi {
     readonly id: string
     readonly task: string
     /**
@@ -16204,12 +23477,12 @@ export interface TaskRunDetail {
      * @nullable
      */
     branch?: string | null
-    status?: TaskRunDetailStatusEnum
+    status?: TaskRunDetailStatusEnumApi
     /** Execution environment
 
 * `local` - Local
 * `cloud` - Cloud */
-    environment?: EnvironmentEnum
+    environment?: EnvironmentEnumApi
     /** Presigned S3 URL for log access (valid for 1 hour). */
     readonly log_url: string
     /**
@@ -16221,10 +23494,10 @@ export interface TaskRunDetail {
      * Run output data (e.g., PR URL, commit SHA, etc.)
      * @nullable
      */
-    output?: TaskRunDetailOutput
+    output?: TaskRunDetailApiOutput
     /** Run state data for resuming or tracking execution state */
     state?: unknown
-    readonly artifacts: readonly TaskRunArtifactResponse[]
+    readonly artifacts: readonly TaskRunArtifactResponseApi[]
     readonly created_at: string
     readonly updated_at: string
     /** @nullable */
@@ -16235,9 +23508,9 @@ export interface TaskRunDetail {
  * Output from the run
  * @nullable
  */
-export type PatchedTaskRunUpdateOutput = unknown | null
+export type PatchedTaskRunUpdateApiOutput = unknown | null
 
-export interface PatchedTaskRunUpdate {
+export interface PatchedTaskRunUpdateApi {
     /** Current execution status
 
 * `not_started` - not_started
@@ -16246,7 +23519,7 @@ export interface PatchedTaskRunUpdate {
 * `completed` - completed
 * `failed` - failed
 * `cancelled` - cancelled */
-    status?: TaskRunUpdateStatusEnum
+    status?: TaskRunUpdateStatusEnumApi
     /**
      * Git branch name to associate with the task
      * @nullable
@@ -16261,7 +23534,7 @@ export interface PatchedTaskRunUpdate {
      * Output from the run
      * @nullable
      */
-    output?: PatchedTaskRunUpdateOutput
+    output?: PatchedTaskRunUpdateApiOutput
     /** State of the run */
     state?: unknown
     /**
@@ -16271,24 +23544,24 @@ export interface PatchedTaskRunUpdate {
     error_message?: string | null
 }
 
-export type TaskRunAppendLogRequestEntriesItem = { [key: string]: unknown }
+export type TaskRunAppendLogRequestApiEntriesItem = { [key: string]: unknown }
 
-export interface TaskRunAppendLogRequest {
+export interface TaskRunAppendLogRequestApi {
     /** Array of log entry dictionaries to append */
-    entries: TaskRunAppendLogRequestEntriesItem[]
+    entries: TaskRunAppendLogRequestApiEntriesItem[]
 }
 
-export interface TaskRunArtifactsUploadRequest {
+export interface TaskRunArtifactsUploadRequestApi {
     /** Array of artifacts to upload */
-    artifacts: TaskRunArtifactUpload[]
+    artifacts: TaskRunArtifactUploadApi[]
 }
 
-export interface TaskRunArtifactsUploadResponse {
+export interface TaskRunArtifactsUploadResponseApi {
     /** Updated list of artifacts on the run */
-    artifacts: TaskRunArtifactResponse[]
+    artifacts: TaskRunArtifactResponseApi[]
 }
 
-export interface TaskRunArtifactPresignRequest {
+export interface TaskRunArtifactPresignRequestApi {
     /**
      * S3 storage path returned in the artifact manifest
      * @maxLength 500
@@ -16296,7 +23569,7 @@ export interface TaskRunArtifactPresignRequest {
     storage_path: string
 }
 
-export interface TaskRunArtifactPresignResponse {
+export interface TaskRunArtifactPresignResponseApi {
     /** Presigned URL for downloading the artifact */
     url: string
     /** URL expiry in seconds */
@@ -16321,7 +23594,7 @@ export interface TaskRunArtifactPresignResponse {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface TaskRunArtifactResponse {
+export interface TaskRunArtifactResponseApi {
     /** Artifact file name */
     name: string
     /** Artifact classification (plan, context, etc.) */
@@ -16347,7 +23620,7 @@ export interface TaskRunArtifactResponse {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface TaskRunArtifactUpload {
+export interface TaskRunArtifactUploadApi {
     /**
      * File name to associate with the artifact
      * @maxLength 255
@@ -16360,7 +23633,7 @@ export interface TaskRunArtifactUpload {
 * `reference` - reference
 * `output` - output
 * `artifact` - artifact */
-    type: TaskRunArtifactUploadTypeEnum
+    type: TaskRunArtifactUploadTypeEnumApi
     /** Raw file contents (UTF-8 string or base64 data) */
     content: string
     /**
@@ -16377,34 +23650,32 @@ export interface TaskRunArtifactUpload {
  * `output` - output
  * `artifact` - artifact
  */
-export type TaskRunArtifactUploadTypeEnum =
-    (typeof TaskRunArtifactUploadTypeEnum)[keyof typeof TaskRunArtifactUploadTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 /**
  * @nullable
  */
-export type PinnedSceneTabsHomepage = PinnedSceneTab | null
+export type PinnedSceneTabsApiHomepage = PinnedSceneTabApi | null
 
-export interface PinnedSceneTabs {
-    tabs?: PinnedSceneTab[]
+export interface PinnedSceneTabsApi {
+    tabs?: PinnedSceneTabApi[]
     /** @nullable */
-    homepage?: PinnedSceneTabsHomepage
+    homepage?: PinnedSceneTabsApiHomepage
 }
 
 /**
  * @nullable
  */
-export type PatchedPinnedSceneTabsHomepage = PinnedSceneTab | null
+export type PatchedPinnedSceneTabsApiHomepage = PinnedSceneTabApi | null
 
-export interface PatchedPinnedSceneTabs {
-    tabs?: PinnedSceneTab[]
+export interface PatchedPinnedSceneTabsApi {
+    tabs?: PinnedSceneTabApi[]
     /** @nullable */
-    homepage?: PatchedPinnedSceneTabsHomepage
+    homepage?: PatchedPinnedSceneTabsApiHomepage
 }
 
-export interface PinnedSceneTab {
+export interface PinnedSceneTabApi {
     id?: string
     pathname?: string
     search?: string
@@ -16578,7 +23849,7 @@ export type EnvironmentsEventsListParams = {
     /**
      * Filter events by event property, person property, cohort, groups and more.
      */
-    properties?: Property[]
+    properties?: PropertyApi[]
     /**
      * (Experimental) JSON-serialized array of HogQL expressions to return
      */

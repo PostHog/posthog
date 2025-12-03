@@ -6,15 +6,15 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    ColumnConfiguration,
-    Element,
+    ColumnConfigurationApi,
+    ElementApi,
     ElementsListParams,
     EnvironmentsColumnConfigurationsListParams,
     EnvironmentsElementsListParams,
-    PaginatedColumnConfigurationList,
-    PaginatedElementList,
-    PatchedColumnConfiguration,
-    PatchedElement,
+    PaginatedColumnConfigurationListApi,
+    PaginatedElementListApi,
+    PatchedColumnConfigurationApi,
+    PatchedElementApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -35,7 +35,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsColumnConfigurationsListResponse200 = {
-    data: PaginatedColumnConfigurationList
+    data: PaginatedColumnConfigurationListApi
     status: 200
 }
 
@@ -81,7 +81,7 @@ export const environmentsColumnConfigurationsList = async (
  * POST to create column configuration for a context_key. Returns 409 if already exists.
  */
 export type environmentsColumnConfigurationsCreateResponse201 = {
-    data: ColumnConfiguration
+    data: ColumnConfigurationApi
     status: 201
 }
 
@@ -97,7 +97,7 @@ export const getEnvironmentsColumnConfigurationsCreateUrl = (projectId: string) 
 
 export const environmentsColumnConfigurationsCreate = async (
     projectId: string,
-    columnConfiguration: NonReadonly<ColumnConfiguration>,
+    columnConfigurationApi: NonReadonly<ColumnConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsColumnConfigurationsCreateResponse> => {
     return apiMutator<environmentsColumnConfigurationsCreateResponse>(
@@ -106,13 +106,13 @@ export const environmentsColumnConfigurationsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(columnConfiguration),
+            body: JSON.stringify(columnConfigurationApi),
         }
     )
 }
 
 export type environmentsColumnConfigurationsRetrieveResponse200 = {
-    data: ColumnConfiguration
+    data: ColumnConfigurationApi
     status: 200
 }
 
@@ -141,7 +141,7 @@ export const environmentsColumnConfigurationsRetrieve = async (
 }
 
 export type environmentsColumnConfigurationsUpdateResponse200 = {
-    data: ColumnConfiguration
+    data: ColumnConfigurationApi
     status: 200
 }
 
@@ -158,7 +158,7 @@ export const getEnvironmentsColumnConfigurationsUpdateUrl = (projectId: string, 
 export const environmentsColumnConfigurationsUpdate = async (
     projectId: string,
     id: string,
-    columnConfiguration: NonReadonly<ColumnConfiguration>,
+    columnConfigurationApi: NonReadonly<ColumnConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsColumnConfigurationsUpdateResponse> => {
     return apiMutator<environmentsColumnConfigurationsUpdateResponse>(
@@ -167,13 +167,13 @@ export const environmentsColumnConfigurationsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(columnConfiguration),
+            body: JSON.stringify(columnConfigurationApi),
         }
     )
 }
 
 export type environmentsColumnConfigurationsPartialUpdateResponse200 = {
-    data: ColumnConfiguration
+    data: ColumnConfigurationApi
     status: 200
 }
 
@@ -191,7 +191,7 @@ export const getEnvironmentsColumnConfigurationsPartialUpdateUrl = (projectId: s
 export const environmentsColumnConfigurationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedColumnConfiguration: NonReadonly<PatchedColumnConfiguration>,
+    patchedColumnConfigurationApi: NonReadonly<PatchedColumnConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsColumnConfigurationsPartialUpdateResponse> => {
     return apiMutator<environmentsColumnConfigurationsPartialUpdateResponse>(
@@ -200,7 +200,7 @@ export const environmentsColumnConfigurationsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedColumnConfiguration),
+            body: JSON.stringify(patchedColumnConfigurationApi),
         }
     )
 }
@@ -235,7 +235,7 @@ export const environmentsColumnConfigurationsDestroy = async (
 }
 
 export type environmentsElementsListResponse200 = {
-    data: PaginatedElementList
+    data: PaginatedElementListApi
     status: 200
 }
 
@@ -272,7 +272,7 @@ export const environmentsElementsList = async (
 }
 
 export type environmentsElementsCreateResponse201 = {
-    data: Element
+    data: ElementApi
     status: 201
 }
 
@@ -287,19 +287,19 @@ export const getEnvironmentsElementsCreateUrl = (projectId: string) => {
 
 export const environmentsElementsCreate = async (
     projectId: string,
-    element: Element,
+    elementApi: ElementApi,
     options?: RequestInit
 ): Promise<environmentsElementsCreateResponse> => {
     return apiMutator<environmentsElementsCreateResponse>(getEnvironmentsElementsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(element),
+        body: JSON.stringify(elementApi),
     })
 }
 
 export type environmentsElementsRetrieveResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -324,7 +324,7 @@ export const environmentsElementsRetrieve = async (
 }
 
 export type environmentsElementsUpdateResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -340,19 +340,19 @@ export const getEnvironmentsElementsUpdateUrl = (projectId: string, id: number) 
 export const environmentsElementsUpdate = async (
     projectId: string,
     id: number,
-    element: Element,
+    elementApi: ElementApi,
     options?: RequestInit
 ): Promise<environmentsElementsUpdateResponse> => {
     return apiMutator<environmentsElementsUpdateResponse>(getEnvironmentsElementsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(element),
+        body: JSON.stringify(elementApi),
     })
 }
 
 export type environmentsElementsPartialUpdateResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -368,7 +368,7 @@ export const getEnvironmentsElementsPartialUpdateUrl = (projectId: string, id: n
 export const environmentsElementsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedElement: PatchedElement,
+    patchedElementApi: PatchedElementApi,
     options?: RequestInit
 ): Promise<environmentsElementsPartialUpdateResponse> => {
     return apiMutator<environmentsElementsPartialUpdateResponse>(
@@ -377,7 +377,7 @@ export const environmentsElementsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedElement),
+            body: JSON.stringify(patchedElementApi),
         }
     )
 }
@@ -462,7 +462,7 @@ export const environmentsElementsValuesRetrieve = async (
 }
 
 export type elementsListResponse200 = {
-    data: PaginatedElementList
+    data: PaginatedElementListApi
     status: 200
 }
 
@@ -499,7 +499,7 @@ export const elementsList = async (
 }
 
 export type elementsCreateResponse201 = {
-    data: Element
+    data: ElementApi
     status: 201
 }
 
@@ -514,19 +514,19 @@ export const getElementsCreateUrl = (projectId: string) => {
 
 export const elementsCreate = async (
     projectId: string,
-    element: Element,
+    elementApi: ElementApi,
     options?: RequestInit
 ): Promise<elementsCreateResponse> => {
     return apiMutator<elementsCreateResponse>(getElementsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(element),
+        body: JSON.stringify(elementApi),
     })
 }
 
 export type elementsRetrieveResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -551,7 +551,7 @@ export const elementsRetrieve = async (
 }
 
 export type elementsUpdateResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -567,19 +567,19 @@ export const getElementsUpdateUrl = (projectId: string, id: number) => {
 export const elementsUpdate = async (
     projectId: string,
     id: number,
-    element: Element,
+    elementApi: ElementApi,
     options?: RequestInit
 ): Promise<elementsUpdateResponse> => {
     return apiMutator<elementsUpdateResponse>(getElementsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(element),
+        body: JSON.stringify(elementApi),
     })
 }
 
 export type elementsPartialUpdateResponse200 = {
-    data: Element
+    data: ElementApi
     status: 200
 }
 
@@ -595,14 +595,14 @@ export const getElementsPartialUpdateUrl = (projectId: string, id: number) => {
 export const elementsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedElement: PatchedElement,
+    patchedElementApi: PatchedElementApi,
     options?: RequestInit
 ): Promise<elementsPartialUpdateResponse> => {
     return apiMutator<elementsPartialUpdateResponse>(getElementsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedElement),
+        body: JSON.stringify(patchedElementApi),
     })
 }
 

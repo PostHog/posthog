@@ -11,21 +11,21 @@ import type {
     EnvironmentsErrorTrackingReleasesListParams,
     EnvironmentsErrorTrackingStackFramesListParams,
     EnvironmentsErrorTrackingSymbolSetsListParams,
-    ErrorTrackingFingerprint,
-    ErrorTrackingIssueFull,
-    ErrorTrackingRelease,
+    ErrorTrackingFingerprintApi,
+    ErrorTrackingIssueFullApi,
+    ErrorTrackingReleaseApi,
     ErrorTrackingReleasesListParams,
-    ErrorTrackingStackFrame,
-    ErrorTrackingSymbolSet,
+    ErrorTrackingStackFrameApi,
+    ErrorTrackingSymbolSetApi,
     ErrorTrackingSymbolSetsListParams,
-    PaginatedErrorTrackingFingerprintList,
-    PaginatedErrorTrackingIssueFullList,
-    PaginatedErrorTrackingReleaseList,
-    PaginatedErrorTrackingStackFrameList,
-    PaginatedErrorTrackingSymbolSetList,
-    PatchedErrorTrackingIssueFull,
-    PatchedErrorTrackingRelease,
-    PatchedErrorTrackingSymbolSet,
+    PaginatedErrorTrackingFingerprintListApi,
+    PaginatedErrorTrackingIssueFullListApi,
+    PaginatedErrorTrackingReleaseListApi,
+    PaginatedErrorTrackingStackFrameListApi,
+    PaginatedErrorTrackingSymbolSetListApi,
+    PatchedErrorTrackingIssueFullApi,
+    PatchedErrorTrackingReleaseApi,
+    PatchedErrorTrackingSymbolSetApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -46,7 +46,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsErrorTrackingFingerprintsListResponse200 = {
-    data: PaginatedErrorTrackingFingerprintList
+    data: PaginatedErrorTrackingFingerprintListApi
     status: 200
 }
 
@@ -90,7 +90,7 @@ export const environmentsErrorTrackingFingerprintsList = async (
 }
 
 export type environmentsErrorTrackingFingerprintsRetrieveResponse200 = {
-    data: ErrorTrackingFingerprint
+    data: ErrorTrackingFingerprintApi
     status: 200
 }
 
@@ -153,7 +153,7 @@ export const environmentsErrorTrackingFingerprintsDestroy = async (
 }
 
 export type environmentsErrorTrackingIssuesListResponse200 = {
-    data: PaginatedErrorTrackingIssueFullList
+    data: PaginatedErrorTrackingIssueFullListApi
     status: 200
 }
 
@@ -196,7 +196,7 @@ export const environmentsErrorTrackingIssuesList = async (
 }
 
 export type environmentsErrorTrackingIssuesCreateResponse201 = {
-    data: ErrorTrackingIssueFull
+    data: ErrorTrackingIssueFullApi
     status: 201
 }
 
@@ -211,7 +211,7 @@ export const getEnvironmentsErrorTrackingIssuesCreateUrl = (projectId: string) =
 
 export const environmentsErrorTrackingIssuesCreate = async (
     projectId: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesCreateResponse>(
@@ -220,13 +220,13 @@ export const environmentsErrorTrackingIssuesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
 
 export type environmentsErrorTrackingIssuesRetrieveResponse200 = {
-    data: ErrorTrackingIssueFull
+    data: ErrorTrackingIssueFullApi
     status: 200
 }
 
@@ -255,7 +255,7 @@ export const environmentsErrorTrackingIssuesRetrieve = async (
 }
 
 export type environmentsErrorTrackingIssuesUpdateResponse200 = {
-    data: ErrorTrackingIssueFull
+    data: ErrorTrackingIssueFullApi
     status: 200
 }
 
@@ -271,7 +271,7 @@ export const getEnvironmentsErrorTrackingIssuesUpdateUrl = (projectId: string, i
 export const environmentsErrorTrackingIssuesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesUpdateResponse>(
@@ -280,13 +280,13 @@ export const environmentsErrorTrackingIssuesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
 
 export type environmentsErrorTrackingIssuesPartialUpdateResponse200 = {
-    data: ErrorTrackingIssueFull
+    data: ErrorTrackingIssueFullApi
     status: 200
 }
 
@@ -304,7 +304,7 @@ export const getEnvironmentsErrorTrackingIssuesPartialUpdateUrl = (projectId: st
 export const environmentsErrorTrackingIssuesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFull: NonReadonly<PatchedErrorTrackingIssueFull>,
+    patchedErrorTrackingIssueFullApi: NonReadonly<PatchedErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesPartialUpdateResponse>(
@@ -313,7 +313,7 @@ export const environmentsErrorTrackingIssuesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingIssueFull),
+            body: JSON.stringify(patchedErrorTrackingIssueFullApi),
         }
     )
 }
@@ -398,7 +398,7 @@ export const getEnvironmentsErrorTrackingIssuesAssignPartialUpdateUrl = (project
 export const environmentsErrorTrackingIssuesAssignPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingIssueFull: NonReadonly<PatchedErrorTrackingIssueFull>,
+    patchedErrorTrackingIssueFullApi: NonReadonly<PatchedErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesAssignPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesAssignPartialUpdateResponse>(
@@ -407,7 +407,7 @@ export const environmentsErrorTrackingIssuesAssignPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingIssueFull),
+            body: JSON.stringify(patchedErrorTrackingIssueFullApi),
         }
     )
 }
@@ -431,7 +431,7 @@ export const getEnvironmentsErrorTrackingIssuesCohortUpdateUrl = (projectId: str
 export const environmentsErrorTrackingIssuesCohortUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesCohortUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesCohortUpdateResponse>(
@@ -440,7 +440,7 @@ export const environmentsErrorTrackingIssuesCohortUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
@@ -464,7 +464,7 @@ export const getEnvironmentsErrorTrackingIssuesMergeCreateUrl = (projectId: stri
 export const environmentsErrorTrackingIssuesMergeCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesMergeCreateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesMergeCreateResponse>(
@@ -473,7 +473,7 @@ export const environmentsErrorTrackingIssuesMergeCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
@@ -497,7 +497,7 @@ export const getEnvironmentsErrorTrackingIssuesSplitCreateUrl = (projectId: stri
 export const environmentsErrorTrackingIssuesSplitCreate = async (
     projectId: string,
     id: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesSplitCreateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesSplitCreateResponse>(
@@ -506,7 +506,7 @@ export const environmentsErrorTrackingIssuesSplitCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
@@ -557,7 +557,7 @@ export const getEnvironmentsErrorTrackingIssuesBulkCreateUrl = (projectId: strin
 
 export const environmentsErrorTrackingIssuesBulkCreate = async (
     projectId: string,
-    errorTrackingIssueFull: NonReadonly<ErrorTrackingIssueFull>,
+    errorTrackingIssueFullApi: NonReadonly<ErrorTrackingIssueFullApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingIssuesBulkCreateResponse> => {
     return apiMutator<environmentsErrorTrackingIssuesBulkCreateResponse>(
@@ -566,7 +566,7 @@ export const environmentsErrorTrackingIssuesBulkCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingIssueFull),
+            body: JSON.stringify(errorTrackingIssueFullApi),
         }
     )
 }
@@ -601,7 +601,7 @@ export const environmentsErrorTrackingIssuesValuesRetrieve = async (
 }
 
 export type environmentsErrorTrackingReleasesListResponse200 = {
-    data: PaginatedErrorTrackingReleaseList
+    data: PaginatedErrorTrackingReleaseListApi
     status: 200
 }
 
@@ -644,7 +644,7 @@ export const environmentsErrorTrackingReleasesList = async (
 }
 
 export type environmentsErrorTrackingReleasesCreateResponse201 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 201
 }
 
@@ -660,7 +660,7 @@ export const getEnvironmentsErrorTrackingReleasesCreateUrl = (projectId: string)
 
 export const environmentsErrorTrackingReleasesCreate = async (
     projectId: string,
-    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingReleasesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingReleasesCreateResponse>(
@@ -669,13 +669,13 @@ export const environmentsErrorTrackingReleasesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingRelease),
+            body: JSON.stringify(errorTrackingReleaseApi),
         }
     )
 }
 
 export type environmentsErrorTrackingReleasesRetrieveResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -704,7 +704,7 @@ export const environmentsErrorTrackingReleasesRetrieve = async (
 }
 
 export type environmentsErrorTrackingReleasesUpdateResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -721,7 +721,7 @@ export const getEnvironmentsErrorTrackingReleasesUpdateUrl = (projectId: string,
 export const environmentsErrorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingReleasesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingReleasesUpdateResponse>(
@@ -730,13 +730,13 @@ export const environmentsErrorTrackingReleasesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingRelease),
+            body: JSON.stringify(errorTrackingReleaseApi),
         }
     )
 }
 
 export type environmentsErrorTrackingReleasesPartialUpdateResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -754,7 +754,7 @@ export const getEnvironmentsErrorTrackingReleasesPartialUpdateUrl = (projectId: 
 export const environmentsErrorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingRelease: NonReadonly<PatchedErrorTrackingRelease>,
+    patchedErrorTrackingReleaseApi: NonReadonly<PatchedErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingReleasesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingReleasesPartialUpdateResponse>(
@@ -763,7 +763,7 @@ export const environmentsErrorTrackingReleasesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingRelease),
+            body: JSON.stringify(patchedErrorTrackingReleaseApi),
         }
     )
 }
@@ -828,7 +828,7 @@ export const environmentsErrorTrackingReleasesHashRetrieve = async (
 }
 
 export type environmentsErrorTrackingStackFramesListResponse200 = {
-    data: PaginatedErrorTrackingStackFrameList
+    data: PaginatedErrorTrackingStackFrameListApi
     status: 200
 }
 
@@ -872,7 +872,7 @@ export const environmentsErrorTrackingStackFramesList = async (
 }
 
 export type environmentsErrorTrackingStackFramesRetrieveResponse200 = {
-    data: ErrorTrackingStackFrame
+    data: ErrorTrackingStackFrameApi
     status: 200
 }
 
@@ -952,7 +952,7 @@ export const getEnvironmentsErrorTrackingStackFramesBatchGetCreateUrl = (project
 
 export const environmentsErrorTrackingStackFramesBatchGetCreate = async (
     projectId: string,
-    errorTrackingStackFrame: NonReadonly<ErrorTrackingStackFrame>,
+    errorTrackingStackFrameApi: NonReadonly<ErrorTrackingStackFrameApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingStackFramesBatchGetCreateResponse> => {
     return apiMutator<environmentsErrorTrackingStackFramesBatchGetCreateResponse>(
@@ -961,13 +961,13 @@ export const environmentsErrorTrackingStackFramesBatchGetCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingStackFrame),
+            body: JSON.stringify(errorTrackingStackFrameApi),
         }
     )
 }
 
 export type environmentsErrorTrackingSymbolSetsListResponse200 = {
-    data: PaginatedErrorTrackingSymbolSetList
+    data: PaginatedErrorTrackingSymbolSetListApi
     status: 200
 }
 
@@ -1011,7 +1011,7 @@ export const environmentsErrorTrackingSymbolSetsList = async (
 }
 
 export type environmentsErrorTrackingSymbolSetsCreateResponse201 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 201
 }
 
@@ -1027,19 +1027,19 @@ export const getEnvironmentsErrorTrackingSymbolSetsCreateUrl = (projectId: strin
 
 export const environmentsErrorTrackingSymbolSetsCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsCreateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<environmentsErrorTrackingSymbolSetsCreateResponse>(
@@ -1053,7 +1053,7 @@ export const environmentsErrorTrackingSymbolSetsCreate = async (
 }
 
 export type environmentsErrorTrackingSymbolSetsRetrieveResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1083,7 +1083,7 @@ export const environmentsErrorTrackingSymbolSetsRetrieve = async (
 }
 
 export type environmentsErrorTrackingSymbolSetsUpdateResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1100,19 +1100,19 @@ export const getEnvironmentsErrorTrackingSymbolSetsUpdateUrl = (projectId: strin
 export const environmentsErrorTrackingSymbolSetsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsUpdateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<environmentsErrorTrackingSymbolSetsUpdateResponse>(
@@ -1126,7 +1126,7 @@ export const environmentsErrorTrackingSymbolSetsUpdate = async (
 }
 
 export type environmentsErrorTrackingSymbolSetsPartialUpdateResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1144,24 +1144,30 @@ export const getEnvironmentsErrorTrackingSymbolSetsPartialUpdateUrl = (projectId
 export const environmentsErrorTrackingSymbolSetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSymbolSet: NonReadonly<PatchedErrorTrackingSymbolSet>,
+    patchedErrorTrackingSymbolSetApi: NonReadonly<PatchedErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsPartialUpdateResponse> => {
     const formData = new FormData()
-    if (patchedErrorTrackingSymbolSet.ref !== undefined) {
-        formData.append(`ref`, patchedErrorTrackingSymbolSet.ref)
-    }
-    if (patchedErrorTrackingSymbolSet.last_used !== undefined && patchedErrorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, patchedErrorTrackingSymbolSet.last_used)
-    }
-    if (patchedErrorTrackingSymbolSet.storage_ptr !== undefined && patchedErrorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSet.storage_ptr)
+    if (patchedErrorTrackingSymbolSetApi.ref !== undefined) {
+        formData.append(`ref`, patchedErrorTrackingSymbolSetApi.ref)
     }
     if (
-        patchedErrorTrackingSymbolSet.failure_reason !== undefined &&
-        patchedErrorTrackingSymbolSet.failure_reason !== null
+        patchedErrorTrackingSymbolSetApi.last_used !== undefined &&
+        patchedErrorTrackingSymbolSetApi.last_used !== null
     ) {
-        formData.append(`failure_reason`, patchedErrorTrackingSymbolSet.failure_reason)
+        formData.append(`last_used`, patchedErrorTrackingSymbolSetApi.last_used)
+    }
+    if (
+        patchedErrorTrackingSymbolSetApi.storage_ptr !== undefined &&
+        patchedErrorTrackingSymbolSetApi.storage_ptr !== null
+    ) {
+        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSetApi.storage_ptr)
+    }
+    if (
+        patchedErrorTrackingSymbolSetApi.failure_reason !== undefined &&
+        patchedErrorTrackingSymbolSetApi.failure_reason !== null
+    ) {
+        formData.append(`failure_reason`, patchedErrorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<environmentsErrorTrackingSymbolSetsPartialUpdateResponse>(
@@ -1223,7 +1229,7 @@ export const getEnvironmentsErrorTrackingSymbolSetsFinishUploadUpdateUrl = (proj
 export const environmentsErrorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingSymbolSetsFinishUploadUpdateResponse>(
@@ -1232,7 +1238,7 @@ export const environmentsErrorTrackingSymbolSetsFinishUploadUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1255,7 +1261,7 @@ export const getEnvironmentsErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (
 
 export const environmentsErrorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse> => {
     return apiMutator<environmentsErrorTrackingSymbolSetsBulkFinishUploadCreateResponse>(
@@ -1264,7 +1270,7 @@ export const environmentsErrorTrackingSymbolSetsBulkFinishUploadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1287,7 +1293,7 @@ export const getEnvironmentsErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (p
 
 export const environmentsErrorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse> => {
     return apiMutator<environmentsErrorTrackingSymbolSetsBulkStartUploadCreateResponse>(
@@ -1296,7 +1302,7 @@ export const environmentsErrorTrackingSymbolSetsBulkStartUploadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1319,19 +1325,19 @@ export const getEnvironmentsErrorTrackingSymbolSetsStartUploadCreateUrl = (proje
 
 export const environmentsErrorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<environmentsErrorTrackingSymbolSetsStartUploadCreateResponse>(
@@ -1345,7 +1351,7 @@ export const environmentsErrorTrackingSymbolSetsStartUploadCreate = async (
 }
 
 export type errorTrackingReleasesListResponse200 = {
-    data: PaginatedErrorTrackingReleaseList
+    data: PaginatedErrorTrackingReleaseListApi
     status: 200
 }
 
@@ -1382,7 +1388,7 @@ export const errorTrackingReleasesList = async (
 }
 
 export type errorTrackingReleasesCreateResponse201 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 201
 }
 
@@ -1397,19 +1403,19 @@ export const getErrorTrackingReleasesCreateUrl = (projectId: string) => {
 
 export const errorTrackingReleasesCreate = async (
     projectId: string,
-    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<errorTrackingReleasesCreateResponse> => {
     return apiMutator<errorTrackingReleasesCreateResponse>(getErrorTrackingReleasesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingRelease),
+        body: JSON.stringify(errorTrackingReleaseApi),
     })
 }
 
 export type errorTrackingReleasesRetrieveResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -1434,7 +1440,7 @@ export const errorTrackingReleasesRetrieve = async (
 }
 
 export type errorTrackingReleasesUpdateResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -1450,19 +1456,19 @@ export const getErrorTrackingReleasesUpdateUrl = (projectId: string, id: string)
 export const errorTrackingReleasesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingRelease: NonReadonly<ErrorTrackingRelease>,
+    errorTrackingReleaseApi: NonReadonly<ErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<errorTrackingReleasesUpdateResponse> => {
     return apiMutator<errorTrackingReleasesUpdateResponse>(getErrorTrackingReleasesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(errorTrackingRelease),
+        body: JSON.stringify(errorTrackingReleaseApi),
     })
 }
 
 export type errorTrackingReleasesPartialUpdateResponse200 = {
-    data: ErrorTrackingRelease
+    data: ErrorTrackingReleaseApi
     status: 200
 }
 
@@ -1478,7 +1484,7 @@ export const getErrorTrackingReleasesPartialUpdateUrl = (projectId: string, id: 
 export const errorTrackingReleasesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingRelease: NonReadonly<PatchedErrorTrackingRelease>,
+    patchedErrorTrackingReleaseApi: NonReadonly<PatchedErrorTrackingReleaseApi>,
     options?: RequestInit
 ): Promise<errorTrackingReleasesPartialUpdateResponse> => {
     return apiMutator<errorTrackingReleasesPartialUpdateResponse>(
@@ -1487,7 +1493,7 @@ export const errorTrackingReleasesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingRelease),
+            body: JSON.stringify(patchedErrorTrackingReleaseApi),
         }
     )
 }
@@ -1546,7 +1552,7 @@ export const errorTrackingReleasesHashRetrieve = async (
 }
 
 export type errorTrackingSymbolSetsListResponse200 = {
-    data: PaginatedErrorTrackingSymbolSetList
+    data: PaginatedErrorTrackingSymbolSetListApi
     status: 200
 }
 
@@ -1583,7 +1589,7 @@ export const errorTrackingSymbolSetsList = async (
 }
 
 export type errorTrackingSymbolSetsCreateResponse201 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 201
 }
 
@@ -1598,19 +1604,19 @@ export const getErrorTrackingSymbolSetsCreateUrl = (projectId: string) => {
 
 export const errorTrackingSymbolSetsCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsCreateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<errorTrackingSymbolSetsCreateResponse>(getErrorTrackingSymbolSetsCreateUrl(projectId), {
@@ -1621,7 +1627,7 @@ export const errorTrackingSymbolSetsCreate = async (
 }
 
 export type errorTrackingSymbolSetsRetrieveResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1646,7 +1652,7 @@ export const errorTrackingSymbolSetsRetrieve = async (
 }
 
 export type errorTrackingSymbolSetsUpdateResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1662,19 +1668,19 @@ export const getErrorTrackingSymbolSetsUpdateUrl = (projectId: string, id: strin
 export const errorTrackingSymbolSetsUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsUpdateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<errorTrackingSymbolSetsUpdateResponse>(getErrorTrackingSymbolSetsUpdateUrl(projectId, id), {
@@ -1685,7 +1691,7 @@ export const errorTrackingSymbolSetsUpdate = async (
 }
 
 export type errorTrackingSymbolSetsPartialUpdateResponse200 = {
-    data: ErrorTrackingSymbolSet
+    data: ErrorTrackingSymbolSetApi
     status: 200
 }
 
@@ -1701,24 +1707,30 @@ export const getErrorTrackingSymbolSetsPartialUpdateUrl = (projectId: string, id
 export const errorTrackingSymbolSetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSymbolSet: NonReadonly<PatchedErrorTrackingSymbolSet>,
+    patchedErrorTrackingSymbolSetApi: NonReadonly<PatchedErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsPartialUpdateResponse> => {
     const formData = new FormData()
-    if (patchedErrorTrackingSymbolSet.ref !== undefined) {
-        formData.append(`ref`, patchedErrorTrackingSymbolSet.ref)
-    }
-    if (patchedErrorTrackingSymbolSet.last_used !== undefined && patchedErrorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, patchedErrorTrackingSymbolSet.last_used)
-    }
-    if (patchedErrorTrackingSymbolSet.storage_ptr !== undefined && patchedErrorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSet.storage_ptr)
+    if (patchedErrorTrackingSymbolSetApi.ref !== undefined) {
+        formData.append(`ref`, patchedErrorTrackingSymbolSetApi.ref)
     }
     if (
-        patchedErrorTrackingSymbolSet.failure_reason !== undefined &&
-        patchedErrorTrackingSymbolSet.failure_reason !== null
+        patchedErrorTrackingSymbolSetApi.last_used !== undefined &&
+        patchedErrorTrackingSymbolSetApi.last_used !== null
     ) {
-        formData.append(`failure_reason`, patchedErrorTrackingSymbolSet.failure_reason)
+        formData.append(`last_used`, patchedErrorTrackingSymbolSetApi.last_used)
+    }
+    if (
+        patchedErrorTrackingSymbolSetApi.storage_ptr !== undefined &&
+        patchedErrorTrackingSymbolSetApi.storage_ptr !== null
+    ) {
+        formData.append(`storage_ptr`, patchedErrorTrackingSymbolSetApi.storage_ptr)
+    }
+    if (
+        patchedErrorTrackingSymbolSetApi.failure_reason !== undefined &&
+        patchedErrorTrackingSymbolSetApi.failure_reason !== null
+    ) {
+        formData.append(`failure_reason`, patchedErrorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<errorTrackingSymbolSetsPartialUpdateResponse>(
@@ -1774,7 +1786,7 @@ export const getErrorTrackingSymbolSetsFinishUploadUpdateUrl = (projectId: strin
 export const errorTrackingSymbolSetsFinishUploadUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsFinishUploadUpdateResponse> => {
     return apiMutator<errorTrackingSymbolSetsFinishUploadUpdateResponse>(
@@ -1783,7 +1795,7 @@ export const errorTrackingSymbolSetsFinishUploadUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1806,7 +1818,7 @@ export const getErrorTrackingSymbolSetsBulkFinishUploadCreateUrl = (projectId: s
 
 export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsBulkFinishUploadCreateResponse> => {
     return apiMutator<errorTrackingSymbolSetsBulkFinishUploadCreateResponse>(
@@ -1815,7 +1827,7 @@ export const errorTrackingSymbolSetsBulkFinishUploadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1838,7 +1850,7 @@ export const getErrorTrackingSymbolSetsBulkStartUploadCreateUrl = (projectId: st
 
 export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsBulkStartUploadCreateResponse> => {
     return apiMutator<errorTrackingSymbolSetsBulkStartUploadCreateResponse>(
@@ -1847,7 +1859,7 @@ export const errorTrackingSymbolSetsBulkStartUploadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSymbolSet),
+            body: JSON.stringify(errorTrackingSymbolSetApi),
         }
     )
 }
@@ -1869,19 +1881,19 @@ export const getErrorTrackingSymbolSetsStartUploadCreateUrl = (projectId: string
 
 export const errorTrackingSymbolSetsStartUploadCreate = async (
     projectId: string,
-    errorTrackingSymbolSet: NonReadonly<ErrorTrackingSymbolSet>,
+    errorTrackingSymbolSetApi: NonReadonly<ErrorTrackingSymbolSetApi>,
     options?: RequestInit
 ): Promise<errorTrackingSymbolSetsStartUploadCreateResponse> => {
     const formData = new FormData()
-    formData.append(`ref`, errorTrackingSymbolSet.ref)
-    if (errorTrackingSymbolSet.last_used !== undefined && errorTrackingSymbolSet.last_used !== null) {
-        formData.append(`last_used`, errorTrackingSymbolSet.last_used)
+    formData.append(`ref`, errorTrackingSymbolSetApi.ref)
+    if (errorTrackingSymbolSetApi.last_used !== undefined && errorTrackingSymbolSetApi.last_used !== null) {
+        formData.append(`last_used`, errorTrackingSymbolSetApi.last_used)
     }
-    if (errorTrackingSymbolSet.storage_ptr !== undefined && errorTrackingSymbolSet.storage_ptr !== null) {
-        formData.append(`storage_ptr`, errorTrackingSymbolSet.storage_ptr)
+    if (errorTrackingSymbolSetApi.storage_ptr !== undefined && errorTrackingSymbolSetApi.storage_ptr !== null) {
+        formData.append(`storage_ptr`, errorTrackingSymbolSetApi.storage_ptr)
     }
-    if (errorTrackingSymbolSet.failure_reason !== undefined && errorTrackingSymbolSet.failure_reason !== null) {
-        formData.append(`failure_reason`, errorTrackingSymbolSet.failure_reason)
+    if (errorTrackingSymbolSetApi.failure_reason !== undefined && errorTrackingSymbolSetApi.failure_reason !== null) {
+        formData.append(`failure_reason`, errorTrackingSymbolSetApi.failure_reason)
     }
 
     return apiMutator<errorTrackingSymbolSetsStartUploadCreateResponse>(

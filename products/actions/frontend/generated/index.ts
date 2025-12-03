@@ -6,15 +6,15 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    Action,
+    ActionApi,
     ActionsCreateParams,
     ActionsDestroyParams,
     ActionsListParams,
     ActionsPartialUpdateParams,
     ActionsRetrieveParams,
     ActionsUpdateParams,
-    PaginatedActionList,
-    PatchedAction,
+    PaginatedActionListApi,
+    PatchedActionApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -35,7 +35,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type actionsListResponse200 = {
-    data: PaginatedActionList
+    data: PaginatedActionListApi
     status: 200
 }
 
@@ -72,7 +72,7 @@ export const actionsList = async (
 }
 
 export type actionsCreateResponse201 = {
-    data: Action
+    data: ActionApi
     status: 201
 }
 
@@ -99,7 +99,7 @@ export const getActionsCreateUrl = (projectId: string, params?: ActionsCreatePar
 
 export const actionsCreate = async (
     projectId: string,
-    action: NonReadonly<Action>,
+    actionApi: NonReadonly<ActionApi>,
     params?: ActionsCreateParams,
     options?: RequestInit
 ): Promise<actionsCreateResponse> => {
@@ -107,12 +107,12 @@ export const actionsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(action),
+        body: JSON.stringify(actionApi),
     })
 }
 
 export type actionsRetrieveResponse200 = {
-    data: Action
+    data: ActionApi
     status: 200
 }
 
@@ -150,7 +150,7 @@ export const actionsRetrieve = async (
 }
 
 export type actionsUpdateResponse200 = {
-    data: Action
+    data: ActionApi
     status: 200
 }
 
@@ -178,7 +178,7 @@ export const getActionsUpdateUrl = (projectId: string, id: number, params?: Acti
 export const actionsUpdate = async (
     projectId: string,
     id: number,
-    action: NonReadonly<Action>,
+    actionApi: NonReadonly<ActionApi>,
     params?: ActionsUpdateParams,
     options?: RequestInit
 ): Promise<actionsUpdateResponse> => {
@@ -186,12 +186,12 @@ export const actionsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(action),
+        body: JSON.stringify(actionApi),
     })
 }
 
 export type actionsPartialUpdateResponse200 = {
-    data: Action
+    data: ActionApi
     status: 200
 }
 
@@ -219,7 +219,7 @@ export const getActionsPartialUpdateUrl = (projectId: string, id: number, params
 export const actionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedAction: NonReadonly<PatchedAction>,
+    patchedActionApi: NonReadonly<PatchedActionApi>,
     params?: ActionsPartialUpdateParams,
     options?: RequestInit
 ): Promise<actionsPartialUpdateResponse> => {
@@ -227,7 +227,7 @@ export const actionsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAction),
+        body: JSON.stringify(patchedActionApi),
     })
 }
 

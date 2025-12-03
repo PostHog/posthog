@@ -30,9 +30,9 @@ import type {
     EnvironmentsPersonsUpdateParams,
     EnvironmentsPersonsUpdatePropertyCreateParams,
     EnvironmentsPersonsValuesRetrieveParams,
-    PaginatedPersonList,
-    PatchedPerson,
-    Person,
+    PaginatedPersonListApi,
+    PatchedPersonApi,
+    PersonApi,
     PersonsActivityRetrieve2Params,
     PersonsActivityRetrieveParams,
     PersonsBulkDeleteCreateParams,
@@ -80,7 +80,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type environmentsPersonsListResponse200 = {
-    data: PaginatedPersonList
+    data: PaginatedPersonListApi
     status: 200
 }
 
@@ -129,7 +129,7 @@ export const environmentsPersonsList = async (
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type environmentsPersonsRetrieveResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -176,7 +176,7 @@ This means that only the properties listed will be updated, but other properties
 If you would like to remove a property use the `delete_property` endpoint.
  */
 export type environmentsPersonsUpdateResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -208,7 +208,7 @@ export const getEnvironmentsPersonsUpdateUrl = (
 export const environmentsPersonsUpdate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsUpdateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsUpdateResponse> => {
@@ -216,7 +216,7 @@ export const environmentsPersonsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -224,7 +224,7 @@ export const environmentsPersonsUpdate = async (
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type environmentsPersonsPartialUpdateResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -256,7 +256,7 @@ export const getEnvironmentsPersonsPartialUpdateUrl = (
 export const environmentsPersonsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedPerson: NonReadonly<PatchedPerson>,
+    patchedPersonApi: NonReadonly<PatchedPersonApi>,
     params?: EnvironmentsPersonsPartialUpdateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsPartialUpdateResponse> => {
@@ -266,7 +266,7 @@ export const environmentsPersonsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedPerson),
+            body: JSON.stringify(patchedPersonApi),
         }
     )
 }
@@ -400,7 +400,7 @@ export const getEnvironmentsPersonsDeleteEventsCreateUrl = (
 export const environmentsPersonsDeleteEventsCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsDeleteEventsCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsDeleteEventsCreateResponse> => {
@@ -410,7 +410,7 @@ export const environmentsPersonsDeleteEventsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -452,7 +452,7 @@ export const getEnvironmentsPersonsDeletePropertyCreateUrl = (
 export const environmentsPersonsDeletePropertyCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params: EnvironmentsPersonsDeletePropertyCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsDeletePropertyCreateResponse> => {
@@ -462,7 +462,7 @@ export const environmentsPersonsDeletePropertyCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -504,7 +504,7 @@ export const getEnvironmentsPersonsDeleteRecordingsCreateUrl = (
 export const environmentsPersonsDeleteRecordingsCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsDeleteRecordingsCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsDeleteRecordingsCreateResponse> => {
@@ -514,7 +514,7 @@ export const environmentsPersonsDeleteRecordingsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -605,7 +605,7 @@ export const getEnvironmentsPersonsSplitCreateUrl = (
 export const environmentsPersonsSplitCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsSplitCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsSplitCreateResponse> => {
@@ -615,7 +615,7 @@ export const environmentsPersonsSplitCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -657,7 +657,7 @@ export const getEnvironmentsPersonsUpdatePropertyCreateUrl = (
 export const environmentsPersonsUpdatePropertyCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params: EnvironmentsPersonsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsUpdatePropertyCreateResponse> => {
@@ -667,7 +667,7 @@ export const environmentsPersonsUpdatePropertyCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -752,7 +752,7 @@ export const getEnvironmentsPersonsBulkDeleteCreateUrl = (
 
 export const environmentsPersonsBulkDeleteCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsBulkDeleteCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsBulkDeleteCreateResponse> => {
@@ -762,7 +762,7 @@ export const environmentsPersonsBulkDeleteCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -893,7 +893,7 @@ export const getEnvironmentsPersonsFunnelCreateUrl = (
 
 export const environmentsPersonsFunnelCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsFunnelCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsFunnelCreateResponse> => {
@@ -903,7 +903,7 @@ export const environmentsPersonsFunnelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -992,7 +992,7 @@ export const getEnvironmentsPersonsFunnelCorrelationCreateUrl = (
 
 export const environmentsPersonsFunnelCorrelationCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsFunnelCorrelationCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsFunnelCorrelationCreateResponse> => {
@@ -1002,7 +1002,7 @@ export const environmentsPersonsFunnelCorrelationCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -1089,7 +1089,7 @@ export const getEnvironmentsPersonsResetPersonDistinctIdCreateUrl = (
 
 export const environmentsPersonsResetPersonDistinctIdCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: EnvironmentsPersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
 ): Promise<environmentsPersonsResetPersonDistinctIdCreateResponse> => {
@@ -1099,7 +1099,7 @@ export const environmentsPersonsResetPersonDistinctIdCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -1246,7 +1246,7 @@ export const environmentsPersonsValuesRetrieve = async (
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type personsListResponse200 = {
-    data: PaginatedPersonList
+    data: PaginatedPersonListApi
     status: 200
 }
 
@@ -1295,7 +1295,7 @@ export const personsList = async (
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type personsRetrieveResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -1338,7 +1338,7 @@ This means that only the properties listed will be updated, but other properties
 If you would like to remove a property use the `delete_property` endpoint.
  */
 export type personsUpdateResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -1366,7 +1366,7 @@ export const getPersonsUpdateUrl = (projectId: string, id: number, params?: Pers
 export const personsUpdate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsUpdateParams,
     options?: RequestInit
 ): Promise<personsUpdateResponse> => {
@@ -1374,7 +1374,7 @@ export const personsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1382,7 +1382,7 @@ export const personsUpdate = async (
  * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
  */
 export type personsPartialUpdateResponse200 = {
-    data: Person
+    data: PersonApi
     status: 200
 }
 
@@ -1410,7 +1410,7 @@ export const getPersonsPartialUpdateUrl = (projectId: string, id: number, params
 export const personsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedPerson: NonReadonly<PatchedPerson>,
+    patchedPersonApi: NonReadonly<PatchedPersonApi>,
     params?: PersonsPartialUpdateParams,
     options?: RequestInit
 ): Promise<personsPartialUpdateResponse> => {
@@ -1418,7 +1418,7 @@ export const personsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPerson),
+        body: JSON.stringify(patchedPersonApi),
     })
 }
 
@@ -1544,7 +1544,7 @@ export const getPersonsDeleteEventsCreateUrl = (
 export const personsDeleteEventsCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsDeleteEventsCreateParams,
     options?: RequestInit
 ): Promise<personsDeleteEventsCreateResponse> => {
@@ -1552,7 +1552,7 @@ export const personsDeleteEventsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1592,7 +1592,7 @@ export const getPersonsDeletePropertyCreateUrl = (
 export const personsDeletePropertyCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params: PersonsDeletePropertyCreateParams,
     options?: RequestInit
 ): Promise<personsDeletePropertyCreateResponse> => {
@@ -1600,7 +1600,7 @@ export const personsDeletePropertyCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1640,7 +1640,7 @@ export const getPersonsDeleteRecordingsCreateUrl = (
 export const personsDeleteRecordingsCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsDeleteRecordingsCreateParams,
     options?: RequestInit
 ): Promise<personsDeleteRecordingsCreateResponse> => {
@@ -1650,7 +1650,7 @@ export const personsDeleteRecordingsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }
@@ -1735,7 +1735,7 @@ export const getPersonsSplitCreateUrl = (projectId: string, id: number, params?:
 export const personsSplitCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsSplitCreateParams,
     options?: RequestInit
 ): Promise<personsSplitCreateResponse> => {
@@ -1743,7 +1743,7 @@ export const personsSplitCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1783,7 +1783,7 @@ export const getPersonsUpdatePropertyCreateUrl = (
 export const personsUpdatePropertyCreate = async (
     projectId: string,
     id: number,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params: PersonsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<personsUpdatePropertyCreateResponse> => {
@@ -1791,7 +1791,7 @@ export const personsUpdatePropertyCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1866,7 +1866,7 @@ export const getPersonsBulkDeleteCreateUrl = (projectId: string, params?: Person
 
 export const personsBulkDeleteCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsBulkDeleteCreateParams,
     options?: RequestInit
 ): Promise<personsBulkDeleteCreateResponse> => {
@@ -1874,7 +1874,7 @@ export const personsBulkDeleteCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -1989,7 +1989,7 @@ export const getPersonsFunnelCreateUrl = (projectId: string, params?: PersonsFun
 
 export const personsFunnelCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsFunnelCreateParams,
     options?: RequestInit
 ): Promise<personsFunnelCreateResponse> => {
@@ -1997,7 +1997,7 @@ export const personsFunnelCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -2081,7 +2081,7 @@ export const getPersonsFunnelCorrelationCreateUrl = (
 
 export const personsFunnelCorrelationCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsFunnelCorrelationCreateParams,
     options?: RequestInit
 ): Promise<personsFunnelCorrelationCreateResponse> => {
@@ -2089,7 +2089,7 @@ export const personsFunnelCorrelationCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(person),
+        body: JSON.stringify(personApi),
     })
 }
 
@@ -2167,7 +2167,7 @@ export const getPersonsResetPersonDistinctIdCreateUrl = (
 
 export const personsResetPersonDistinctIdCreate = async (
     projectId: string,
-    person: NonReadonly<Person>,
+    personApi: NonReadonly<PersonApi>,
     params?: PersonsResetPersonDistinctIdCreateParams,
     options?: RequestInit
 ): Promise<personsResetPersonDistinctIdCreateResponse> => {
@@ -2177,7 +2177,7 @@ export const personsResetPersonDistinctIdCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(person),
+            body: JSON.stringify(personApi),
         }
     )
 }

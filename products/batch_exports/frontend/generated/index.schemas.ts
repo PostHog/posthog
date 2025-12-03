@@ -4,34 +4,31 @@
  * PostHog API - batch_exports
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type { BatchExportRun } from '~/types'
-export type ModelEnum = (typeof ModelEnum)[keyof typeof ModelEnum]
-export const ModelEnum = {
+export type ModelEnumApi = (typeof ModelEnumApi)[keyof typeof ModelEnumApi]
+export const ModelEnumApi = {
     events: 'events',
     persons: 'persons',
     sessions: 'sessions',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type IntervalEnum = (typeof IntervalEnum)[keyof typeof IntervalEnum]
-export const IntervalEnum = {
+export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
+export const IntervalEnumApi = {
     hour: 'hour',
     day: 'day',
     week: 'week',
     every_5_minutes: 'every 5 minutes',
 } as const
 
-export type BatchExportRunStatusEnum = (typeof BatchExportRunStatusEnum)[keyof typeof BatchExportRunStatusEnum]
-export const BatchExportRunStatusEnum = {
+export type BatchExportRunStatusEnumApi = (typeof BatchExportRunStatusEnumApi)[keyof typeof BatchExportRunStatusEnumApi]
+export const BatchExportRunStatusEnumApi = {
     Cancelled: 'Cancelled',
     Completed: 'Completed',
     ContinuedAsNew: 'ContinuedAsNew',
@@ -44,7 +41,9 @@ export const BatchExportRunStatusEnum = {
     Starting: 'Starting',
 } as const
 
-export const BatchExportDestinationTypeEnum = {
+export type BatchExportDestinationTypeEnumApi =
+    (typeof BatchExportDestinationTypeEnumApi)[keyof typeof BatchExportDestinationTypeEnumApi]
+export const BatchExportDestinationTypeEnumApi = {
     S3: 'S3',
     Snowflake: 'Snowflake',
     Postgres: 'Postgres',
@@ -55,17 +54,17 @@ export const BatchExportDestinationTypeEnum = {
     NoOp: 'NoOp',
 } as const
 
-export interface PaginatedBatchExportList {
+export interface PaginatedBatchExportListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: BatchExport[]
+    results: BatchExportApi[]
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const BatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum } as const
+export const BatchExportApiModel = { ...ModelEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * Which model this BatchExport is exporting.
 
@@ -74,23 +73,23 @@ export const BatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum } as c
 * `sessions` - Sessions
  * @nullable
  */
-export type BatchExportModel = (typeof BatchExportModel)[keyof typeof BatchExportModel] | null
+export type BatchExportApiModel = (typeof BatchExportApiModel)[keyof typeof BatchExportApiModel] | null
 
 /**
  * A schema of custom fields to select when exporting data.
  * @nullable
  */
-export type BatchExportSchema = unknown | null
+export type BatchExportApiSchema = unknown | null
 
 /**
  * @nullable
  */
-export type BatchExportFilters = unknown | null
+export type BatchExportApiFilters = unknown | null
 
 /**
  * Serializer for a BatchExport model.
  */
-export interface BatchExport {
+export interface BatchExportApi {
     readonly id: string
     /** The team this belongs to. */
     readonly team_id: number
@@ -104,9 +103,9 @@ export interface BatchExport {
 * `sessions` - Sessions
    * @nullable
    */
-    model?: BatchExportModel
-    destination: BatchExportDestination
-    interval: IntervalEnum
+    model?: BatchExportApiModel
+    destination: BatchExportDestinationApi
+    interval: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
     paused?: boolean
     /** The timestamp at which this BatchExport was created. */
@@ -128,27 +127,101 @@ export interface BatchExport {
      * @nullable
      */
     end_at?: string | null
-    readonly latest_runs: readonly BatchExportRun[]
+    readonly latest_runs: readonly BatchExportRunApi[]
     hogql_query?: string
     /**
      * A schema of custom fields to select when exporting data.
      * @nullable
      */
-    readonly schema: BatchExportSchema
+    readonly schema: BatchExportApiSchema
     /** @nullable */
-    filters?: BatchExportFilters
+    filters?: BatchExportApiFilters
 }
 
-export interface PaginatedBatchExportRunList {
+export interface PaginatedBatchExportRunListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: BatchExportRun[]
+    results: BatchExportRunApi[]
+}
+
+/**
+ * Serializer for a BatchExportRun model.
+ */
+export interface BatchExportRunApi {
+    readonly id: string
+    /** The status of this run.
+
+* `Cancelled` - Cancelled
+* `Completed` - Completed
+* `ContinuedAsNew` - Continued As New
+* `Failed` - Failed
+* `FailedRetryable` - Failed Retryable
+* `FailedBilling` - Failed Billing
+* `Terminated` - Terminated
+* `TimedOut` - Timedout
+* `Running` - Running
+* `Starting` - Starting */
+    status: BatchExportRunStatusEnumApi
+    /**
+     * The number of records that have been exported.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_completed?: number | null
+    /**
+     * The latest error that occurred during this run.
+     * @nullable
+     */
+    latest_error?: string | null
+    /**
+     * The start of the data interval.
+     * @nullable
+     */
+    data_interval_start?: string | null
+    /** The end of the data interval. */
+    data_interval_end: string
+    /**
+     * An opaque cursor that may be used to resume.
+     * @nullable
+     */
+    cursor?: string | null
+    /** The timestamp at which this BatchExportRun was created. */
+    readonly created_at: string
+    /**
+     * The timestamp at which this BatchExportRun finished, successfully or not.
+     * @nullable
+     */
+    finished_at?: string | null
+    /** The timestamp at which this BatchExportRun was last updated. */
+    readonly last_updated_at: string
+    /**
+     * The total count of records that should be exported in this BatchExportRun.
+     * @minimum -2147483648
+     * @maximum 2147483647
+     * @nullable
+     */
+    records_total_count?: number | null
+    /**
+     * The number of bytes that have been exported in this BatchExportRun.
+     * @minimum -9223372036854776000
+     * @maximum 9223372036854776000
+     * @nullable
+     */
+    bytes_exported?: number | null
+    /** The BatchExport this run belongs to. */
+    readonly batch_export: string
+    /**
+     * The backfill this run belongs to.
+     * @nullable
+     */
+    backfill?: string | null
 }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedBatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedBatchExportApiModel = { ...ModelEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * Which model this BatchExport is exporting.
 
@@ -157,23 +230,25 @@ export const PatchedBatchExportModel = { ...ModelEnum, ...BlankEnum, ...NullEnum
 * `sessions` - Sessions
  * @nullable
  */
-export type PatchedBatchExportModel = (typeof PatchedBatchExportModel)[keyof typeof PatchedBatchExportModel] | null
+export type PatchedBatchExportApiModel =
+    | (typeof PatchedBatchExportApiModel)[keyof typeof PatchedBatchExportApiModel]
+    | null
 
 /**
  * A schema of custom fields to select when exporting data.
  * @nullable
  */
-export type PatchedBatchExportSchema = unknown | null
+export type PatchedBatchExportApiSchema = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedBatchExportFilters = unknown | null
+export type PatchedBatchExportApiFilters = unknown | null
 
 /**
  * Serializer for a BatchExport model.
  */
-export interface PatchedBatchExport {
+export interface PatchedBatchExportApi {
     readonly id?: string
     /** The team this belongs to. */
     readonly team_id?: number
@@ -187,9 +262,9 @@ export interface PatchedBatchExport {
 * `sessions` - Sessions
    * @nullable
    */
-    model?: PatchedBatchExportModel
-    destination?: BatchExportDestination
-    interval?: IntervalEnum
+    model?: PatchedBatchExportApiModel
+    destination?: BatchExportDestinationApi
+    interval?: IntervalEnumApi
     /** Whether this BatchExport is paused or not. */
     paused?: boolean
     /** The timestamp at which this BatchExport was created. */
@@ -211,15 +286,15 @@ export interface PatchedBatchExport {
      * @nullable
      */
     end_at?: string | null
-    readonly latest_runs?: readonly BatchExportRun[]
+    readonly latest_runs?: readonly BatchExportRunApi[]
     hogql_query?: string
     /**
      * A schema of custom fields to select when exporting data.
      * @nullable
      */
-    readonly schema?: PatchedBatchExportSchema
+    readonly schema?: PatchedBatchExportApiSchema
     /** @nullable */
-    filters?: PatchedBatchExportFilters
+    filters?: PatchedBatchExportApiFilters
 }
 
 /**
@@ -237,7 +312,7 @@ export interface PatchedBatchExport {
 /**
  * Serializer for an BatchExportDestination model.
  */
-export interface BatchExportDestination {
+export interface BatchExportDestinationApi {
     /** A choice of supported BatchExportDestination types.
 
 * `S3` - S3
@@ -248,7 +323,7 @@ export interface BatchExportDestination {
 * `Databricks` - Databricks
 * `HTTP` - Http
 * `NoOp` - Noop */
-    type: BatchExportDestinationTypeEnum
+    type: BatchExportDestinationTypeEnumApi
     /** A JSON field to store all configuration parameters required to access a BatchExportDestination. */
     config?: unknown
     /**
@@ -294,8 +369,6 @@ export interface BatchExportDestination {
  * `HTTP` - Http
  * `NoOp` - Noop
  */
-export type BatchExportDestinationTypeEnum =
-    (typeof BatchExportDestinationTypeEnum)[keyof typeof BatchExportDestinationTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 

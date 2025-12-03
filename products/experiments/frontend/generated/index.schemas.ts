@@ -4,26 +4,22 @@
  * PostHog API - experiments
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type { ExperimentExposureCriteria } from '~/queries/schema'
-export type { Experiment, ExperimentConclusion } from '~/types'
-export type ExperimentTypeEnum = (typeof ExperimentTypeEnum)[keyof typeof ExperimentTypeEnum]
-export const ExperimentTypeEnum = {
+export type ExperimentTypeEnumApi = (typeof ExperimentTypeEnumApi)[keyof typeof ExperimentTypeEnumApi]
+export const ExperimentTypeEnumApi = {
     web: 'web',
     product: 'product',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type ConclusionEnum = (typeof ConclusionEnum)[keyof typeof ConclusionEnum]
-export const ConclusionEnum = {
+export type ConclusionEnumApi = (typeof ConclusionEnumApi)[keyof typeof ConclusionEnumApi]
+export const ConclusionEnumApi = {
     won: 'won',
     lost: 'lost',
     inconclusive: 'inconclusive',
@@ -31,8 +27,8 @@ export const ConclusionEnum = {
     invalid: 'invalid',
 } as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -43,23 +39,23 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
-export const EvaluationRuntimeEnum = {
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
     all: 'all',
 } as const
 
-export interface PaginatedExperimentHoldoutList {
+export interface PaginatedExperimentHoldoutListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ExperimentHoldout[]
+    results: ExperimentHoldoutApi[]
 }
 
-export interface ExperimentHoldout {
+export interface ExperimentHoldoutApi {
     readonly id: number
     /** @maxLength 400 */
     name: string
@@ -69,12 +65,12 @@ export interface ExperimentHoldout {
      */
     description?: string | null
     filters?: unknown
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
 }
 
-export interface PatchedExperimentHoldout {
+export interface PatchedExperimentHoldoutApi {
     readonly id?: number
     /** @maxLength 400 */
     name?: string
@@ -84,125 +80,197 @@ export interface PatchedExperimentHoldout {
      */
     description?: string | null
     filters?: unknown
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
 }
 
-export interface PaginatedExperimentList {
+export interface PaginatedExperimentListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Experiment[]
+    results: ExperimentApi[]
 }
 
 /**
  * @nullable
  */
-export type ExperimentParameters = unknown | null
+export type ExperimentApiParameters = unknown | null
 
 /**
  * @nullable
  */
-export type ExperimentSecondaryMetrics = unknown | null
+export type ExperimentApiSecondaryMetrics = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentType = { ...ExperimentTypeEnum, ...BlankEnum, ...NullEnum } as const
+export const ExperimentApiType = { ...ExperimentTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type ExperimentType = (typeof ExperimentType)[keyof typeof ExperimentType] | null
+export type ExperimentApiType = (typeof ExperimentApiType)[keyof typeof ExperimentApiType] | null
 
 /**
  * @nullable
  */
-export type ExperimentMetrics = unknown | null
+export type ExperimentApiExposureCriteria = unknown | null
 
 /**
  * @nullable
  */
-export type ExperimentMetricsSecondary = unknown | null
+export type ExperimentApiMetrics = unknown | null
 
 /**
  * @nullable
  */
-export type ExperimentStatsConfig = unknown | null
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const ExperimentConclusion = { ...ConclusionEnum, ...BlankEnum, ...NullEnum } as const
+export type ExperimentApiMetricsSecondary = unknown | null
 
 /**
  * @nullable
  */
-export type ExperimentPrimaryMetricsOrderedUuids = unknown | null
-
-/**
- * @nullable
- */
-export type ExperimentSecondaryMetricsOrderedUuids = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedExperimentParameters = unknown | null
-
-/**
- * @nullable
- */
-export type PatchedExperimentSecondaryMetrics = unknown | null
+export type ExperimentApiStatsConfig = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedExperimentType = { ...ExperimentTypeEnum, ...BlankEnum, ...NullEnum } as const
+export const ExperimentApiConclusion = { ...ConclusionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedExperimentType = (typeof PatchedExperimentType)[keyof typeof PatchedExperimentType] | null
+export type ExperimentApiConclusion = (typeof ExperimentApiConclusion)[keyof typeof ExperimentApiConclusion] | null
 
 /**
  * @nullable
  */
-export type PatchedExperimentExposureCriteria = unknown | null
+export type ExperimentApiPrimaryMetricsOrderedUuids = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedExperimentMetrics = unknown | null
+export type ExperimentApiSecondaryMetricsOrderedUuids = unknown | null
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface ExperimentApi {
+    readonly id: number
+    /** @maxLength 400 */
+    name: string
+    /**
+     * @maxLength 400
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    feature_flag_key: string
+    readonly feature_flag: MinimalFeatureFlagApi
+    readonly holdout: ExperimentHoldoutApi
+    /** @nullable */
+    holdout_id?: number | null
+    /** @nullable */
+    readonly exposure_cohort: number | null
+    /** @nullable */
+    parameters?: ExperimentApiParameters
+    /** @nullable */
+    secondary_metrics?: ExperimentApiSecondaryMetrics
+    readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
+    /** @nullable */
+    saved_metrics_ids?: unknown[] | null
+    filters?: unknown
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** @nullable */
+    type?: ExperimentApiType
+    /** @nullable */
+    exposure_criteria?: ExperimentApiExposureCriteria
+    /** @nullable */
+    metrics?: ExperimentApiMetrics
+    /** @nullable */
+    metrics_secondary?: ExperimentApiMetricsSecondary
+    /** @nullable */
+    stats_config?: ExperimentApiStatsConfig
+    _create_in_folder?: string
+    /** @nullable */
+    conclusion?: ExperimentApiConclusion
+    /** @nullable */
+    conclusion_comment?: string | null
+    /** @nullable */
+    primary_metrics_ordered_uuids?: ExperimentApiPrimaryMetricsOrderedUuids
+    /** @nullable */
+    secondary_metrics_ordered_uuids?: ExperimentApiSecondaryMetricsOrderedUuids
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
 
 /**
  * @nullable
  */
-export type PatchedExperimentMetricsSecondary = unknown | null
+export type PatchedExperimentApiParameters = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedExperimentStatsConfig = unknown | null
+export type PatchedExperimentApiSecondaryMetrics = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedExperimentConclusion = { ...ConclusionEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedExperimentApiType = { ...ExperimentTypeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PatchedExperimentConclusion =
-    | (typeof PatchedExperimentConclusion)[keyof typeof PatchedExperimentConclusion]
+export type PatchedExperimentApiType = (typeof PatchedExperimentApiType)[keyof typeof PatchedExperimentApiType] | null
+
+/**
+ * @nullable
+ */
+export type PatchedExperimentApiExposureCriteria = unknown | null
+
+/**
+ * @nullable
+ */
+export type PatchedExperimentApiMetrics = unknown | null
+
+/**
+ * @nullable
+ */
+export type PatchedExperimentApiMetricsSecondary = unknown | null
+
+/**
+ * @nullable
+ */
+export type PatchedExperimentApiStatsConfig = unknown | null
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const PatchedExperimentApiConclusion = { ...ConclusionEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * @nullable
+ */
+export type PatchedExperimentApiConclusion =
+    | (typeof PatchedExperimentApiConclusion)[keyof typeof PatchedExperimentApiConclusion]
     | null
 
 /**
  * @nullable
  */
-export type PatchedExperimentPrimaryMetricsOrderedUuids = unknown | null
+export type PatchedExperimentApiPrimaryMetricsOrderedUuids = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedExperimentSecondaryMetricsOrderedUuids = unknown | null
+export type PatchedExperimentApiSecondaryMetricsOrderedUuids = unknown | null
 
 /**
  * Mixin for serializers to add user access control fields
  */
-export interface PatchedExperiment {
+export interface PatchedExperimentApi {
     readonly id?: number
     /** @maxLength 400 */
     name?: string
@@ -216,45 +284,45 @@ export interface PatchedExperiment {
     /** @nullable */
     end_date?: string | null
     feature_flag_key?: string
-    readonly feature_flag?: MinimalFeatureFlag
-    readonly holdout?: ExperimentHoldout
+    readonly feature_flag?: MinimalFeatureFlagApi
+    readonly holdout?: ExperimentHoldoutApi
     /** @nullable */
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
     /** @nullable */
-    parameters?: PatchedExperimentParameters
+    parameters?: PatchedExperimentApiParameters
     /** @nullable */
-    secondary_metrics?: PatchedExperimentSecondaryMetrics
-    readonly saved_metrics?: readonly ExperimentToSavedMetric[]
+    secondary_metrics?: PatchedExperimentApiSecondaryMetrics
+    readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /** @nullable */
     saved_metrics_ids?: unknown[] | null
     filters?: unknown
     archived?: boolean
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
     /** @nullable */
-    type?: PatchedExperimentType
+    type?: PatchedExperimentApiType
     /** @nullable */
-    exposure_criteria?: PatchedExperimentExposureCriteria
+    exposure_criteria?: PatchedExperimentApiExposureCriteria
     /** @nullable */
-    metrics?: PatchedExperimentMetrics
+    metrics?: PatchedExperimentApiMetrics
     /** @nullable */
-    metrics_secondary?: PatchedExperimentMetricsSecondary
+    metrics_secondary?: PatchedExperimentApiMetricsSecondary
     /** @nullable */
-    stats_config?: PatchedExperimentStatsConfig
+    stats_config?: PatchedExperimentApiStatsConfig
     _create_in_folder?: string
     /** @nullable */
-    conclusion?: PatchedExperimentConclusion
+    conclusion?: PatchedExperimentApiConclusion
     /** @nullable */
     conclusion_comment?: string | null
     /** @nullable */
-    primary_metrics_ordered_uuids?: PatchedExperimentPrimaryMetricsOrderedUuids
+    primary_metrics_ordered_uuids?: PatchedExperimentApiPrimaryMetricsOrderedUuids
     /** @nullable */
-    secondary_metrics_ordered_uuids?: PatchedExperimentSecondaryMetricsOrderedUuids
+    secondary_metrics_ordered_uuids?: PatchedExperimentApiSecondaryMetricsOrderedUuids
     /**
      * The effective access level the user has for this object
      * @nullable
@@ -265,18 +333,18 @@ export interface PatchedExperiment {
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -293,15 +361,19 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
-export type MinimalFeatureFlagFilters = { [key: string]: unknown }
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
+export const MinimalFeatureFlagApiEvaluationRuntime = {
+    ...EvaluationRuntimeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * Specifies where this feature flag should be evaluated
 
@@ -310,17 +382,17 @@ export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, .
 * `all` - All
  * @nullable
  */
-export type MinimalFeatureFlagEvaluationRuntime =
-    | (typeof MinimalFeatureFlagEvaluationRuntime)[keyof typeof MinimalFeatureFlagEvaluationRuntime]
+export type MinimalFeatureFlagApiEvaluationRuntime =
+    | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
     | null
 
-export interface MinimalFeatureFlag {
+export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
     name?: string
     /** @maxLength 400 */
     key: string
-    filters?: MinimalFeatureFlagFilters
+    filters?: MinimalFeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
     /** @nullable */
@@ -341,11 +413,11 @@ export interface MinimalFeatureFlag {
 * `all` - All
    * @nullable
    */
-    evaluation_runtime?: MinimalFeatureFlagEvaluationRuntime
+    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
     readonly evaluation_tags: readonly string[]
 }
 
-export interface ExperimentToSavedMetric {
+export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number
     saved_metric: number

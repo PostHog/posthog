@@ -264,8 +264,7 @@ build:
     build:openapi-schema:
         cmd: |
             mkdir -p frontend/tmp
-            OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json
-            echo "OpenAPI schema written to frontend/tmp/openapi.json"
+            DEBUG=1 OPENAPI_INCLUDE_INTERNAL=1 python manage.py spectacular --file frontend/tmp/openapi.json --format openapi-json && echo "OpenAPI schema written to frontend/tmp/openapi.json"
         description: Generate OpenAPI schema from Django backend (writes to gitignored temp location)
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types

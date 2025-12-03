@@ -92,6 +92,14 @@ CI will fail if generated types are stale.
 3. Run `hogli build:openapi`
 4. Types appear in `products/your_product/frontend/generated/`
 
+### Design decisions
+
+**Why generated files are committed:** Generated types are checked into git rather than generated at build time. This makes type changes visible in PRs, lets CI catch stale types, and avoids requiring the full backend stack (Django, database) just to run frontend builds or type checks.
+
+**Why types aren't deduplicated:** Many OpenAPI schemas share common types (e.g., `UserBasic` appears in multiple endpoints). We intentionally don't deduplicate these across products. Each product gets its own copy with the `Api` suffix. This keeps products isolated—a change to one product's serializer won't affect another's types—and avoids complex cross-product import graphs. The duplication cost is negligible (a few KB) compared to the maintenance benefit.
+
+**Why the `Api` suffix:** Generated types use `TaskApi`, not `Task`. This prevents collisions with handwritten frontend types and makes it obvious at the import site whether you're using a generated or manual type. If you see `Api`, it came from the backend.
+
 ---
 
 ## Frontend → Backend (query types)

@@ -4,11 +4,8 @@
  * PostHog API - llm_analytics
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type { Dataset, DatasetItem } from '~/types'
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -19,62 +16,92 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export interface PaginatedDatasetItemList {
+export interface PaginatedDatasetItemListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DatasetItem[]
+    results: DatasetItemApi[]
 }
 
 /**
  * @nullable
  */
-export type DatasetItemInput = unknown | null
+export type DatasetItemApiInput = unknown | null
 
 /**
  * @nullable
  */
-export type DatasetItemOutput = unknown | null
+export type DatasetItemApiOutput = unknown | null
 
 /**
  * @nullable
  */
-export type DatasetItemMetadata = unknown | null
+export type DatasetItemApiMetadata = unknown | null
+
+export interface DatasetItemApi {
+    readonly id: string
+    dataset: string
+    /** @nullable */
+    input?: DatasetItemApiInput
+    /** @nullable */
+    output?: DatasetItemApiOutput
+    /** @nullable */
+    metadata?: DatasetItemApiMetadata
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_trace_id?: string | null
+    /** @nullable */
+    ref_timestamp?: string | null
+    /**
+     * @maxLength 255
+     * @nullable
+     */
+    ref_source_id?: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
 
 /**
  * @nullable
  */
-export type PatchedDatasetItemInput = unknown | null
+export type PatchedDatasetItemApiInput = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedDatasetItemOutput = unknown | null
+export type PatchedDatasetItemApiOutput = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedDatasetItemMetadata = unknown | null
+export type PatchedDatasetItemApiMetadata = unknown | null
 
-export interface PatchedDatasetItem {
+export interface PatchedDatasetItemApi {
     readonly id?: string
     dataset?: string
     /** @nullable */
-    input?: PatchedDatasetItemInput
+    input?: PatchedDatasetItemApiInput
     /** @nullable */
-    output?: PatchedDatasetItemOutput
+    output?: PatchedDatasetItemApiOutput
     /** @nullable */
-    metadata?: PatchedDatasetItemMetadata
+    metadata?: PatchedDatasetItemApiMetadata
     /**
      * @maxLength 255
      * @nullable
@@ -92,61 +119,78 @@ export interface PatchedDatasetItem {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly team?: number
 }
 
-export interface PaginatedDatasetList {
+export interface PaginatedDatasetListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Dataset[]
+    results: DatasetApi[]
 }
 
 /**
  * @nullable
  */
-export type DatasetMetadata = unknown | null
+export type DatasetApiMetadata = unknown | null
+
+export interface DatasetApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    description?: string | null
+    /** @nullable */
+    metadata?: DatasetApiMetadata
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
 
 /**
  * @nullable
  */
-export type PatchedDatasetMetadata = unknown | null
+export type PatchedDatasetApiMetadata = unknown | null
 
-export interface PatchedDataset {
+export interface PatchedDatasetApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
     /** @nullable */
     description?: string | null
     /** @nullable */
-    metadata?: PatchedDatasetMetadata
+    metadata?: PatchedDatasetApiMetadata
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
     /** @nullable */
     deleted?: boolean | null
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     readonly team?: number
 }
 
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -163,9 +207,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**

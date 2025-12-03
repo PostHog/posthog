@@ -4,11 +4,8 @@
  * PostHog API - feature_flags
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type { FeatureFlagEvaluationRuntime, FeatureFlagFilters, FeatureFlagRollbackConditions } from '~/types'
-export type CreationContextEnum = (typeof CreationContextEnum)[keyof typeof CreationContextEnum]
-export const CreationContextEnum = {
+export type CreationContextEnumApi = (typeof CreationContextEnumApi)[keyof typeof CreationContextEnumApi]
+export const CreationContextEnumApi = {
     feature_flags: 'feature_flags',
     experiments: 'experiments',
     surveys: 'surveys',
@@ -16,23 +13,23 @@ export const CreationContextEnum = {
     web_experiments: 'web_experiments',
 } as const
 
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
-export const EvaluationRuntimeEnum = {
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
     all: 'all',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -43,50 +40,68 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export interface PaginatedFeatureFlagList {
+export interface PaginatedFeatureFlagListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: FeatureFlag[]
+    results: FeatureFlagApi[]
 }
 
-export type FeatureFlagSurveys = { [key: string]: unknown }
+export type FeatureFlagApiFilters = { [key: string]: unknown }
 
-export type FeatureFlagFeatures = { [key: string]: unknown }
+export type FeatureFlagApiSurveys = { [key: string]: unknown }
+
+export type FeatureFlagApiFeatures = { [key: string]: unknown }
+
+/**
+ * @nullable
+ */
+export type FeatureFlagApiRollbackConditions = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const FeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
+export const FeatureFlagApiEvaluationRuntime = { ...EvaluationRuntimeEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
+/**
+ * Specifies where this feature flag should be evaluated
+
+* `server` - Server
+* `client` - Client
+* `all` - All
+ * @nullable
+ */
+export type FeatureFlagApiEvaluationRuntime =
+    | (typeof FeatureFlagApiEvaluationRuntime)[keyof typeof FeatureFlagApiEvaluationRuntime]
+    | null
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface FeatureFlag {
+export interface FeatureFlagApi {
     readonly id: number
     /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
     name?: string
     /** @maxLength 400 */
     key: string
-    filters?: FeatureFlagFilters
+    filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
     readonly updated_at: string | null
     version?: number
-    readonly last_modified_by: UserBasic
+    readonly last_modified_by: UserBasicApi
     readonly is_simple_flag: boolean
     /** @nullable */
     readonly rollout_percentage: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set: string
-    readonly surveys: FeatureFlagSurveys
-    readonly features: FeatureFlagFeatures
+    readonly surveys: FeatureFlagApiSurveys
+    readonly features: FeatureFlagApiFeatures
     /** @nullable */
-    rollback_conditions?: FeatureFlagRollbackConditions
+    rollback_conditions?: FeatureFlagApiRollbackConditions
     /** @nullable */
     performed_rollback?: boolean | null
     readonly can_edit: boolean
@@ -108,7 +123,7 @@ export interface FeatureFlag {
 * `surveys` - surveys
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments */
-    creation_context?: CreationContextEnum
+    creation_context?: CreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -122,7 +137,7 @@ export interface FeatureFlag {
 * `all` - All
    * @nullable
    */
-    evaluation_runtime?: FeatureFlagEvaluationRuntime
+    evaluation_runtime?: FeatureFlagApiEvaluationRuntime
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -132,19 +147,23 @@ export interface FeatureFlag {
     _should_create_usage_dashboard?: boolean
 }
 
-export type PatchedFeatureFlagFilters = { [key: string]: unknown }
+export type PatchedFeatureFlagApiFilters = { [key: string]: unknown }
 
-export type PatchedFeatureFlagSurveys = { [key: string]: unknown }
+export type PatchedFeatureFlagApiSurveys = { [key: string]: unknown }
 
-export type PatchedFeatureFlagFeatures = { [key: string]: unknown }
+export type PatchedFeatureFlagApiFeatures = { [key: string]: unknown }
 
 /**
  * @nullable
  */
-export type PatchedFeatureFlagRollbackConditions = unknown | null
+export type PatchedFeatureFlagApiRollbackConditions = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
+export const PatchedFeatureFlagApiEvaluationRuntime = {
+    ...EvaluationRuntimeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * Specifies where this feature flag should be evaluated
 
@@ -153,38 +172,38 @@ export const PatchedFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, .
 * `all` - All
  * @nullable
  */
-export type PatchedFeatureFlagEvaluationRuntime =
-    | (typeof PatchedFeatureFlagEvaluationRuntime)[keyof typeof PatchedFeatureFlagEvaluationRuntime]
+export type PatchedFeatureFlagApiEvaluationRuntime =
+    | (typeof PatchedFeatureFlagApiEvaluationRuntime)[keyof typeof PatchedFeatureFlagApiEvaluationRuntime]
     | null
 
 /**
  * Serializer mixin that resolves appropriate response for tags depending on license.
  */
-export interface PatchedFeatureFlag {
+export interface PatchedFeatureFlagApi {
     readonly id?: number
     /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
     name?: string
     /** @maxLength 400 */
     key?: string
-    filters?: PatchedFeatureFlagFilters
+    filters?: PatchedFeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
     version?: number
-    readonly last_modified_by?: UserBasic
+    readonly last_modified_by?: UserBasicApi
     readonly is_simple_flag?: boolean
     /** @nullable */
     readonly rollout_percentage?: number | null
     /** @nullable */
     ensure_experience_continuity?: boolean | null
     readonly experiment_set?: string
-    readonly surveys?: PatchedFeatureFlagSurveys
-    readonly features?: PatchedFeatureFlagFeatures
+    readonly surveys?: PatchedFeatureFlagApiSurveys
+    readonly features?: PatchedFeatureFlagApiFeatures
     /** @nullable */
-    rollback_conditions?: PatchedFeatureFlagRollbackConditions
+    rollback_conditions?: PatchedFeatureFlagApiRollbackConditions
     /** @nullable */
     performed_rollback?: boolean | null
     readonly can_edit?: boolean
@@ -206,7 +225,7 @@ export interface PatchedFeatureFlag {
 * `surveys` - surveys
 * `early_access_features` - early_access_features
 * `web_experiments` - web_experiments */
-    creation_context?: CreationContextEnum
+    creation_context?: CreationContextEnumApi
     /** @nullable */
     is_remote_configuration?: boolean | null
     /** @nullable */
@@ -220,7 +239,7 @@ export interface PatchedFeatureFlag {
 * `all` - All
    * @nullable
    */
-    evaluation_runtime?: PatchedFeatureFlagEvaluationRuntime
+    evaluation_runtime?: PatchedFeatureFlagApiEvaluationRuntime
     /**
      * Last time this feature flag was called (from $feature_flag_called events)
      * @nullable
@@ -233,18 +252,18 @@ export interface PatchedFeatureFlag {
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -261,9 +280,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**

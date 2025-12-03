@@ -4,10 +4,9 @@
  * PostHog API - error_tracking
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type { ErrorTrackingExternalReference, ErrorTrackingExternalReferenceIntegration } from '~/queries/schema'
-export const ErrorTrackingIssueFullStatusEnum = {
+export type ErrorTrackingIssueFullStatusEnumApi =
+    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
+export const ErrorTrackingIssueFullStatusEnumApi = {
     archived: 'archived',
     active: 'active',
     resolved: 'resolved',
@@ -15,8 +14,8 @@ export const ErrorTrackingIssueFullStatusEnum = {
     suppressed: 'suppressed',
 } as const
 
-export type KindEnum = (typeof KindEnum)[keyof typeof KindEnum]
-export const KindEnum = {
+export type KindEnumApi = (typeof KindEnumApi)[keyof typeof KindEnumApi]
+export const KindEnumApi = {
     slack: 'slack',
     salesforce: 'salesforce',
     hubspot: 'hubspot',
@@ -41,77 +40,77 @@ export const KindEnum = {
     databricks: 'databricks',
 } as const
 
-export interface PaginatedErrorTrackingFingerprintList {
+export interface PaginatedErrorTrackingFingerprintListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingFingerprint[]
+    results: ErrorTrackingFingerprintApi[]
 }
 
-export interface ErrorTrackingFingerprint {
+export interface ErrorTrackingFingerprintApi {
     fingerprint: string
     readonly issue_id: string
     readonly created_at: string
 }
 
-export interface PaginatedErrorTrackingIssueFullList {
+export interface PaginatedErrorTrackingIssueFullListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingIssueFull[]
+    results: ErrorTrackingIssueFullApi[]
 }
 
-export interface ErrorTrackingIssueFull {
+export interface ErrorTrackingIssueFullApi {
     readonly id: string
-    status?: ErrorTrackingIssueFullStatusEnum
+    status?: ErrorTrackingIssueFullStatusEnumApi
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
     first_seen: string
-    assignee: ErrorTrackingIssueAssignment
-    external_issues: ErrorTrackingExternalReference[]
+    assignee: ErrorTrackingIssueAssignmentApi
+    external_issues: ErrorTrackingExternalReferenceApi[]
     readonly cohort: string
 }
 
-export interface PatchedErrorTrackingIssueFull {
+export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
-    status?: ErrorTrackingIssueFullStatusEnum
+    status?: ErrorTrackingIssueFullStatusEnumApi
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
     first_seen?: string
-    assignee?: ErrorTrackingIssueAssignment
-    external_issues?: ErrorTrackingExternalReference[]
+    assignee?: ErrorTrackingIssueAssignmentApi
+    external_issues?: ErrorTrackingExternalReferenceApi[]
     readonly cohort?: string
 }
 
-export interface PaginatedErrorTrackingReleaseList {
+export interface PaginatedErrorTrackingReleaseListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingRelease[]
+    results: ErrorTrackingReleaseApi[]
 }
 
 /**
  * @nullable
  */
-export type ErrorTrackingReleaseMetadata = unknown | null
+export type ErrorTrackingReleaseApiMetadata = unknown | null
 
-export interface ErrorTrackingRelease {
+export interface ErrorTrackingReleaseApi {
     readonly id: string
     hash_id: string
     readonly team_id: number
     readonly created_at: string
     /** @nullable */
-    metadata?: ErrorTrackingReleaseMetadata
+    metadata?: ErrorTrackingReleaseApiMetadata
     version: string
     project: string
 }
@@ -119,55 +118,55 @@ export interface ErrorTrackingRelease {
 /**
  * @nullable
  */
-export type PatchedErrorTrackingReleaseMetadata = unknown | null
+export type PatchedErrorTrackingReleaseApiMetadata = unknown | null
 
-export interface PatchedErrorTrackingRelease {
+export interface PatchedErrorTrackingReleaseApi {
     readonly id?: string
     hash_id?: string
     readonly team_id?: number
     readonly created_at?: string
     /** @nullable */
-    metadata?: PatchedErrorTrackingReleaseMetadata
+    metadata?: PatchedErrorTrackingReleaseApiMetadata
     version?: string
     project?: string
 }
 
-export interface PaginatedErrorTrackingStackFrameList {
+export interface PaginatedErrorTrackingStackFrameListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingStackFrame[]
+    results: ErrorTrackingStackFrameApi[]
 }
 
 /**
  * @nullable
  */
-export type ErrorTrackingStackFrameContext = unknown | null
+export type ErrorTrackingStackFrameApiContext = unknown | null
 
-export interface ErrorTrackingStackFrame {
+export interface ErrorTrackingStackFrameApi {
     readonly id: string
     readonly raw_id: string
     readonly created_at: string
     contents: unknown
     resolved: boolean
     /** @nullable */
-    context?: ErrorTrackingStackFrameContext
+    context?: ErrorTrackingStackFrameApiContext
     symbol_set_ref?: string
-    readonly release: ErrorTrackingRelease
+    readonly release: ErrorTrackingReleaseApi
 }
 
-export interface PaginatedErrorTrackingSymbolSetList {
+export interface PaginatedErrorTrackingSymbolSetListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingSymbolSet[]
+    results: ErrorTrackingSymbolSetApi[]
 }
 
-export interface ErrorTrackingSymbolSet {
+export interface ErrorTrackingSymbolSetApi {
     readonly id: string
     ref: string
     readonly team_id: number
@@ -180,7 +179,7 @@ export interface ErrorTrackingSymbolSet {
     failure_reason?: string | null
 }
 
-export interface PatchedErrorTrackingSymbolSet {
+export interface PatchedErrorTrackingSymbolSetApi {
     readonly id?: string
     ref?: string
     readonly team_id?: number
@@ -200,14 +199,27 @@ export interface PatchedErrorTrackingSymbolSet {
  * `pending_release` - Pending release
  * `suppressed` - Suppressed
  */
-export type ErrorTrackingIssueFullStatusEnum =
-    (typeof ErrorTrackingIssueFullStatusEnum)[keyof typeof ErrorTrackingIssueFullStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export interface ErrorTrackingIssueAssignment {
+export interface ErrorTrackingIssueAssignmentApi {
     readonly id: string
     readonly type: string
+}
+
+export interface ErrorTrackingExternalReferenceApi {
+    readonly id: string
+    readonly integration: ErrorTrackingExternalReferenceIntegrationApi
+    integration_id: number
+    config: unknown
+    issue: string
+    readonly external_url: string
+}
+
+export interface ErrorTrackingExternalReferenceIntegrationApi {
+    readonly id: number
+    readonly kind: KindEnumApi
+    readonly display_name: string
 }
 
 /**

@@ -4,32 +4,39 @@
  * PostHog API - surveys
  * OpenAPI spec version: 1.0.0
  */
+export type SurveyTypeApi = (typeof SurveyTypeApi)[keyof typeof SurveyTypeApi]
+export const SurveyTypeApi = {
+    popover: 'popover',
+    widget: 'widget',
+    external_survey: 'external_survey',
+    api: 'api',
+} as const
 
-// Re-exported from canonical sources (TS-owned types)
-export type { Survey, SurveyAppearance, SurveyType } from '~/types'
-export const ResponseSamplingIntervalTypeEnum = {
+export type ResponseSamplingIntervalTypeEnumApi =
+    (typeof ResponseSamplingIntervalTypeEnumApi)[keyof typeof ResponseSamplingIntervalTypeEnumApi]
+export const ResponseSamplingIntervalTypeEnumApi = {
     day: 'day',
     week: 'week',
     month: 'month',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
-export const EvaluationRuntimeEnum = {
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
     all: 'all',
 } as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -40,19 +47,19 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export interface PaginatedSurveyList {
+export interface PaginatedSurveyListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Survey[]
+    results: SurveyApi[]
 }
 
 /**
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknown | null
+export type SurveySerializerCreateUpdateOnlyApiTargetingFlagFilters = unknown | null
 
 /**
  * 
@@ -143,54 +150,54 @@ export type SurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknown | nul
         
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyQuestions = unknown | null
+export type SurveySerializerCreateUpdateOnlyApiQuestions = unknown | null
 
 /**
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyConditions = unknown | null
+export type SurveySerializerCreateUpdateOnlyApiConditions = unknown | null
 
 /**
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyAppearance = unknown | null
+export type SurveySerializerCreateUpdateOnlyApiAppearance = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SurveySerializerCreateUpdateOnlyResponseSamplingIntervalType = {
-    ...ResponseSamplingIntervalTypeEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyResponseSamplingIntervalType =
-    | (typeof SurveySerializerCreateUpdateOnlyResponseSamplingIntervalType)[keyof typeof SurveySerializerCreateUpdateOnlyResponseSamplingIntervalType]
+export type SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType =
+    | (typeof SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType)[keyof typeof SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType]
     | null
 
 /**
  * @nullable
  */
-export type SurveySerializerCreateUpdateOnlyResponseSamplingDailyLimits = unknown | null
+export type SurveySerializerCreateUpdateOnlyApiResponseSamplingDailyLimits = unknown | null
 
-export interface SurveySerializerCreateUpdateOnly {
+export interface SurveySerializerCreateUpdateOnlyApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
     description?: string
-    type: SurveyType
+    type: SurveyTypeApi
     /** @nullable */
     schedule?: string | null
-    readonly linked_flag: MinimalFeatureFlag
+    readonly linked_flag: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
     /** @nullable */
     linked_insight_id?: number | null
     targeting_flag_id?: number
-    readonly targeting_flag: MinimalFeatureFlag
-    readonly internal_targeting_flag: MinimalFeatureFlag
+    readonly targeting_flag: MinimalFeatureFlagApi
+    readonly internal_targeting_flag: MinimalFeatureFlagApi
     /** @nullable */
-    targeting_flag_filters?: SurveySerializerCreateUpdateOnlyTargetingFlagFilters
+    targeting_flag_filters?: SurveySerializerCreateUpdateOnlyApiTargetingFlagFilters
     /** @nullable */
     remove_targeting_flag?: boolean | null
     /**
@@ -282,13 +289,13 @@ export interface SurveySerializerCreateUpdateOnly {
         
    * @nullable
    */
-    questions?: SurveySerializerCreateUpdateOnlyQuestions
+    questions?: SurveySerializerCreateUpdateOnlyApiQuestions
     /** @nullable */
-    conditions?: SurveySerializerCreateUpdateOnlyConditions
+    conditions?: SurveySerializerCreateUpdateOnlyApiConditions
     /** @nullable */
-    appearance?: SurveySerializerCreateUpdateOnlyAppearance
+    appearance?: SurveySerializerCreateUpdateOnlyApiAppearance
     readonly created_at: string
-    readonly created_by: UserBasic
+    readonly created_by: UserBasicApi
     /** @nullable */
     start_date?: string | null
     /** @nullable */
@@ -325,7 +332,7 @@ export interface SurveySerializerCreateUpdateOnly {
     /** @nullable */
     response_sampling_start_date?: string | null
     /** @nullable */
-    response_sampling_interval_type?: SurveySerializerCreateUpdateOnlyResponseSamplingIntervalType
+    response_sampling_interval_type?: SurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -339,7 +346,7 @@ export interface SurveySerializerCreateUpdateOnly {
      */
     response_sampling_limit?: number | null
     /** @nullable */
-    response_sampling_daily_limits?: SurveySerializerCreateUpdateOnlyResponseSamplingDailyLimits
+    response_sampling_daily_limits?: SurveySerializerCreateUpdateOnlyApiResponseSamplingDailyLimits
     /** @nullable */
     enable_partial_responses?: boolean | null
     _create_in_folder?: string
@@ -434,30 +441,209 @@ export interface SurveySerializerCreateUpdateOnly {
         
  * @nullable
  */
-export type SurveyQuestions = unknown | null
+export type SurveyApiQuestions = unknown | null
+
+/**
+ * @nullable
+ */
+export type SurveyApiAppearance = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SurveyResponseSamplingIntervalType = {
-    ...ResponseSamplingIntervalTypeEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const SurveyApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * @nullable
  */
-export type SurveyResponseSamplingIntervalType =
-    | (typeof SurveyResponseSamplingIntervalType)[keyof typeof SurveyResponseSamplingIntervalType]
+export type SurveyApiResponseSamplingIntervalType =
+    | (typeof SurveyApiResponseSamplingIntervalType)[keyof typeof SurveyApiResponseSamplingIntervalType]
     | null
 
 /**
  * @nullable
  */
-export type SurveyResponseSamplingDailyLimits = unknown | null
+export type SurveyApiResponseSamplingDailyLimits = unknown | null
+
+/**
+ * Mixin for serializers to add user access control fields
+ */
+export interface SurveyApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    description?: string
+    type: SurveyTypeApi
+    /** @nullable */
+    schedule?: string | null
+    readonly linked_flag: MinimalFeatureFlagApi
+    /** @nullable */
+    linked_flag_id?: number | null
+    /** @nullable */
+    linked_insight_id?: number | null
+    readonly targeting_flag: MinimalFeatureFlagApi
+    readonly internal_targeting_flag: MinimalFeatureFlagApi
+    /**
+   * 
+        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.
+
+        Basic (open-ended question)
+        - `id`: The question ID
+        - `type`: `open`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Link (a question with a link)
+        - `id`: The question ID
+        - `type`: `link`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `link`: The URL associated with the question.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Rating (a question with a rating scale)
+        - `id`: The question ID
+        - `type`: `rating`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `display`: Display style of the rating (`number` or `emoji`).
+        - `scale`: The scale of the rating (`number`).
+        - `lowerBoundLabel`: Label for the lower bound of the scale.
+        - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Multiple choice
+        - `id`: The question ID
+        - `type`: `single_choice` or `multiple_choice`
+        - `question`: The text of the question.
+        - `description`: Optional description of the question.
+        - `descriptionContentType`: Content type of the description (`html` or `text`).
+        - `optional`: Whether the question is optional (`boolean`).
+        - `buttonText`: Text displayed on the submit button.
+        - `choices`: An array of choices for the question.
+        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).
+        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).
+        - `branching`: Branching logic for the question. See branching types below for details.
+
+        Branching logic can be one of the following types:
+
+        Next question: Proceeds to the next question
+        ```json
+        {
+            "type": "next_question"
+        }
+        ```
+
+        End: Ends the survey, optionally displaying a confirmation message.
+        ```json
+        {
+            "type": "end"
+        }
+        ```
+
+        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.
+        ```json
+        {
+            "type": "response_based",
+            "responseValues": {
+                "responseKey": "value"
+            }
+        }
+        ```
+
+        Specific question: Proceeds to a specific question by index.
+        ```json
+        {
+            "type": "specific_question",
+            "index": 2
+        }
+        ```
+        
+   * @nullable
+   */
+    questions?: SurveyApiQuestions
+    readonly conditions: string
+    /** @nullable */
+    appearance?: SurveyApiAppearance
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    archived?: boolean
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    responses_limit?: number | null
+    readonly feature_flag_keys: readonly unknown[]
+    /**
+     * @minimum 0
+     * @maximum 500
+     * @nullable
+     */
+    iteration_count?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    iteration_frequency_days?: number | null
+    /** @nullable */
+    iteration_start_dates?: (string | null)[] | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    current_iteration?: number | null
+    /** @nullable */
+    current_iteration_start_date?: string | null
+    /** @nullable */
+    response_sampling_start_date?: string | null
+    /** @nullable */
+    response_sampling_interval_type?: SurveyApiResponseSamplingIntervalType
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_interval?: number | null
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    response_sampling_limit?: number | null
+    /** @nullable */
+    response_sampling_daily_limits?: SurveyApiResponseSamplingDailyLimits
+    /** @nullable */
+    enable_partial_responses?: boolean | null
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
 
 /**
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknown | null
+export type PatchedSurveySerializerCreateUpdateOnlyApiTargetingFlagFilters = unknown | null
 
 /**
  * 
@@ -548,54 +734,54 @@ export type PatchedSurveySerializerCreateUpdateOnlyTargetingFlagFilters = unknow
         
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyQuestions = unknown | null
+export type PatchedSurveySerializerCreateUpdateOnlyApiQuestions = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyConditions = unknown | null
+export type PatchedSurveySerializerCreateUpdateOnlyApiConditions = unknown | null
 
 /**
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyAppearance = unknown | null
+export type PatchedSurveySerializerCreateUpdateOnlyApiAppearance = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedSurveySerializerCreateUpdateOnlyResponseSamplingIntervalType = {
-    ...ResponseSamplingIntervalTypeEnum,
-    ...BlankEnum,
-    ...NullEnum,
+export const PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType = {
+    ...ResponseSamplingIntervalTypeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
 /**
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyResponseSamplingIntervalType =
-    | (typeof PatchedSurveySerializerCreateUpdateOnlyResponseSamplingIntervalType)[keyof typeof PatchedSurveySerializerCreateUpdateOnlyResponseSamplingIntervalType]
+export type PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType =
+    | (typeof PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType)[keyof typeof PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType]
     | null
 
 /**
  * @nullable
  */
-export type PatchedSurveySerializerCreateUpdateOnlyResponseSamplingDailyLimits = unknown | null
+export type PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingDailyLimits = unknown | null
 
-export interface PatchedSurveySerializerCreateUpdateOnly {
+export interface PatchedSurveySerializerCreateUpdateOnlyApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
     description?: string
-    type?: SurveyType
+    type?: SurveyTypeApi
     /** @nullable */
     schedule?: string | null
-    readonly linked_flag?: MinimalFeatureFlag
+    readonly linked_flag?: MinimalFeatureFlagApi
     /** @nullable */
     linked_flag_id?: number | null
     /** @nullable */
     linked_insight_id?: number | null
     targeting_flag_id?: number
-    readonly targeting_flag?: MinimalFeatureFlag
-    readonly internal_targeting_flag?: MinimalFeatureFlag
+    readonly targeting_flag?: MinimalFeatureFlagApi
+    readonly internal_targeting_flag?: MinimalFeatureFlagApi
     /** @nullable */
-    targeting_flag_filters?: PatchedSurveySerializerCreateUpdateOnlyTargetingFlagFilters
+    targeting_flag_filters?: PatchedSurveySerializerCreateUpdateOnlyApiTargetingFlagFilters
     /** @nullable */
     remove_targeting_flag?: boolean | null
     /**
@@ -687,13 +873,13 @@ export interface PatchedSurveySerializerCreateUpdateOnly {
         
    * @nullable
    */
-    questions?: PatchedSurveySerializerCreateUpdateOnlyQuestions
+    questions?: PatchedSurveySerializerCreateUpdateOnlyApiQuestions
     /** @nullable */
-    conditions?: PatchedSurveySerializerCreateUpdateOnlyConditions
+    conditions?: PatchedSurveySerializerCreateUpdateOnlyApiConditions
     /** @nullable */
-    appearance?: PatchedSurveySerializerCreateUpdateOnlyAppearance
+    appearance?: PatchedSurveySerializerCreateUpdateOnlyApiAppearance
     readonly created_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
     /** @nullable */
     start_date?: string | null
     /** @nullable */
@@ -730,7 +916,7 @@ export interface PatchedSurveySerializerCreateUpdateOnly {
     /** @nullable */
     response_sampling_start_date?: string | null
     /** @nullable */
-    response_sampling_interval_type?: PatchedSurveySerializerCreateUpdateOnlyResponseSamplingIntervalType
+    response_sampling_interval_type?: PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingIntervalType
     /**
      * @minimum 0
      * @maximum 2147483647
@@ -744,24 +930,29 @@ export interface PatchedSurveySerializerCreateUpdateOnly {
      */
     response_sampling_limit?: number | null
     /** @nullable */
-    response_sampling_daily_limits?: PatchedSurveySerializerCreateUpdateOnlyResponseSamplingDailyLimits
+    response_sampling_daily_limits?: PatchedSurveySerializerCreateUpdateOnlyApiResponseSamplingDailyLimits
     /** @nullable */
     enable_partial_responses?: boolean | null
     _create_in_folder?: string
 }
 
+/**
+ * * `popover` - popover
+ * `widget` - widget
+ * `external_survey` - external survey
+ * `api` - api
+ */
+
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const SurveyType = {
-    popover: 'popover',
-    widget: 'widget',
-    external_survey: 'external_survey',
-    api: 'api',
+
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+export const MinimalFeatureFlagApiEvaluationRuntime = {
+    ...EvaluationRuntimeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
 } as const
-
-export type MinimalFeatureFlagFilters = { [key: string]: unknown }
-
-// eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
 /**
  * Specifies where this feature flag should be evaluated
 
@@ -770,17 +961,17 @@ export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, .
 * `all` - All
  * @nullable
  */
-export type MinimalFeatureFlagEvaluationRuntime =
-    | (typeof MinimalFeatureFlagEvaluationRuntime)[keyof typeof MinimalFeatureFlagEvaluationRuntime]
+export type MinimalFeatureFlagApiEvaluationRuntime =
+    | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
     | null
 
-export interface MinimalFeatureFlag {
+export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
     name?: string
     /** @maxLength 400 */
     key: string
-    filters?: MinimalFeatureFlagFilters
+    filters?: MinimalFeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
     /** @nullable */
@@ -801,25 +992,25 @@ export interface MinimalFeatureFlag {
 * `all` - All
    * @nullable
    */
-    evaluation_runtime?: MinimalFeatureFlagEvaluationRuntime
+    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
     readonly evaluation_tags: readonly string[]
 }
 
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -836,9 +1027,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**
@@ -846,8 +1037,6 @@ export interface UserBasic {
  * `week` - week
  * `month` - month
  */
-export type ResponseSamplingIntervalTypeEnum =
-    (typeof ResponseSamplingIntervalTypeEnum)[keyof typeof ResponseSamplingIntervalTypeEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 

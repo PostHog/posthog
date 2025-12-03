@@ -47,13 +47,7 @@
         "common/esbuilder/*",
         "common/storybook/*"
     ],
-    "exclude": [
-        "frontend/dist/**/*",
-        "**/*.mdx",
-        // Generated API types have ordering issues from orval - exclude from strict checking
-        "frontend/src/generated/**/*",
-        "products/**/frontend/generated/**/*"
-    ],
+    "exclude": ["frontend/dist/**/*", "**/*.mdx"],
     "ts-node": {
         "compilerOptions": {
             "module": "commonjs"

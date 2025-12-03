@@ -7,9 +7,9 @@
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     EnvironmentsUserInterviewsListParams,
-    PaginatedUserInterviewList,
-    PatchedUserInterview,
-    UserInterview,
+    PaginatedUserInterviewListApi,
+    PatchedUserInterviewApi,
+    UserInterviewApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -30,7 +30,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsUserInterviewsListResponse200 = {
-    data: PaginatedUserInterviewList
+    data: PaginatedUserInterviewListApi
     status: 200
 }
 
@@ -70,7 +70,7 @@ export const environmentsUserInterviewsList = async (
 }
 
 export type environmentsUserInterviewsCreateResponse201 = {
-    data: UserInterview
+    data: UserInterviewApi
     status: 201
 }
 
@@ -85,17 +85,17 @@ export const getEnvironmentsUserInterviewsCreateUrl = (projectId: string) => {
 
 export const environmentsUserInterviewsCreate = async (
     projectId: string,
-    userInterview: NonReadonly<UserInterview>,
+    userInterviewApi: NonReadonly<UserInterviewApi>,
     options?: RequestInit
 ): Promise<environmentsUserInterviewsCreateResponse> => {
     const formData = new FormData()
-    if (userInterview.interviewee_emails !== undefined) {
-        userInterview.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
+    if (userInterviewApi.interviewee_emails !== undefined) {
+        userInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
     }
-    if (userInterview.summary !== undefined) {
-        formData.append(`summary`, userInterview.summary)
+    if (userInterviewApi.summary !== undefined) {
+        formData.append(`summary`, userInterviewApi.summary)
     }
-    formData.append(`audio`, userInterview.audio)
+    formData.append(`audio`, userInterviewApi.audio)
 
     return apiMutator<environmentsUserInterviewsCreateResponse>(getEnvironmentsUserInterviewsCreateUrl(projectId), {
         ...options,
@@ -105,7 +105,7 @@ export const environmentsUserInterviewsCreate = async (
 }
 
 export type environmentsUserInterviewsRetrieveResponse200 = {
-    data: UserInterview
+    data: UserInterviewApi
     status: 200
 }
 
@@ -133,7 +133,7 @@ export const environmentsUserInterviewsRetrieve = async (
 }
 
 export type environmentsUserInterviewsUpdateResponse200 = {
-    data: UserInterview
+    data: UserInterviewApi
     status: 200
 }
 
@@ -149,17 +149,17 @@ export const getEnvironmentsUserInterviewsUpdateUrl = (projectId: string, id: st
 export const environmentsUserInterviewsUpdate = async (
     projectId: string,
     id: string,
-    userInterview: NonReadonly<UserInterview>,
+    userInterviewApi: NonReadonly<UserInterviewApi>,
     options?: RequestInit
 ): Promise<environmentsUserInterviewsUpdateResponse> => {
     const formData = new FormData()
-    if (userInterview.interviewee_emails !== undefined) {
-        userInterview.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
+    if (userInterviewApi.interviewee_emails !== undefined) {
+        userInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
     }
-    if (userInterview.summary !== undefined) {
-        formData.append(`summary`, userInterview.summary)
+    if (userInterviewApi.summary !== undefined) {
+        formData.append(`summary`, userInterviewApi.summary)
     }
-    formData.append(`audio`, userInterview.audio)
+    formData.append(`audio`, userInterviewApi.audio)
 
     return apiMutator<environmentsUserInterviewsUpdateResponse>(getEnvironmentsUserInterviewsUpdateUrl(projectId, id), {
         ...options,
@@ -169,7 +169,7 @@ export const environmentsUserInterviewsUpdate = async (
 }
 
 export type environmentsUserInterviewsPartialUpdateResponse200 = {
-    data: UserInterview
+    data: UserInterviewApi
     status: 200
 }
 
@@ -186,18 +186,18 @@ export const getEnvironmentsUserInterviewsPartialUpdateUrl = (projectId: string,
 export const environmentsUserInterviewsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUserInterview: NonReadonly<PatchedUserInterview>,
+    patchedUserInterviewApi: NonReadonly<PatchedUserInterviewApi>,
     options?: RequestInit
 ): Promise<environmentsUserInterviewsPartialUpdateResponse> => {
     const formData = new FormData()
-    if (patchedUserInterview.interviewee_emails !== undefined) {
-        patchedUserInterview.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
+    if (patchedUserInterviewApi.interviewee_emails !== undefined) {
+        patchedUserInterviewApi.interviewee_emails.forEach((value) => formData.append(`interviewee_emails`, value))
     }
-    if (patchedUserInterview.summary !== undefined) {
-        formData.append(`summary`, patchedUserInterview.summary)
+    if (patchedUserInterviewApi.summary !== undefined) {
+        formData.append(`summary`, patchedUserInterviewApi.summary)
     }
-    if (patchedUserInterview.audio !== undefined) {
-        formData.append(`audio`, patchedUserInterview.audio)
+    if (patchedUserInterviewApi.audio !== undefined) {
+        formData.append(`audio`, patchedUserInterviewApi.audio)
     }
 
     return apiMutator<environmentsUserInterviewsPartialUpdateResponse>(

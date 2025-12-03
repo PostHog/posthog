@@ -6,26 +6,26 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    DataModelingJob,
+    DataModelingJobApi,
     DataModelingJobsListParams,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryDraft,
+    DataWarehouseSavedQueryApi,
+    DataWarehouseSavedQueryDraftApi,
     EnvironmentsDataModelingJobsListParams,
     EnvironmentsExternalDataSourcesListParams,
     EnvironmentsWarehouseSavedQueriesListParams,
     EnvironmentsWarehouseSavedQueryDraftsListParams,
-    ExternalDataSourceSerializers,
+    ExternalDataSourceSerializersApi,
     ExternalDataSourcesListParams,
-    PaginatedDataModelingJobList,
-    PaginatedDataWarehouseSavedQueryDraftList,
-    PaginatedDataWarehouseSavedQueryList,
-    PaginatedExternalDataSourceSerializersList,
-    PaginatedQueryTabStateList,
-    PatchedDataWarehouseSavedQuery,
-    PatchedDataWarehouseSavedQueryDraft,
-    PatchedExternalDataSourceSerializers,
-    PatchedQueryTabState,
-    QueryTabState,
+    PaginatedDataModelingJobListApi,
+    PaginatedDataWarehouseSavedQueryDraftListApi,
+    PaginatedDataWarehouseSavedQueryListApi,
+    PaginatedExternalDataSourceSerializersListApi,
+    PaginatedQueryTabStateListApi,
+    PatchedDataWarehouseSavedQueryApi,
+    PatchedDataWarehouseSavedQueryDraftApi,
+    PatchedExternalDataSourceSerializersApi,
+    PatchedQueryTabStateApi,
+    QueryTabStateApi,
     QueryTabStateListParams,
     WarehouseSavedQueriesListParams,
 } from './index.schemas'
@@ -51,7 +51,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
  * List data modeling jobs which are "runs" for our saved queries.
  */
 export type environmentsDataModelingJobsListResponse200 = {
-    data: PaginatedDataModelingJobList
+    data: PaginatedDataModelingJobListApi
     status: 200
 }
 
@@ -97,7 +97,7 @@ export const environmentsDataModelingJobsList = async (
  * List data modeling jobs which are "runs" for our saved queries.
  */
 export type environmentsDataModelingJobsRetrieveResponse200 = {
-    data: DataModelingJob
+    data: DataModelingJobApi
     status: 200
 }
 
@@ -128,7 +128,7 @@ export const environmentsDataModelingJobsRetrieve = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type environmentsExternalDataSourcesListResponse200 = {
-    data: PaginatedExternalDataSourceSerializersList
+    data: PaginatedExternalDataSourceSerializersListApi
     status: 200
 }
 
@@ -174,7 +174,7 @@ export const environmentsExternalDataSourcesList = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type environmentsExternalDataSourcesCreateResponse201 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 201
 }
 
@@ -189,7 +189,7 @@ export const getEnvironmentsExternalDataSourcesCreateUrl = (projectId: string) =
 
 export const environmentsExternalDataSourcesCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesCreateResponse> => {
     return apiMutator<environmentsExternalDataSourcesCreateResponse>(
@@ -198,7 +198,7 @@ export const environmentsExternalDataSourcesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -207,7 +207,7 @@ export const environmentsExternalDataSourcesCreate = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type environmentsExternalDataSourcesRetrieveResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -239,7 +239,7 @@ export const environmentsExternalDataSourcesRetrieve = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type environmentsExternalDataSourcesUpdateResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -255,7 +255,7 @@ export const getEnvironmentsExternalDataSourcesUpdateUrl = (projectId: string, i
 export const environmentsExternalDataSourcesUpdate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesUpdateResponse> => {
     return apiMutator<environmentsExternalDataSourcesUpdateResponse>(
@@ -264,7 +264,7 @@ export const environmentsExternalDataSourcesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -273,7 +273,7 @@ export const environmentsExternalDataSourcesUpdate = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type environmentsExternalDataSourcesPartialUpdateResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -291,7 +291,7 @@ export const getEnvironmentsExternalDataSourcesPartialUpdateUrl = (projectId: st
 export const environmentsExternalDataSourcesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializers: NonReadonly<PatchedExternalDataSourceSerializers>,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesPartialUpdateResponse> => {
     return apiMutator<environmentsExternalDataSourcesPartialUpdateResponse>(
@@ -300,7 +300,7 @@ export const environmentsExternalDataSourcesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceSerializers),
+            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
         }
     )
 }
@@ -392,7 +392,7 @@ export const getEnvironmentsExternalDataSourcesReloadCreateUrl = (projectId: str
 export const environmentsExternalDataSourcesReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesReloadCreateResponse> => {
     return apiMutator<environmentsExternalDataSourcesReloadCreateResponse>(
@@ -401,7 +401,7 @@ export const environmentsExternalDataSourcesReloadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -431,7 +431,7 @@ export const getEnvironmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpda
 export const environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializers: NonReadonly<PatchedExternalDataSourceSerializers>,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse> => {
     return apiMutator<environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse>(
@@ -440,7 +440,7 @@ export const environmentsExternalDataSourcesRevenueAnalyticsConfigPartialUpdate 
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceSerializers),
+            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
         }
     )
 }
@@ -466,7 +466,7 @@ export const getEnvironmentsExternalDataSourcesDatabaseSchemaCreateUrl = (projec
 
 export const environmentsExternalDataSourcesDatabaseSchemaCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesDatabaseSchemaCreateResponse> => {
     return apiMutator<environmentsExternalDataSourcesDatabaseSchemaCreateResponse>(
@@ -475,7 +475,7 @@ export const environmentsExternalDataSourcesDatabaseSchemaCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -501,7 +501,7 @@ export const getEnvironmentsExternalDataSourcesSourcePrefixCreateUrl = (projectI
 
 export const environmentsExternalDataSourcesSourcePrefixCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSourcesSourcePrefixCreateResponse> => {
     return apiMutator<environmentsExternalDataSourcesSourcePrefixCreateResponse>(
@@ -510,7 +510,7 @@ export const environmentsExternalDataSourcesSourcePrefixCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -551,7 +551,7 @@ export const environmentsExternalDataSourcesWizardRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryList
+    data: PaginatedDataWarehouseSavedQueryListApi
     status: 200
 }
 
@@ -597,7 +597,7 @@ export const environmentsWarehouseSavedQueriesList = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesCreateResponse201 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 201
 }
 
@@ -613,7 +613,7 @@ export const getEnvironmentsWarehouseSavedQueriesCreateUrl = (projectId: string)
 
 export const environmentsWarehouseSavedQueriesCreate = async (
     projectId: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesCreateResponse>(
@@ -622,7 +622,7 @@ export const environmentsWarehouseSavedQueriesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -631,7 +631,7 @@ export const environmentsWarehouseSavedQueriesCreate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -663,7 +663,7 @@ export const environmentsWarehouseSavedQueriesRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesUpdateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -680,7 +680,7 @@ export const getEnvironmentsWarehouseSavedQueriesUpdateUrl = (projectId: string,
 export const environmentsWarehouseSavedQueriesUpdate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesUpdateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesUpdateResponse>(
@@ -689,7 +689,7 @@ export const environmentsWarehouseSavedQueriesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -698,7 +698,7 @@ export const environmentsWarehouseSavedQueriesUpdate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesPartialUpdateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -716,7 +716,7 @@ export const getEnvironmentsWarehouseSavedQueriesPartialUpdateUrl = (projectId: 
 export const environmentsWarehouseSavedQueriesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDataWarehouseSavedQuery: NonReadonly<PatchedDataWarehouseSavedQuery>,
+    patchedDataWarehouseSavedQueryApi: NonReadonly<PatchedDataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesPartialUpdateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesPartialUpdateResponse>(
@@ -725,7 +725,7 @@ export const environmentsWarehouseSavedQueriesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataWarehouseSavedQuery),
+            body: JSON.stringify(patchedDataWarehouseSavedQueryApi),
         }
     )
 }
@@ -766,7 +766,7 @@ export const environmentsWarehouseSavedQueriesDestroy = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseSavedQueriesActivityRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -803,7 +803,7 @@ look further back into the ancestor tree. If `level` overshoots (i.e. points to 
 ancestors beyond the root), we return an empty list.
  */
 export type environmentsWarehouseSavedQueriesAncestorsCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -821,7 +821,7 @@ export const getEnvironmentsWarehouseSavedQueriesAncestorsCreateUrl = (projectId
 export const environmentsWarehouseSavedQueriesAncestorsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesAncestorsCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesAncestorsCreateResponse>(
@@ -830,7 +830,7 @@ export const environmentsWarehouseSavedQueriesAncestorsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -839,7 +839,7 @@ export const environmentsWarehouseSavedQueriesAncestorsCreate = async (
  * Cancel a running saved query workflow.
  */
 export type environmentsWarehouseSavedQueriesCancelCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -857,7 +857,7 @@ export const getEnvironmentsWarehouseSavedQueriesCancelCreateUrl = (projectId: s
 export const environmentsWarehouseSavedQueriesCancelCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesCancelCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesCancelCreateResponse>(
@@ -866,7 +866,7 @@ export const environmentsWarehouseSavedQueriesCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -875,7 +875,7 @@ export const environmentsWarehouseSavedQueriesCancelCreate = async (
  * Return the count of immediate upstream and downstream dependencies for this saved query.
  */
 export type environmentsWarehouseSavedQueriesDependenciesRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -912,7 +912,7 @@ look further ahead into the descendants tree. If `level` overshoots (i.e. points
 descendants further than a leaf), we return an empty list.
  */
 export type environmentsWarehouseSavedQueriesDescendantsCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -930,7 +930,7 @@ export const getEnvironmentsWarehouseSavedQueriesDescendantsCreateUrl = (project
 export const environmentsWarehouseSavedQueriesDescendantsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesDescendantsCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesDescendantsCreateResponse>(
@@ -939,7 +939,7 @@ export const environmentsWarehouseSavedQueriesDescendantsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -949,7 +949,7 @@ export const environmentsWarehouseSavedQueriesDescendantsCreate = async (
 (i.e. delete the materialized table and the schedule)
  */
 export type environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -967,7 +967,7 @@ export const getEnvironmentsWarehouseSavedQueriesRevertMaterializationCreateUrl 
 export const environmentsWarehouseSavedQueriesRevertMaterializationCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesRevertMaterializationCreateResponse>(
@@ -976,7 +976,7 @@ export const environmentsWarehouseSavedQueriesRevertMaterializationCreate = asyn
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -985,7 +985,7 @@ export const environmentsWarehouseSavedQueriesRevertMaterializationCreate = asyn
  * Run this saved query.
  */
 export type environmentsWarehouseSavedQueriesRunCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -1003,7 +1003,7 @@ export const getEnvironmentsWarehouseSavedQueriesRunCreateUrl = (projectId: stri
 export const environmentsWarehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueriesRunCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueriesRunCreateResponse>(
@@ -1012,7 +1012,7 @@ export const environmentsWarehouseSavedQueriesRunCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -1021,7 +1021,7 @@ export const environmentsWarehouseSavedQueriesRunCreate = async (
  * Return the recent run history (up to 5 most recent) for this materialized view.
  */
 export type environmentsWarehouseSavedQueriesRunHistoryRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -1051,7 +1051,7 @@ export const environmentsWarehouseSavedQueriesRunHistoryRetrieve = async (
 }
 
 export type environmentsWarehouseSavedQueryDraftsListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryDraftList
+    data: PaginatedDataWarehouseSavedQueryDraftListApi
     status: 200
 }
 
@@ -1095,7 +1095,7 @@ export const environmentsWarehouseSavedQueryDraftsList = async (
 }
 
 export type environmentsWarehouseSavedQueryDraftsCreateResponse201 = {
-    data: DataWarehouseSavedQueryDraft
+    data: DataWarehouseSavedQueryDraftApi
     status: 201
 }
 
@@ -1112,7 +1112,7 @@ export const getEnvironmentsWarehouseSavedQueryDraftsCreateUrl = (projectId: str
 
 export const environmentsWarehouseSavedQueryDraftsCreate = async (
     projectId: string,
-    dataWarehouseSavedQueryDraft: NonReadonly<DataWarehouseSavedQueryDraft>,
+    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueryDraftsCreateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueryDraftsCreateResponse>(
@@ -1121,13 +1121,13 @@ export const environmentsWarehouseSavedQueryDraftsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryDraft),
+            body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
         }
     )
 }
 
 export type environmentsWarehouseSavedQueryDraftsRetrieveResponse200 = {
-    data: DataWarehouseSavedQueryDraft
+    data: DataWarehouseSavedQueryDraftApi
     status: 200
 }
 
@@ -1157,7 +1157,7 @@ export const environmentsWarehouseSavedQueryDraftsRetrieve = async (
 }
 
 export type environmentsWarehouseSavedQueryDraftsUpdateResponse200 = {
-    data: DataWarehouseSavedQueryDraft
+    data: DataWarehouseSavedQueryDraftApi
     status: 200
 }
 
@@ -1175,7 +1175,7 @@ export const getEnvironmentsWarehouseSavedQueryDraftsUpdateUrl = (projectId: str
 export const environmentsWarehouseSavedQueryDraftsUpdate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQueryDraft: NonReadonly<DataWarehouseSavedQueryDraft>,
+    dataWarehouseSavedQueryDraftApi: NonReadonly<DataWarehouseSavedQueryDraftApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueryDraftsUpdateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueryDraftsUpdateResponse>(
@@ -1184,13 +1184,13 @@ export const environmentsWarehouseSavedQueryDraftsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQueryDraft),
+            body: JSON.stringify(dataWarehouseSavedQueryDraftApi),
         }
     )
 }
 
 export type environmentsWarehouseSavedQueryDraftsPartialUpdateResponse200 = {
-    data: DataWarehouseSavedQueryDraft
+    data: DataWarehouseSavedQueryDraftApi
     status: 200
 }
 
@@ -1208,7 +1208,7 @@ export const getEnvironmentsWarehouseSavedQueryDraftsPartialUpdateUrl = (project
 export const environmentsWarehouseSavedQueryDraftsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDataWarehouseSavedQueryDraft: NonReadonly<PatchedDataWarehouseSavedQueryDraft>,
+    patchedDataWarehouseSavedQueryDraftApi: NonReadonly<PatchedDataWarehouseSavedQueryDraftApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseSavedQueryDraftsPartialUpdateResponse> => {
     return apiMutator<environmentsWarehouseSavedQueryDraftsPartialUpdateResponse>(
@@ -1217,7 +1217,7 @@ export const environmentsWarehouseSavedQueryDraftsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataWarehouseSavedQueryDraft),
+            body: JSON.stringify(patchedDataWarehouseSavedQueryDraftApi),
         }
     )
 }
@@ -1256,7 +1256,7 @@ export const environmentsWarehouseSavedQueryDraftsDestroy = async (
  * List data modeling jobs which are "runs" for our saved queries.
  */
 export type dataModelingJobsListResponse200 = {
-    data: PaginatedDataModelingJobList
+    data: PaginatedDataModelingJobListApi
     status: 200
 }
 
@@ -1296,7 +1296,7 @@ export const dataModelingJobsList = async (
  * List data modeling jobs which are "runs" for our saved queries.
  */
 export type dataModelingJobsRetrieveResponse200 = {
-    data: DataModelingJob
+    data: DataModelingJobApi
     status: 200
 }
 
@@ -1324,7 +1324,7 @@ export const dataModelingJobsRetrieve = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type externalDataSourcesListResponse200 = {
-    data: PaginatedExternalDataSourceSerializersList
+    data: PaginatedExternalDataSourceSerializersListApi
     status: 200
 }
 
@@ -1364,7 +1364,7 @@ export const externalDataSourcesList = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type externalDataSourcesCreateResponse201 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 201
 }
 
@@ -1379,14 +1379,14 @@ export const getExternalDataSourcesCreateUrl = (projectId: string) => {
 
 export const externalDataSourcesCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesCreateResponse> => {
     return apiMutator<externalDataSourcesCreateResponse>(getExternalDataSourcesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializers),
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1394,7 +1394,7 @@ export const externalDataSourcesCreate = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type externalDataSourcesRetrieveResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -1422,7 +1422,7 @@ export const externalDataSourcesRetrieve = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type externalDataSourcesUpdateResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -1438,14 +1438,14 @@ export const getExternalDataSourcesUpdateUrl = (projectId: string, id: string) =
 export const externalDataSourcesUpdate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesUpdateResponse> => {
     return apiMutator<externalDataSourcesUpdateResponse>(getExternalDataSourcesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializers),
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1453,7 +1453,7 @@ export const externalDataSourcesUpdate = async (
  * Create, Read, Update and Delete External data Sources.
  */
 export type externalDataSourcesPartialUpdateResponse200 = {
-    data: ExternalDataSourceSerializers
+    data: ExternalDataSourceSerializersApi
     status: 200
 }
 
@@ -1469,14 +1469,14 @@ export const getExternalDataSourcesPartialUpdateUrl = (projectId: string, id: st
 export const externalDataSourcesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializers: NonReadonly<PatchedExternalDataSourceSerializers>,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesPartialUpdateResponse> => {
     return apiMutator<externalDataSourcesPartialUpdateResponse>(getExternalDataSourcesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExternalDataSourceSerializers),
+        body: JSON.stringify(patchedExternalDataSourceSerializersApi),
     })
 }
 
@@ -1556,14 +1556,14 @@ export const getExternalDataSourcesReloadCreateUrl = (projectId: string, id: str
 export const externalDataSourcesReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesReloadCreateResponse> => {
     return apiMutator<externalDataSourcesReloadCreateResponse>(getExternalDataSourcesReloadCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(externalDataSourceSerializers),
+        body: JSON.stringify(externalDataSourceSerializersApi),
     })
 }
 
@@ -1589,7 +1589,7 @@ export const getExternalDataSourcesRevenueAnalyticsConfigPartialUpdateUrl = (pro
 export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSourceSerializers: NonReadonly<PatchedExternalDataSourceSerializers>,
+    patchedExternalDataSourceSerializersApi: NonReadonly<PatchedExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse> => {
     return apiMutator<externalDataSourcesRevenueAnalyticsConfigPartialUpdateResponse>(
@@ -1598,7 +1598,7 @@ export const externalDataSourcesRevenueAnalyticsConfigPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSourceSerializers),
+            body: JSON.stringify(patchedExternalDataSourceSerializersApi),
         }
     )
 }
@@ -1623,7 +1623,7 @@ export const getExternalDataSourcesDatabaseSchemaCreateUrl = (projectId: string)
 
 export const externalDataSourcesDatabaseSchemaCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesDatabaseSchemaCreateResponse> => {
     return apiMutator<externalDataSourcesDatabaseSchemaCreateResponse>(
@@ -1632,7 +1632,7 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -1656,7 +1656,7 @@ export const getExternalDataSourcesSourcePrefixCreateUrl = (projectId: string) =
 
 export const externalDataSourcesSourcePrefixCreate = async (
     projectId: string,
-    externalDataSourceSerializers: NonReadonly<ExternalDataSourceSerializers>,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
     options?: RequestInit
 ): Promise<externalDataSourcesSourcePrefixCreateResponse> => {
     return apiMutator<externalDataSourcesSourcePrefixCreateResponse>(
@@ -1665,7 +1665,7 @@ export const externalDataSourcesSourcePrefixCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSourceSerializers),
+            body: JSON.stringify(externalDataSourceSerializersApi),
         }
     )
 }
@@ -1701,7 +1701,7 @@ export const externalDataSourcesWizardRetrieve = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStateListResponse200 = {
-    data: PaginatedQueryTabStateList
+    data: PaginatedQueryTabStateListApi
     status: 200
 }
 
@@ -1741,7 +1741,7 @@ export const queryTabStateList = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStateCreateResponse201 = {
-    data: QueryTabState
+    data: QueryTabStateApi
     status: 201
 }
 
@@ -1756,14 +1756,14 @@ export const getQueryTabStateCreateUrl = (projectId: string) => {
 
 export const queryTabStateCreate = async (
     projectId: string,
-    queryTabState: NonReadonly<QueryTabState>,
+    queryTabStateApi: NonReadonly<QueryTabStateApi>,
     options?: RequestInit
 ): Promise<queryTabStateCreateResponse> => {
     return apiMutator<queryTabStateCreateResponse>(getQueryTabStateCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(queryTabState),
+        body: JSON.stringify(queryTabStateApi),
     })
 }
 
@@ -1771,7 +1771,7 @@ export const queryTabStateCreate = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStateRetrieveResponse200 = {
-    data: QueryTabState
+    data: QueryTabStateApi
     status: 200
 }
 
@@ -1799,7 +1799,7 @@ export const queryTabStateRetrieve = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStateUpdateResponse200 = {
-    data: QueryTabState
+    data: QueryTabStateApi
     status: 200
 }
 
@@ -1815,14 +1815,14 @@ export const getQueryTabStateUpdateUrl = (projectId: string, id: string) => {
 export const queryTabStateUpdate = async (
     projectId: string,
     id: string,
-    queryTabState: NonReadonly<QueryTabState>,
+    queryTabStateApi: NonReadonly<QueryTabStateApi>,
     options?: RequestInit
 ): Promise<queryTabStateUpdateResponse> => {
     return apiMutator<queryTabStateUpdateResponse>(getQueryTabStateUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(queryTabState),
+        body: JSON.stringify(queryTabStateApi),
     })
 }
 
@@ -1830,7 +1830,7 @@ export const queryTabStateUpdate = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStatePartialUpdateResponse200 = {
-    data: QueryTabState
+    data: QueryTabStateApi
     status: 200
 }
 
@@ -1846,14 +1846,14 @@ export const getQueryTabStatePartialUpdateUrl = (projectId: string, id: string) 
 export const queryTabStatePartialUpdate = async (
     projectId: string,
     id: string,
-    patchedQueryTabState: NonReadonly<PatchedQueryTabState>,
+    patchedQueryTabStateApi: NonReadonly<PatchedQueryTabStateApi>,
     options?: RequestInit
 ): Promise<queryTabStatePartialUpdateResponse> => {
     return apiMutator<queryTabStatePartialUpdateResponse>(getQueryTabStatePartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedQueryTabState),
+        body: JSON.stringify(patchedQueryTabStateApi),
     })
 }
 
@@ -1889,7 +1889,7 @@ export const queryTabStateDestroy = async (
  * Create, Read, Update and Delete Query Tab State.
  */
 export type queryTabStateUserRetrieveResponse200 = {
-    data: QueryTabState
+    data: QueryTabStateApi
     status: 200
 }
 
@@ -1916,7 +1916,7 @@ export const queryTabStateUserRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesListResponse200 = {
-    data: PaginatedDataWarehouseSavedQueryList
+    data: PaginatedDataWarehouseSavedQueryListApi
     status: 200
 }
 
@@ -1956,7 +1956,7 @@ export const warehouseSavedQueriesList = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesCreateResponse201 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 201
 }
 
@@ -1971,14 +1971,14 @@ export const getWarehouseSavedQueriesCreateUrl = (projectId: string) => {
 
 export const warehouseSavedQueriesCreate = async (
     projectId: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesCreateResponse> => {
     return apiMutator<warehouseSavedQueriesCreateResponse>(getWarehouseSavedQueriesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQuery),
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
     })
 }
 
@@ -1986,7 +1986,7 @@ export const warehouseSavedQueriesCreate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2014,7 +2014,7 @@ export const warehouseSavedQueriesRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesUpdateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2030,14 +2030,14 @@ export const getWarehouseSavedQueriesUpdateUrl = (projectId: string, id: string)
 export const warehouseSavedQueriesUpdate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesUpdateResponse> => {
     return apiMutator<warehouseSavedQueriesUpdateResponse>(getWarehouseSavedQueriesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQuery),
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
     })
 }
 
@@ -2045,7 +2045,7 @@ export const warehouseSavedQueriesUpdate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesPartialUpdateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2061,7 +2061,7 @@ export const getWarehouseSavedQueriesPartialUpdateUrl = (projectId: string, id: 
 export const warehouseSavedQueriesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDataWarehouseSavedQuery: NonReadonly<PatchedDataWarehouseSavedQuery>,
+    patchedDataWarehouseSavedQueryApi: NonReadonly<PatchedDataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesPartialUpdateResponse> => {
     return apiMutator<warehouseSavedQueriesPartialUpdateResponse>(
@@ -2070,7 +2070,7 @@ export const warehouseSavedQueriesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataWarehouseSavedQuery),
+            body: JSON.stringify(patchedDataWarehouseSavedQueryApi),
         }
     )
 }
@@ -2107,7 +2107,7 @@ export const warehouseSavedQueriesDestroy = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type warehouseSavedQueriesActivityRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2142,7 +2142,7 @@ look further back into the ancestor tree. If `level` overshoots (i.e. points to 
 ancestors beyond the root), we return an empty list.
  */
 export type warehouseSavedQueriesAncestorsCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2158,7 +2158,7 @@ export const getWarehouseSavedQueriesAncestorsCreateUrl = (projectId: string, id
 export const warehouseSavedQueriesAncestorsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesAncestorsCreateResponse> => {
     return apiMutator<warehouseSavedQueriesAncestorsCreateResponse>(
@@ -2167,7 +2167,7 @@ export const warehouseSavedQueriesAncestorsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -2176,7 +2176,7 @@ export const warehouseSavedQueriesAncestorsCreate = async (
  * Cancel a running saved query workflow.
  */
 export type warehouseSavedQueriesCancelCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2192,7 +2192,7 @@ export const getWarehouseSavedQueriesCancelCreateUrl = (projectId: string, id: s
 export const warehouseSavedQueriesCancelCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesCancelCreateResponse> => {
     return apiMutator<warehouseSavedQueriesCancelCreateResponse>(
@@ -2201,7 +2201,7 @@ export const warehouseSavedQueriesCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -2210,7 +2210,7 @@ export const warehouseSavedQueriesCancelCreate = async (
  * Return the count of immediate upstream and downstream dependencies for this saved query.
  */
 export type warehouseSavedQueriesDependenciesRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2246,7 +2246,7 @@ look further ahead into the descendants tree. If `level` overshoots (i.e. points
 descendants further than a leaf), we return an empty list.
  */
 export type warehouseSavedQueriesDescendantsCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2263,7 +2263,7 @@ export const getWarehouseSavedQueriesDescendantsCreateUrl = (projectId: string, 
 export const warehouseSavedQueriesDescendantsCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesDescendantsCreateResponse> => {
     return apiMutator<warehouseSavedQueriesDescendantsCreateResponse>(
@@ -2272,7 +2272,7 @@ export const warehouseSavedQueriesDescendantsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -2282,7 +2282,7 @@ export const warehouseSavedQueriesDescendantsCreate = async (
 (i.e. delete the materialized table and the schedule)
  */
 export type warehouseSavedQueriesRevertMaterializationCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2300,7 +2300,7 @@ export const getWarehouseSavedQueriesRevertMaterializationCreateUrl = (projectId
 export const warehouseSavedQueriesRevertMaterializationCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesRevertMaterializationCreateResponse> => {
     return apiMutator<warehouseSavedQueriesRevertMaterializationCreateResponse>(
@@ -2309,7 +2309,7 @@ export const warehouseSavedQueriesRevertMaterializationCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataWarehouseSavedQuery),
+            body: JSON.stringify(dataWarehouseSavedQueryApi),
         }
     )
 }
@@ -2318,7 +2318,7 @@ export const warehouseSavedQueriesRevertMaterializationCreate = async (
  * Run this saved query.
  */
 export type warehouseSavedQueriesRunCreateResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 
@@ -2334,14 +2334,14 @@ export const getWarehouseSavedQueriesRunCreateUrl = (projectId: string, id: stri
 export const warehouseSavedQueriesRunCreate = async (
     projectId: string,
     id: string,
-    dataWarehouseSavedQuery: NonReadonly<DataWarehouseSavedQuery>,
+    dataWarehouseSavedQueryApi: NonReadonly<DataWarehouseSavedQueryApi>,
     options?: RequestInit
 ): Promise<warehouseSavedQueriesRunCreateResponse> => {
     return apiMutator<warehouseSavedQueriesRunCreateResponse>(getWarehouseSavedQueriesRunCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataWarehouseSavedQuery),
+        body: JSON.stringify(dataWarehouseSavedQueryApi),
     })
 }
 
@@ -2349,7 +2349,7 @@ export const warehouseSavedQueriesRunCreate = async (
  * Return the recent run history (up to 5 most recent) for this materialized view.
  */
 export type warehouseSavedQueriesRunHistoryRetrieveResponse200 = {
-    data: DataWarehouseSavedQuery
+    data: DataWarehouseSavedQueryApi
     status: 200
 }
 

@@ -4,8 +4,8 @@
  * PostHog API - early_access_features
  * OpenAPI spec version: 1.0.0
  */
-export type StageEnum = (typeof StageEnum)[keyof typeof StageEnum]
-export const StageEnum = {
+export type StageEnumApi = (typeof StageEnumApi)[keyof typeof StageEnumApi]
+export const StageEnumApi = {
     draft: 'draft',
     concept: 'concept',
     alpha: 'alpha',
@@ -14,65 +14,65 @@ export const StageEnum = {
     archived: 'archived',
 } as const
 
-export type EvaluationRuntimeEnum = (typeof EvaluationRuntimeEnum)[keyof typeof EvaluationRuntimeEnum]
-export const EvaluationRuntimeEnum = {
+export type EvaluationRuntimeEnumApi = (typeof EvaluationRuntimeEnumApi)[keyof typeof EvaluationRuntimeEnumApi]
+export const EvaluationRuntimeEnumApi = {
     server: 'server',
     client: 'client',
     all: 'all',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export interface PaginatedEarlyAccessFeatureList {
+export interface PaginatedEarlyAccessFeatureListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: EarlyAccessFeature[]
+    results: EarlyAccessFeatureApi[]
 }
 
-export interface EarlyAccessFeatureSerializerCreateOnly {
+export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     description?: string
-    stage: StageEnum
+    stage: StageEnumApi
     /** @maxLength 800 */
     documentation_url?: string
     payload?: unknown
     readonly created_at: string
     feature_flag_id?: number
-    readonly feature_flag: MinimalFeatureFlag
+    readonly feature_flag: MinimalFeatureFlagApi
     _create_in_folder?: string
 }
 
-export interface EarlyAccessFeature {
+export interface EarlyAccessFeatureApi {
     readonly id: string
-    readonly feature_flag: MinimalFeatureFlag
+    readonly feature_flag: MinimalFeatureFlagApi
     /** @maxLength 200 */
     name: string
     description?: string
-    stage: StageEnum
+    stage: StageEnumApi
     /** @maxLength 800 */
     documentation_url?: string
     readonly payload: string
     readonly created_at: string
 }
 
-export interface PatchedEarlyAccessFeature {
+export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
-    readonly feature_flag?: MinimalFeatureFlag
+    readonly feature_flag?: MinimalFeatureFlagApi
     /** @maxLength 200 */
     name?: string
     description?: string
-    stage?: StageEnum
+    stage?: StageEnumApi
     /** @maxLength 800 */
     documentation_url?: string
     readonly payload?: string
@@ -90,10 +90,14 @@ export interface PatchedEarlyAccessFeature {
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
-export type MinimalFeatureFlagFilters = { [key: string]: unknown }
+export type MinimalFeatureFlagApiFilters = { [key: string]: unknown }
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, ...BlankEnum, ...NullEnum } as const
+export const MinimalFeatureFlagApiEvaluationRuntime = {
+    ...EvaluationRuntimeEnumApi,
+    ...BlankEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * Specifies where this feature flag should be evaluated
 
@@ -102,17 +106,17 @@ export const MinimalFeatureFlagEvaluationRuntime = { ...EvaluationRuntimeEnum, .
 * `all` - All
  * @nullable
  */
-export type MinimalFeatureFlagEvaluationRuntime =
-    | (typeof MinimalFeatureFlagEvaluationRuntime)[keyof typeof MinimalFeatureFlagEvaluationRuntime]
+export type MinimalFeatureFlagApiEvaluationRuntime =
+    | (typeof MinimalFeatureFlagApiEvaluationRuntime)[keyof typeof MinimalFeatureFlagApiEvaluationRuntime]
     | null
 
-export interface MinimalFeatureFlag {
+export interface MinimalFeatureFlagApi {
     readonly id: number
     readonly team_id: number
     name?: string
     /** @maxLength 400 */
     key: string
-    filters?: MinimalFeatureFlagFilters
+    filters?: MinimalFeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
     /** @nullable */
@@ -133,7 +137,7 @@ export interface MinimalFeatureFlag {
 * `all` - All
    * @nullable
    */
-    evaluation_runtime?: MinimalFeatureFlagEvaluationRuntime
+    evaluation_runtime?: MinimalFeatureFlagApiEvaluationRuntime
     readonly evaluation_tags: readonly string[]
 }
 

@@ -5,7 +5,7 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-import type { PaginatedTaskList, PatchedTask, Task, TasksListParams } from './index.schemas'
+import type { PaginatedTaskListApi, PatchedTaskApi, TaskApi, TasksListParams } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -29,7 +29,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
  * @summary List tasks
  */
 export type tasksListResponse200 = {
-    data: PaginatedTaskList
+    data: PaginatedTaskListApi
     status: 200
 }
 
@@ -69,7 +69,7 @@ export const tasksList = async (
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export type tasksCreateResponse201 = {
-    data: Task
+    data: TaskApi
     status: 201
 }
 
@@ -84,14 +84,14 @@ export const getTasksCreateUrl = (projectId: string) => {
 
 export const tasksCreate = async (
     projectId: string,
-    task: Task,
+    taskApi: TaskApi,
     options?: RequestInit
 ): Promise<tasksCreateResponse> => {
     return apiMutator<tasksCreateResponse>(getTasksCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(task),
+        body: JSON.stringify(taskApi),
     })
 }
 
@@ -99,7 +99,7 @@ export const tasksCreate = async (
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export type tasksRetrieveResponse200 = {
-    data: Task
+    data: TaskApi
     status: 200
 }
 
@@ -127,7 +127,7 @@ export const tasksRetrieve = async (
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export type tasksUpdateResponse200 = {
-    data: Task
+    data: TaskApi
     status: 200
 }
 
@@ -143,14 +143,14 @@ export const getTasksUpdateUrl = (projectId: string, id: string) => {
 export const tasksUpdate = async (
     projectId: string,
     id: string,
-    task: Task,
+    taskApi: TaskApi,
     options?: RequestInit
 ): Promise<tasksUpdateResponse> => {
     return apiMutator<tasksUpdateResponse>(getTasksUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(task),
+        body: JSON.stringify(taskApi),
     })
 }
 
@@ -158,7 +158,7 @@ export const tasksUpdate = async (
  * API for managing tasks within a project. Tasks represent units of work to be performed by an agent.
  */
 export type tasksPartialUpdateResponse200 = {
-    data: Task
+    data: TaskApi
     status: 200
 }
 
@@ -174,14 +174,14 @@ export const getTasksPartialUpdateUrl = (projectId: string, id: string) => {
 export const tasksPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTask: NonReadonly<PatchedTask>,
+    patchedTaskApi: NonReadonly<PatchedTaskApi>,
     options?: RequestInit
 ): Promise<tasksPartialUpdateResponse> => {
     return apiMutator<tasksPartialUpdateResponse>(getTasksPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTask),
+        body: JSON.stringify(patchedTaskApi),
     })
 }
 
@@ -218,7 +218,7 @@ export const tasksDestroy = async (
  * @summary Run task
  */
 export type tasksRunCreateResponse200 = {
-    data: Task
+    data: TaskApi
     status: 200
 }
 

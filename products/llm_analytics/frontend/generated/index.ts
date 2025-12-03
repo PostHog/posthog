@@ -6,16 +6,16 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    Dataset,
-    DatasetItem,
+    DatasetApi,
+    DatasetItemApi,
     DatasetItemsListParams,
     DatasetsListParams,
     EnvironmentsDatasetItemsListParams,
     EnvironmentsDatasetsListParams,
-    PaginatedDatasetItemList,
-    PaginatedDatasetList,
-    PatchedDataset,
-    PatchedDatasetItem,
+    PaginatedDatasetItemListApi,
+    PaginatedDatasetListApi,
+    PatchedDatasetApi,
+    PatchedDatasetItemApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -36,7 +36,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsDatasetItemsListResponse200 = {
-    data: PaginatedDatasetItemList
+    data: PaginatedDatasetItemListApi
     status: 200
 }
 
@@ -73,7 +73,7 @@ export const environmentsDatasetItemsList = async (
 }
 
 export type environmentsDatasetItemsCreateResponse201 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 201
 }
 
@@ -88,19 +88,19 @@ export const getEnvironmentsDatasetItemsCreateUrl = (projectId: string) => {
 
 export const environmentsDatasetItemsCreate = async (
     projectId: string,
-    datasetItem: NonReadonly<DatasetItem>,
+    datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetItemsCreateResponse> => {
     return apiMutator<environmentsDatasetItemsCreateResponse>(getEnvironmentsDatasetItemsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItem),
+        body: JSON.stringify(datasetItemApi),
     })
 }
 
 export type environmentsDatasetItemsRetrieveResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -125,7 +125,7 @@ export const environmentsDatasetItemsRetrieve = async (
 }
 
 export type environmentsDatasetItemsUpdateResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -141,19 +141,19 @@ export const getEnvironmentsDatasetItemsUpdateUrl = (projectId: string, id: stri
 export const environmentsDatasetItemsUpdate = async (
     projectId: string,
     id: string,
-    datasetItem: NonReadonly<DatasetItem>,
+    datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetItemsUpdateResponse> => {
     return apiMutator<environmentsDatasetItemsUpdateResponse>(getEnvironmentsDatasetItemsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItem),
+        body: JSON.stringify(datasetItemApi),
     })
 }
 
 export type environmentsDatasetItemsPartialUpdateResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -169,7 +169,7 @@ export const getEnvironmentsDatasetItemsPartialUpdateUrl = (projectId: string, i
 export const environmentsDatasetItemsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetItem: NonReadonly<PatchedDatasetItem>,
+    patchedDatasetItemApi: NonReadonly<PatchedDatasetItemApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetItemsPartialUpdateResponse> => {
     return apiMutator<environmentsDatasetItemsPartialUpdateResponse>(
@@ -178,7 +178,7 @@ export const environmentsDatasetItemsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDatasetItem),
+            body: JSON.stringify(patchedDatasetItemApi),
         }
     )
 }
@@ -212,7 +212,7 @@ export const environmentsDatasetItemsDestroy = async (
 }
 
 export type environmentsDatasetsListResponse200 = {
-    data: PaginatedDatasetList
+    data: PaginatedDatasetListApi
     status: 200
 }
 
@@ -258,7 +258,7 @@ export const environmentsDatasetsList = async (
 }
 
 export type environmentsDatasetsCreateResponse201 = {
-    data: Dataset
+    data: DatasetApi
     status: 201
 }
 
@@ -273,19 +273,19 @@ export const getEnvironmentsDatasetsCreateUrl = (projectId: string) => {
 
 export const environmentsDatasetsCreate = async (
     projectId: string,
-    dataset: NonReadonly<Dataset>,
+    datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetsCreateResponse> => {
     return apiMutator<environmentsDatasetsCreateResponse>(getEnvironmentsDatasetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataset),
+        body: JSON.stringify(datasetApi),
     })
 }
 
 export type environmentsDatasetsRetrieveResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -310,7 +310,7 @@ export const environmentsDatasetsRetrieve = async (
 }
 
 export type environmentsDatasetsUpdateResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -326,19 +326,19 @@ export const getEnvironmentsDatasetsUpdateUrl = (projectId: string, id: string) 
 export const environmentsDatasetsUpdate = async (
     projectId: string,
     id: string,
-    dataset: NonReadonly<Dataset>,
+    datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetsUpdateResponse> => {
     return apiMutator<environmentsDatasetsUpdateResponse>(getEnvironmentsDatasetsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataset),
+        body: JSON.stringify(datasetApi),
     })
 }
 
 export type environmentsDatasetsPartialUpdateResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -354,7 +354,7 @@ export const getEnvironmentsDatasetsPartialUpdateUrl = (projectId: string, id: s
 export const environmentsDatasetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDataset: NonReadonly<PatchedDataset>,
+    patchedDatasetApi: NonReadonly<PatchedDatasetApi>,
     options?: RequestInit
 ): Promise<environmentsDatasetsPartialUpdateResponse> => {
     return apiMutator<environmentsDatasetsPartialUpdateResponse>(
@@ -363,7 +363,7 @@ export const environmentsDatasetsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataset),
+            body: JSON.stringify(patchedDatasetApi),
         }
     )
 }
@@ -397,7 +397,7 @@ export const environmentsDatasetsDestroy = async (
 }
 
 export type datasetItemsListResponse200 = {
-    data: PaginatedDatasetItemList
+    data: PaginatedDatasetItemListApi
     status: 200
 }
 
@@ -434,7 +434,7 @@ export const datasetItemsList = async (
 }
 
 export type datasetItemsCreateResponse201 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 201
 }
 
@@ -449,19 +449,19 @@ export const getDatasetItemsCreateUrl = (projectId: string) => {
 
 export const datasetItemsCreate = async (
     projectId: string,
-    datasetItem: NonReadonly<DatasetItem>,
+    datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
 ): Promise<datasetItemsCreateResponse> => {
     return apiMutator<datasetItemsCreateResponse>(getDatasetItemsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItem),
+        body: JSON.stringify(datasetItemApi),
     })
 }
 
 export type datasetItemsRetrieveResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -486,7 +486,7 @@ export const datasetItemsRetrieve = async (
 }
 
 export type datasetItemsUpdateResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -502,19 +502,19 @@ export const getDatasetItemsUpdateUrl = (projectId: string, id: string) => {
 export const datasetItemsUpdate = async (
     projectId: string,
     id: string,
-    datasetItem: NonReadonly<DatasetItem>,
+    datasetItemApi: NonReadonly<DatasetItemApi>,
     options?: RequestInit
 ): Promise<datasetItemsUpdateResponse> => {
     return apiMutator<datasetItemsUpdateResponse>(getDatasetItemsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(datasetItem),
+        body: JSON.stringify(datasetItemApi),
     })
 }
 
 export type datasetItemsPartialUpdateResponse200 = {
-    data: DatasetItem
+    data: DatasetItemApi
     status: 200
 }
 
@@ -530,14 +530,14 @@ export const getDatasetItemsPartialUpdateUrl = (projectId: string, id: string) =
 export const datasetItemsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDatasetItem: NonReadonly<PatchedDatasetItem>,
+    patchedDatasetItemApi: NonReadonly<PatchedDatasetItemApi>,
     options?: RequestInit
 ): Promise<datasetItemsPartialUpdateResponse> => {
     return apiMutator<datasetItemsPartialUpdateResponse>(getDatasetItemsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDatasetItem),
+        body: JSON.stringify(patchedDatasetItemApi),
     })
 }
 
@@ -570,7 +570,7 @@ export const datasetItemsDestroy = async (
 }
 
 export type datasetsListResponse200 = {
-    data: PaginatedDatasetList
+    data: PaginatedDatasetListApi
     status: 200
 }
 
@@ -616,7 +616,7 @@ export const datasetsList = async (
 }
 
 export type datasetsCreateResponse201 = {
-    data: Dataset
+    data: DatasetApi
     status: 201
 }
 
@@ -631,19 +631,19 @@ export const getDatasetsCreateUrl = (projectId: string) => {
 
 export const datasetsCreate = async (
     projectId: string,
-    dataset: NonReadonly<Dataset>,
+    datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
 ): Promise<datasetsCreateResponse> => {
     return apiMutator<datasetsCreateResponse>(getDatasetsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataset),
+        body: JSON.stringify(datasetApi),
     })
 }
 
 export type datasetsRetrieveResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -668,7 +668,7 @@ export const datasetsRetrieve = async (
 }
 
 export type datasetsUpdateResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -684,19 +684,19 @@ export const getDatasetsUpdateUrl = (projectId: string, id: string) => {
 export const datasetsUpdate = async (
     projectId: string,
     id: string,
-    dataset: NonReadonly<Dataset>,
+    datasetApi: NonReadonly<DatasetApi>,
     options?: RequestInit
 ): Promise<datasetsUpdateResponse> => {
     return apiMutator<datasetsUpdateResponse>(getDatasetsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataset),
+        body: JSON.stringify(datasetApi),
     })
 }
 
 export type datasetsPartialUpdateResponse200 = {
-    data: Dataset
+    data: DatasetApi
     status: 200
 }
 
@@ -712,14 +712,14 @@ export const getDatasetsPartialUpdateUrl = (projectId: string, id: string) => {
 export const datasetsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDataset: NonReadonly<PatchedDataset>,
+    patchedDatasetApi: NonReadonly<PatchedDatasetApi>,
     options?: RequestInit
 ): Promise<datasetsPartialUpdateResponse> => {
     return apiMutator<datasetsPartialUpdateResponse>(getDatasetsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataset),
+        body: JSON.stringify(patchedDatasetApi),
     })
 }
 

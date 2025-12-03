@@ -6,11 +6,11 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    DataColorTheme,
+    DataColorThemeApi,
     DataColorThemesListParams,
     EnvironmentsDataColorThemesListParams,
-    PaginatedDataColorThemeList,
-    PatchedDataColorTheme,
+    PaginatedDataColorThemeListApi,
+    PatchedDataColorThemeApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -31,7 +31,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsDataColorThemesListResponse200 = {
-    data: PaginatedDataColorThemeList
+    data: PaginatedDataColorThemeListApi
     status: 200
 }
 
@@ -74,7 +74,7 @@ export const environmentsDataColorThemesList = async (
 }
 
 export type environmentsDataColorThemesCreateResponse201 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 201
 }
 
@@ -89,19 +89,19 @@ export const getEnvironmentsDataColorThemesCreateUrl = (projectId: string) => {
 
 export const environmentsDataColorThemesCreate = async (
     projectId: string,
-    dataColorTheme: NonReadonly<DataColorTheme>,
+    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<environmentsDataColorThemesCreateResponse> => {
     return apiMutator<environmentsDataColorThemesCreateResponse>(getEnvironmentsDataColorThemesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataColorTheme),
+        body: JSON.stringify(dataColorThemeApi),
     })
 }
 
 export type environmentsDataColorThemesRetrieveResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -129,7 +129,7 @@ export const environmentsDataColorThemesRetrieve = async (
 }
 
 export type environmentsDataColorThemesUpdateResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -145,7 +145,7 @@ export const getEnvironmentsDataColorThemesUpdateUrl = (projectId: string, id: n
 export const environmentsDataColorThemesUpdate = async (
     projectId: string,
     id: number,
-    dataColorTheme: NonReadonly<DataColorTheme>,
+    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<environmentsDataColorThemesUpdateResponse> => {
     return apiMutator<environmentsDataColorThemesUpdateResponse>(
@@ -154,13 +154,13 @@ export const environmentsDataColorThemesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dataColorTheme),
+            body: JSON.stringify(dataColorThemeApi),
         }
     )
 }
 
 export type environmentsDataColorThemesPartialUpdateResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -177,7 +177,7 @@ export const getEnvironmentsDataColorThemesPartialUpdateUrl = (projectId: string
 export const environmentsDataColorThemesPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDataColorTheme: NonReadonly<PatchedDataColorTheme>,
+    patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
     options?: RequestInit
 ): Promise<environmentsDataColorThemesPartialUpdateResponse> => {
     return apiMutator<environmentsDataColorThemesPartialUpdateResponse>(
@@ -186,7 +186,7 @@ export const environmentsDataColorThemesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDataColorTheme),
+            body: JSON.stringify(patchedDataColorThemeApi),
         }
     )
 }
@@ -220,7 +220,7 @@ export const environmentsDataColorThemesDestroy = async (
 }
 
 export type dataColorThemesListResponse200 = {
-    data: PaginatedDataColorThemeList
+    data: PaginatedDataColorThemeListApi
     status: 200
 }
 
@@ -257,7 +257,7 @@ export const dataColorThemesList = async (
 }
 
 export type dataColorThemesCreateResponse201 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 201
 }
 
@@ -272,19 +272,19 @@ export const getDataColorThemesCreateUrl = (projectId: string) => {
 
 export const dataColorThemesCreate = async (
     projectId: string,
-    dataColorTheme: NonReadonly<DataColorTheme>,
+    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<dataColorThemesCreateResponse> => {
     return apiMutator<dataColorThemesCreateResponse>(getDataColorThemesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataColorTheme),
+        body: JSON.stringify(dataColorThemeApi),
     })
 }
 
 export type dataColorThemesRetrieveResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -309,7 +309,7 @@ export const dataColorThemesRetrieve = async (
 }
 
 export type dataColorThemesUpdateResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -325,19 +325,19 @@ export const getDataColorThemesUpdateUrl = (projectId: string, id: number) => {
 export const dataColorThemesUpdate = async (
     projectId: string,
     id: number,
-    dataColorTheme: NonReadonly<DataColorTheme>,
+    dataColorThemeApi: NonReadonly<DataColorThemeApi>,
     options?: RequestInit
 ): Promise<dataColorThemesUpdateResponse> => {
     return apiMutator<dataColorThemesUpdateResponse>(getDataColorThemesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dataColorTheme),
+        body: JSON.stringify(dataColorThemeApi),
     })
 }
 
 export type dataColorThemesPartialUpdateResponse200 = {
-    data: DataColorTheme
+    data: DataColorThemeApi
     status: 200
 }
 
@@ -353,14 +353,14 @@ export const getDataColorThemesPartialUpdateUrl = (projectId: string, id: number
 export const dataColorThemesPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDataColorTheme: NonReadonly<PatchedDataColorTheme>,
+    patchedDataColorThemeApi: NonReadonly<PatchedDataColorThemeApi>,
     options?: RequestInit
 ): Promise<dataColorThemesPartialUpdateResponse> => {
     return apiMutator<dataColorThemesPartialUpdateResponse>(getDataColorThemesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDataColorTheme),
+        body: JSON.stringify(patchedDataColorThemeApi),
     })
 }
 

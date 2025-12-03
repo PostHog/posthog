@@ -6,10 +6,10 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    PaginatedSurveyList,
-    PatchedSurveySerializerCreateUpdateOnly,
-    Survey,
-    SurveySerializerCreateUpdateOnly,
+    PaginatedSurveyListApi,
+    PatchedSurveySerializerCreateUpdateOnlyApi,
+    SurveyApi,
+    SurveySerializerCreateUpdateOnlyApi,
     SurveysListParams,
 } from './index.schemas'
 
@@ -31,7 +31,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type surveysListResponse200 = {
-    data: PaginatedSurveyList
+    data: PaginatedSurveyListApi
     status: 200
 }
 
@@ -68,7 +68,7 @@ export const surveysList = async (
 }
 
 export type surveysCreateResponse201 = {
-    data: SurveySerializerCreateUpdateOnly
+    data: SurveySerializerCreateUpdateOnlyApi
     status: 201
 }
 
@@ -83,19 +83,19 @@ export const getSurveysCreateUrl = (projectId: string) => {
 
 export const surveysCreate = async (
     projectId: string,
-    surveySerializerCreateUpdateOnly: NonReadonly<SurveySerializerCreateUpdateOnly>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysCreateResponse> => {
     return apiMutator<surveysCreateResponse>(getSurveysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnly),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
     })
 }
 
 export type surveysRetrieveResponse200 = {
-    data: Survey
+    data: SurveyApi
     status: 200
 }
 
@@ -120,7 +120,7 @@ export const surveysRetrieve = async (
 }
 
 export type surveysUpdateResponse200 = {
-    data: Survey
+    data: SurveyApi
     status: 200
 }
 
@@ -136,19 +136,19 @@ export const getSurveysUpdateUrl = (projectId: string, id: string) => {
 export const surveysUpdate = async (
     projectId: string,
     id: string,
-    survey: NonReadonly<Survey>,
+    surveyApi: NonReadonly<SurveyApi>,
     options?: RequestInit
 ): Promise<surveysUpdateResponse> => {
     return apiMutator<surveysUpdateResponse>(getSurveysUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(survey),
+        body: JSON.stringify(surveyApi),
     })
 }
 
 export type surveysPartialUpdateResponse200 = {
-    data: SurveySerializerCreateUpdateOnly
+    data: SurveySerializerCreateUpdateOnlyApi
     status: 200
 }
 
@@ -164,14 +164,14 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSurveySerializerCreateUpdateOnly: NonReadonly<PatchedSurveySerializerCreateUpdateOnly>,
+    patchedSurveySerializerCreateUpdateOnlyApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysPartialUpdateResponse> => {
     return apiMutator<surveysPartialUpdateResponse>(getSurveysPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnly),
+        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlyApi),
     })
 }
 
@@ -282,14 +282,14 @@ export const getSurveysDuplicateToProjectsCreateUrl = (projectId: string, id: st
 export const surveysDuplicateToProjectsCreate = async (
     projectId: string,
     id: string,
-    surveySerializerCreateUpdateOnly: NonReadonly<SurveySerializerCreateUpdateOnly>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysDuplicateToProjectsCreateResponse> => {
     return apiMutator<surveysDuplicateToProjectsCreateResponse>(getSurveysDuplicateToProjectsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnly),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
     })
 }
 
@@ -314,7 +314,7 @@ export const surveysResponsesArchiveCreate = async (
     projectId: string,
     id: string,
     responseUuid: string,
-    surveySerializerCreateUpdateOnly: NonReadonly<SurveySerializerCreateUpdateOnly>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysResponsesArchiveCreateResponse> => {
     return apiMutator<surveysResponsesArchiveCreateResponse>(
@@ -323,7 +323,7 @@ export const surveysResponsesArchiveCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(surveySerializerCreateUpdateOnly),
+            body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
         }
     )
 }
@@ -349,7 +349,7 @@ export const surveysResponsesUnarchiveCreate = async (
     projectId: string,
     id: string,
     responseUuid: string,
-    surveySerializerCreateUpdateOnly: NonReadonly<SurveySerializerCreateUpdateOnly>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysResponsesUnarchiveCreateResponse> => {
     return apiMutator<surveysResponsesUnarchiveCreateResponse>(
@@ -358,7 +358,7 @@ export const surveysResponsesUnarchiveCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(surveySerializerCreateUpdateOnly),
+            body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
         }
     )
 }
@@ -416,14 +416,14 @@ export const getSurveysSummarizeResponsesCreateUrl = (projectId: string, id: str
 export const surveysSummarizeResponsesCreate = async (
     projectId: string,
     id: string,
-    surveySerializerCreateUpdateOnly: NonReadonly<SurveySerializerCreateUpdateOnly>,
+    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
     options?: RequestInit
 ): Promise<surveysSummarizeResponsesCreateResponse> => {
     return apiMutator<surveysSummarizeResponsesCreateResponse>(getSurveysSummarizeResponsesCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnly),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
     })
 }
 

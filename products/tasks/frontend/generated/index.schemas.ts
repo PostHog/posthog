@@ -4,8 +4,8 @@
  * PostHog API - tasks
  * OpenAPI spec version: 1.0.0
  */
-export type OriginProductEnum = (typeof OriginProductEnum)[keyof typeof OriginProductEnum]
-export const OriginProductEnum = {
+export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
+export const OriginProductEnumApi = {
     error_tracking: 'error_tracking',
     eval_clusters: 'eval_clusters',
     user_created: 'user_created',
@@ -13,8 +13,8 @@ export const OriginProductEnum = {
     session_summaries: 'session_summaries',
 } as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -25,27 +25,27 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export interface PaginatedTaskList {
+export interface PaginatedTaskListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Task[]
+    results: TaskApi[]
 }
 
 /**
  * Serializer for extracted tasks
  */
-export interface Task {
+export interface TaskApi {
     title: string
     description?: string
     /** @nullable */
@@ -56,9 +56,9 @@ export interface Task {
  * JSON schema for the task. This is used to validate the output of the task.
  * @nullable
  */
-export type PatchedTaskJsonSchema = unknown | null
+export type PatchedTaskApiJsonSchema = unknown | null
 
-export interface PatchedTask {
+export interface PatchedTaskApi {
     readonly id?: string
     /** @nullable */
     readonly task_number?: number | null
@@ -66,7 +66,7 @@ export interface PatchedTask {
     /** @maxLength 255 */
     title?: string
     description?: string
-    origin_product?: OriginProductEnum
+    origin_product?: OriginProductEnumApi
     /**
      * @maxLength 255
      * @nullable
@@ -81,11 +81,11 @@ export interface PatchedTask {
      * JSON schema for the task. This is used to validate the output of the task.
      * @nullable
      */
-    json_schema?: PatchedTaskJsonSchema
+    json_schema?: PatchedTaskApiJsonSchema
     readonly latest_run?: string
     readonly created_at?: string
     readonly updated_at?: string
-    readonly created_by?: UserBasic
+    readonly created_by?: UserBasicApi
 }
 
 /**
@@ -101,18 +101,18 @@ export interface PatchedTask {
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -129,9 +129,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**

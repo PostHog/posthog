@@ -5,325 +5,11 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import ts from 'typescript'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const frontendRoot = path.resolve(__dirname, '..')
 const repoRoot = path.resolve(frontendRoot, '..')
 const productsDir = path.resolve(repoRoot, 'products')
-
-/**
- * Canonical type sources - these are the authoritative definitions for TS-owned types.
- * Generated types matching these will be replaced with re-exports.
- * Types marked @deprecated are excluded (allows gradual migration to generated types).
- */
-const CANONICAL_TYPE_SOURCES = [
-    { path: 'frontend/src/types.ts', importPath: '~/types' },
-    { path: 'frontend/src/queries/schema/schema-general.ts', importPath: '~/queries/schema' },
-    { path: 'frontend/src/queries/schema/schema-surveys.ts', importPath: '~/queries/schema' },
-    { path: 'frontend/src/queries/schema/schema-assistant-replay.ts', importPath: '~/queries/schema' },
-    { path: 'frontend/src/queries/schema/schema-assistant-queries.ts', importPath: '~/queries/schema' },
-    { path: 'frontend/src/queries/schema/schema-assistant-messages.ts', importPath: '~/queries/schema' },
-]
-
-/**
- * Extract exported type/interface/enum names from a TypeScript file.
- * Returns Map of typeName → { isDeprecated: boolean }
- */
-function getExportedTypeNames(filePath) {
-    if (!fs.existsSync(filePath)) {
-        return new Map()
-    }
-
-    const content = fs.readFileSync(filePath, 'utf8')
-    const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)
-    const types = new Map()
-
-    ts.forEachChild(sourceFile, (node) => {
-        const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-        if (!isExported) {
-            return
-        }
-
-        let name = null
-        if (ts.isInterfaceDeclaration(node) || ts.isTypeAliasDeclaration(node) || ts.isEnumDeclaration(node)) {
-            name = node.name.text
-        }
-
-        if (name) {
-            // Check for @deprecated JSDoc tag
-            const jsDocTags = ts.getJSDocTags(node)
-            const isDeprecated = jsDocTags.some((tag) => tag.tagName.text === 'deprecated')
-            types.set(name, { isDeprecated })
-        }
-    })
-
-    return types
-}
-
-/**
- * Build a map of canonical type names → { importPath, isDeprecated }
- * Merges all canonical sources, with earlier sources taking precedence.
- */
-function buildCanonicalTypesMap() {
-    const canonicalTypes = new Map()
-
-    for (const source of CANONICAL_TYPE_SOURCES) {
-        const fullPath = path.resolve(repoRoot, source.path)
-        const types = getExportedTypeNames(fullPath)
-
-        for (const [typeName, info] of types) {
-            if (!canonicalTypes.has(typeName)) {
-                canonicalTypes.set(typeName, {
-                    importPath: source.importPath,
-                    sourcePath: source.path,
-                    isDeprecated: info.isDeprecated,
-                })
-            }
-        }
-    }
-
-    return canonicalTypes
-}
-
-/**
- * Batch check type equivalence for multiple types at once.
- * Returns a Set of type names that ARE equivalent (passed the check).
- * Uses TypeScript compiler API directly (no subprocess).
- *
- * @param {string} generatedFile - Path to the generated schema file
- * @param {Array<{typeName: string, canonicalFile: string}>} candidates - Types to check
- * @returns {Set<string>} - Type names that are equivalent to their canonical versions
- */
-function batchCheckTypeEquivalence(generatedFile, candidates) {
-    if (candidates.length === 0) {
-        return new Set()
-    }
-
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ts-type-check-'))
-    const checkFile = path.join(tmpDir, 'check.ts')
-
-    // Calculate relative paths from check file
-    const genRelPath = path.relative(tmpDir, generatedFile).replace(/\.ts$/, '').replace(/\\/g, '/')
-
-    // Group candidates by canonical file for import efficiency
-    const byCanonicalFile = new Map()
-    for (const c of candidates) {
-        if (!byCanonicalFile.has(c.canonicalFile)) {
-            byCanonicalFile.set(c.canonicalFile, [])
-        }
-        byCanonicalFile.get(c.canonicalFile).push(c.typeName)
-    }
-
-    // Build imports
-    const imports = [`import type * as Gen from '${genRelPath}'`]
-    let aliasCounter = 0
-    const canonicalAliases = new Map() // file → alias
-    for (const canonFile of byCanonicalFile.keys()) {
-        const alias = `Canon${aliasCounter++}`
-        const relPath = path.relative(tmpDir, canonFile).replace(/\.ts$/, '').replace(/\\/g, '/')
-        imports.push(`import type * as ${alias} from '${relPath}'`)
-        canonicalAliases.set(canonFile, alias)
-    }
-
-    // Build individual check types - each one that compiles means equivalence
-    const checks = []
-    for (const c of candidates) {
-        const alias = canonicalAliases.get(c.canonicalFile)
-        checks.push(
-            `type _Check_${c.typeName}_Forward = Gen.${c.typeName} extends ${alias}.${c.typeName} ? true : never`
-        )
-        checks.push(
-            `type _Check_${c.typeName}_Backward = ${alias}.${c.typeName} extends Gen.${c.typeName} ? true : never`
-        )
-        checks.push(`const _verify_${c.typeName}: _Check_${c.typeName}_Forward & _Check_${c.typeName}_Backward = true`)
-    }
-
-    const checkContent = imports.join('\n') + '\n\n' + checks.join('\n')
-    fs.writeFileSync(checkFile, checkContent)
-
-    // Use TS compiler API directly (faster than spawning tsc subprocess)
-    const program = ts.createProgram([checkFile], {
-        noEmit: true,
-        strict: true,
-    })
-    const diagnostics = ts.getPreEmitDiagnostics(program)
-
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-
-    if (diagnostics.length === 0) {
-        // All checks passed!
-        return new Set(candidates.map((c) => c.typeName))
-    }
-
-    // Parse which types failed from diagnostics
-    const failedTypes = new Set()
-    for (const diagnostic of diagnostics) {
-        const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')
-        for (const c of candidates) {
-            if (message.includes(`_Check_${c.typeName}_`) || message.includes(`_verify_${c.typeName}`)) {
-                failedTypes.add(c.typeName)
-            }
-        }
-    }
-
-    // Return types that didn't fail
-    return new Set(candidates.filter((c) => !failedTypes.has(c.typeName)).map((c) => c.typeName))
-}
-
-/**
- * Get exported type declarations from a file using TS AST.
- * Returns array of { typeName, node, start, end } for type aliases and interfaces.
- */
-function getExportedTypeDeclarations(filePath) {
-    if (!fs.existsSync(filePath)) {
-        return []
-    }
-
-    const content = fs.readFileSync(filePath, 'utf8')
-    const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)
-    const types = []
-
-    ts.forEachChild(sourceFile, (node) => {
-        const isExported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-        if (!isExported) {
-            return
-        }
-
-        if (ts.isTypeAliasDeclaration(node) || ts.isInterfaceDeclaration(node)) {
-            // Get the full range including leading trivia (comments, whitespace)
-            const fullStart = node.getFullStart()
-            const end = node.getEnd()
-
-            types.push({
-                typeName: node.name.text,
-                kind: ts.isTypeAliasDeclaration(node) ? 'type' : 'interface',
-                fullStart,
-                start: node.getStart(),
-                end,
-            })
-        }
-    })
-
-    return types
-}
-
-/**
- * Deduplicate types in a generated schema file using TS AST.
- * For each type that matches a canonical source (same name, equivalent shape, not deprecated),
- * replace the definition with a re-export from the canonical source.
- */
-function deduplicateTypes(schemaFile, canonicalTypes) {
-    if (!fs.existsSync(schemaFile)) {
-        return { deduplicated: 0, skippedDeprecated: [] }
-    }
-
-    const content = fs.readFileSync(schemaFile, 'utf8')
-    const generatedTypes = getExportedTypeDeclarations(schemaFile)
-
-    // Build list of candidates (types that exist in both generated and canonical, not deprecated)
-    const candidates = []
-    const skippedDeprecated = []
-    const generatedByName = new Map() // typeName → generated type info
-
-    for (const gen of generatedTypes) {
-        const canonical = canonicalTypes.get(gen.typeName)
-        if (!canonical) {
-            continue
-        }
-
-        // Skip deprecated types - these should use the generated version
-        if (canonical.isDeprecated) {
-            skippedDeprecated.push(gen.typeName)
-            continue
-        }
-
-        const canonicalFullPath = path.resolve(repoRoot, canonical.sourcePath)
-        candidates.push({
-            typeName: gen.typeName,
-            canonicalFile: canonicalFullPath,
-        })
-        generatedByName.set(gen.typeName, { ...gen, importPath: canonical.importPath })
-    }
-
-    // Batch check all candidates at once (single tsc invocation)
-    const equivalentTypes = batchCheckTypeEquivalence(schemaFile, candidates)
-
-    // Build replacements from equivalent types
-    const replacements = []
-    const reExportsByImportPath = new Map()
-
-    for (const typeName of equivalentTypes) {
-        const gen = generatedByName.get(typeName)
-        replacements.push({
-            typeName,
-            fullStart: gen.fullStart,
-            end: gen.end,
-            importPath: gen.importPath,
-        })
-
-        if (!reExportsByImportPath.has(gen.importPath)) {
-            reExportsByImportPath.set(gen.importPath, new Set())
-        }
-        reExportsByImportPath.get(gen.importPath).add(typeName)
-    }
-
-    if (replacements.length === 0) {
-        return { deduplicated: 0, skippedDeprecated }
-    }
-
-    // Sort replacements by position (descending) so we can splice from end to start
-    replacements.sort((a, b) => b.fullStart - a.fullStart)
-
-    // Remove the type definitions from the content
-    let newContent = content
-    for (const r of replacements) {
-        newContent = newContent.slice(0, r.fullStart) + newContent.slice(r.end)
-    }
-
-    // Build re-export statements
-    const reExportStatements = []
-    for (const [importPath, typeNames] of reExportsByImportPath) {
-        const sortedNames = [...typeNames].sort()
-        reExportStatements.push(`export type { ${sortedNames.join(', ')} } from '${importPath}'`)
-    }
-
-    // Find insertion point using AST - after last import, or after header comments if no imports
-    const sourceFile = ts.createSourceFile(schemaFile, newContent, ts.ScriptTarget.Latest, true)
-    let lastImportEnd = 0
-    let firstNodeStart = newContent.length
-
-    ts.forEachChild(sourceFile, (node) => {
-        // Track first non-import node position (getStart() skips leading trivia like comments)
-        if (!ts.isImportDeclaration(node) && node.getStart() < firstNodeStart) {
-            firstNodeStart = node.getStart()
-        }
-
-        // Track last import position
-        if (ts.isImportDeclaration(node)) {
-            const end = node.getEnd()
-            // Include trailing newline if present
-            const afterNode = newContent.slice(end, end + 1)
-            lastImportEnd = afterNode === '\n' ? end + 1 : end
-        }
-    })
-
-    // Insert after last import, or after header comments if no imports
-    const insertPosition = lastImportEnd > 0 ? lastImportEnd : firstNodeStart
-
-    // Insert re-export block
-    const reExportBlock =
-        '\n// Re-exported from canonical sources (TS-owned types)\n' + reExportStatements.join('\n') + '\n'
-
-    newContent = newContent.slice(0, insertPosition) + reExportBlock + newContent.slice(insertPosition)
-
-    // Clean up multiple consecutive blank lines
-    newContent = newContent.replace(/\n{3,}/g, '\n\n')
-
-    fs.writeFileSync(schemaFile, newContent)
-
-    return { deduplicated: replacements.length, skippedDeprecated }
-}
 
 // Default to temp location (gitignored ephemeral artifact)
 const defaultSchemaPath = path.resolve(frontendRoot, 'tmp', 'openapi.json')
@@ -570,6 +256,8 @@ function buildGroupedSchemasByTag(schema) {
  * Reorder enums in generated schema file to fix "used before declaration" errors.
  * Orval outputs enums in alphabetical order, not dependency order, causing TS errors.
  * See: https://github.com/orval-labs/orval/issues/1511
+ *
+ * TODO: Remove this workaround when orval 7.17.0+ is released (fix: orval-labs/orval#2608)
  */
 function reorderEnumsInSchemaFile(schemaFile) {
     if (!fs.existsSync(schemaFile)) {
@@ -583,10 +271,14 @@ function reorderEnumsInSchemaFile(schemaFile) {
     const enumBlocks = []
     const enumNames = new Set()
 
-    // First pass: identify all enum names (pattern: "export const FooEnum = {" or "export type FooEnum = ")
+    // First pass: identify all const object names that follow the orval pattern:
+    // "export const FooApi = { ... } as const" paired with "export type FooApi = (typeof FooApi)[keyof typeof FooApi]"
+    // This includes enums (BlankEnumApi) and other const objects (BaseMathTypeApi, WebAnalyticsOrderByFieldsApi)
     for (const line of lines) {
-        const constMatch = line.match(/^export const (\w+Enum)\s*=\s*\{/)
-        const typeMatch = line.match(/^export type (\w+Enum)\s*=/)
+        // Match any "export const Foo = {" pattern (const objects that might need reordering)
+        const constMatch = line.match(/^export const (\w+Api)\s*=\s*\{/)
+        // Match corresponding type pattern
+        const typeMatch = line.match(/^export type (\w+Api)\s*=\s*\(typeof/)
         if (constMatch) {
             enumNames.add(constMatch[1])
         }
@@ -594,10 +286,6 @@ function reorderEnumsInSchemaFile(schemaFile) {
             enumNames.add(typeMatch[1])
         }
     }
-
-    // Also add BlankEnum and NullEnum which are common DRF patterns
-    enumNames.add('BlankEnum')
-    enumNames.add('NullEnum')
 
     // Second pass: extract enum blocks (type + const pairs)
     let i = 0
@@ -709,50 +397,6 @@ function reorderEnumsInSchemaFile(schemaFile) {
     fs.writeFileSync(schemaFile, cleanedLines.join('\n'))
 }
 
-function generateTypesForSchema(schemaFile, outputDir, tag, tmpDir, canonicalTypes) {
-    fs.mkdirSync(outputDir, { recursive: true })
-
-    const outputFile = path.join(outputDir, 'index.ts')
-
-    // Create orval config for this schema - split mode separates schemas from functions
-    const configFile = path.join(tmpDir, 'orval.config.mjs')
-    const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
-    const config = `
-import { defineConfig } from 'orval';
-export default defineConfig({
-  api: {
-    input: '${schemaFile}',
-    output: {
-      target: '${outputFile}',
-      mode: 'split',
-      client: 'fetch',
-      prettier: true,
-      override: {
-        mutator: {
-          path: '${mutatorPath}',
-          name: 'apiMutator',
-        },
-      },
-    },
-  },
-});
-`
-    fs.writeFileSync(configFile, config)
-
-    execSync(`pnpm exec orval --config "${configFile}"`, {
-        stdio: 'inherit',
-        cwd: repoRoot,
-    })
-
-    // Post-process: reorder enums to fix declaration order issues
-    const schemaOutputFile = path.join(outputDir, 'index.schemas.ts')
-    reorderEnumsInSchemaFile(schemaOutputFile)
-
-    // Post-process: deduplicate types that exist in canonical sources
-    const dedupeResult = deduplicateTypes(schemaOutputFile, canonicalTypes)
-    return dedupeResult
-}
-
 function mergeSchemas(schemas) {
     // Merge multiple OpenAPI schemas into one
     const merged = {
@@ -773,9 +417,6 @@ function mergeSchemas(schemas) {
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
 const mappings = loadProductMappings()
 const tmpDir = createTempDir()
-const canonicalTypes = buildCanonicalTypesMap()
-
-console.log(`Loaded ${canonicalTypes.size} canonical types from ${CANONICAL_TYPE_SOURCES.length} source files`)
 
 console.log('')
 console.log('┌─────────────────────────────────────────────────────────────────────┐')
@@ -851,113 +492,98 @@ if (generateAll) {
 
 let generated = 0
 let failed = 0
-let totalDeduplicated = 0
-const allSkippedDeprecated = []
 const entries = [...schemasByOutput.entries()]
-for (let i = 0; i < entries.length; i++) {
-    const [outputDir, { tags, schemas }] = entries[i]
+
+// Prepare all jobs first (write temp files, log info)
+const jobs = entries.map(([outputDir, { tags, schemas }]) => {
     const mergedSchema = schemas.length > 1 ? mergeSchemas(schemas) : schemas[0]
     const pathCount = Object.keys(mergedSchema.paths).length
     const schemaCount = Object.keys(mergedSchema.components?.schemas || {}).length
-
     const tagLabel = tags.length > 1 ? `${tags[0]} (+${tags.length - 1} more)` : tags[0]
     const tempFile = path.join(tmpDir, `${tags[0].replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
     fs.writeFileSync(tempFile, JSON.stringify(mergedSchema, null, 2))
 
-    console.log(`📦 ${tagLabel}`)
-    console.log(`   ${pathCount} endpoints, ${schemaCount} schemas`)
-    if (tags.length > 1) {
-        console.log(`   Merged from: ${tags.join(', ')}`)
-    }
+    console.log(`📦 ${tagLabel}: ${pathCount} endpoints, ${schemaCount} schemas`)
 
-    try {
-        const dedupeResult = generateTypesForSchema(tempFile, outputDir, tags[0], tmpDir, canonicalTypes)
-        console.log(`   → ${path.relative(repoRoot, outputDir)}/index.ts ✓`)
-        if (dedupeResult.deduplicated > 0) {
-            console.log(`   🔗 Deduplicated ${dedupeResult.deduplicated} types (re-exported from canonical sources)`)
-            totalDeduplicated += dedupeResult.deduplicated
-        }
-        if (dedupeResult.skippedDeprecated.length > 0) {
-            allSkippedDeprecated.push(...dedupeResult.skippedDeprecated)
-        }
+    return { tempFile, outputDir, tags, tagLabel }
+})
+
+console.log('')
+console.log(`Running ${jobs.length} orval generations in parallel...`)
+console.log('')
+
+// Run all orval generations in parallel
+const results = await Promise.allSettled(
+    jobs.map(async ({ tempFile, outputDir, tags, tagLabel }) => {
+        const { execSync } = await import('node:child_process')
+        const configFile = path.join(tmpDir, `orval-${tags[0].replace(/[^a-zA-Z0-9_-]/g, '_')}.config.mjs`)
+        const outputFile = path.join(outputDir, 'index.ts')
+        const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
+
+        fs.mkdirSync(outputDir, { recursive: true })
+
+        const config = `
+import { defineConfig } from 'orval';
+export default defineConfig({
+  api: {
+    input: '${tempFile}',
+    output: {
+      target: '${outputFile}',
+      mode: 'split',
+      client: 'fetch',
+      prettier: false,
+      override: {
+        mutator: {
+          path: '${mutatorPath}',
+          name: 'apiMutator',
+        },
+        components: {
+          schemas: { suffix: 'Api' },
+        },
+      },
+    },
+  },
+});
+`
+        fs.writeFileSync(configFile, config)
+        execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
+
+        // Post-process: reorder enums
+        const schemaOutputFile = path.join(outputDir, 'index.schemas.ts')
+        reorderEnumsInSchemaFile(schemaOutputFile)
+
+        return { tagLabel, outputDir, schemaOutputFile }
+    })
+)
+
+// Report results and collect output dirs for formatting
+const outputDirs = []
+for (const result of results) {
+    if (result.status === 'fulfilled') {
+        console.log(`   ✓ ${result.value.tagLabel} → ${path.relative(repoRoot, result.value.outputDir)}`)
+        outputDirs.push(result.value.outputDir)
         generated++
-    } catch (err) {
-        console.error(`   ⚠️  Failed: ${err.message}`)
+    } else {
+        console.error(`   ✗ Failed: ${result.reason?.message || result.reason}`)
         failed++
     }
+}
 
-    // Add separator between products (but not after the last one)
-    if (i < entries.length - 1) {
-        console.log('')
+// Run prettier once on all generated files
+if (outputDirs.length > 0) {
+    console.log('')
+    console.log('Formatting generated files...')
+    const globs = outputDirs.map((d) => `"${d}/**/*.ts"`).join(' ')
+    try {
+        execSync(`pnpm exec prettier --write ${globs}`, { stdio: 'pipe', cwd: repoRoot })
+        console.log('   ✓ Formatted')
+    } catch {
+        console.log('   ⚠️  Prettier formatting skipped (not critical)')
     }
 }
 
 // Cleanup temp dir
 fs.rmSync(tmpDir, { recursive: true, force: true })
-
-// Check for potential duplicate types in frontend/src
-function findPotentialDuplicates(generatedFiles) {
-    const duplicates = []
-    const frontendSrc = path.resolve(frontendRoot, 'src')
-
-    for (const file of generatedFiles) {
-        const content = fs.readFileSync(file, 'utf8')
-        // Extract interface/type names from generated file
-        const typeNames = [...content.matchAll(/^export (?:interface|type) (\w+)/gm)].map((m) => m[1])
-
-        for (const typeName of typeNames) {
-            // Skip response/request types and params - these are generated-specific
-            if (
-                typeName.endsWith('Response') ||
-                typeName.endsWith('Request') ||
-                typeName.endsWith('Params') ||
-                typeName.startsWith('get') ||
-                typeName.includes('Response200') ||
-                typeName.includes('Response201')
-            ) {
-                continue
-            }
-
-            // Skip query-related types - these come from JSON schema, not OpenAPI
-            if (
-                typeName.endsWith('Query') ||
-                typeName.endsWith('Filter') ||
-                typeName.endsWith('Node') ||
-                typeName.endsWith('Result') ||
-                typeName.endsWith('Toggle') ||
-                typeName.includes('HogQL') ||
-                typeName.includes('Breakdown') ||
-                typeName.includes('Funnel') ||
-                typeName.includes('Retention') ||
-                typeName.includes('Trends') ||
-                typeName.includes('Paths') ||
-                typeName.includes('Lifecycle') ||
-                typeName.includes('Stickiness')
-            ) {
-                continue
-            }
-
-            // Search for same name in frontend/src (excluding the generated files)
-            try {
-                const result = execSync(
-                    `rg -l "^export (interface|type) ${typeName}\\b" "${frontendSrc}" --glob "*.ts" --glob "*.tsx" 2>/dev/null || true`,
-                    { encoding: 'utf8' }
-                ).trim()
-
-                if (result) {
-                    const locations = result.split('\n').filter((l) => !l.includes('/api/index.ts'))
-                    if (locations.length > 0) {
-                        duplicates.push({ typeName, generatedIn: file, manualIn: locations })
-                    }
-                }
-            } catch {
-                // rg not found or other error, skip
-            }
-        }
-    }
-
-    return duplicates
-}
 
 // Summary
 console.log('')
@@ -965,36 +591,8 @@ console.log('─'.repeat(72))
 console.log('')
 console.log(`✅ Generated ${generated} API client(s)${failed > 0 ? `, ${failed} failed` : ''}`)
 
-if (totalDeduplicated > 0) {
-    console.log(`🔗 Deduplicated ${totalDeduplicated} types total (replaced with re-exports from canonical sources)`)
-}
-
-if (allSkippedDeprecated.length > 0) {
-    console.log('')
-    console.log(`⏭️  Skipped ${allSkippedDeprecated.length} @deprecated types (kept generated versions):`)
-    console.log(
-        `   ${allSkippedDeprecated.slice(0, 10).join(', ')}${allSkippedDeprecated.length > 10 ? ` and ${allSkippedDeprecated.length - 10} more...` : ''}`
-    )
-}
-
-// Check for duplicates - use unique output dirs
-const generatedFiles = [...schemasByOutput.keys()]
-    .map((dir) => path.join(dir, 'index.ts'))
-    .filter((f) => fs.existsSync(f))
-
-const duplicates = findPotentialDuplicates(generatedFiles)
-if (duplicates.length > 0) {
-    console.log('')
-    console.log('⚠️  Potential duplicate types found (manual types that may match generated ones):')
-    for (const { typeName, manualIn } of duplicates) {
-        console.log(`   ${typeName}`)
-        for (const loc of manualIn) {
-            console.log(`      └─ ${path.relative(repoRoot, loc)}`)
-        }
-    }
-    console.log('')
-    console.log('   Consider removing manual types and importing from generated API client instead.')
-}
+// Note: Duplicate type detection skipped - with 'Api' suffix on generated types,
+// there are no collisions with manual types (e.g., TaskApi vs Task)
 
 if (!generateAll && generated === 0) {
     console.log('')

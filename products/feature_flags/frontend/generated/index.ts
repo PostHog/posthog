@@ -5,7 +5,12 @@
  * OpenAPI spec version: 1.0.0
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
-import type { FeatureFlag, FeatureFlagsListParams, PaginatedFeatureFlagList, PatchedFeatureFlag } from './index.schemas'
+import type {
+    FeatureFlagApi,
+    FeatureFlagsListParams,
+    PaginatedFeatureFlagListApi,
+    PatchedFeatureFlagApi,
+} from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -30,7 +35,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export type featureFlagsListResponse200 = {
-    data: PaginatedFeatureFlagList
+    data: PaginatedFeatureFlagListApi
     status: 200
 }
 
@@ -72,7 +77,7 @@ export const featureFlagsList = async (
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export type featureFlagsCreateResponse201 = {
-    data: FeatureFlag
+    data: FeatureFlagApi
     status: 201
 }
 
@@ -87,14 +92,14 @@ export const getFeatureFlagsCreateUrl = (projectId: string) => {
 
 export const featureFlagsCreate = async (
     projectId: string,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsCreateResponse> => {
     return apiMutator<featureFlagsCreateResponse>(getFeatureFlagsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlag),
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -104,7 +109,7 @@ export const featureFlagsCreate = async (
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export type featureFlagsRetrieve2Response200 = {
-    data: FeatureFlag
+    data: FeatureFlagApi
     status: 200
 }
 
@@ -134,7 +139,7 @@ export const featureFlagsRetrieve2 = async (
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export type featureFlagsUpdateResponse200 = {
-    data: FeatureFlag
+    data: FeatureFlagApi
     status: 200
 }
 
@@ -150,14 +155,14 @@ export const getFeatureFlagsUpdateUrl = (projectId: string, id: number) => {
 export const featureFlagsUpdate = async (
     projectId: string,
     id: number,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsUpdateResponse> => {
     return apiMutator<featureFlagsUpdateResponse>(getFeatureFlagsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlag),
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -167,7 +172,7 @@ export const featureFlagsUpdate = async (
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
 export type featureFlagsPartialUpdateResponse200 = {
-    data: FeatureFlag
+    data: FeatureFlagApi
     status: 200
 }
 
@@ -183,14 +188,14 @@ export const getFeatureFlagsPartialUpdateUrl = (projectId: string, id: number) =
 export const featureFlagsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedFeatureFlag: NonReadonly<PatchedFeatureFlag>,
+    patchedFeatureFlagApi: NonReadonly<PatchedFeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsPartialUpdateResponse> => {
     return apiMutator<featureFlagsPartialUpdateResponse>(getFeatureFlagsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFeatureFlag),
+        body: JSON.stringify(patchedFeatureFlagApi),
     })
 }
 
@@ -276,7 +281,7 @@ export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: str
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsCreateStaticCohortForFlagCreateResponse> => {
     return apiMutator<featureFlagsCreateStaticCohortForFlagCreateResponse>(
@@ -285,7 +290,7 @@ export const featureFlagsCreateStaticCohortForFlagCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlag),
+            body: JSON.stringify(featureFlagApi),
         }
     )
 }
@@ -312,14 +317,14 @@ export const getFeatureFlagsDashboardCreateUrl = (projectId: string, id: number)
 export const featureFlagsDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsDashboardCreateResponse> => {
     return apiMutator<featureFlagsDashboardCreateResponse>(getFeatureFlagsDashboardCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlag),
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -346,7 +351,7 @@ export const getFeatureFlagsEnrichUsageDashboardCreateUrl = (projectId: string, 
 export const featureFlagsEnrichUsageDashboardCreate = async (
     projectId: string,
     id: number,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsEnrichUsageDashboardCreateResponse> => {
     return apiMutator<featureFlagsEnrichUsageDashboardCreateResponse>(
@@ -355,7 +360,7 @@ export const featureFlagsEnrichUsageDashboardCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlag),
+            body: JSON.stringify(featureFlagApi),
         }
     )
 }
@@ -380,7 +385,7 @@ export const getFeatureFlagsHasActiveDependentsCreateUrl = (projectId: string, i
 export const featureFlagsHasActiveDependentsCreate = async (
     projectId: string,
     id: number,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsHasActiveDependentsCreateResponse> => {
     return apiMutator<featureFlagsHasActiveDependentsCreateResponse>(
@@ -389,7 +394,7 @@ export const featureFlagsHasActiveDependentsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(featureFlag),
+            body: JSON.stringify(featureFlagApi),
         }
     )
 }
@@ -503,14 +508,14 @@ export const getFeatureFlagsBulkKeysCreateUrl = (projectId: string) => {
 
 export const featureFlagsBulkKeysCreate = async (
     projectId: string,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsBulkKeysCreateResponse> => {
     return apiMutator<featureFlagsBulkKeysCreateResponse>(getFeatureFlagsBulkKeysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlag),
+        body: JSON.stringify(featureFlagApi),
     })
 }
 
@@ -628,13 +633,13 @@ export const getFeatureFlagsUserBlastRadiusCreateUrl = (projectId: string) => {
 
 export const featureFlagsUserBlastRadiusCreate = async (
     projectId: string,
-    featureFlag: NonReadonly<FeatureFlag>,
+    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
 ): Promise<featureFlagsUserBlastRadiusCreateResponse> => {
     return apiMutator<featureFlagsUserBlastRadiusCreateResponse>(getFeatureFlagsUserBlastRadiusCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlag),
+        body: JSON.stringify(featureFlagApi),
     })
 }

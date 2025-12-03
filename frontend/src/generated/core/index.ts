@@ -6,28 +6,28 @@
  */
 import { apiMutator } from '../../lib/api-orval-mutator'
 import type {
-    Alert,
-    Annotation,
+    AlertApi,
+    AnnotationApi,
     AnnotationsListParams,
-    AnthropicMessagesRequest,
-    AnthropicMessagesResponse,
-    AppendSegments,
-    BatchExportBackfill,
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ClickhouseEvent,
-    Cohort,
+    AnthropicMessagesRequestApi,
+    AnthropicMessagesResponseApi,
+    AppendSegmentsApi,
+    BatchExportBackfillApi,
+    ChatCompletionRequestApi,
+    ChatCompletionResponseApi,
+    ClickhouseEventApi,
+    CohortApi,
     CohortsListParams,
     CohortsPersonsRetrieveParams,
-    Comment,
+    CommentApi,
     CommentsListParams,
-    Conversation,
-    CreateGroup,
-    CreateRecordingRequest,
-    CreateRecordingResponse,
-    Dashboard,
-    DashboardCollaborator,
-    DashboardTemplate,
+    ConversationApi,
+    CreateGroupApi,
+    CreateRecordingRequestApi,
+    CreateRecordingResponseApi,
+    DashboardApi,
+    DashboardCollaboratorApi,
+    DashboardTemplateApi,
     DashboardTemplatesListParams,
     DashboardsCreateFromTemplateJsonCreateParams,
     DashboardsCreateParams,
@@ -39,7 +39,7 @@ import type {
     DashboardsRetrieveParams,
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
-    DesktopRecording,
+    DesktopRecordingApi,
     DomainsListParams,
     EnvironmentsAlertsListParams,
     EnvironmentsBatchExportsBackfillsListParams,
@@ -112,190 +112,190 @@ import type {
     EnvironmentsWarehouseViewLinkListParams,
     EnvironmentsWarehouseViewLinksListParams,
     EnvironmentsWebVitalsRetrieveParams,
-    ErrorResponse,
-    ErrorTrackingAssignmentRule,
-    ErrorTrackingExternalReference,
-    ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-    Evaluation,
-    ExportedAsset,
+    ErrorResponseApi,
+    ErrorTrackingAssignmentRuleApi,
+    ErrorTrackingExternalReferenceApi,
+    ErrorTrackingGroupingRuleApi,
+    ErrorTrackingSuppressionRuleApi,
+    EvaluationApi,
+    ExportedAssetApi,
     ExportsListParams,
-    ExternalDataSchema,
-    FileSystem,
+    ExternalDataSchemaApi,
+    FileSystemApi,
     FileSystemListParams,
-    FileSystemShortcut,
-    Group,
+    FileSystemShortcutApi,
+    GroupApi,
     GroupsActivityRetrieveParams,
     GroupsDeletePropertyCreateParams,
     GroupsFindRetrieveParams,
     GroupsListParams,
     GroupsRelatedRetrieveParams,
     GroupsUpdatePropertyCreateParams,
-    HeatmapScreenshotResponse,
-    HogFlow,
-    HogFunction,
+    HeatmapScreenshotResponseApi,
+    HogFlowApi,
+    HogFunctionApi,
     HogFunctionsListParams,
-    Insight,
-    InsightVariable,
-    Integration,
+    InsightApi,
+    InsightVariableApi,
+    IntegrationApi,
     IntegrationsListParams,
     InvitesListParams,
     List2Params,
     ListParams,
     LlmGatewayV1ChatCompletionsCreateParams,
     LlmGatewayV1MessagesCreateParams,
-    MaxCoreMemory,
+    MaxCoreMemoryApi,
     MembersListParams,
-    Message,
-    MessageCategory,
-    MessageTemplate,
-    MetalyticsCreateRequest,
-    Organization,
-    OrganizationDomain,
-    OrganizationInvite,
-    OrganizationMember,
-    PaginatedAlertList,
-    PaginatedAnnotationList,
-    PaginatedBatchExportBackfillList,
-    PaginatedClickhouseEventList,
-    PaginatedCohortList,
-    PaginatedCommentList,
-    PaginatedConversationList,
-    PaginatedDashboardBasicList,
-    PaginatedDashboardTemplateList,
-    PaginatedDesktopRecordingList,
-    PaginatedErrorTrackingAssignmentRuleList,
-    PaginatedErrorTrackingExternalReferenceList,
-    PaginatedErrorTrackingGroupingRuleList,
-    PaginatedErrorTrackingSuppressionRuleList,
-    PaginatedEvaluationList,
-    PaginatedExportedAssetList,
-    PaginatedExternalDataSchemaList,
-    PaginatedFileSystemList,
-    PaginatedFileSystemShortcutList,
-    PaginatedGroupList,
-    PaginatedHeatmapScreenshotResponseList,
-    PaginatedHeatmapsResponseList,
-    PaginatedHogFlowMinimalList,
-    PaginatedHogFunctionMinimalList,
-    PaginatedInsightList,
-    PaginatedInsightVariableList,
-    PaginatedIntegrationList,
-    PaginatedMaxCoreMemoryList,
-    PaginatedMessageCategoryList,
-    PaginatedMessageTemplateList,
-    PaginatedOrganizationDomainList,
-    PaginatedOrganizationInviteList,
-    PaginatedOrganizationList,
-    PaginatedOrganizationMemberList,
-    PaginatedPersistedFolderList,
-    PaginatedPluginLogEntryList,
-    PaginatedProjectBackwardCompatBasicList,
-    PaginatedPropertyDefinitionList,
-    PaginatedProxyRecordList,
-    PaginatedQuickFilterList,
-    PaginatedRoleList,
-    PaginatedRoleMembershipList,
-    PaginatedScheduledChangeList,
-    PaginatedSessionRecordingList,
-    PaginatedSessionRecordingPlaylistList,
-    PaginatedSubscriptionList,
-    PaginatedTableList,
-    PaginatedTaskRunDetailList,
-    PaginatedThresholdWithAlertList,
-    PaginatedUserList,
-    PaginatedUserProductListList,
-    PaginatedViewLinkList,
-    PatchedAddPersonsToStaticCohortRequest,
-    PatchedAlert,
-    PatchedAnnotation,
-    PatchedCohort,
-    PatchedComment,
-    PatchedConversation,
-    PatchedDashboard,
-    PatchedDashboardTemplate,
-    PatchedDesktopRecording,
-    PatchedErrorTrackingAssignmentRule,
-    PatchedErrorTrackingExternalReference,
-    PatchedErrorTrackingGroupingRule,
-    PatchedErrorTrackingSuppressionRule,
-    PatchedEvaluation,
-    PatchedExternalDataSchema,
-    PatchedFileSystem,
-    PatchedFileSystemShortcut,
-    PatchedHeatmapScreenshotResponse,
-    PatchedHogFlow,
-    PatchedHogFunction,
-    PatchedInsight,
-    PatchedInsightVariable,
-    PatchedMaxCoreMemory,
-    PatchedMessageCategory,
-    PatchedMessageTemplate,
-    PatchedOrganization,
-    PatchedOrganizationDomain,
-    PatchedOrganizationMember,
-    PatchedPersistedFolder,
-    PatchedPinnedSceneTabs,
-    PatchedProjectBackwardCompat,
-    PatchedPropertyDefinition,
-    PatchedProxyRecord,
-    PatchedQuickFilter,
-    PatchedRemovePersonRequest,
-    PatchedRole,
-    PatchedScheduledChange,
-    PatchedSessionRecording,
-    PatchedSessionRecordingPlaylist,
-    PatchedSubscription,
-    PatchedTable,
-    PatchedTaskRunUpdate,
-    PatchedUser,
-    PatchedUserProductList,
-    PatchedViewLink,
-    PersistedFolder,
-    PinnedSceneTabs,
-    ProjectBackwardCompat,
-    PropertyDefinition,
+    MessageApi,
+    MessageCategoryApi,
+    MessageTemplateApi,
+    MetalyticsCreateRequestApi,
+    OrganizationApi,
+    OrganizationDomainApi,
+    OrganizationInviteApi,
+    OrganizationMemberApi,
+    PaginatedAlertListApi,
+    PaginatedAnnotationListApi,
+    PaginatedBatchExportBackfillListApi,
+    PaginatedClickhouseEventListApi,
+    PaginatedCohortListApi,
+    PaginatedCommentListApi,
+    PaginatedConversationListApi,
+    PaginatedDashboardBasicListApi,
+    PaginatedDashboardTemplateListApi,
+    PaginatedDesktopRecordingListApi,
+    PaginatedErrorTrackingAssignmentRuleListApi,
+    PaginatedErrorTrackingExternalReferenceListApi,
+    PaginatedErrorTrackingGroupingRuleListApi,
+    PaginatedErrorTrackingSuppressionRuleListApi,
+    PaginatedEvaluationListApi,
+    PaginatedExportedAssetListApi,
+    PaginatedExternalDataSchemaListApi,
+    PaginatedFileSystemListApi,
+    PaginatedFileSystemShortcutListApi,
+    PaginatedGroupListApi,
+    PaginatedHeatmapScreenshotResponseListApi,
+    PaginatedHeatmapsResponseListApi,
+    PaginatedHogFlowMinimalListApi,
+    PaginatedHogFunctionMinimalListApi,
+    PaginatedInsightListApi,
+    PaginatedInsightVariableListApi,
+    PaginatedIntegrationListApi,
+    PaginatedMaxCoreMemoryListApi,
+    PaginatedMessageCategoryListApi,
+    PaginatedMessageTemplateListApi,
+    PaginatedOrganizationDomainListApi,
+    PaginatedOrganizationInviteListApi,
+    PaginatedOrganizationListApi,
+    PaginatedOrganizationMemberListApi,
+    PaginatedPersistedFolderListApi,
+    PaginatedPluginLogEntryListApi,
+    PaginatedProjectBackwardCompatBasicListApi,
+    PaginatedPropertyDefinitionListApi,
+    PaginatedProxyRecordListApi,
+    PaginatedQuickFilterListApi,
+    PaginatedRoleListApi,
+    PaginatedRoleMembershipListApi,
+    PaginatedScheduledChangeListApi,
+    PaginatedSessionRecordingListApi,
+    PaginatedSessionRecordingPlaylistListApi,
+    PaginatedSubscriptionListApi,
+    PaginatedTableListApi,
+    PaginatedTaskRunDetailListApi,
+    PaginatedThresholdWithAlertListApi,
+    PaginatedUserListApi,
+    PaginatedUserProductListListApi,
+    PaginatedViewLinkListApi,
+    PatchedAddPersonsToStaticCohortRequestApi,
+    PatchedAlertApi,
+    PatchedAnnotationApi,
+    PatchedCohortApi,
+    PatchedCommentApi,
+    PatchedConversationApi,
+    PatchedDashboardApi,
+    PatchedDashboardTemplateApi,
+    PatchedDesktopRecordingApi,
+    PatchedErrorTrackingAssignmentRuleApi,
+    PatchedErrorTrackingExternalReferenceApi,
+    PatchedErrorTrackingGroupingRuleApi,
+    PatchedErrorTrackingSuppressionRuleApi,
+    PatchedEvaluationApi,
+    PatchedExternalDataSchemaApi,
+    PatchedFileSystemApi,
+    PatchedFileSystemShortcutApi,
+    PatchedHeatmapScreenshotResponseApi,
+    PatchedHogFlowApi,
+    PatchedHogFunctionApi,
+    PatchedInsightApi,
+    PatchedInsightVariableApi,
+    PatchedMaxCoreMemoryApi,
+    PatchedMessageCategoryApi,
+    PatchedMessageTemplateApi,
+    PatchedOrganizationApi,
+    PatchedOrganizationDomainApi,
+    PatchedOrganizationMemberApi,
+    PatchedPersistedFolderApi,
+    PatchedPinnedSceneTabsApi,
+    PatchedProjectBackwardCompatApi,
+    PatchedPropertyDefinitionApi,
+    PatchedProxyRecordApi,
+    PatchedQuickFilterApi,
+    PatchedRemovePersonRequestApi,
+    PatchedRoleApi,
+    PatchedScheduledChangeApi,
+    PatchedSessionRecordingApi,
+    PatchedSessionRecordingPlaylistApi,
+    PatchedSubscriptionApi,
+    PatchedTableApi,
+    PatchedTaskRunUpdateApi,
+    PatchedUserApi,
+    PatchedUserProductListApi,
+    PatchedViewLinkApi,
+    PersistedFolderApi,
+    PinnedSceneTabsApi,
+    ProjectBackwardCompatApi,
+    PropertyDefinitionApi,
     PropertyDefinitionsListParams,
-    ProxyRecord,
+    ProxyRecordApi,
     ProxyRecordsListParams,
-    QueryRequest,
-    QueryResponseAlternative,
-    QueryStatusResponse,
-    QueryUpgradeRequest,
-    QueryUpgradeResponse,
-    QuickFilter,
-    Role,
-    RoleMembership,
+    QueryRequestApi,
+    QueryResponseAlternativeApi,
+    QueryStatusResponseApi,
+    QueryUpgradeRequestApi,
+    QueryUpgradeResponseApi,
+    QuickFilterApi,
+    RoleApi,
+    RoleMembershipApi,
     RolesListParams,
     RolesRoleMembershipsListParams,
-    ScheduledChange,
+    ScheduledChangeApi,
     ScheduledChangesListParams,
-    SessionRecording,
-    SessionRecordingPlaylist,
+    SessionRecordingApi,
+    SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
     SessionRecordingsListParams,
-    SessionSummaries,
-    SharingConfiguration,
-    Subscription,
+    SessionSummariesApi,
+    SharingConfigurationApi,
+    SubscriptionApi,
     SubscriptionsListParams,
-    SummarizeRequest,
-    SummarizeResponse,
-    Table,
-    TaskRunAppendLogRequest,
-    TaskRunArtifactPresignRequest,
-    TaskRunArtifactPresignResponse,
-    TaskRunArtifactsUploadRequest,
-    TaskRunArtifactsUploadResponse,
-    TaskRunDetail,
+    SummarizeRequestApi,
+    SummarizeResponseApi,
+    TableApi,
+    TaskRunAppendLogRequestApi,
+    TaskRunArtifactPresignRequestApi,
+    TaskRunArtifactPresignResponseApi,
+    TaskRunArtifactsUploadRequestApi,
+    TaskRunArtifactsUploadResponseApi,
+    TaskRunDetailApi,
     TasksRunsListParams,
-    TextReprRequest,
-    TextReprResponse,
-    ThresholdWithAlert,
-    User,
-    UserProductList,
+    TextReprRequestApi,
+    TextReprResponseApi,
+    ThresholdWithAlertApi,
+    UserApi,
+    UserProductListApi,
     UsersListParams,
-    ViewLink,
-    ViewLinkValidation,
+    ViewLinkApi,
+    ViewLinkValidationApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -316,7 +316,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsAlertsListResponse200 = {
-    data: PaginatedAlertList
+    data: PaginatedAlertListApi
     status: 200
 }
 
@@ -353,7 +353,7 @@ export const environmentsAlertsList = async (
 }
 
 export type environmentsAlertsCreateResponse201 = {
-    data: Alert
+    data: AlertApi
     status: 201
 }
 
@@ -368,19 +368,19 @@ export const getEnvironmentsAlertsCreateUrl = (projectId: string) => {
 
 export const environmentsAlertsCreate = async (
     projectId: string,
-    alert: NonReadonly<Alert>,
+    alertApi: NonReadonly<AlertApi>,
     options?: RequestInit
 ): Promise<environmentsAlertsCreateResponse> => {
     return apiMutator<environmentsAlertsCreateResponse>(getEnvironmentsAlertsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(alert),
+        body: JSON.stringify(alertApi),
     })
 }
 
 export type environmentsAlertsRetrieveResponse200 = {
-    data: Alert
+    data: AlertApi
     status: 200
 }
 
@@ -405,7 +405,7 @@ export const environmentsAlertsRetrieve = async (
 }
 
 export type environmentsAlertsUpdateResponse200 = {
-    data: Alert
+    data: AlertApi
     status: 200
 }
 
@@ -421,19 +421,19 @@ export const getEnvironmentsAlertsUpdateUrl = (projectId: string, id: string) =>
 export const environmentsAlertsUpdate = async (
     projectId: string,
     id: string,
-    alert: NonReadonly<Alert>,
+    alertApi: NonReadonly<AlertApi>,
     options?: RequestInit
 ): Promise<environmentsAlertsUpdateResponse> => {
     return apiMutator<environmentsAlertsUpdateResponse>(getEnvironmentsAlertsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(alert),
+        body: JSON.stringify(alertApi),
     })
 }
 
 export type environmentsAlertsPartialUpdateResponse200 = {
-    data: Alert
+    data: AlertApi
     status: 200
 }
 
@@ -449,14 +449,14 @@ export const getEnvironmentsAlertsPartialUpdateUrl = (projectId: string, id: str
 export const environmentsAlertsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedAlert: NonReadonly<PatchedAlert>,
+    patchedAlertApi: NonReadonly<PatchedAlertApi>,
     options?: RequestInit
 ): Promise<environmentsAlertsPartialUpdateResponse> => {
     return apiMutator<environmentsAlertsPartialUpdateResponse>(getEnvironmentsAlertsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAlert),
+        body: JSON.stringify(patchedAlertApi),
     })
 }
 
@@ -611,7 +611,7 @@ export const environmentsAppMetricsHistoricalExportsRetrieve2 = async (
 Allows creating and reading backfills, but not updating or deleting them.
  */
 export type environmentsBatchExportsBackfillsListResponse200 = {
-    data: PaginatedBatchExportBackfillList
+    data: PaginatedBatchExportBackfillListApi
     status: 200
 }
 
@@ -659,7 +659,7 @@ export const environmentsBatchExportsBackfillsList = async (
  * Create a new backfill for a BatchExport.
  */
 export type environmentsBatchExportsBackfillsCreateResponse201 = {
-    data: BatchExportBackfill
+    data: BatchExportBackfillApi
     status: 201
 }
 
@@ -676,7 +676,7 @@ export const getEnvironmentsBatchExportsBackfillsCreateUrl = (projectId: string,
 export const environmentsBatchExportsBackfillsCreate = async (
     projectId: string,
     batchExportId: string,
-    batchExportBackfill: NonReadonly<BatchExportBackfill>,
+    batchExportBackfillApi: NonReadonly<BatchExportBackfillApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsBackfillsCreateResponse> => {
     return apiMutator<environmentsBatchExportsBackfillsCreateResponse>(
@@ -685,7 +685,7 @@ export const environmentsBatchExportsBackfillsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportBackfill),
+            body: JSON.stringify(batchExportBackfillApi),
         }
     )
 }
@@ -696,7 +696,7 @@ export const environmentsBatchExportsBackfillsCreate = async (
 Allows creating and reading backfills, but not updating or deleting them.
  */
 export type environmentsBatchExportsBackfillsRetrieveResponse200 = {
-    data: BatchExportBackfill
+    data: BatchExportBackfillApi
     status: 200
 }
 
@@ -756,7 +756,7 @@ export const environmentsBatchExportsBackfillsCancelCreate = async (
     projectId: string,
     batchExportId: string,
     id: string,
-    batchExportBackfill: NonReadonly<BatchExportBackfill>,
+    batchExportBackfillApi: NonReadonly<BatchExportBackfillApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsBackfillsCancelCreateResponse> => {
     return apiMutator<environmentsBatchExportsBackfillsCancelCreateResponse>(
@@ -765,13 +765,13 @@ export const environmentsBatchExportsBackfillsCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportBackfill),
+            body: JSON.stringify(batchExportBackfillApi),
         }
     )
 }
 
 export type environmentsCoreMemoryListResponse200 = {
-    data: PaginatedMaxCoreMemoryList
+    data: PaginatedMaxCoreMemoryListApi
     status: 200
 }
 
@@ -808,7 +808,7 @@ export const environmentsCoreMemoryList = async (
 }
 
 export type environmentsCoreMemoryCreateResponse201 = {
-    data: MaxCoreMemory
+    data: MaxCoreMemoryApi
     status: 201
 }
 
@@ -823,19 +823,19 @@ export const getEnvironmentsCoreMemoryCreateUrl = (projectId: string) => {
 
 export const environmentsCoreMemoryCreate = async (
     projectId: string,
-    maxCoreMemory: NonReadonly<MaxCoreMemory>,
+    maxCoreMemoryApi: NonReadonly<MaxCoreMemoryApi>,
     options?: RequestInit
 ): Promise<environmentsCoreMemoryCreateResponse> => {
     return apiMutator<environmentsCoreMemoryCreateResponse>(getEnvironmentsCoreMemoryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(maxCoreMemory),
+        body: JSON.stringify(maxCoreMemoryApi),
     })
 }
 
 export type environmentsCoreMemoryRetrieveResponse200 = {
-    data: MaxCoreMemory
+    data: MaxCoreMemoryApi
     status: 200
 }
 
@@ -860,7 +860,7 @@ export const environmentsCoreMemoryRetrieve = async (
 }
 
 export type environmentsCoreMemoryUpdateResponse200 = {
-    data: MaxCoreMemory
+    data: MaxCoreMemoryApi
     status: 200
 }
 
@@ -876,19 +876,19 @@ export const getEnvironmentsCoreMemoryUpdateUrl = (projectId: string, id: string
 export const environmentsCoreMemoryUpdate = async (
     projectId: string,
     id: string,
-    maxCoreMemory: NonReadonly<MaxCoreMemory>,
+    maxCoreMemoryApi: NonReadonly<MaxCoreMemoryApi>,
     options?: RequestInit
 ): Promise<environmentsCoreMemoryUpdateResponse> => {
     return apiMutator<environmentsCoreMemoryUpdateResponse>(getEnvironmentsCoreMemoryUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(maxCoreMemory),
+        body: JSON.stringify(maxCoreMemoryApi),
     })
 }
 
 export type environmentsCoreMemoryPartialUpdateResponse200 = {
-    data: MaxCoreMemory
+    data: MaxCoreMemoryApi
     status: 200
 }
 
@@ -904,7 +904,7 @@ export const getEnvironmentsCoreMemoryPartialUpdateUrl = (projectId: string, id:
 export const environmentsCoreMemoryPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMaxCoreMemory: NonReadonly<PatchedMaxCoreMemory>,
+    patchedMaxCoreMemoryApi: NonReadonly<PatchedMaxCoreMemoryApi>,
     options?: RequestInit
 ): Promise<environmentsCoreMemoryPartialUpdateResponse> => {
     return apiMutator<environmentsCoreMemoryPartialUpdateResponse>(
@@ -913,7 +913,7 @@ export const environmentsCoreMemoryPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedMaxCoreMemory),
+            body: JSON.stringify(patchedMaxCoreMemoryApi),
         }
     )
 }
@@ -946,7 +946,7 @@ export const environmentsCspReportingExplainCreate = async (
 }
 
 export type environmentsDashboardsCollaboratorsListResponse200 = {
-    data: DashboardCollaborator[]
+    data: DashboardCollaboratorApi[]
     status: 200
 }
 
@@ -975,7 +975,7 @@ export const environmentsDashboardsCollaboratorsList = async (
 }
 
 export type environmentsDashboardsCollaboratorsCreateResponse201 = {
-    data: DashboardCollaborator
+    data: DashboardCollaboratorApi
     status: 201
 }
 
@@ -992,7 +992,7 @@ export const getEnvironmentsDashboardsCollaboratorsCreateUrl = (projectId: strin
 export const environmentsDashboardsCollaboratorsCreate = async (
     projectId: string,
     dashboardId: number,
-    dashboardCollaborator: NonReadonly<DashboardCollaborator>,
+    dashboardCollaboratorApi: NonReadonly<DashboardCollaboratorApi>,
     options?: RequestInit
 ): Promise<environmentsDashboardsCollaboratorsCreateResponse> => {
     return apiMutator<environmentsDashboardsCollaboratorsCreateResponse>(
@@ -1001,7 +1001,7 @@ export const environmentsDashboardsCollaboratorsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dashboardCollaborator),
+            body: JSON.stringify(dashboardCollaboratorApi),
         }
     )
 }
@@ -1173,7 +1173,7 @@ export const environmentsDataWarehouseTotalRowsStatsRetrieve = async (
 }
 
 export type environmentsErrorTrackingAssignmentRulesListResponse200 = {
-    data: PaginatedErrorTrackingAssignmentRuleList
+    data: PaginatedErrorTrackingAssignmentRuleListApi
     status: 200
 }
 
@@ -1218,7 +1218,7 @@ export const environmentsErrorTrackingAssignmentRulesList = async (
 }
 
 export type environmentsErrorTrackingAssignmentRulesCreateResponse201 = {
-    data: ErrorTrackingAssignmentRule
+    data: ErrorTrackingAssignmentRuleApi
     status: 201
 }
 
@@ -1235,7 +1235,7 @@ export const getEnvironmentsErrorTrackingAssignmentRulesCreateUrl = (projectId: 
 
 export const environmentsErrorTrackingAssignmentRulesCreate = async (
     projectId: string,
-    errorTrackingAssignmentRule: NonReadonly<ErrorTrackingAssignmentRule>,
+    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingAssignmentRulesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingAssignmentRulesCreateResponse>(
@@ -1244,13 +1244,13 @@ export const environmentsErrorTrackingAssignmentRulesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingAssignmentRule),
+            body: JSON.stringify(errorTrackingAssignmentRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingAssignmentRulesRetrieveResponse200 = {
-    data: ErrorTrackingAssignmentRule
+    data: ErrorTrackingAssignmentRuleApi
     status: 200
 }
 
@@ -1280,7 +1280,7 @@ export const environmentsErrorTrackingAssignmentRulesRetrieve = async (
 }
 
 export type environmentsErrorTrackingAssignmentRulesUpdateResponse200 = {
-    data: ErrorTrackingAssignmentRule
+    data: ErrorTrackingAssignmentRuleApi
     status: 200
 }
 
@@ -1298,7 +1298,7 @@ export const getEnvironmentsErrorTrackingAssignmentRulesUpdateUrl = (projectId: 
 export const environmentsErrorTrackingAssignmentRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingAssignmentRule: NonReadonly<ErrorTrackingAssignmentRule>,
+    errorTrackingAssignmentRuleApi: NonReadonly<ErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingAssignmentRulesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingAssignmentRulesUpdateResponse>(
@@ -1307,13 +1307,13 @@ export const environmentsErrorTrackingAssignmentRulesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingAssignmentRule),
+            body: JSON.stringify(errorTrackingAssignmentRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingAssignmentRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingAssignmentRule
+    data: ErrorTrackingAssignmentRuleApi
     status: 200
 }
 
@@ -1331,7 +1331,7 @@ export const getEnvironmentsErrorTrackingAssignmentRulesPartialUpdateUrl = (proj
 export const environmentsErrorTrackingAssignmentRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingAssignmentRule: NonReadonly<PatchedErrorTrackingAssignmentRule>,
+    patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingAssignmentRulesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingAssignmentRulesPartialUpdateResponse>(
@@ -1340,7 +1340,7 @@ export const environmentsErrorTrackingAssignmentRulesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingAssignmentRule),
+            body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
         }
     )
 }
@@ -1393,7 +1393,7 @@ export const getEnvironmentsErrorTrackingAssignmentRulesReorderPartialUpdateUrl 
 
 export const environmentsErrorTrackingAssignmentRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingAssignmentRule: NonReadonly<PatchedErrorTrackingAssignmentRule>,
+    patchedErrorTrackingAssignmentRuleApi: NonReadonly<PatchedErrorTrackingAssignmentRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingAssignmentRulesReorderPartialUpdateResponse>(
@@ -1402,13 +1402,13 @@ export const environmentsErrorTrackingAssignmentRulesReorderPartialUpdate = asyn
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingAssignmentRule),
+            body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingExternalReferencesListResponse200 = {
-    data: PaginatedErrorTrackingExternalReferenceList
+    data: PaginatedErrorTrackingExternalReferenceListApi
     status: 200
 }
 
@@ -1453,7 +1453,7 @@ export const environmentsErrorTrackingExternalReferencesList = async (
 }
 
 export type environmentsErrorTrackingExternalReferencesCreateResponse201 = {
-    data: ErrorTrackingExternalReference
+    data: ErrorTrackingExternalReferenceApi
     status: 201
 }
 
@@ -1470,7 +1470,7 @@ export const getEnvironmentsErrorTrackingExternalReferencesCreateUrl = (projectI
 
 export const environmentsErrorTrackingExternalReferencesCreate = async (
     projectId: string,
-    errorTrackingExternalReference: NonReadonly<ErrorTrackingExternalReference>,
+    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingExternalReferencesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingExternalReferencesCreateResponse>(
@@ -1479,13 +1479,13 @@ export const environmentsErrorTrackingExternalReferencesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingExternalReference),
+            body: JSON.stringify(errorTrackingExternalReferenceApi),
         }
     )
 }
 
 export type environmentsErrorTrackingExternalReferencesRetrieveResponse200 = {
-    data: ErrorTrackingExternalReference
+    data: ErrorTrackingExternalReferenceApi
     status: 200
 }
 
@@ -1515,7 +1515,7 @@ export const environmentsErrorTrackingExternalReferencesRetrieve = async (
 }
 
 export type environmentsErrorTrackingExternalReferencesUpdateResponse200 = {
-    data: ErrorTrackingExternalReference
+    data: ErrorTrackingExternalReferenceApi
     status: 200
 }
 
@@ -1533,7 +1533,7 @@ export const getEnvironmentsErrorTrackingExternalReferencesUpdateUrl = (projectI
 export const environmentsErrorTrackingExternalReferencesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingExternalReference: NonReadonly<ErrorTrackingExternalReference>,
+    errorTrackingExternalReferenceApi: NonReadonly<ErrorTrackingExternalReferenceApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingExternalReferencesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingExternalReferencesUpdateResponse>(
@@ -1542,13 +1542,13 @@ export const environmentsErrorTrackingExternalReferencesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingExternalReference),
+            body: JSON.stringify(errorTrackingExternalReferenceApi),
         }
     )
 }
 
 export type environmentsErrorTrackingExternalReferencesPartialUpdateResponse200 = {
-    data: ErrorTrackingExternalReference
+    data: ErrorTrackingExternalReferenceApi
     status: 200
 }
 
@@ -1566,7 +1566,7 @@ export const getEnvironmentsErrorTrackingExternalReferencesPartialUpdateUrl = (p
 export const environmentsErrorTrackingExternalReferencesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingExternalReference: NonReadonly<PatchedErrorTrackingExternalReference>,
+    patchedErrorTrackingExternalReferenceApi: NonReadonly<PatchedErrorTrackingExternalReferenceApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingExternalReferencesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingExternalReferencesPartialUpdateResponse>(
@@ -1575,7 +1575,7 @@ export const environmentsErrorTrackingExternalReferencesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingExternalReference),
+            body: JSON.stringify(patchedErrorTrackingExternalReferenceApi),
         }
     )
 }
@@ -1672,7 +1672,7 @@ export const environmentsErrorTrackingGitProviderFileLinksResolveGitlabRetrieve 
 }
 
 export type environmentsErrorTrackingGroupingRulesListResponse200 = {
-    data: PaginatedErrorTrackingGroupingRuleList
+    data: PaginatedErrorTrackingGroupingRuleListApi
     status: 200
 }
 
@@ -1717,7 +1717,7 @@ export const environmentsErrorTrackingGroupingRulesList = async (
 }
 
 export type environmentsErrorTrackingGroupingRulesCreateResponse201 = {
-    data: ErrorTrackingGroupingRule
+    data: ErrorTrackingGroupingRuleApi
     status: 201
 }
 
@@ -1734,7 +1734,7 @@ export const getEnvironmentsErrorTrackingGroupingRulesCreateUrl = (projectId: st
 
 export const environmentsErrorTrackingGroupingRulesCreate = async (
     projectId: string,
-    errorTrackingGroupingRule: NonReadonly<ErrorTrackingGroupingRule>,
+    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingGroupingRulesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingGroupingRulesCreateResponse>(
@@ -1743,13 +1743,13 @@ export const environmentsErrorTrackingGroupingRulesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingGroupingRule),
+            body: JSON.stringify(errorTrackingGroupingRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingGroupingRulesRetrieveResponse200 = {
-    data: ErrorTrackingGroupingRule
+    data: ErrorTrackingGroupingRuleApi
     status: 200
 }
 
@@ -1779,7 +1779,7 @@ export const environmentsErrorTrackingGroupingRulesRetrieve = async (
 }
 
 export type environmentsErrorTrackingGroupingRulesUpdateResponse200 = {
-    data: ErrorTrackingGroupingRule
+    data: ErrorTrackingGroupingRuleApi
     status: 200
 }
 
@@ -1797,7 +1797,7 @@ export const getEnvironmentsErrorTrackingGroupingRulesUpdateUrl = (projectId: st
 export const environmentsErrorTrackingGroupingRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingGroupingRule: NonReadonly<ErrorTrackingGroupingRule>,
+    errorTrackingGroupingRuleApi: NonReadonly<ErrorTrackingGroupingRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingGroupingRulesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingGroupingRulesUpdateResponse>(
@@ -1806,13 +1806,13 @@ export const environmentsErrorTrackingGroupingRulesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingGroupingRule),
+            body: JSON.stringify(errorTrackingGroupingRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingGroupingRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingGroupingRule
+    data: ErrorTrackingGroupingRuleApi
     status: 200
 }
 
@@ -1830,7 +1830,7 @@ export const getEnvironmentsErrorTrackingGroupingRulesPartialUpdateUrl = (projec
 export const environmentsErrorTrackingGroupingRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingGroupingRule: NonReadonly<PatchedErrorTrackingGroupingRule>,
+    patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingGroupingRulesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingGroupingRulesPartialUpdateResponse>(
@@ -1839,7 +1839,7 @@ export const environmentsErrorTrackingGroupingRulesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingGroupingRule),
+            body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
         }
     )
 }
@@ -1892,7 +1892,7 @@ export const getEnvironmentsErrorTrackingGroupingRulesReorderPartialUpdateUrl = 
 
 export const environmentsErrorTrackingGroupingRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingGroupingRule: NonReadonly<PatchedErrorTrackingGroupingRule>,
+    patchedErrorTrackingGroupingRuleApi: NonReadonly<PatchedErrorTrackingGroupingRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingGroupingRulesReorderPartialUpdateResponse>(
@@ -1901,13 +1901,13 @@ export const environmentsErrorTrackingGroupingRulesReorderPartialUpdate = async 
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingGroupingRule),
+            body: JSON.stringify(patchedErrorTrackingGroupingRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingSuppressionRulesListResponse200 = {
-    data: PaginatedErrorTrackingSuppressionRuleList
+    data: PaginatedErrorTrackingSuppressionRuleListApi
     status: 200
 }
 
@@ -1952,7 +1952,7 @@ export const environmentsErrorTrackingSuppressionRulesList = async (
 }
 
 export type environmentsErrorTrackingSuppressionRulesCreateResponse201 = {
-    data: ErrorTrackingSuppressionRule
+    data: ErrorTrackingSuppressionRuleApi
     status: 201
 }
 
@@ -1969,7 +1969,7 @@ export const getEnvironmentsErrorTrackingSuppressionRulesCreateUrl = (projectId:
 
 export const environmentsErrorTrackingSuppressionRulesCreate = async (
     projectId: string,
-    errorTrackingSuppressionRule: NonReadonly<ErrorTrackingSuppressionRule>,
+    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSuppressionRulesCreateResponse> => {
     return apiMutator<environmentsErrorTrackingSuppressionRulesCreateResponse>(
@@ -1978,13 +1978,13 @@ export const environmentsErrorTrackingSuppressionRulesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSuppressionRule),
+            body: JSON.stringify(errorTrackingSuppressionRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingSuppressionRulesRetrieveResponse200 = {
-    data: ErrorTrackingSuppressionRule
+    data: ErrorTrackingSuppressionRuleApi
     status: 200
 }
 
@@ -2014,7 +2014,7 @@ export const environmentsErrorTrackingSuppressionRulesRetrieve = async (
 }
 
 export type environmentsErrorTrackingSuppressionRulesUpdateResponse200 = {
-    data: ErrorTrackingSuppressionRule
+    data: ErrorTrackingSuppressionRuleApi
     status: 200
 }
 
@@ -2032,7 +2032,7 @@ export const getEnvironmentsErrorTrackingSuppressionRulesUpdateUrl = (projectId:
 export const environmentsErrorTrackingSuppressionRulesUpdate = async (
     projectId: string,
     id: string,
-    errorTrackingSuppressionRule: NonReadonly<ErrorTrackingSuppressionRule>,
+    errorTrackingSuppressionRuleApi: NonReadonly<ErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSuppressionRulesUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingSuppressionRulesUpdateResponse>(
@@ -2041,13 +2041,13 @@ export const environmentsErrorTrackingSuppressionRulesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(errorTrackingSuppressionRule),
+            body: JSON.stringify(errorTrackingSuppressionRuleApi),
         }
     )
 }
 
 export type environmentsErrorTrackingSuppressionRulesPartialUpdateResponse200 = {
-    data: ErrorTrackingSuppressionRule
+    data: ErrorTrackingSuppressionRuleApi
     status: 200
 }
 
@@ -2065,7 +2065,7 @@ export const getEnvironmentsErrorTrackingSuppressionRulesPartialUpdateUrl = (pro
 export const environmentsErrorTrackingSuppressionRulesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedErrorTrackingSuppressionRule: NonReadonly<PatchedErrorTrackingSuppressionRule>,
+    patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSuppressionRulesPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingSuppressionRulesPartialUpdateResponse>(
@@ -2074,7 +2074,7 @@ export const environmentsErrorTrackingSuppressionRulesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingSuppressionRule),
+            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
         }
     )
 }
@@ -2127,7 +2127,7 @@ export const getEnvironmentsErrorTrackingSuppressionRulesReorderPartialUpdateUrl
 
 export const environmentsErrorTrackingSuppressionRulesReorderPartialUpdate = async (
     projectId: string,
-    patchedErrorTrackingSuppressionRule: NonReadonly<PatchedErrorTrackingSuppressionRule>,
+    patchedErrorTrackingSuppressionRuleApi: NonReadonly<PatchedErrorTrackingSuppressionRuleApi>,
     options?: RequestInit
 ): Promise<environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse> => {
     return apiMutator<environmentsErrorTrackingSuppressionRulesReorderPartialUpdateResponse>(
@@ -2136,7 +2136,7 @@ export const environmentsErrorTrackingSuppressionRulesReorderPartialUpdate = asy
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedErrorTrackingSuppressionRule),
+            body: JSON.stringify(patchedErrorTrackingSuppressionRuleApi),
         }
     )
 }
@@ -2172,7 +2172,7 @@ export const environmentsEvaluationRunsCreate = async (
 }
 
 export type environmentsEvaluationsListResponse200 = {
-    data: PaginatedEvaluationList
+    data: PaginatedEvaluationListApi
     status: 200
 }
 
@@ -2218,7 +2218,7 @@ export const environmentsEvaluationsList = async (
 }
 
 export type environmentsEvaluationsCreateResponse201 = {
-    data: Evaluation
+    data: EvaluationApi
     status: 201
 }
 
@@ -2233,19 +2233,19 @@ export const getEnvironmentsEvaluationsCreateUrl = (projectId: string) => {
 
 export const environmentsEvaluationsCreate = async (
     projectId: string,
-    evaluation: NonReadonly<Evaluation>,
+    evaluationApi: NonReadonly<EvaluationApi>,
     options?: RequestInit
 ): Promise<environmentsEvaluationsCreateResponse> => {
     return apiMutator<environmentsEvaluationsCreateResponse>(getEnvironmentsEvaluationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluation),
+        body: JSON.stringify(evaluationApi),
     })
 }
 
 export type environmentsEvaluationsRetrieveResponse200 = {
-    data: Evaluation
+    data: EvaluationApi
     status: 200
 }
 
@@ -2270,7 +2270,7 @@ export const environmentsEvaluationsRetrieve = async (
 }
 
 export type environmentsEvaluationsUpdateResponse200 = {
-    data: Evaluation
+    data: EvaluationApi
     status: 200
 }
 
@@ -2286,19 +2286,19 @@ export const getEnvironmentsEvaluationsUpdateUrl = (projectId: string, id: strin
 export const environmentsEvaluationsUpdate = async (
     projectId: string,
     id: string,
-    evaluation: NonReadonly<Evaluation>,
+    evaluationApi: NonReadonly<EvaluationApi>,
     options?: RequestInit
 ): Promise<environmentsEvaluationsUpdateResponse> => {
     return apiMutator<environmentsEvaluationsUpdateResponse>(getEnvironmentsEvaluationsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(evaluation),
+        body: JSON.stringify(evaluationApi),
     })
 }
 
 export type environmentsEvaluationsPartialUpdateResponse200 = {
-    data: Evaluation
+    data: EvaluationApi
     status: 200
 }
 
@@ -2314,7 +2314,7 @@ export const getEnvironmentsEvaluationsPartialUpdateUrl = (projectId: string, id
 export const environmentsEvaluationsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEvaluation: NonReadonly<PatchedEvaluation>,
+    patchedEvaluationApi: NonReadonly<PatchedEvaluationApi>,
     options?: RequestInit
 ): Promise<environmentsEvaluationsPartialUpdateResponse> => {
     return apiMutator<environmentsEvaluationsPartialUpdateResponse>(
@@ -2323,7 +2323,7 @@ export const environmentsEvaluationsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedEvaluation),
+            body: JSON.stringify(patchedEvaluationApi),
         }
     )
 }
@@ -2366,7 +2366,7 @@ export const environmentsEvaluationsDestroy = async (
         
  */
 export type environmentsEventsListResponse200 = {
-    data: PaginatedClickhouseEventList
+    data: PaginatedClickhouseEventListApi
     status: 200
 }
 
@@ -2412,7 +2412,7 @@ export const environmentsEventsList = async (
 }
 
 export type environmentsEventsRetrieveResponse200 = {
-    data: ClickhouseEvent
+    data: ClickhouseEventApi
     status: 200
 }
 
@@ -2497,7 +2497,7 @@ export const environmentsEventsValuesRetrieve = async (
 }
 
 export type environmentsExternalDataSchemasListResponse200 = {
-    data: PaginatedExternalDataSchemaList
+    data: PaginatedExternalDataSchemaListApi
     status: 200
 }
 
@@ -2540,7 +2540,7 @@ export const environmentsExternalDataSchemasList = async (
 }
 
 export type environmentsExternalDataSchemasCreateResponse201 = {
-    data: ExternalDataSchema
+    data: ExternalDataSchemaApi
     status: 201
 }
 
@@ -2555,7 +2555,7 @@ export const getEnvironmentsExternalDataSchemasCreateUrl = (projectId: string) =
 
 export const environmentsExternalDataSchemasCreate = async (
     projectId: string,
-    externalDataSchema: NonReadonly<ExternalDataSchema>,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasCreateResponse> => {
     return apiMutator<environmentsExternalDataSchemasCreateResponse>(
@@ -2564,13 +2564,13 @@ export const environmentsExternalDataSchemasCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchema),
+            body: JSON.stringify(externalDataSchemaApi),
         }
     )
 }
 
 export type environmentsExternalDataSchemasRetrieveResponse200 = {
-    data: ExternalDataSchema
+    data: ExternalDataSchemaApi
     status: 200
 }
 
@@ -2599,7 +2599,7 @@ export const environmentsExternalDataSchemasRetrieve = async (
 }
 
 export type environmentsExternalDataSchemasUpdateResponse200 = {
-    data: ExternalDataSchema
+    data: ExternalDataSchemaApi
     status: 200
 }
 
@@ -2615,7 +2615,7 @@ export const getEnvironmentsExternalDataSchemasUpdateUrl = (projectId: string, i
 export const environmentsExternalDataSchemasUpdate = async (
     projectId: string,
     id: string,
-    externalDataSchema: NonReadonly<ExternalDataSchema>,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasUpdateResponse> => {
     return apiMutator<environmentsExternalDataSchemasUpdateResponse>(
@@ -2624,13 +2624,13 @@ export const environmentsExternalDataSchemasUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchema),
+            body: JSON.stringify(externalDataSchemaApi),
         }
     )
 }
 
 export type environmentsExternalDataSchemasPartialUpdateResponse200 = {
-    data: ExternalDataSchema
+    data: ExternalDataSchemaApi
     status: 200
 }
 
@@ -2648,7 +2648,7 @@ export const getEnvironmentsExternalDataSchemasPartialUpdateUrl = (projectId: st
 export const environmentsExternalDataSchemasPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedExternalDataSchema: NonReadonly<PatchedExternalDataSchema>,
+    patchedExternalDataSchemaApi: NonReadonly<PatchedExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasPartialUpdateResponse> => {
     return apiMutator<environmentsExternalDataSchemasPartialUpdateResponse>(
@@ -2657,7 +2657,7 @@ export const environmentsExternalDataSchemasPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedExternalDataSchema),
+            body: JSON.stringify(patchedExternalDataSchemaApi),
         }
     )
 }
@@ -2740,7 +2740,7 @@ export const getEnvironmentsExternalDataSchemasIncrementalFieldsCreateUrl = (pro
 export const environmentsExternalDataSchemasIncrementalFieldsCreate = async (
     projectId: string,
     id: string,
-    externalDataSchema: NonReadonly<ExternalDataSchema>,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasIncrementalFieldsCreateResponse> => {
     return apiMutator<environmentsExternalDataSchemasIncrementalFieldsCreateResponse>(
@@ -2749,7 +2749,7 @@ export const environmentsExternalDataSchemasIncrementalFieldsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchema),
+            body: JSON.stringify(externalDataSchemaApi),
         }
     )
 }
@@ -2773,7 +2773,7 @@ export const getEnvironmentsExternalDataSchemasReloadCreateUrl = (projectId: str
 export const environmentsExternalDataSchemasReloadCreate = async (
     projectId: string,
     id: string,
-    externalDataSchema: NonReadonly<ExternalDataSchema>,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasReloadCreateResponse> => {
     return apiMutator<environmentsExternalDataSchemasReloadCreateResponse>(
@@ -2782,7 +2782,7 @@ export const environmentsExternalDataSchemasReloadCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchema),
+            body: JSON.stringify(externalDataSchemaApi),
         }
     )
 }
@@ -2806,7 +2806,7 @@ export const getEnvironmentsExternalDataSchemasResyncCreateUrl = (projectId: str
 export const environmentsExternalDataSchemasResyncCreate = async (
     projectId: string,
     id: string,
-    externalDataSchema: NonReadonly<ExternalDataSchema>,
+    externalDataSchemaApi: NonReadonly<ExternalDataSchemaApi>,
     options?: RequestInit
 ): Promise<environmentsExternalDataSchemasResyncCreateResponse> => {
     return apiMutator<environmentsExternalDataSchemasResyncCreateResponse>(
@@ -2815,13 +2815,13 @@ export const environmentsExternalDataSchemasResyncCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(externalDataSchema),
+            body: JSON.stringify(externalDataSchemaApi),
         }
     )
 }
 
 export type environmentsFileSystemShortcutListResponse200 = {
-    data: PaginatedFileSystemShortcutList
+    data: PaginatedFileSystemShortcutListApi
     status: 200
 }
 
@@ -2864,7 +2864,7 @@ export const environmentsFileSystemShortcutList = async (
 }
 
 export type environmentsFileSystemShortcutCreateResponse201 = {
-    data: FileSystemShortcut
+    data: FileSystemShortcutApi
     status: 201
 }
 
@@ -2879,7 +2879,7 @@ export const getEnvironmentsFileSystemShortcutCreateUrl = (projectId: string) =>
 
 export const environmentsFileSystemShortcutCreate = async (
     projectId: string,
-    fileSystemShortcut: NonReadonly<FileSystemShortcut>,
+    fileSystemShortcutApi: NonReadonly<FileSystemShortcutApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemShortcutCreateResponse> => {
     return apiMutator<environmentsFileSystemShortcutCreateResponse>(
@@ -2888,13 +2888,13 @@ export const environmentsFileSystemShortcutCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemShortcut),
+            body: JSON.stringify(fileSystemShortcutApi),
         }
     )
 }
 
 export type environmentsFileSystemShortcutRetrieveResponse200 = {
-    data: FileSystemShortcut
+    data: FileSystemShortcutApi
     status: 200
 }
 
@@ -2923,7 +2923,7 @@ export const environmentsFileSystemShortcutRetrieve = async (
 }
 
 export type environmentsFileSystemShortcutUpdateResponse200 = {
-    data: FileSystemShortcut
+    data: FileSystemShortcutApi
     status: 200
 }
 
@@ -2939,7 +2939,7 @@ export const getEnvironmentsFileSystemShortcutUpdateUrl = (projectId: string, id
 export const environmentsFileSystemShortcutUpdate = async (
     projectId: string,
     id: string,
-    fileSystemShortcut: NonReadonly<FileSystemShortcut>,
+    fileSystemShortcutApi: NonReadonly<FileSystemShortcutApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemShortcutUpdateResponse> => {
     return apiMutator<environmentsFileSystemShortcutUpdateResponse>(
@@ -2948,13 +2948,13 @@ export const environmentsFileSystemShortcutUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystemShortcut),
+            body: JSON.stringify(fileSystemShortcutApi),
         }
     )
 }
 
 export type environmentsFileSystemShortcutPartialUpdateResponse200 = {
-    data: FileSystemShortcut
+    data: FileSystemShortcutApi
     status: 200
 }
 
@@ -2972,7 +2972,7 @@ export const getEnvironmentsFileSystemShortcutPartialUpdateUrl = (projectId: str
 export const environmentsFileSystemShortcutPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedFileSystemShortcut: NonReadonly<PatchedFileSystemShortcut>,
+    patchedFileSystemShortcutApi: NonReadonly<PatchedFileSystemShortcutApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemShortcutPartialUpdateResponse> => {
     return apiMutator<environmentsFileSystemShortcutPartialUpdateResponse>(
@@ -2981,7 +2981,7 @@ export const environmentsFileSystemShortcutPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedFileSystemShortcut),
+            body: JSON.stringify(patchedFileSystemShortcutApi),
         }
     )
 }
@@ -3196,7 +3196,7 @@ export const environmentsHeatmapScreenshotsContentRetrieve = async (
 }
 
 export type environmentsHeatmapsListResponse200 = {
-    data: PaginatedHeatmapsResponseList
+    data: PaginatedHeatmapsResponseListApi
     status: 200
 }
 
@@ -3233,7 +3233,7 @@ export const environmentsHeatmapsList = async (
 }
 
 export type environmentsHogFlowsListResponse200 = {
-    data: PaginatedHogFlowMinimalList
+    data: PaginatedHogFlowMinimalListApi
     status: 200
 }
 
@@ -3270,7 +3270,7 @@ export const environmentsHogFlowsList = async (
 }
 
 export type environmentsHogFlowsCreateResponse201 = {
-    data: HogFlow
+    data: HogFlowApi
     status: 201
 }
 
@@ -3285,19 +3285,19 @@ export const getEnvironmentsHogFlowsCreateUrl = (projectId: string) => {
 
 export const environmentsHogFlowsCreate = async (
     projectId: string,
-    hogFlow: NonReadonly<HogFlow>,
+    hogFlowApi: NonReadonly<HogFlowApi>,
     options?: RequestInit
 ): Promise<environmentsHogFlowsCreateResponse> => {
     return apiMutator<environmentsHogFlowsCreateResponse>(getEnvironmentsHogFlowsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlow),
+        body: JSON.stringify(hogFlowApi),
     })
 }
 
 export type environmentsHogFlowsRetrieveResponse200 = {
-    data: HogFlow
+    data: HogFlowApi
     status: 200
 }
 
@@ -3322,7 +3322,7 @@ export const environmentsHogFlowsRetrieve = async (
 }
 
 export type environmentsHogFlowsUpdateResponse200 = {
-    data: HogFlow
+    data: HogFlowApi
     status: 200
 }
 
@@ -3338,19 +3338,19 @@ export const getEnvironmentsHogFlowsUpdateUrl = (projectId: string, id: string) 
 export const environmentsHogFlowsUpdate = async (
     projectId: string,
     id: string,
-    hogFlow: NonReadonly<HogFlow>,
+    hogFlowApi: NonReadonly<HogFlowApi>,
     options?: RequestInit
 ): Promise<environmentsHogFlowsUpdateResponse> => {
     return apiMutator<environmentsHogFlowsUpdateResponse>(getEnvironmentsHogFlowsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFlow),
+        body: JSON.stringify(hogFlowApi),
     })
 }
 
 export type environmentsHogFlowsPartialUpdateResponse200 = {
-    data: HogFlow
+    data: HogFlowApi
     status: 200
 }
 
@@ -3366,7 +3366,7 @@ export const getEnvironmentsHogFlowsPartialUpdateUrl = (projectId: string, id: s
 export const environmentsHogFlowsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFlow: NonReadonly<PatchedHogFlow>,
+    patchedHogFlowApi: NonReadonly<PatchedHogFlowApi>,
     options?: RequestInit
 ): Promise<environmentsHogFlowsPartialUpdateResponse> => {
     return apiMutator<environmentsHogFlowsPartialUpdateResponse>(
@@ -3375,7 +3375,7 @@ export const environmentsHogFlowsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedHogFlow),
+            body: JSON.stringify(patchedHogFlowApi),
         }
     )
 }
@@ -3406,7 +3406,7 @@ export const environmentsHogFlowsDestroy = async (
 }
 
 export type environmentsHogFlowsInvocationsCreateResponse200 = {
-    data: HogFlow
+    data: HogFlowApi
     status: 200
 }
 
@@ -3422,7 +3422,7 @@ export const getEnvironmentsHogFlowsInvocationsCreateUrl = (projectId: string, i
 export const environmentsHogFlowsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFlow: NonReadonly<HogFlow>,
+    hogFlowApi: NonReadonly<HogFlowApi>,
     options?: RequestInit
 ): Promise<environmentsHogFlowsInvocationsCreateResponse> => {
     return apiMutator<environmentsHogFlowsInvocationsCreateResponse>(
@@ -3431,7 +3431,7 @@ export const environmentsHogFlowsInvocationsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(hogFlow),
+            body: JSON.stringify(hogFlowApi),
         }
     )
 }
@@ -3546,7 +3546,7 @@ export const environmentsIngestionWarningsRetrieve = async (
 }
 
 export type environmentsInsightVariablesListResponse200 = {
-    data: PaginatedInsightVariableList
+    data: PaginatedInsightVariableListApi
     status: 200
 }
 
@@ -3589,7 +3589,7 @@ export const environmentsInsightVariablesList = async (
 }
 
 export type environmentsInsightVariablesCreateResponse201 = {
-    data: InsightVariable
+    data: InsightVariableApi
     status: 201
 }
 
@@ -3604,19 +3604,19 @@ export const getEnvironmentsInsightVariablesCreateUrl = (projectId: string) => {
 
 export const environmentsInsightVariablesCreate = async (
     projectId: string,
-    insightVariable: NonReadonly<InsightVariable>,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
     options?: RequestInit
 ): Promise<environmentsInsightVariablesCreateResponse> => {
     return apiMutator<environmentsInsightVariablesCreateResponse>(getEnvironmentsInsightVariablesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insightVariable),
+        body: JSON.stringify(insightVariableApi),
     })
 }
 
 export type environmentsInsightVariablesRetrieveResponse200 = {
-    data: InsightVariable
+    data: InsightVariableApi
     status: 200
 }
 
@@ -3644,7 +3644,7 @@ export const environmentsInsightVariablesRetrieve = async (
 }
 
 export type environmentsInsightVariablesUpdateResponse200 = {
-    data: InsightVariable
+    data: InsightVariableApi
     status: 200
 }
 
@@ -3660,7 +3660,7 @@ export const getEnvironmentsInsightVariablesUpdateUrl = (projectId: string, id: 
 export const environmentsInsightVariablesUpdate = async (
     projectId: string,
     id: string,
-    insightVariable: NonReadonly<InsightVariable>,
+    insightVariableApi: NonReadonly<InsightVariableApi>,
     options?: RequestInit
 ): Promise<environmentsInsightVariablesUpdateResponse> => {
     return apiMutator<environmentsInsightVariablesUpdateResponse>(
@@ -3669,13 +3669,13 @@ export const environmentsInsightVariablesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(insightVariable),
+            body: JSON.stringify(insightVariableApi),
         }
     )
 }
 
 export type environmentsInsightVariablesPartialUpdateResponse200 = {
-    data: InsightVariable
+    data: InsightVariableApi
     status: 200
 }
 
@@ -3692,7 +3692,7 @@ export const getEnvironmentsInsightVariablesPartialUpdateUrl = (projectId: strin
 export const environmentsInsightVariablesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedInsightVariable: NonReadonly<PatchedInsightVariable>,
+    patchedInsightVariableApi: NonReadonly<PatchedInsightVariableApi>,
     options?: RequestInit
 ): Promise<environmentsInsightVariablesPartialUpdateResponse> => {
     return apiMutator<environmentsInsightVariablesPartialUpdateResponse>(
@@ -3701,7 +3701,7 @@ export const environmentsInsightVariablesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedInsightVariable),
+            body: JSON.stringify(patchedInsightVariableApi),
         }
     )
 }
@@ -3735,7 +3735,7 @@ export const environmentsInsightVariablesDestroy = async (
 }
 
 export type environmentsInsightsListResponse200 = {
-    data: PaginatedInsightList
+    data: PaginatedInsightListApi
     status: 200
 }
 
@@ -3772,7 +3772,7 @@ export const environmentsInsightsList = async (
 }
 
 export type environmentsInsightsCreateResponse201 = {
-    data: Insight
+    data: InsightApi
     status: 201
 }
 
@@ -3799,7 +3799,7 @@ export const getEnvironmentsInsightsCreateUrl = (projectId: string, params?: Env
 
 export const environmentsInsightsCreate = async (
     projectId: string,
-    insight: NonReadonly<Insight>,
+    insightApi: NonReadonly<InsightApi>,
     params?: EnvironmentsInsightsCreateParams,
     options?: RequestInit
 ): Promise<environmentsInsightsCreateResponse> => {
@@ -3807,12 +3807,12 @@ export const environmentsInsightsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insight),
+        body: JSON.stringify(insightApi),
     })
 }
 
 export type environmentsInsightsThresholdsListResponse200 = {
-    data: PaginatedThresholdWithAlertList
+    data: PaginatedThresholdWithAlertListApi
     status: 200
 }
 
@@ -3857,7 +3857,7 @@ export const environmentsInsightsThresholdsList = async (
 }
 
 export type environmentsInsightsThresholdsRetrieveResponse200 = {
-    data: ThresholdWithAlert
+    data: ThresholdWithAlertApi
     status: 200
 }
 
@@ -3887,7 +3887,7 @@ export const environmentsInsightsThresholdsRetrieve = async (
 }
 
 export type environmentsInsightsRetrieveResponse200 = {
-    data: Insight
+    data: InsightApi
     status: 200
 }
 
@@ -3929,7 +3929,7 @@ export const environmentsInsightsRetrieve = async (
 }
 
 export type environmentsInsightsUpdateResponse200 = {
-    data: Insight
+    data: InsightApi
     status: 200
 }
 
@@ -3961,7 +3961,7 @@ export const getEnvironmentsInsightsUpdateUrl = (
 export const environmentsInsightsUpdate = async (
     projectId: string,
     id: number,
-    insight: NonReadonly<Insight>,
+    insightApi: NonReadonly<InsightApi>,
     params?: EnvironmentsInsightsUpdateParams,
     options?: RequestInit
 ): Promise<environmentsInsightsUpdateResponse> => {
@@ -3969,12 +3969,12 @@ export const environmentsInsightsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(insight),
+        body: JSON.stringify(insightApi),
     })
 }
 
 export type environmentsInsightsPartialUpdateResponse200 = {
-    data: Insight
+    data: InsightApi
     status: 200
 }
 
@@ -4006,7 +4006,7 @@ export const getEnvironmentsInsightsPartialUpdateUrl = (
 export const environmentsInsightsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedInsight: NonReadonly<PatchedInsight>,
+    patchedInsightApi: NonReadonly<PatchedInsightApi>,
     params?: EnvironmentsInsightsPartialUpdateParams,
     options?: RequestInit
 ): Promise<environmentsInsightsPartialUpdateResponse> => {
@@ -4016,7 +4016,7 @@ export const environmentsInsightsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedInsight),
+            body: JSON.stringify(patchedInsightApi),
         }
     )
 }
@@ -4185,7 +4185,7 @@ export const getEnvironmentsInsightsCancelCreateUrl = (
 
 export const environmentsInsightsCancelCreate = async (
     projectId: string,
-    insight: NonReadonly<Insight>,
+    insightApi: NonReadonly<InsightApi>,
     params?: EnvironmentsInsightsCancelCreateParams,
     options?: RequestInit
 ): Promise<environmentsInsightsCancelCreateResponse> => {
@@ -4195,7 +4195,7 @@ export const environmentsInsightsCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(insight),
+            body: JSON.stringify(insightApi),
         }
     )
 }
@@ -4282,7 +4282,7 @@ export const getEnvironmentsInsightsViewedCreateUrl = (
 
 export const environmentsInsightsViewedCreate = async (
     projectId: string,
-    insight: NonReadonly<Insight>,
+    insightApi: NonReadonly<InsightApi>,
     params?: EnvironmentsInsightsViewedCreateParams,
     options?: RequestInit
 ): Promise<environmentsInsightsViewedCreateResponse> => {
@@ -4292,7 +4292,7 @@ export const environmentsInsightsViewedCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(insight),
+            body: JSON.stringify(insightApi),
         }
     )
 }
@@ -4515,7 +4515,7 @@ export const environmentsMaxToolsCreateAndQueryInsightCreate = async (
 }
 
 export type environmentsMessagingCategoriesListResponse200 = {
-    data: PaginatedMessageCategoryList
+    data: PaginatedMessageCategoryListApi
     status: 200
 }
 
@@ -4558,7 +4558,7 @@ export const environmentsMessagingCategoriesList = async (
 }
 
 export type environmentsMessagingCategoriesCreateResponse201 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 201
 }
 
@@ -4573,7 +4573,7 @@ export const getEnvironmentsMessagingCategoriesCreateUrl = (projectId: string) =
 
 export const environmentsMessagingCategoriesCreate = async (
     projectId: string,
-    messageCategory: NonReadonly<MessageCategory>,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingCategoriesCreateResponse> => {
     return apiMutator<environmentsMessagingCategoriesCreateResponse>(
@@ -4582,13 +4582,13 @@ export const environmentsMessagingCategoriesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageCategory),
+            body: JSON.stringify(messageCategoryApi),
         }
     )
 }
 
 export type environmentsMessagingCategoriesRetrieveResponse200 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 200
 }
 
@@ -4617,7 +4617,7 @@ export const environmentsMessagingCategoriesRetrieve = async (
 }
 
 export type environmentsMessagingCategoriesUpdateResponse200 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 200
 }
 
@@ -4633,7 +4633,7 @@ export const getEnvironmentsMessagingCategoriesUpdateUrl = (projectId: string, i
 export const environmentsMessagingCategoriesUpdate = async (
     projectId: string,
     id: string,
-    messageCategory: NonReadonly<MessageCategory>,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingCategoriesUpdateResponse> => {
     return apiMutator<environmentsMessagingCategoriesUpdateResponse>(
@@ -4642,13 +4642,13 @@ export const environmentsMessagingCategoriesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageCategory),
+            body: JSON.stringify(messageCategoryApi),
         }
     )
 }
 
 export type environmentsMessagingCategoriesPartialUpdateResponse200 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 200
 }
 
@@ -4666,7 +4666,7 @@ export const getEnvironmentsMessagingCategoriesPartialUpdateUrl = (projectId: st
 export const environmentsMessagingCategoriesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageCategory: NonReadonly<PatchedMessageCategory>,
+    patchedMessageCategoryApi: NonReadonly<PatchedMessageCategoryApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingCategoriesPartialUpdateResponse> => {
     return apiMutator<environmentsMessagingCategoriesPartialUpdateResponse>(
@@ -4675,7 +4675,7 @@ export const environmentsMessagingCategoriesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedMessageCategory),
+            body: JSON.stringify(patchedMessageCategoryApi),
         }
     )
 }
@@ -4715,7 +4715,7 @@ export const environmentsMessagingCategoriesDestroy = async (
  * Import subscription topics and globally unsubscribed users from Customer.io API
  */
 export type environmentsMessagingCategoriesImportFromCustomerioCreateResponse200 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 200
 }
 
@@ -4732,7 +4732,7 @@ export const getEnvironmentsMessagingCategoriesImportFromCustomerioCreateUrl = (
 
 export const environmentsMessagingCategoriesImportFromCustomerioCreate = async (
     projectId: string,
-    messageCategory: NonReadonly<MessageCategory>,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingCategoriesImportFromCustomerioCreateResponse> => {
     return apiMutator<environmentsMessagingCategoriesImportFromCustomerioCreateResponse>(
@@ -4741,7 +4741,7 @@ export const environmentsMessagingCategoriesImportFromCustomerioCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageCategory),
+            body: JSON.stringify(messageCategoryApi),
         }
     )
 }
@@ -4751,7 +4751,7 @@ export const environmentsMessagingCategoriesImportFromCustomerioCreate = async (
 Expected CSV columns: id, email, cio_subscription_preferences
  */
 export type environmentsMessagingCategoriesImportPreferencesCsvCreateResponse200 = {
-    data: MessageCategory
+    data: MessageCategoryApi
     status: 200
 }
 
@@ -4768,23 +4768,23 @@ export const getEnvironmentsMessagingCategoriesImportPreferencesCsvCreateUrl = (
 
 export const environmentsMessagingCategoriesImportPreferencesCsvCreate = async (
     projectId: string,
-    messageCategory: NonReadonly<MessageCategory>,
+    messageCategoryApi: NonReadonly<MessageCategoryApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingCategoriesImportPreferencesCsvCreateResponse> => {
     const formData = new FormData()
-    formData.append(`key`, messageCategory.key)
-    formData.append(`name`, messageCategory.name)
-    if (messageCategory.description !== undefined) {
-        formData.append(`description`, messageCategory.description)
+    formData.append(`key`, messageCategoryApi.key)
+    formData.append(`name`, messageCategoryApi.name)
+    if (messageCategoryApi.description !== undefined) {
+        formData.append(`description`, messageCategoryApi.description)
     }
-    if (messageCategory.public_description !== undefined) {
-        formData.append(`public_description`, messageCategory.public_description)
+    if (messageCategoryApi.public_description !== undefined) {
+        formData.append(`public_description`, messageCategoryApi.public_description)
     }
-    if (messageCategory.category_type !== undefined) {
-        formData.append(`category_type`, messageCategory.category_type)
+    if (messageCategoryApi.category_type !== undefined) {
+        formData.append(`category_type`, messageCategoryApi.category_type)
     }
-    if (messageCategory.deleted !== undefined) {
-        formData.append(`deleted`, messageCategory.deleted.toString())
+    if (messageCategoryApi.deleted !== undefined) {
+        formData.append(`deleted`, messageCategoryApi.deleted.toString())
     }
 
     return apiMutator<environmentsMessagingCategoriesImportPreferencesCsvCreateResponse>(
@@ -4862,7 +4862,7 @@ export const environmentsMessagingPreferencesOptOutsRetrieve = async (
 }
 
 export type environmentsMessagingTemplatesListResponse200 = {
-    data: PaginatedMessageTemplateList
+    data: PaginatedMessageTemplateListApi
     status: 200
 }
 
@@ -4905,7 +4905,7 @@ export const environmentsMessagingTemplatesList = async (
 }
 
 export type environmentsMessagingTemplatesCreateResponse201 = {
-    data: MessageTemplate
+    data: MessageTemplateApi
     status: 201
 }
 
@@ -4920,7 +4920,7 @@ export const getEnvironmentsMessagingTemplatesCreateUrl = (projectId: string) =>
 
 export const environmentsMessagingTemplatesCreate = async (
     projectId: string,
-    messageTemplate: NonReadonly<MessageTemplate>,
+    messageTemplateApi: NonReadonly<MessageTemplateApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingTemplatesCreateResponse> => {
     return apiMutator<environmentsMessagingTemplatesCreateResponse>(
@@ -4929,13 +4929,13 @@ export const environmentsMessagingTemplatesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageTemplate),
+            body: JSON.stringify(messageTemplateApi),
         }
     )
 }
 
 export type environmentsMessagingTemplatesRetrieveResponse200 = {
-    data: MessageTemplate
+    data: MessageTemplateApi
     status: 200
 }
 
@@ -4964,7 +4964,7 @@ export const environmentsMessagingTemplatesRetrieve = async (
 }
 
 export type environmentsMessagingTemplatesUpdateResponse200 = {
-    data: MessageTemplate
+    data: MessageTemplateApi
     status: 200
 }
 
@@ -4980,7 +4980,7 @@ export const getEnvironmentsMessagingTemplatesUpdateUrl = (projectId: string, id
 export const environmentsMessagingTemplatesUpdate = async (
     projectId: string,
     id: string,
-    messageTemplate: NonReadonly<MessageTemplate>,
+    messageTemplateApi: NonReadonly<MessageTemplateApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingTemplatesUpdateResponse> => {
     return apiMutator<environmentsMessagingTemplatesUpdateResponse>(
@@ -4989,13 +4989,13 @@ export const environmentsMessagingTemplatesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(messageTemplate),
+            body: JSON.stringify(messageTemplateApi),
         }
     )
 }
 
 export type environmentsMessagingTemplatesPartialUpdateResponse200 = {
-    data: MessageTemplate
+    data: MessageTemplateApi
     status: 200
 }
 
@@ -5013,7 +5013,7 @@ export const getEnvironmentsMessagingTemplatesPartialUpdateUrl = (projectId: str
 export const environmentsMessagingTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedMessageTemplate: NonReadonly<PatchedMessageTemplate>,
+    patchedMessageTemplateApi: NonReadonly<PatchedMessageTemplateApi>,
     options?: RequestInit
 ): Promise<environmentsMessagingTemplatesPartialUpdateResponse> => {
     return apiMutator<environmentsMessagingTemplatesPartialUpdateResponse>(
@@ -5022,7 +5022,7 @@ export const environmentsMessagingTemplatesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedMessageTemplate),
+            body: JSON.stringify(patchedMessageTemplateApi),
         }
     )
 }
@@ -5059,7 +5059,7 @@ export const environmentsMessagingTemplatesDestroy = async (
 }
 
 export type environmentsMetalyticsCreateResponse201 = {
-    data: MetalyticsCreateRequest
+    data: MetalyticsCreateRequestApi
     status: 201
 }
 
@@ -5074,19 +5074,19 @@ export const getEnvironmentsMetalyticsCreateUrl = (projectId: string) => {
 
 export const environmentsMetalyticsCreate = async (
     projectId: string,
-    metalyticsCreateRequest: MetalyticsCreateRequest,
+    metalyticsCreateRequestApi: MetalyticsCreateRequestApi,
     options?: RequestInit
 ): Promise<environmentsMetalyticsCreateResponse> => {
     return apiMutator<environmentsMetalyticsCreateResponse>(getEnvironmentsMetalyticsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(metalyticsCreateRequest),
+        body: JSON.stringify(metalyticsCreateRequestApi),
     })
 }
 
 export type environmentsPersistedFolderListResponse200 = {
-    data: PaginatedPersistedFolderList
+    data: PaginatedPersistedFolderListApi
     status: 200
 }
 
@@ -5129,7 +5129,7 @@ export const environmentsPersistedFolderList = async (
 }
 
 export type environmentsPersistedFolderCreateResponse201 = {
-    data: PersistedFolder
+    data: PersistedFolderApi
     status: 201
 }
 
@@ -5144,19 +5144,19 @@ export const getEnvironmentsPersistedFolderCreateUrl = (projectId: string) => {
 
 export const environmentsPersistedFolderCreate = async (
     projectId: string,
-    persistedFolder: NonReadonly<PersistedFolder>,
+    persistedFolderApi: NonReadonly<PersistedFolderApi>,
     options?: RequestInit
 ): Promise<environmentsPersistedFolderCreateResponse> => {
     return apiMutator<environmentsPersistedFolderCreateResponse>(getEnvironmentsPersistedFolderCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(persistedFolder),
+        body: JSON.stringify(persistedFolderApi),
     })
 }
 
 export type environmentsPersistedFolderRetrieveResponse200 = {
-    data: PersistedFolder
+    data: PersistedFolderApi
     status: 200
 }
 
@@ -5184,7 +5184,7 @@ export const environmentsPersistedFolderRetrieve = async (
 }
 
 export type environmentsPersistedFolderUpdateResponse200 = {
-    data: PersistedFolder
+    data: PersistedFolderApi
     status: 200
 }
 
@@ -5200,7 +5200,7 @@ export const getEnvironmentsPersistedFolderUpdateUrl = (projectId: string, id: s
 export const environmentsPersistedFolderUpdate = async (
     projectId: string,
     id: string,
-    persistedFolder: NonReadonly<PersistedFolder>,
+    persistedFolderApi: NonReadonly<PersistedFolderApi>,
     options?: RequestInit
 ): Promise<environmentsPersistedFolderUpdateResponse> => {
     return apiMutator<environmentsPersistedFolderUpdateResponse>(
@@ -5209,13 +5209,13 @@ export const environmentsPersistedFolderUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(persistedFolder),
+            body: JSON.stringify(persistedFolderApi),
         }
     )
 }
 
 export type environmentsPersistedFolderPartialUpdateResponse200 = {
-    data: PersistedFolder
+    data: PersistedFolderApi
     status: 200
 }
 
@@ -5232,7 +5232,7 @@ export const getEnvironmentsPersistedFolderPartialUpdateUrl = (projectId: string
 export const environmentsPersistedFolderPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedPersistedFolder: NonReadonly<PatchedPersistedFolder>,
+    patchedPersistedFolderApi: NonReadonly<PatchedPersistedFolderApi>,
     options?: RequestInit
 ): Promise<environmentsPersistedFolderPartialUpdateResponse> => {
     return apiMutator<environmentsPersistedFolderPartialUpdateResponse>(
@@ -5241,7 +5241,7 @@ export const environmentsPersistedFolderPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedPersistedFolder),
+            body: JSON.stringify(patchedPersistedFolderApi),
         }
     )
 }
@@ -5275,7 +5275,7 @@ export const environmentsPersistedFolderDestroy = async (
 }
 
 export type environmentsPluginConfigsLogsListResponse200 = {
-    data: PaginatedPluginLogEntryList
+    data: PaginatedPluginLogEntryListApi
     status: 200
 }
 
@@ -5320,7 +5320,7 @@ export const environmentsPluginConfigsLogsList = async (
 }
 
 export type environmentsQueryCreateResponse200 = {
-    data: QueryResponseAlternative
+    data: QueryResponseAlternativeApi
     status: 200
 }
 
@@ -5335,14 +5335,14 @@ export const getEnvironmentsQueryCreateUrl = (projectId: string) => {
 
 export const environmentsQueryCreate = async (
     projectId: string,
-    queryRequest: QueryRequest,
+    queryRequestApi: QueryRequestApi,
     options?: RequestInit
 ): Promise<environmentsQueryCreateResponse> => {
     return apiMutator<environmentsQueryCreateResponse>(getEnvironmentsQueryCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(queryRequest),
+        body: JSON.stringify(queryRequestApi),
     })
 }
 
@@ -5350,7 +5350,7 @@ export const environmentsQueryCreate = async (
  * (Experimental)
  */
 export type environmentsQueryRetrieveResponse200 = {
-    data: QueryStatusResponse
+    data: QueryStatusResponseApi
     status: 200
 }
 
@@ -5486,7 +5486,7 @@ export const environmentsQueryDraftSqlRetrieve = async (
  * Upgrades a query without executing it. Returns a query with all nodes migrated to the latest version.
  */
 export type environmentsQueryUpgradeCreateResponse200 = {
-    data: QueryUpgradeResponse
+    data: QueryUpgradeResponseApi
     status: 200
 }
 
@@ -5501,19 +5501,19 @@ export const getEnvironmentsQueryUpgradeCreateUrl = (projectId: string) => {
 
 export const environmentsQueryUpgradeCreate = async (
     projectId: string,
-    queryUpgradeRequest: QueryUpgradeRequest,
+    queryUpgradeRequestApi: QueryUpgradeRequestApi,
     options?: RequestInit
 ): Promise<environmentsQueryUpgradeCreateResponse> => {
     return apiMutator<environmentsQueryUpgradeCreateResponse>(getEnvironmentsQueryUpgradeCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(queryUpgradeRequest),
+        body: JSON.stringify(queryUpgradeRequestApi),
     })
 }
 
 export type environmentsQuickFiltersListResponse200 = {
-    data: PaginatedQuickFilterList
+    data: PaginatedQuickFilterListApi
     status: 200
 }
 
@@ -5550,7 +5550,7 @@ export const environmentsQuickFiltersList = async (
 }
 
 export type environmentsQuickFiltersCreateResponse201 = {
-    data: QuickFilter
+    data: QuickFilterApi
     status: 201
 }
 
@@ -5565,19 +5565,19 @@ export const getEnvironmentsQuickFiltersCreateUrl = (projectId: string) => {
 
 export const environmentsQuickFiltersCreate = async (
     projectId: string,
-    quickFilter: NonReadonly<QuickFilter>,
+    quickFilterApi: NonReadonly<QuickFilterApi>,
     options?: RequestInit
 ): Promise<environmentsQuickFiltersCreateResponse> => {
     return apiMutator<environmentsQuickFiltersCreateResponse>(getEnvironmentsQuickFiltersCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(quickFilter),
+        body: JSON.stringify(quickFilterApi),
     })
 }
 
 export type environmentsQuickFiltersRetrieveResponse200 = {
-    data: QuickFilter
+    data: QuickFilterApi
     status: 200
 }
 
@@ -5602,7 +5602,7 @@ export const environmentsQuickFiltersRetrieve = async (
 }
 
 export type environmentsQuickFiltersUpdateResponse200 = {
-    data: QuickFilter
+    data: QuickFilterApi
     status: 200
 }
 
@@ -5618,19 +5618,19 @@ export const getEnvironmentsQuickFiltersUpdateUrl = (projectId: string, id: stri
 export const environmentsQuickFiltersUpdate = async (
     projectId: string,
     id: string,
-    quickFilter: NonReadonly<QuickFilter>,
+    quickFilterApi: NonReadonly<QuickFilterApi>,
     options?: RequestInit
 ): Promise<environmentsQuickFiltersUpdateResponse> => {
     return apiMutator<environmentsQuickFiltersUpdateResponse>(getEnvironmentsQuickFiltersUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(quickFilter),
+        body: JSON.stringify(quickFilterApi),
     })
 }
 
 export type environmentsQuickFiltersPartialUpdateResponse200 = {
-    data: QuickFilter
+    data: QuickFilterApi
     status: 200
 }
 
@@ -5646,7 +5646,7 @@ export const getEnvironmentsQuickFiltersPartialUpdateUrl = (projectId: string, i
 export const environmentsQuickFiltersPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedQuickFilter: NonReadonly<PatchedQuickFilter>,
+    patchedQuickFilterApi: NonReadonly<PatchedQuickFilterApi>,
     options?: RequestInit
 ): Promise<environmentsQuickFiltersPartialUpdateResponse> => {
     return apiMutator<environmentsQuickFiltersPartialUpdateResponse>(
@@ -5655,7 +5655,7 @@ export const environmentsQuickFiltersPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedQuickFilter),
+            body: JSON.stringify(patchedQuickFilterApi),
         }
     )
 }
@@ -5715,7 +5715,7 @@ export const environmentsRevenueAnalyticsTaxonomyValuesRetrieve = async (
 }
 
 export type environmentsSavedListResponse200 = {
-    data: PaginatedHeatmapScreenshotResponseList
+    data: PaginatedHeatmapScreenshotResponseListApi
     status: 200
 }
 
@@ -5752,7 +5752,7 @@ export const environmentsSavedList = async (
 }
 
 export type environmentsSavedCreateResponse201 = {
-    data: HeatmapScreenshotResponse
+    data: HeatmapScreenshotResponseApi
     status: 201
 }
 
@@ -5767,19 +5767,19 @@ export const getEnvironmentsSavedCreateUrl = (projectId: string) => {
 
 export const environmentsSavedCreate = async (
     projectId: string,
-    heatmapScreenshotResponse: NonReadonly<HeatmapScreenshotResponse>,
+    heatmapScreenshotResponseApi: NonReadonly<HeatmapScreenshotResponseApi>,
     options?: RequestInit
 ): Promise<environmentsSavedCreateResponse> => {
     return apiMutator<environmentsSavedCreateResponse>(getEnvironmentsSavedCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(heatmapScreenshotResponse),
+        body: JSON.stringify(heatmapScreenshotResponseApi),
     })
 }
 
 export type environmentsSavedRetrieveResponse200 = {
-    data: HeatmapScreenshotResponse
+    data: HeatmapScreenshotResponseApi
     status: 200
 }
 
@@ -5804,7 +5804,7 @@ export const environmentsSavedRetrieve = async (
 }
 
 export type environmentsSavedPartialUpdateResponse200 = {
-    data: HeatmapScreenshotResponse
+    data: HeatmapScreenshotResponseApi
     status: 200
 }
 
@@ -5820,7 +5820,7 @@ export const getEnvironmentsSavedPartialUpdateUrl = (projectId: string, shortId:
 export const environmentsSavedPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedHeatmapScreenshotResponse: NonReadonly<PatchedHeatmapScreenshotResponse>,
+    patchedHeatmapScreenshotResponseApi: NonReadonly<PatchedHeatmapScreenshotResponseApi>,
     options?: RequestInit
 ): Promise<environmentsSavedPartialUpdateResponse> => {
     return apiMutator<environmentsSavedPartialUpdateResponse>(
@@ -5829,7 +5829,7 @@ export const environmentsSavedPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedHeatmapScreenshotResponse),
+            body: JSON.stringify(patchedHeatmapScreenshotResponseApi),
         }
     )
 }
@@ -5866,7 +5866,7 @@ export const environmentsSavedDestroy = async (
  * Generate AI summary for a group of session recordings to find patterns and generate a notebook.
  */
 export type createSessionSummariesResponse200 = {
-    data: SessionSummaries
+    data: SessionSummariesApi
     status: 200
 }
 
@@ -5881,14 +5881,14 @@ export const getCreateSessionSummariesUrl = (projectId: string) => {
 
 export const createSessionSummaries = async (
     projectId: string,
-    sessionSummaries: SessionSummaries,
+    sessionSummariesApi: SessionSummariesApi,
     options?: RequestInit
 ): Promise<createSessionSummariesResponse> => {
     return apiMutator<createSessionSummariesResponse>(getCreateSessionSummariesUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummaries),
+        body: JSON.stringify(sessionSummariesApi),
     })
 }
 
@@ -5896,7 +5896,7 @@ export const createSessionSummaries = async (
  * Generate AI individual summary for each session, without grouping.
  */
 export type createSessionSummariesIndividuallyResponse200 = {
-    data: SessionSummaries
+    data: SessionSummariesApi
     status: 200
 }
 
@@ -5911,14 +5911,14 @@ export const getCreateSessionSummariesIndividuallyUrl = (projectId: string) => {
 
 export const createSessionSummariesIndividually = async (
     projectId: string,
-    sessionSummaries: SessionSummaries,
+    sessionSummariesApi: SessionSummariesApi,
     options?: RequestInit
 ): Promise<createSessionSummariesIndividuallyResponse> => {
     return apiMutator<createSessionSummariesIndividuallyResponse>(getCreateSessionSummariesIndividuallyUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionSummaries),
+        body: JSON.stringify(sessionSummariesApi),
     })
 }
 
@@ -5976,7 +5976,7 @@ export const environmentsSessionsValuesRetrieve = async (
 }
 
 export type environmentsUserProductListListResponse200 = {
-    data: PaginatedUserProductListList
+    data: PaginatedUserProductListListApi
     status: 200
 }
 
@@ -6019,7 +6019,7 @@ export const environmentsUserProductListList = async (
 }
 
 export type environmentsUserProductListCreateResponse201 = {
-    data: UserProductList
+    data: UserProductListApi
     status: 201
 }
 
@@ -6034,19 +6034,19 @@ export const getEnvironmentsUserProductListCreateUrl = (projectId: string) => {
 
 export const environmentsUserProductListCreate = async (
     projectId: string,
-    userProductList: NonReadonly<UserProductList>,
+    userProductListApi: NonReadonly<UserProductListApi>,
     options?: RequestInit
 ): Promise<environmentsUserProductListCreateResponse> => {
     return apiMutator<environmentsUserProductListCreateResponse>(getEnvironmentsUserProductListCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userProductList),
+        body: JSON.stringify(userProductListApi),
     })
 }
 
 export type environmentsUserProductListRetrieveResponse200 = {
-    data: UserProductList
+    data: UserProductListApi
     status: 200
 }
 
@@ -6074,7 +6074,7 @@ export const environmentsUserProductListRetrieve = async (
 }
 
 export type environmentsUserProductListUpdateResponse200 = {
-    data: UserProductList
+    data: UserProductListApi
     status: 200
 }
 
@@ -6090,7 +6090,7 @@ export const getEnvironmentsUserProductListUpdateUrl = (projectId: string, id: s
 export const environmentsUserProductListUpdate = async (
     projectId: string,
     id: string,
-    userProductList: NonReadonly<UserProductList>,
+    userProductListApi: NonReadonly<UserProductListApi>,
     options?: RequestInit
 ): Promise<environmentsUserProductListUpdateResponse> => {
     return apiMutator<environmentsUserProductListUpdateResponse>(
@@ -6099,13 +6099,13 @@ export const environmentsUserProductListUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(userProductList),
+            body: JSON.stringify(userProductListApi),
         }
     )
 }
 
 export type environmentsUserProductListPartialUpdateResponse200 = {
-    data: UserProductList
+    data: UserProductListApi
     status: 200
 }
 
@@ -6122,7 +6122,7 @@ export const getEnvironmentsUserProductListPartialUpdateUrl = (projectId: string
 export const environmentsUserProductListPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedUserProductList: NonReadonly<PatchedUserProductList>,
+    patchedUserProductListApi: NonReadonly<PatchedUserProductListApi>,
     options?: RequestInit
 ): Promise<environmentsUserProductListPartialUpdateResponse> => {
     return apiMutator<environmentsUserProductListPartialUpdateResponse>(
@@ -6131,7 +6131,7 @@ export const environmentsUserProductListPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedUserProductList),
+            body: JSON.stringify(patchedUserProductListApi),
         }
     )
 }
@@ -6165,7 +6165,7 @@ export const environmentsUserProductListDestroy = async (
 }
 
 export type environmentsUserProductListUpdateByPathPartialUpdateResponse200 = {
-    data: UserProductList
+    data: UserProductListApi
     status: 200
 }
 
@@ -6182,7 +6182,7 @@ export const getEnvironmentsUserProductListUpdateByPathPartialUpdateUrl = (proje
 
 export const environmentsUserProductListUpdateByPathPartialUpdate = async (
     projectId: string,
-    patchedUserProductList: NonReadonly<PatchedUserProductList>,
+    patchedUserProductListApi: NonReadonly<PatchedUserProductListApi>,
     options?: RequestInit
 ): Promise<environmentsUserProductListUpdateByPathPartialUpdateResponse> => {
     return apiMutator<environmentsUserProductListUpdateByPathPartialUpdateResponse>(
@@ -6191,7 +6191,7 @@ export const environmentsUserProductListUpdateByPathPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedUserProductList),
+            body: JSON.stringify(patchedUserProductListApi),
         }
     )
 }
@@ -6200,7 +6200,7 @@ export const environmentsUserProductListUpdateByPathPartialUpdate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseTablesListResponse200 = {
-    data: PaginatedTableList
+    data: PaginatedTableListApi
     status: 200
 }
 
@@ -6246,7 +6246,7 @@ export const environmentsWarehouseTablesList = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseTablesCreateResponse201 = {
-    data: Table
+    data: TableApi
     status: 201
 }
 
@@ -6261,14 +6261,14 @@ export const getEnvironmentsWarehouseTablesCreateUrl = (projectId: string) => {
 
 export const environmentsWarehouseTablesCreate = async (
     projectId: string,
-    table: NonReadonly<Table>,
+    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesCreateResponse> => {
     return apiMutator<environmentsWarehouseTablesCreateResponse>(getEnvironmentsWarehouseTablesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(table),
+        body: JSON.stringify(tableApi),
     })
 }
 
@@ -6276,7 +6276,7 @@ export const environmentsWarehouseTablesCreate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseTablesRetrieveResponse200 = {
-    data: Table
+    data: TableApi
     status: 200
 }
 
@@ -6307,7 +6307,7 @@ export const environmentsWarehouseTablesRetrieve = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseTablesUpdateResponse200 = {
-    data: Table
+    data: TableApi
     status: 200
 }
 
@@ -6323,7 +6323,7 @@ export const getEnvironmentsWarehouseTablesUpdateUrl = (projectId: string, id: s
 export const environmentsWarehouseTablesUpdate = async (
     projectId: string,
     id: string,
-    table: NonReadonly<Table>,
+    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesUpdateResponse> => {
     return apiMutator<environmentsWarehouseTablesUpdateResponse>(
@@ -6332,7 +6332,7 @@ export const environmentsWarehouseTablesUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(table),
+            body: JSON.stringify(tableApi),
         }
     )
 }
@@ -6341,7 +6341,7 @@ export const environmentsWarehouseTablesUpdate = async (
  * Create, Read, Update and Delete Warehouse Tables.
  */
 export type environmentsWarehouseTablesPartialUpdateResponse200 = {
-    data: Table
+    data: TableApi
     status: 200
 }
 
@@ -6358,7 +6358,7 @@ export const getEnvironmentsWarehouseTablesPartialUpdateUrl = (projectId: string
 export const environmentsWarehouseTablesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedTable: NonReadonly<PatchedTable>,
+    patchedTableApi: NonReadonly<PatchedTableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesPartialUpdateResponse> => {
     return apiMutator<environmentsWarehouseTablesPartialUpdateResponse>(
@@ -6367,7 +6367,7 @@ export const environmentsWarehouseTablesPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedTable),
+            body: JSON.stringify(patchedTableApi),
         }
     )
 }
@@ -6425,7 +6425,7 @@ export const getEnvironmentsWarehouseTablesRefreshSchemaCreateUrl = (projectId: 
 export const environmentsWarehouseTablesRefreshSchemaCreate = async (
     projectId: string,
     id: string,
-    table: NonReadonly<Table>,
+    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesRefreshSchemaCreateResponse> => {
     return apiMutator<environmentsWarehouseTablesRefreshSchemaCreateResponse>(
@@ -6434,7 +6434,7 @@ export const environmentsWarehouseTablesRefreshSchemaCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(table),
+            body: JSON.stringify(tableApi),
         }
     )
 }
@@ -6461,7 +6461,7 @@ export const getEnvironmentsWarehouseTablesUpdateSchemaCreateUrl = (projectId: s
 export const environmentsWarehouseTablesUpdateSchemaCreate = async (
     projectId: string,
     id: string,
-    table: NonReadonly<Table>,
+    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesUpdateSchemaCreateResponse> => {
     return apiMutator<environmentsWarehouseTablesUpdateSchemaCreateResponse>(
@@ -6470,7 +6470,7 @@ export const environmentsWarehouseTablesUpdateSchemaCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(table),
+            body: JSON.stringify(tableApi),
         }
     )
 }
@@ -6494,17 +6494,17 @@ export const getEnvironmentsWarehouseTablesFileCreateUrl = (projectId: string) =
 
 export const environmentsWarehouseTablesFileCreate = async (
     projectId: string,
-    table: NonReadonly<Table>,
+    tableApi: NonReadonly<TableApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseTablesFileCreateResponse> => {
     const formData = new FormData()
-    if (table.deleted !== undefined && table.deleted !== null) {
-        formData.append(`deleted`, table.deleted.toString())
+    if (tableApi.deleted !== undefined && tableApi.deleted !== null) {
+        formData.append(`deleted`, tableApi.deleted.toString())
     }
-    formData.append(`name`, table.name)
-    formData.append(`format`, table.format)
-    formData.append(`url_pattern`, table.url_pattern)
-    formData.append(`credential`, JSON.stringify(table.credential))
+    formData.append(`name`, tableApi.name)
+    formData.append(`format`, tableApi.format)
+    formData.append(`url_pattern`, tableApi.url_pattern)
+    formData.append(`credential`, JSON.stringify(tableApi.credential))
 
     return apiMutator<environmentsWarehouseTablesFileCreateResponse>(
         getEnvironmentsWarehouseTablesFileCreateUrl(projectId),
@@ -6520,7 +6520,7 @@ export const environmentsWarehouseTablesFileCreate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinkListResponse200 = {
-    data: PaginatedViewLinkList
+    data: PaginatedViewLinkListApi
     status: 200
 }
 
@@ -6566,7 +6566,7 @@ export const environmentsWarehouseViewLinkList = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinkCreateResponse201 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 201
 }
 
@@ -6581,7 +6581,7 @@ export const getEnvironmentsWarehouseViewLinkCreateUrl = (projectId: string) => 
 
 export const environmentsWarehouseViewLinkCreate = async (
     projectId: string,
-    viewLink: NonReadonly<ViewLink>,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinkCreateResponse> => {
     return apiMutator<environmentsWarehouseViewLinkCreateResponse>(
@@ -6590,7 +6590,7 @@ export const environmentsWarehouseViewLinkCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLink),
+            body: JSON.stringify(viewLinkApi),
         }
     )
 }
@@ -6599,7 +6599,7 @@ export const environmentsWarehouseViewLinkCreate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinkRetrieveResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6630,7 +6630,7 @@ export const environmentsWarehouseViewLinkRetrieve = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinkUpdateResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6646,7 +6646,7 @@ export const getEnvironmentsWarehouseViewLinkUpdateUrl = (projectId: string, id:
 export const environmentsWarehouseViewLinkUpdate = async (
     projectId: string,
     id: string,
-    viewLink: NonReadonly<ViewLink>,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinkUpdateResponse> => {
     return apiMutator<environmentsWarehouseViewLinkUpdateResponse>(
@@ -6655,7 +6655,7 @@ export const environmentsWarehouseViewLinkUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLink),
+            body: JSON.stringify(viewLinkApi),
         }
     )
 }
@@ -6664,7 +6664,7 @@ export const environmentsWarehouseViewLinkUpdate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinkPartialUpdateResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6682,7 +6682,7 @@ export const getEnvironmentsWarehouseViewLinkPartialUpdateUrl = (projectId: stri
 export const environmentsWarehouseViewLinkPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedViewLink: NonReadonly<PatchedViewLink>,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinkPartialUpdateResponse> => {
     return apiMutator<environmentsWarehouseViewLinkPartialUpdateResponse>(
@@ -6691,7 +6691,7 @@ export const environmentsWarehouseViewLinkPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedViewLink),
+            body: JSON.stringify(patchedViewLinkApi),
         }
     )
 }
@@ -6748,7 +6748,7 @@ export const getEnvironmentsWarehouseViewLinkValidateCreateUrl = (projectId: str
 
 export const environmentsWarehouseViewLinkValidateCreate = async (
     projectId: string,
-    viewLinkValidation: ViewLinkValidation,
+    viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinkValidateCreateResponse> => {
     return apiMutator<environmentsWarehouseViewLinkValidateCreateResponse>(
@@ -6757,7 +6757,7 @@ export const environmentsWarehouseViewLinkValidateCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkValidation),
+            body: JSON.stringify(viewLinkValidationApi),
         }
     )
 }
@@ -6766,7 +6766,7 @@ export const environmentsWarehouseViewLinkValidateCreate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinksListResponse200 = {
-    data: PaginatedViewLinkList
+    data: PaginatedViewLinkListApi
     status: 200
 }
 
@@ -6812,7 +6812,7 @@ export const environmentsWarehouseViewLinksList = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinksCreateResponse201 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 201
 }
 
@@ -6827,7 +6827,7 @@ export const getEnvironmentsWarehouseViewLinksCreateUrl = (projectId: string) =>
 
 export const environmentsWarehouseViewLinksCreate = async (
     projectId: string,
-    viewLink: NonReadonly<ViewLink>,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinksCreateResponse> => {
     return apiMutator<environmentsWarehouseViewLinksCreateResponse>(
@@ -6836,7 +6836,7 @@ export const environmentsWarehouseViewLinksCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLink),
+            body: JSON.stringify(viewLinkApi),
         }
     )
 }
@@ -6845,7 +6845,7 @@ export const environmentsWarehouseViewLinksCreate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinksRetrieveResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6877,7 +6877,7 @@ export const environmentsWarehouseViewLinksRetrieve = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinksUpdateResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6893,7 +6893,7 @@ export const getEnvironmentsWarehouseViewLinksUpdateUrl = (projectId: string, id
 export const environmentsWarehouseViewLinksUpdate = async (
     projectId: string,
     id: string,
-    viewLink: NonReadonly<ViewLink>,
+    viewLinkApi: NonReadonly<ViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinksUpdateResponse> => {
     return apiMutator<environmentsWarehouseViewLinksUpdateResponse>(
@@ -6902,7 +6902,7 @@ export const environmentsWarehouseViewLinksUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLink),
+            body: JSON.stringify(viewLinkApi),
         }
     )
 }
@@ -6911,7 +6911,7 @@ export const environmentsWarehouseViewLinksUpdate = async (
  * Create, Read, Update and Delete View Columns.
  */
 export type environmentsWarehouseViewLinksPartialUpdateResponse200 = {
-    data: ViewLink
+    data: ViewLinkApi
     status: 200
 }
 
@@ -6929,7 +6929,7 @@ export const getEnvironmentsWarehouseViewLinksPartialUpdateUrl = (projectId: str
 export const environmentsWarehouseViewLinksPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedViewLink: NonReadonly<PatchedViewLink>,
+    patchedViewLinkApi: NonReadonly<PatchedViewLinkApi>,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinksPartialUpdateResponse> => {
     return apiMutator<environmentsWarehouseViewLinksPartialUpdateResponse>(
@@ -6938,7 +6938,7 @@ export const environmentsWarehouseViewLinksPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedViewLink),
+            body: JSON.stringify(patchedViewLinkApi),
         }
     )
 }
@@ -6995,7 +6995,7 @@ export const getEnvironmentsWarehouseViewLinksValidateCreateUrl = (projectId: st
 
 export const environmentsWarehouseViewLinksValidateCreate = async (
     projectId: string,
-    viewLinkValidation: ViewLinkValidation,
+    viewLinkValidationApi: ViewLinkValidationApi,
     options?: RequestInit
 ): Promise<environmentsWarehouseViewLinksValidateCreateResponse> => {
     return apiMutator<environmentsWarehouseViewLinksValidateCreateResponse>(
@@ -7004,7 +7004,7 @@ export const environmentsWarehouseViewLinksValidateCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(viewLinkValidation),
+            body: JSON.stringify(viewLinkValidationApi),
         }
     )
 }
@@ -7047,7 +7047,7 @@ export const environmentsWebVitalsRetrieve = async (
 }
 
 export type environmentsConversationsListResponse200 = {
-    data: PaginatedConversationList
+    data: PaginatedConversationListApi
     status: 200
 }
 
@@ -7093,7 +7093,7 @@ export const environmentsConversationsList = async (
 - If no message: Stream from existing conversation
  */
 export type environmentsConversationsCreateResponse201 = {
-    data: Message
+    data: MessageApi
     status: 201
 }
 
@@ -7108,19 +7108,19 @@ export const getEnvironmentsConversationsCreateUrl = (projectId: string) => {
 
 export const environmentsConversationsCreate = async (
     projectId: string,
-    message: Message,
+    messageApi: MessageApi,
     options?: RequestInit
 ): Promise<environmentsConversationsCreateResponse> => {
     return apiMutator<environmentsConversationsCreateResponse>(getEnvironmentsConversationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(message),
+        body: JSON.stringify(messageApi),
     })
 }
 
 export type environmentsConversationsRetrieveResponse200 = {
-    data: Conversation
+    data: ConversationApi
     status: 200
 }
 
@@ -7148,7 +7148,7 @@ export const environmentsConversationsRetrieve = async (
 }
 
 export type environmentsConversationsCancelPartialUpdateResponse200 = {
-    data: Conversation
+    data: ConversationApi
     status: 200
 }
 
@@ -7166,7 +7166,7 @@ export const getEnvironmentsConversationsCancelPartialUpdateUrl = (projectId: st
 export const environmentsConversationsCancelPartialUpdate = async (
     projectId: string,
     conversation: string,
-    patchedConversation: NonReadonly<PatchedConversation>,
+    patchedConversationApi: NonReadonly<PatchedConversationApi>,
     options?: RequestInit
 ): Promise<environmentsConversationsCancelPartialUpdateResponse> => {
     return apiMutator<environmentsConversationsCancelPartialUpdateResponse>(
@@ -7175,13 +7175,13 @@ export const environmentsConversationsCancelPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedConversation),
+            body: JSON.stringify(patchedConversationApi),
         }
     )
 }
 
 export type environmentsDashboardsListResponse200 = {
-    data: PaginatedDashboardBasicList
+    data: PaginatedDashboardBasicListApi
     status: 200
 }
 
@@ -7218,7 +7218,7 @@ export const environmentsDashboardsList = async (
 }
 
 export type environmentsDashboardsCreateResponse201 = {
-    data: Dashboard
+    data: DashboardApi
     status: 201
 }
 
@@ -7245,7 +7245,7 @@ export const getEnvironmentsDashboardsCreateUrl = (projectId: string, params?: E
 
 export const environmentsDashboardsCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: EnvironmentsDashboardsCreateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsCreateResponse> => {
@@ -7253,12 +7253,12 @@ export const environmentsDashboardsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboard),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
 export type environmentsDashboardsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -7289,7 +7289,7 @@ export const environmentsDashboardsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type environmentsDashboardsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -7307,7 +7307,7 @@ export const getEnvironmentsDashboardsSharingPasswordsCreateUrl = (projectId: st
 export const environmentsDashboardsSharingPasswordsCreate = async (
     projectId: string,
     dashboardId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsDashboardsSharingPasswordsCreateResponse> => {
     return apiMutator<environmentsDashboardsSharingPasswordsCreateResponse>(
@@ -7316,7 +7316,7 @@ export const environmentsDashboardsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -7360,7 +7360,7 @@ export const environmentsDashboardsSharingPasswordsDestroy = async (
 }
 
 export type environmentsDashboardsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -7378,7 +7378,7 @@ export const getEnvironmentsDashboardsSharingRefreshCreateUrl = (projectId: stri
 export const environmentsDashboardsSharingRefreshCreate = async (
     projectId: string,
     dashboardId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsDashboardsSharingRefreshCreateResponse> => {
     return apiMutator<environmentsDashboardsSharingRefreshCreateResponse>(
@@ -7387,13 +7387,13 @@ export const environmentsDashboardsSharingRefreshCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
 
 export type environmentsDashboardsRetrieveResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -7438,7 +7438,7 @@ export const environmentsDashboardsRetrieve = async (
 }
 
 export type environmentsDashboardsUpdateResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -7470,7 +7470,7 @@ export const getEnvironmentsDashboardsUpdateUrl = (
 export const environmentsDashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: EnvironmentsDashboardsUpdateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsUpdateResponse> => {
@@ -7478,12 +7478,12 @@ export const environmentsDashboardsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboard),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
 export type environmentsDashboardsPartialUpdateResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -7515,7 +7515,7 @@ export const getEnvironmentsDashboardsPartialUpdateUrl = (
 export const environmentsDashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboard: NonReadonly<PatchedDashboard>,
+    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: EnvironmentsDashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsPartialUpdateResponse> => {
@@ -7525,7 +7525,7 @@ export const environmentsDashboardsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDashboard),
+            body: JSON.stringify(patchedDashboardApi),
         }
     )
 }
@@ -7613,7 +7613,7 @@ export const getEnvironmentsDashboardsMoveTilePartialUpdateUrl = (
 export const environmentsDashboardsMoveTilePartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboard: NonReadonly<PatchedDashboard>,
+    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: EnvironmentsDashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsMoveTilePartialUpdateResponse> => {
@@ -7623,7 +7623,7 @@ export const environmentsDashboardsMoveTilePartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDashboard),
+            body: JSON.stringify(patchedDashboardApi),
         }
     )
 }
@@ -7710,7 +7710,7 @@ export const getEnvironmentsDashboardsCreateFromTemplateJsonCreateUrl = (
 
 export const environmentsDashboardsCreateFromTemplateJsonCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: EnvironmentsDashboardsCreateFromTemplateJsonCreateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsCreateFromTemplateJsonCreateResponse> => {
@@ -7720,7 +7720,7 @@ export const environmentsDashboardsCreateFromTemplateJsonCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dashboard),
+            body: JSON.stringify(dashboardApi),
         }
     )
 }
@@ -7763,7 +7763,7 @@ export const getEnvironmentsDashboardsCreateUnlistedDashboardCreateUrl = (
 
 export const environmentsDashboardsCreateUnlistedDashboardCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: EnvironmentsDashboardsCreateUnlistedDashboardCreateParams,
     options?: RequestInit
 ): Promise<environmentsDashboardsCreateUnlistedDashboardCreateResponse> => {
@@ -7773,13 +7773,13 @@ export const environmentsDashboardsCreateUnlistedDashboardCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dashboard),
+            body: JSON.stringify(dashboardApi),
         }
     )
 }
 
 export type environmentsExportsListResponse200 = {
-    data: PaginatedExportedAssetList
+    data: PaginatedExportedAssetListApi
     status: 200
 }
 
@@ -7816,7 +7816,7 @@ export const environmentsExportsList = async (
 }
 
 export type environmentsExportsCreateResponse201 = {
-    data: ExportedAsset
+    data: ExportedAssetApi
     status: 201
 }
 
@@ -7831,19 +7831,19 @@ export const getEnvironmentsExportsCreateUrl = (projectId: string) => {
 
 export const environmentsExportsCreate = async (
     projectId: string,
-    exportedAsset: NonReadonly<ExportedAsset>,
+    exportedAssetApi: NonReadonly<ExportedAssetApi>,
     options?: RequestInit
 ): Promise<environmentsExportsCreateResponse> => {
     return apiMutator<environmentsExportsCreateResponse>(getEnvironmentsExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedAsset),
+        body: JSON.stringify(exportedAssetApi),
     })
 }
 
 export type environmentsExportsRetrieveResponse200 = {
-    data: ExportedAsset
+    data: ExportedAssetApi
     status: 200
 }
 
@@ -7896,7 +7896,7 @@ export const environmentsExportsContentRetrieve = async (
 }
 
 export type environmentsFileSystemListResponse200 = {
-    data: PaginatedFileSystemList
+    data: PaginatedFileSystemListApi
     status: 200
 }
 
@@ -7933,7 +7933,7 @@ export const environmentsFileSystemList = async (
 }
 
 export type environmentsFileSystemCreateResponse201 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 201
 }
 
@@ -7948,19 +7948,19 @@ export const getEnvironmentsFileSystemCreateUrl = (projectId: string) => {
 
 export const environmentsFileSystemCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemCreateResponse> => {
     return apiMutator<environmentsFileSystemCreateResponse>(getEnvironmentsFileSystemCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
 export type environmentsFileSystemRetrieveResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -7985,7 +7985,7 @@ export const environmentsFileSystemRetrieve = async (
 }
 
 export type environmentsFileSystemUpdateResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -8001,19 +8001,19 @@ export const getEnvironmentsFileSystemUpdateUrl = (projectId: string, id: string
 export const environmentsFileSystemUpdate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemUpdateResponse> => {
     return apiMutator<environmentsFileSystemUpdateResponse>(getEnvironmentsFileSystemUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
 export type environmentsFileSystemPartialUpdateResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -8029,7 +8029,7 @@ export const getEnvironmentsFileSystemPartialUpdateUrl = (projectId: string, id:
 export const environmentsFileSystemPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedFileSystem: NonReadonly<PatchedFileSystem>,
+    patchedFileSystemApi: NonReadonly<PatchedFileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemPartialUpdateResponse> => {
     return apiMutator<environmentsFileSystemPartialUpdateResponse>(
@@ -8038,7 +8038,7 @@ export const environmentsFileSystemPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedFileSystem),
+            body: JSON.stringify(patchedFileSystemApi),
         }
     )
 }
@@ -8088,7 +8088,7 @@ export const getEnvironmentsFileSystemCountCreateUrl = (projectId: string, id: s
 export const environmentsFileSystemCountCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemCountCreateResponse> => {
     return apiMutator<environmentsFileSystemCountCreateResponse>(
@@ -8097,7 +8097,7 @@ export const environmentsFileSystemCountCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystem),
+            body: JSON.stringify(fileSystemApi),
         }
     )
 }
@@ -8119,14 +8119,14 @@ export const getEnvironmentsFileSystemLinkCreateUrl = (projectId: string, id: st
 export const environmentsFileSystemLinkCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemLinkCreateResponse> => {
     return apiMutator<environmentsFileSystemLinkCreateResponse>(getEnvironmentsFileSystemLinkCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -8147,14 +8147,14 @@ export const getEnvironmentsFileSystemMoveCreateUrl = (projectId: string, id: st
 export const environmentsFileSystemMoveCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemMoveCreateResponse> => {
     return apiMutator<environmentsFileSystemMoveCreateResponse>(getEnvironmentsFileSystemMoveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -8178,7 +8178,7 @@ export const getEnvironmentsFileSystemCountByPathCreateUrl = (projectId: string)
 
 export const environmentsFileSystemCountByPathCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemCountByPathCreateResponse> => {
     return apiMutator<environmentsFileSystemCountByPathCreateResponse>(
@@ -8187,7 +8187,7 @@ export const environmentsFileSystemCountByPathCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystem),
+            body: JSON.stringify(fileSystemApi),
         }
     )
 }
@@ -8235,7 +8235,7 @@ export const getEnvironmentsFileSystemLogViewCreateUrl = (projectId: string) => 
 
 export const environmentsFileSystemLogViewCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemLogViewCreateResponse> => {
     return apiMutator<environmentsFileSystemLogViewCreateResponse>(
@@ -8244,7 +8244,7 @@ export const environmentsFileSystemLogViewCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystem),
+            body: JSON.stringify(fileSystemApi),
         }
     )
 }
@@ -8266,7 +8266,7 @@ export const getEnvironmentsFileSystemUndoDeleteCreateUrl = (projectId: string) 
 
 export const environmentsFileSystemUndoDeleteCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<environmentsFileSystemUndoDeleteCreateResponse> => {
     return apiMutator<environmentsFileSystemUndoDeleteCreateResponse>(
@@ -8275,7 +8275,7 @@ export const environmentsFileSystemUndoDeleteCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(fileSystem),
+            body: JSON.stringify(fileSystemApi),
         }
     )
 }
@@ -8311,7 +8311,7 @@ export const environmentsFileSystemUnfiledRetrieve = async (
  * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
  */
 export type environmentsGroupsListResponse200 = {
-    data: PaginatedGroupList
+    data: PaginatedGroupListApi
     status: 200
 }
 
@@ -8348,7 +8348,7 @@ export const environmentsGroupsList = async (
 }
 
 export type environmentsGroupsCreateResponse201 = {
-    data: Group
+    data: GroupApi
     status: 201
 }
 
@@ -8363,14 +8363,14 @@ export const getEnvironmentsGroupsCreateUrl = (projectId: string) => {
 
 export const environmentsGroupsCreate = async (
     projectId: string,
-    createGroup: CreateGroup,
+    createGroupApi: CreateGroupApi,
     options?: RequestInit
 ): Promise<environmentsGroupsCreateResponse> => {
     return apiMutator<environmentsGroupsCreateResponse>(getEnvironmentsGroupsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(createGroup),
+        body: JSON.stringify(createGroupApi),
     })
 }
 
@@ -8449,7 +8449,7 @@ export const getEnvironmentsGroupsDeletePropertyCreateUrl = (
 
 export const environmentsGroupsDeletePropertyCreate = async (
     projectId: string,
-    group: NonReadonly<Group>,
+    groupApi: NonReadonly<GroupApi>,
     params: EnvironmentsGroupsDeletePropertyCreateParams,
     options?: RequestInit
 ): Promise<environmentsGroupsDeletePropertyCreateResponse> => {
@@ -8459,7 +8459,7 @@ export const environmentsGroupsDeletePropertyCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(group),
+            body: JSON.stringify(groupApi),
         }
     )
 }
@@ -8636,7 +8636,7 @@ export const getEnvironmentsGroupsUpdatePropertyCreateUrl = (
 
 export const environmentsGroupsUpdatePropertyCreate = async (
     projectId: string,
-    group: NonReadonly<Group>,
+    groupApi: NonReadonly<GroupApi>,
     params: EnvironmentsGroupsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<environmentsGroupsUpdatePropertyCreateResponse> => {
@@ -8646,13 +8646,13 @@ export const environmentsGroupsUpdatePropertyCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(group),
+            body: JSON.stringify(groupApi),
         }
     )
 }
 
 export type environmentsInsightsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -8683,7 +8683,7 @@ export const environmentsInsightsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type environmentsInsightsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -8701,7 +8701,7 @@ export const getEnvironmentsInsightsSharingPasswordsCreateUrl = (projectId: stri
 export const environmentsInsightsSharingPasswordsCreate = async (
     projectId: string,
     insightId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsInsightsSharingPasswordsCreateResponse> => {
     return apiMutator<environmentsInsightsSharingPasswordsCreateResponse>(
@@ -8710,7 +8710,7 @@ export const environmentsInsightsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -8754,7 +8754,7 @@ export const environmentsInsightsSharingPasswordsDestroy = async (
 }
 
 export type environmentsInsightsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -8771,7 +8771,7 @@ export const getEnvironmentsInsightsSharingRefreshCreateUrl = (projectId: string
 export const environmentsInsightsSharingRefreshCreate = async (
     projectId: string,
     insightId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsInsightsSharingRefreshCreateResponse> => {
     return apiMutator<environmentsInsightsSharingRefreshCreateResponse>(
@@ -8780,13 +8780,13 @@ export const environmentsInsightsSharingRefreshCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
 
 export type environmentsIntegrationsListResponse200 = {
-    data: PaginatedIntegrationList
+    data: PaginatedIntegrationListApi
     status: 200
 }
 
@@ -8823,7 +8823,7 @@ export const environmentsIntegrationsList = async (
 }
 
 export type environmentsIntegrationsCreateResponse201 = {
-    data: Integration
+    data: IntegrationApi
     status: 201
 }
 
@@ -8838,19 +8838,19 @@ export const getEnvironmentsIntegrationsCreateUrl = (projectId: string) => {
 
 export const environmentsIntegrationsCreate = async (
     projectId: string,
-    integration: NonReadonly<Integration>,
+    integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
 ): Promise<environmentsIntegrationsCreateResponse> => {
     return apiMutator<environmentsIntegrationsCreateResponse>(getEnvironmentsIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integration),
+        body: JSON.stringify(integrationApi),
     })
 }
 
 export type environmentsIntegrationsRetrieveResponse200 = {
-    data: Integration
+    data: IntegrationApi
     status: 200
 }
 
@@ -9036,7 +9036,7 @@ export const getEnvironmentsIntegrationsEmailVerifyCreateUrl = (projectId: strin
 export const environmentsIntegrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integration: NonReadonly<Integration>,
+    integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
 ): Promise<environmentsIntegrationsEmailVerifyCreateResponse> => {
     return apiMutator<environmentsIntegrationsEmailVerifyCreateResponse>(
@@ -9045,7 +9045,7 @@ export const environmentsIntegrationsEmailVerifyCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(integration),
+            body: JSON.stringify(integrationApi),
         }
     )
 }
@@ -9289,7 +9289,7 @@ export const environmentsIntegrationsAuthorizeRetrieve = async (
 }
 
 export type environmentsSessionRecordingsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -9321,7 +9321,7 @@ export const environmentsSessionRecordingsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type environmentsSessionRecordingsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -9339,7 +9339,7 @@ export const getEnvironmentsSessionRecordingsSharingPasswordsCreateUrl = (projec
 export const environmentsSessionRecordingsSharingPasswordsCreate = async (
     projectId: string,
     recordingId: string,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingsSharingPasswordsCreateResponse> => {
     return apiMutator<environmentsSessionRecordingsSharingPasswordsCreateResponse>(
@@ -9348,7 +9348,7 @@ export const environmentsSessionRecordingsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -9392,7 +9392,7 @@ export const environmentsSessionRecordingsSharingPasswordsDestroy = async (
 }
 
 export type environmentsSessionRecordingsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -9410,7 +9410,7 @@ export const getEnvironmentsSessionRecordingsSharingRefreshCreateUrl = (projectI
 export const environmentsSessionRecordingsSharingRefreshCreate = async (
     projectId: string,
     recordingId: string,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingsSharingRefreshCreateResponse> => {
     return apiMutator<environmentsSessionRecordingsSharingRefreshCreateResponse>(
@@ -9419,13 +9419,13 @@ export const environmentsSessionRecordingsSharingRefreshCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
 
 export type environmentsSubscriptionsListResponse200 = {
-    data: PaginatedSubscriptionList
+    data: PaginatedSubscriptionListApi
     status: 200
 }
 
@@ -9465,7 +9465,7 @@ export const environmentsSubscriptionsList = async (
 }
 
 export type environmentsSubscriptionsCreateResponse201 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 201
 }
 
@@ -9480,19 +9480,19 @@ export const getEnvironmentsSubscriptionsCreateUrl = (projectId: string) => {
 
 export const environmentsSubscriptionsCreate = async (
     projectId: string,
-    subscription: NonReadonly<Subscription>,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
 ): Promise<environmentsSubscriptionsCreateResponse> => {
     return apiMutator<environmentsSubscriptionsCreateResponse>(getEnvironmentsSubscriptionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscription),
+        body: JSON.stringify(subscriptionApi),
     })
 }
 
 export type environmentsSubscriptionsRetrieveResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -9520,7 +9520,7 @@ export const environmentsSubscriptionsRetrieve = async (
 }
 
 export type environmentsSubscriptionsUpdateResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -9536,19 +9536,19 @@ export const getEnvironmentsSubscriptionsUpdateUrl = (projectId: string, id: num
 export const environmentsSubscriptionsUpdate = async (
     projectId: string,
     id: number,
-    subscription: NonReadonly<Subscription>,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
 ): Promise<environmentsSubscriptionsUpdateResponse> => {
     return apiMutator<environmentsSubscriptionsUpdateResponse>(getEnvironmentsSubscriptionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscription),
+        body: JSON.stringify(subscriptionApi),
     })
 }
 
 export type environmentsSubscriptionsPartialUpdateResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -9565,7 +9565,7 @@ export const getEnvironmentsSubscriptionsPartialUpdateUrl = (projectId: string, 
 export const environmentsSubscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedSubscription: NonReadonly<PatchedSubscription>,
+    patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
 ): Promise<environmentsSubscriptionsPartialUpdateResponse> => {
     return apiMutator<environmentsSubscriptionsPartialUpdateResponse>(
@@ -9574,7 +9574,7 @@ export const environmentsSubscriptionsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedSubscription),
+            body: JSON.stringify(patchedSubscriptionApi),
         }
     )
 }
@@ -9608,7 +9608,7 @@ export const environmentsSubscriptionsDestroy = async (
 }
 
 export type domainsListResponse200 = {
-    data: PaginatedOrganizationDomainList
+    data: PaginatedOrganizationDomainListApi
     status: 200
 }
 
@@ -9645,7 +9645,7 @@ export const domainsList = async (
 }
 
 export type domainsCreateResponse201 = {
-    data: OrganizationDomain
+    data: OrganizationDomainApi
     status: 201
 }
 
@@ -9660,19 +9660,19 @@ export const getDomainsCreateUrl = (organizationId: string) => {
 
 export const domainsCreate = async (
     organizationId: string,
-    organizationDomain: NonReadonly<OrganizationDomain>,
+    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
     options?: RequestInit
 ): Promise<domainsCreateResponse> => {
     return apiMutator<domainsCreateResponse>(getDomainsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomain),
+        body: JSON.stringify(organizationDomainApi),
     })
 }
 
 export type domainsRetrieveResponse200 = {
-    data: OrganizationDomain
+    data: OrganizationDomainApi
     status: 200
 }
 
@@ -9697,7 +9697,7 @@ export const domainsRetrieve = async (
 }
 
 export type domainsUpdateResponse200 = {
-    data: OrganizationDomain
+    data: OrganizationDomainApi
     status: 200
 }
 
@@ -9713,19 +9713,19 @@ export const getDomainsUpdateUrl = (organizationId: string, id: string) => {
 export const domainsUpdate = async (
     organizationId: string,
     id: string,
-    organizationDomain: NonReadonly<OrganizationDomain>,
+    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
     options?: RequestInit
 ): Promise<domainsUpdateResponse> => {
     return apiMutator<domainsUpdateResponse>(getDomainsUpdateUrl(organizationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomain),
+        body: JSON.stringify(organizationDomainApi),
     })
 }
 
 export type domainsPartialUpdateResponse200 = {
-    data: OrganizationDomain
+    data: OrganizationDomainApi
     status: 200
 }
 
@@ -9741,14 +9741,14 @@ export const getDomainsPartialUpdateUrl = (organizationId: string, id: string) =
 export const domainsPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedOrganizationDomain: NonReadonly<PatchedOrganizationDomain>,
+    patchedOrganizationDomainApi: NonReadonly<PatchedOrganizationDomainApi>,
     options?: RequestInit
 ): Promise<domainsPartialUpdateResponse> => {
     return apiMutator<domainsPartialUpdateResponse>(getDomainsPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedOrganizationDomain),
+        body: JSON.stringify(patchedOrganizationDomainApi),
     })
 }
 
@@ -9797,14 +9797,14 @@ export const getDomainsScimTokenCreateUrl = (organizationId: string, id: string)
 export const domainsScimTokenCreate = async (
     organizationId: string,
     id: string,
-    organizationDomain: NonReadonly<OrganizationDomain>,
+    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
     options?: RequestInit
 ): Promise<domainsScimTokenCreateResponse> => {
     return apiMutator<domainsScimTokenCreateResponse>(getDomainsScimTokenCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomain),
+        body: JSON.stringify(organizationDomainApi),
     })
 }
 
@@ -9825,19 +9825,19 @@ export const getDomainsVerifyCreateUrl = (organizationId: string, id: string) =>
 export const domainsVerifyCreate = async (
     organizationId: string,
     id: string,
-    organizationDomain: NonReadonly<OrganizationDomain>,
+    organizationDomainApi: NonReadonly<OrganizationDomainApi>,
     options?: RequestInit
 ): Promise<domainsVerifyCreateResponse> => {
     return apiMutator<domainsVerifyCreateResponse>(getDomainsVerifyCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationDomain),
+        body: JSON.stringify(organizationDomainApi),
     })
 }
 
 export type invitesListResponse200 = {
-    data: PaginatedOrganizationInviteList
+    data: PaginatedOrganizationInviteListApi
     status: 200
 }
 
@@ -9874,7 +9874,7 @@ export const invitesList = async (
 }
 
 export type invitesCreateResponse201 = {
-    data: OrganizationInvite
+    data: OrganizationInviteApi
     status: 201
 }
 
@@ -9889,14 +9889,14 @@ export const getInvitesCreateUrl = (organizationId: string) => {
 
 export const invitesCreate = async (
     organizationId: string,
-    organizationInvite: NonReadonly<OrganizationInvite>,
+    organizationInviteApi: NonReadonly<OrganizationInviteApi>,
     options?: RequestInit
 ): Promise<invitesCreateResponse> => {
     return apiMutator<invitesCreateResponse>(getInvitesCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationInvite),
+        body: JSON.stringify(organizationInviteApi),
     })
 }
 
@@ -9941,19 +9941,19 @@ export const getInvitesBulkCreateUrl = (organizationId: string) => {
 
 export const invitesBulkCreate = async (
     organizationId: string,
-    organizationInvite: NonReadonly<OrganizationInvite>,
+    organizationInviteApi: NonReadonly<OrganizationInviteApi>,
     options?: RequestInit
 ): Promise<invitesBulkCreateResponse> => {
     return apiMutator<invitesBulkCreateResponse>(getInvitesBulkCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationInvite),
+        body: JSON.stringify(organizationInviteApi),
     })
 }
 
 export type membersListResponse200 = {
-    data: PaginatedOrganizationMemberList
+    data: PaginatedOrganizationMemberListApi
     status: 200
 }
 
@@ -9990,7 +9990,7 @@ export const membersList = async (
 }
 
 export type membersUpdateResponse200 = {
-    data: OrganizationMember
+    data: OrganizationMemberApi
     status: 200
 }
 
@@ -10006,19 +10006,19 @@ export const getMembersUpdateUrl = (organizationId: string, userUuid: string) =>
 export const membersUpdate = async (
     organizationId: string,
     userUuid: string,
-    organizationMember: NonReadonly<OrganizationMember>,
+    organizationMemberApi: NonReadonly<OrganizationMemberApi>,
     options?: RequestInit
 ): Promise<membersUpdateResponse> => {
     return apiMutator<membersUpdateResponse>(getMembersUpdateUrl(organizationId, userUuid), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organizationMember),
+        body: JSON.stringify(organizationMemberApi),
     })
 }
 
 export type membersPartialUpdateResponse200 = {
-    data: OrganizationMember
+    data: OrganizationMemberApi
     status: 200
 }
 
@@ -10034,14 +10034,14 @@ export const getMembersPartialUpdateUrl = (organizationId: string, userUuid: str
 export const membersPartialUpdate = async (
     organizationId: string,
     userUuid: string,
-    patchedOrganizationMember: NonReadonly<PatchedOrganizationMember>,
+    patchedOrganizationMemberApi: NonReadonly<PatchedOrganizationMemberApi>,
     options?: RequestInit
 ): Promise<membersPartialUpdateResponse> => {
     return apiMutator<membersPartialUpdateResponse>(getMembersPartialUpdateUrl(organizationId, userUuid), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedOrganizationMember),
+        body: JSON.stringify(patchedOrganizationMemberApi),
     })
 }
 
@@ -10071,7 +10071,7 @@ export const membersDestroy = async (
 }
 
 export type membersScopedApiKeysRetrieveResponse200 = {
-    data: OrganizationMember
+    data: OrganizationMemberApi
     status: 200
 }
 
@@ -10102,7 +10102,7 @@ export const membersScopedApiKeysRetrieve = async (
  * Projects for the current organization.
  */
 export type list2Response200 = {
-    data: PaginatedProjectBackwardCompatBasicList
+    data: PaginatedProjectBackwardCompatBasicListApi
     status: 200
 }
 
@@ -10142,7 +10142,7 @@ export const list2 = async (
  * Projects for the current organization.
  */
 export type create2Response201 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 201
 }
 
@@ -10157,14 +10157,14 @@ export const getCreate2Url = (organizationId: string) => {
 
 export const create2 = async (
     organizationId: string,
-    projectBackwardCompat: NonReadonly<ProjectBackwardCompat>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<create2Response> => {
     return apiMutator<create2Response>(getCreate2Url(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(projectBackwardCompat),
+        body: JSON.stringify(projectBackwardCompatApi),
     })
 }
 
@@ -10172,7 +10172,7 @@ export const create2 = async (
  * Projects for the current organization.
  */
 export type retrieve2Response200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10200,7 +10200,7 @@ export const retrieve2 = async (
  * Projects for the current organization.
  */
 export type update2Response200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10216,14 +10216,14 @@ export const getUpdate2Url = (organizationId: string, id: number) => {
 export const update2 = async (
     organizationId: string,
     id: number,
-    projectBackwardCompat: NonReadonly<ProjectBackwardCompat>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<update2Response> => {
     return apiMutator<update2Response>(getUpdate2Url(organizationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(projectBackwardCompat),
+        body: JSON.stringify(projectBackwardCompatApi),
     })
 }
 
@@ -10231,7 +10231,7 @@ export const update2 = async (
  * Projects for the current organization.
  */
 export type partialUpdate2Response200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10247,14 +10247,14 @@ export const getPartialUpdate2Url = (organizationId: string, id: number) => {
 export const partialUpdate2 = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<partialUpdate2Response> => {
     return apiMutator<partialUpdate2Response>(getPartialUpdate2Url(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedProjectBackwardCompat),
+        body: JSON.stringify(patchedProjectBackwardCompatApi),
     })
 }
 
@@ -10290,7 +10290,7 @@ export const destroy2 = async (
  * Projects for the current organization.
  */
 export type activityRetrieveResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10318,7 +10318,7 @@ export const activityRetrieve = async (
  * Projects for the current organization.
  */
 export type addProductIntentPartialUpdateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10334,14 +10334,14 @@ export const getAddProductIntentPartialUpdateUrl = (organizationId: string, id: 
 export const addProductIntentPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<addProductIntentPartialUpdateResponse> => {
     return apiMutator<addProductIntentPartialUpdateResponse>(getAddProductIntentPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedProjectBackwardCompat),
+        body: JSON.stringify(patchedProjectBackwardCompatApi),
     })
 }
 
@@ -10349,7 +10349,7 @@ export const addProductIntentPartialUpdate = async (
  * Projects for the current organization.
  */
 export type changeOrganizationCreateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10365,14 +10365,14 @@ export const getChangeOrganizationCreateUrl = (organizationId: string, id: numbe
 export const changeOrganizationCreate = async (
     organizationId: string,
     id: number,
-    projectBackwardCompat: NonReadonly<ProjectBackwardCompat>,
+    projectBackwardCompatApi: NonReadonly<ProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<changeOrganizationCreateResponse> => {
     return apiMutator<changeOrganizationCreateResponse>(getChangeOrganizationCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(projectBackwardCompat),
+        body: JSON.stringify(projectBackwardCompatApi),
     })
 }
 
@@ -10380,7 +10380,7 @@ export const changeOrganizationCreate = async (
  * Projects for the current organization.
  */
 export type completeProductOnboardingPartialUpdateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10397,7 +10397,7 @@ export const getCompleteProductOnboardingPartialUpdateUrl = (organizationId: str
 export const completeProductOnboardingPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<completeProductOnboardingPartialUpdateResponse> => {
     return apiMutator<completeProductOnboardingPartialUpdateResponse>(
@@ -10406,7 +10406,7 @@ export const completeProductOnboardingPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompat),
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
@@ -10415,7 +10415,7 @@ export const completeProductOnboardingPartialUpdate = async (
  * Projects for the current organization.
  */
 export type deleteSecretTokenBackupPartialUpdateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10431,7 +10431,7 @@ export const getDeleteSecretTokenBackupPartialUpdateUrl = (organizationId: strin
 export const deleteSecretTokenBackupPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<deleteSecretTokenBackupPartialUpdateResponse> => {
     return apiMutator<deleteSecretTokenBackupPartialUpdateResponse>(
@@ -10440,7 +10440,7 @@ export const deleteSecretTokenBackupPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompat),
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
@@ -10449,7 +10449,7 @@ export const deleteSecretTokenBackupPartialUpdate = async (
  * Projects for the current organization.
  */
 export type isGeneratingDemoDataRetrieveResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10477,7 +10477,7 @@ export const isGeneratingDemoDataRetrieve = async (
  * Projects for the current organization.
  */
 export type resetTokenPartialUpdateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10493,14 +10493,14 @@ export const getResetTokenPartialUpdateUrl = (organizationId: string, id: number
 export const resetTokenPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<resetTokenPartialUpdateResponse> => {
     return apiMutator<resetTokenPartialUpdateResponse>(getResetTokenPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedProjectBackwardCompat),
+        body: JSON.stringify(patchedProjectBackwardCompatApi),
     })
 }
 
@@ -10508,7 +10508,7 @@ export const resetTokenPartialUpdate = async (
  * Projects for the current organization.
  */
 export type rotateSecretTokenPartialUpdateResponse200 = {
-    data: ProjectBackwardCompat
+    data: ProjectBackwardCompatApi
     status: 200
 }
 
@@ -10524,7 +10524,7 @@ export const getRotateSecretTokenPartialUpdateUrl = (organizationId: string, id:
 export const rotateSecretTokenPartialUpdate = async (
     organizationId: string,
     id: number,
-    patchedProjectBackwardCompat: NonReadonly<PatchedProjectBackwardCompat>,
+    patchedProjectBackwardCompatApi: NonReadonly<PatchedProjectBackwardCompatApi>,
     options?: RequestInit
 ): Promise<rotateSecretTokenPartialUpdateResponse> => {
     return apiMutator<rotateSecretTokenPartialUpdateResponse>(
@@ -10533,13 +10533,13 @@ export const rotateSecretTokenPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedProjectBackwardCompat),
+            body: JSON.stringify(patchedProjectBackwardCompatApi),
         }
     )
 }
 
 export type rolesListResponse200 = {
-    data: PaginatedRoleList
+    data: PaginatedRoleListApi
     status: 200
 }
 
@@ -10576,7 +10576,7 @@ export const rolesList = async (
 }
 
 export type rolesCreateResponse201 = {
-    data: Role
+    data: RoleApi
     status: 201
 }
 
@@ -10591,19 +10591,19 @@ export const getRolesCreateUrl = (organizationId: string) => {
 
 export const rolesCreate = async (
     organizationId: string,
-    role: NonReadonly<Role>,
+    roleApi: NonReadonly<RoleApi>,
     options?: RequestInit
 ): Promise<rolesCreateResponse> => {
     return apiMutator<rolesCreateResponse>(getRolesCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(role),
+        body: JSON.stringify(roleApi),
     })
 }
 
 export type rolesRetrieveResponse200 = {
-    data: Role
+    data: RoleApi
     status: 200
 }
 
@@ -10628,7 +10628,7 @@ export const rolesRetrieve = async (
 }
 
 export type rolesUpdateResponse200 = {
-    data: Role
+    data: RoleApi
     status: 200
 }
 
@@ -10644,19 +10644,19 @@ export const getRolesUpdateUrl = (organizationId: string, id: string) => {
 export const rolesUpdate = async (
     organizationId: string,
     id: string,
-    role: NonReadonly<Role>,
+    roleApi: NonReadonly<RoleApi>,
     options?: RequestInit
 ): Promise<rolesUpdateResponse> => {
     return apiMutator<rolesUpdateResponse>(getRolesUpdateUrl(organizationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(role),
+        body: JSON.stringify(roleApi),
     })
 }
 
 export type rolesPartialUpdateResponse200 = {
-    data: Role
+    data: RoleApi
     status: 200
 }
 
@@ -10672,14 +10672,14 @@ export const getRolesPartialUpdateUrl = (organizationId: string, id: string) => 
 export const rolesPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedRole: NonReadonly<PatchedRole>,
+    patchedRoleApi: NonReadonly<PatchedRoleApi>,
     options?: RequestInit
 ): Promise<rolesPartialUpdateResponse> => {
     return apiMutator<rolesPartialUpdateResponse>(getRolesPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedRole),
+        body: JSON.stringify(patchedRoleApi),
     })
 }
 
@@ -10712,7 +10712,7 @@ export const rolesDestroy = async (
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export type annotationsListResponse200 = {
-    data: PaginatedAnnotationList
+    data: PaginatedAnnotationListApi
     status: 200
 }
 
@@ -10752,7 +10752,7 @@ export const annotationsList = async (
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export type annotationsCreateResponse201 = {
-    data: Annotation
+    data: AnnotationApi
     status: 201
 }
 
@@ -10767,14 +10767,14 @@ export const getAnnotationsCreateUrl = (projectId: string) => {
 
 export const annotationsCreate = async (
     projectId: string,
-    annotation: NonReadonly<Annotation>,
+    annotationApi: NonReadonly<AnnotationApi>,
     options?: RequestInit
 ): Promise<annotationsCreateResponse> => {
     return apiMutator<annotationsCreateResponse>(getAnnotationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotation),
+        body: JSON.stringify(annotationApi),
     })
 }
 
@@ -10782,7 +10782,7 @@ export const annotationsCreate = async (
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export type annotationsRetrieveResponse200 = {
-    data: Annotation
+    data: AnnotationApi
     status: 200
 }
 
@@ -10810,7 +10810,7 @@ export const annotationsRetrieve = async (
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export type annotationsUpdateResponse200 = {
-    data: Annotation
+    data: AnnotationApi
     status: 200
 }
 
@@ -10826,14 +10826,14 @@ export const getAnnotationsUpdateUrl = (projectId: string, id: number) => {
 export const annotationsUpdate = async (
     projectId: string,
     id: number,
-    annotation: NonReadonly<Annotation>,
+    annotationApi: NonReadonly<AnnotationApi>,
     options?: RequestInit
 ): Promise<annotationsUpdateResponse> => {
     return apiMutator<annotationsUpdateResponse>(getAnnotationsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotation),
+        body: JSON.stringify(annotationApi),
     })
 }
 
@@ -10841,7 +10841,7 @@ export const annotationsUpdate = async (
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
 export type annotationsPartialUpdateResponse200 = {
-    data: Annotation
+    data: AnnotationApi
     status: 200
 }
 
@@ -10857,14 +10857,14 @@ export const getAnnotationsPartialUpdateUrl = (projectId: string, id: number) =>
 export const annotationsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedAnnotation: NonReadonly<PatchedAnnotation>,
+    patchedAnnotationApi: NonReadonly<PatchedAnnotationApi>,
     options?: RequestInit
 ): Promise<annotationsPartialUpdateResponse> => {
     return apiMutator<annotationsPartialUpdateResponse>(getAnnotationsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAnnotation),
+        body: JSON.stringify(patchedAnnotationApi),
     })
 }
 
@@ -10897,7 +10897,7 @@ export const annotationsDestroy = async (
 }
 
 export type cohortsListResponse200 = {
-    data: PaginatedCohortList
+    data: PaginatedCohortListApi
     status: 200
 }
 
@@ -10934,7 +10934,7 @@ export const cohortsList = async (
 }
 
 export type cohortsCreateResponse201 = {
-    data: Cohort
+    data: CohortApi
     status: 201
 }
 
@@ -10949,19 +10949,19 @@ export const getCohortsCreateUrl = (projectId: string) => {
 
 export const cohortsCreate = async (
     projectId: string,
-    cohort: NonReadonly<Cohort>,
+    cohortApi: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<cohortsCreateResponse> => {
     return apiMutator<cohortsCreateResponse>(getCohortsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cohort),
+        body: JSON.stringify(cohortApi),
     })
 }
 
 export type cohortsRetrieveResponse200 = {
-    data: Cohort
+    data: CohortApi
     status: 200
 }
 
@@ -10986,7 +10986,7 @@ export const cohortsRetrieve = async (
 }
 
 export type cohortsUpdateResponse200 = {
-    data: Cohort
+    data: CohortApi
     status: 200
 }
 
@@ -11002,19 +11002,19 @@ export const getCohortsUpdateUrl = (projectId: string, id: number) => {
 export const cohortsUpdate = async (
     projectId: string,
     id: number,
-    cohort: NonReadonly<Cohort>,
+    cohortApi: NonReadonly<CohortApi>,
     options?: RequestInit
 ): Promise<cohortsUpdateResponse> => {
     return apiMutator<cohortsUpdateResponse>(getCohortsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(cohort),
+        body: JSON.stringify(cohortApi),
     })
 }
 
 export type cohortsPartialUpdateResponse200 = {
-    data: Cohort
+    data: CohortApi
     status: 200
 }
 
@@ -11030,14 +11030,14 @@ export const getCohortsPartialUpdateUrl = (projectId: string, id: number) => {
 export const cohortsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedCohort: NonReadonly<PatchedCohort>,
+    patchedCohortApi: NonReadonly<PatchedCohortApi>,
     options?: RequestInit
 ): Promise<cohortsPartialUpdateResponse> => {
     return apiMutator<cohortsPartialUpdateResponse>(getCohortsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedCohort),
+        body: JSON.stringify(patchedCohortApi),
     })
 }
 
@@ -11113,7 +11113,7 @@ export const getCohortsAddPersonsToStaticCohortPartialUpdateUrl = (projectId: st
 export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedAddPersonsToStaticCohortRequest: PatchedAddPersonsToStaticCohortRequest,
+    patchedAddPersonsToStaticCohortRequestApi: PatchedAddPersonsToStaticCohortRequestApi,
     options?: RequestInit
 ): Promise<cohortsAddPersonsToStaticCohortPartialUpdateResponse> => {
     return apiMutator<cohortsAddPersonsToStaticCohortPartialUpdateResponse>(
@@ -11122,7 +11122,7 @@ export const cohortsAddPersonsToStaticCohortPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedAddPersonsToStaticCohortRequest),
+            body: JSON.stringify(patchedAddPersonsToStaticCohortRequestApi),
         }
     )
 }
@@ -11245,7 +11245,7 @@ export const getCohortsRemovePersonFromStaticCohortPartialUpdateUrl = (projectId
 export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedRemovePersonRequest: PatchedRemovePersonRequest,
+    patchedRemovePersonRequestApi: PatchedRemovePersonRequestApi,
     options?: RequestInit
 ): Promise<cohortsRemovePersonFromStaticCohortPartialUpdateResponse> => {
     return apiMutator<cohortsRemovePersonFromStaticCohortPartialUpdateResponse>(
@@ -11254,7 +11254,7 @@ export const cohortsRemovePersonFromStaticCohortPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedRemovePersonRequest),
+            body: JSON.stringify(patchedRemovePersonRequestApi),
         }
     )
 }
@@ -11284,7 +11284,7 @@ export const cohortsActivityRetrieve = async (
 }
 
 export type commentsListResponse200 = {
-    data: PaginatedCommentList
+    data: PaginatedCommentListApi
     status: 200
 }
 
@@ -11321,7 +11321,7 @@ export const commentsList = async (
 }
 
 export type commentsCreateResponse201 = {
-    data: Comment
+    data: CommentApi
     status: 201
 }
 
@@ -11336,19 +11336,19 @@ export const getCommentsCreateUrl = (projectId: string) => {
 
 export const commentsCreate = async (
     projectId: string,
-    comment: NonReadonly<Comment>,
+    commentApi: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<commentsCreateResponse> => {
     return apiMutator<commentsCreateResponse>(getCommentsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(comment),
+        body: JSON.stringify(commentApi),
     })
 }
 
 export type commentsRetrieveResponse200 = {
-    data: Comment
+    data: CommentApi
     status: 200
 }
 
@@ -11373,7 +11373,7 @@ export const commentsRetrieve = async (
 }
 
 export type commentsUpdateResponse200 = {
-    data: Comment
+    data: CommentApi
     status: 200
 }
 
@@ -11389,19 +11389,19 @@ export const getCommentsUpdateUrl = (projectId: string, id: string) => {
 export const commentsUpdate = async (
     projectId: string,
     id: string,
-    comment: NonReadonly<Comment>,
+    commentApi: NonReadonly<CommentApi>,
     options?: RequestInit
 ): Promise<commentsUpdateResponse> => {
     return apiMutator<commentsUpdateResponse>(getCommentsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(comment),
+        body: JSON.stringify(commentApi),
     })
 }
 
 export type commentsPartialUpdateResponse200 = {
-    data: Comment
+    data: CommentApi
     status: 200
 }
 
@@ -11417,14 +11417,14 @@ export const getCommentsPartialUpdateUrl = (projectId: string, id: string) => {
 export const commentsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedComment: NonReadonly<PatchedComment>,
+    patchedCommentApi: NonReadonly<PatchedCommentApi>,
     options?: RequestInit
 ): Promise<commentsPartialUpdateResponse> => {
     return apiMutator<commentsPartialUpdateResponse>(getCommentsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedComment),
+        body: JSON.stringify(patchedCommentApi),
     })
 }
 
@@ -11506,7 +11506,7 @@ export const commentsCountRetrieve = async (
 }
 
 export type dashboardTemplatesListResponse200 = {
-    data: PaginatedDashboardTemplateList
+    data: PaginatedDashboardTemplateListApi
     status: 200
 }
 
@@ -11543,7 +11543,7 @@ export const dashboardTemplatesList = async (
 }
 
 export type dashboardTemplatesCreateResponse201 = {
-    data: DashboardTemplate
+    data: DashboardTemplateApi
     status: 201
 }
 
@@ -11558,19 +11558,19 @@ export const getDashboardTemplatesCreateUrl = (projectId: string) => {
 
 export const dashboardTemplatesCreate = async (
     projectId: string,
-    dashboardTemplate: NonReadonly<DashboardTemplate>,
+    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
 ): Promise<dashboardTemplatesCreateResponse> => {
     return apiMutator<dashboardTemplatesCreateResponse>(getDashboardTemplatesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardTemplate),
+        body: JSON.stringify(dashboardTemplateApi),
     })
 }
 
 export type dashboardTemplatesRetrieveResponse200 = {
-    data: DashboardTemplate
+    data: DashboardTemplateApi
     status: 200
 }
 
@@ -11595,7 +11595,7 @@ export const dashboardTemplatesRetrieve = async (
 }
 
 export type dashboardTemplatesUpdateResponse200 = {
-    data: DashboardTemplate
+    data: DashboardTemplateApi
     status: 200
 }
 
@@ -11611,19 +11611,19 @@ export const getDashboardTemplatesUpdateUrl = (projectId: string, id: string) =>
 export const dashboardTemplatesUpdate = async (
     projectId: string,
     id: string,
-    dashboardTemplate: NonReadonly<DashboardTemplate>,
+    dashboardTemplateApi: NonReadonly<DashboardTemplateApi>,
     options?: RequestInit
 ): Promise<dashboardTemplatesUpdateResponse> => {
     return apiMutator<dashboardTemplatesUpdateResponse>(getDashboardTemplatesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboardTemplate),
+        body: JSON.stringify(dashboardTemplateApi),
     })
 }
 
 export type dashboardTemplatesPartialUpdateResponse200 = {
-    data: DashboardTemplate
+    data: DashboardTemplateApi
     status: 200
 }
 
@@ -11639,14 +11639,14 @@ export const getDashboardTemplatesPartialUpdateUrl = (projectId: string, id: str
 export const dashboardTemplatesPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDashboardTemplate: NonReadonly<PatchedDashboardTemplate>,
+    patchedDashboardTemplateApi: NonReadonly<PatchedDashboardTemplateApi>,
     options?: RequestInit
 ): Promise<dashboardTemplatesPartialUpdateResponse> => {
     return apiMutator<dashboardTemplatesPartialUpdateResponse>(getDashboardTemplatesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboardTemplate),
+        body: JSON.stringify(patchedDashboardTemplateApi),
     })
 }
 
@@ -11706,7 +11706,7 @@ export const dashboardTemplatesJsonSchemaRetrieve = async (
 }
 
 export type dashboardsListResponse200 = {
-    data: PaginatedDashboardBasicList
+    data: PaginatedDashboardBasicListApi
     status: 200
 }
 
@@ -11743,7 +11743,7 @@ export const dashboardsList = async (
 }
 
 export type dashboardsCreateResponse201 = {
-    data: Dashboard
+    data: DashboardApi
     status: 201
 }
 
@@ -11770,7 +11770,7 @@ export const getDashboardsCreateUrl = (projectId: string, params?: DashboardsCre
 
 export const dashboardsCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsCreateParams,
     options?: RequestInit
 ): Promise<dashboardsCreateResponse> => {
@@ -11778,12 +11778,12 @@ export const dashboardsCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboard),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
 export type dashboardsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -11811,7 +11811,7 @@ export const dashboardsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type dashboardsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -11827,7 +11827,7 @@ export const getDashboardsSharingPasswordsCreateUrl = (projectId: string, dashbo
 export const dashboardsSharingPasswordsCreate = async (
     projectId: string,
     dashboardId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<dashboardsSharingPasswordsCreateResponse> => {
     return apiMutator<dashboardsSharingPasswordsCreateResponse>(
@@ -11836,7 +11836,7 @@ export const dashboardsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -11874,7 +11874,7 @@ export const dashboardsSharingPasswordsDestroy = async (
 }
 
 export type dashboardsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -11890,7 +11890,7 @@ export const getDashboardsSharingRefreshCreateUrl = (projectId: string, dashboar
 export const dashboardsSharingRefreshCreate = async (
     projectId: string,
     dashboardId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<dashboardsSharingRefreshCreateResponse> => {
     return apiMutator<dashboardsSharingRefreshCreateResponse>(
@@ -11899,13 +11899,13 @@ export const dashboardsSharingRefreshCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
 
 export type dashboardsRetrieveResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -11943,7 +11943,7 @@ export const dashboardsRetrieve = async (
 }
 
 export type dashboardsUpdateResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -11971,7 +11971,7 @@ export const getDashboardsUpdateUrl = (projectId: string, id: number, params?: D
 export const dashboardsUpdate = async (
     projectId: string,
     id: number,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsUpdateParams,
     options?: RequestInit
 ): Promise<dashboardsUpdateResponse> => {
@@ -11979,12 +11979,12 @@ export const dashboardsUpdate = async (
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(dashboard),
+        body: JSON.stringify(dashboardApi),
     })
 }
 
 export type dashboardsPartialUpdateResponse200 = {
-    data: Dashboard
+    data: DashboardApi
     status: 200
 }
 
@@ -12016,7 +12016,7 @@ export const getDashboardsPartialUpdateUrl = (
 export const dashboardsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboard: NonReadonly<PatchedDashboard>,
+    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsPartialUpdateParams,
     options?: RequestInit
 ): Promise<dashboardsPartialUpdateResponse> => {
@@ -12024,7 +12024,7 @@ export const dashboardsPartialUpdate = async (
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedDashboard),
+        body: JSON.stringify(patchedDashboardApi),
     })
 }
 
@@ -12102,7 +12102,7 @@ export const getDashboardsMoveTilePartialUpdateUrl = (
 export const dashboardsMoveTilePartialUpdate = async (
     projectId: string,
     id: number,
-    patchedDashboard: NonReadonly<PatchedDashboard>,
+    patchedDashboardApi: NonReadonly<PatchedDashboardApi>,
     params?: DashboardsMoveTilePartialUpdateParams,
     options?: RequestInit
 ): Promise<dashboardsMoveTilePartialUpdateResponse> => {
@@ -12112,7 +12112,7 @@ export const dashboardsMoveTilePartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDashboard),
+            body: JSON.stringify(patchedDashboardApi),
         }
     )
 }
@@ -12197,7 +12197,7 @@ export const getDashboardsCreateFromTemplateJsonCreateUrl = (
 
 export const dashboardsCreateFromTemplateJsonCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsCreateFromTemplateJsonCreateParams,
     options?: RequestInit
 ): Promise<dashboardsCreateFromTemplateJsonCreateResponse> => {
@@ -12207,7 +12207,7 @@ export const dashboardsCreateFromTemplateJsonCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dashboard),
+            body: JSON.stringify(dashboardApi),
         }
     )
 }
@@ -12249,7 +12249,7 @@ export const getDashboardsCreateUnlistedDashboardCreateUrl = (
 
 export const dashboardsCreateUnlistedDashboardCreate = async (
     projectId: string,
-    dashboard: NonReadonly<Dashboard>,
+    dashboardApi: NonReadonly<DashboardApi>,
     params?: DashboardsCreateUnlistedDashboardCreateParams,
     options?: RequestInit
 ): Promise<dashboardsCreateUnlistedDashboardCreateResponse> => {
@@ -12259,7 +12259,7 @@ export const dashboardsCreateUnlistedDashboardCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(dashboard),
+            body: JSON.stringify(dashboardApi),
         }
     )
 }
@@ -12486,7 +12486,7 @@ export const eventDefinitionsTypescriptRetrieve = async (
 }
 
 export type exportsListResponse200 = {
-    data: PaginatedExportedAssetList
+    data: PaginatedExportedAssetListApi
     status: 200
 }
 
@@ -12523,7 +12523,7 @@ export const exportsList = async (
 }
 
 export type exportsCreateResponse201 = {
-    data: ExportedAsset
+    data: ExportedAssetApi
     status: 201
 }
 
@@ -12538,19 +12538,19 @@ export const getExportsCreateUrl = (projectId: string) => {
 
 export const exportsCreate = async (
     projectId: string,
-    exportedAsset: NonReadonly<ExportedAsset>,
+    exportedAssetApi: NonReadonly<ExportedAssetApi>,
     options?: RequestInit
 ): Promise<exportsCreateResponse> => {
     return apiMutator<exportsCreateResponse>(getExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(exportedAsset),
+        body: JSON.stringify(exportedAssetApi),
     })
 }
 
 export type exportsRetrieveResponse200 = {
-    data: ExportedAsset
+    data: ExportedAssetApi
     status: 200
 }
 
@@ -12600,7 +12600,7 @@ export const exportsContentRetrieve = async (
 }
 
 export type fileSystemListResponse200 = {
-    data: PaginatedFileSystemList
+    data: PaginatedFileSystemListApi
     status: 200
 }
 
@@ -12637,7 +12637,7 @@ export const fileSystemList = async (
 }
 
 export type fileSystemCreateResponse201 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 201
 }
 
@@ -12652,19 +12652,19 @@ export const getFileSystemCreateUrl = (projectId: string) => {
 
 export const fileSystemCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemCreateResponse> => {
     return apiMutator<fileSystemCreateResponse>(getFileSystemCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
 export type fileSystemRetrieveResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -12689,7 +12689,7 @@ export const fileSystemRetrieve = async (
 }
 
 export type fileSystemUpdateResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -12705,19 +12705,19 @@ export const getFileSystemUpdateUrl = (projectId: string, id: string) => {
 export const fileSystemUpdate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemUpdateResponse> => {
     return apiMutator<fileSystemUpdateResponse>(getFileSystemUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
 export type fileSystemPartialUpdateResponse200 = {
-    data: FileSystem
+    data: FileSystemApi
     status: 200
 }
 
@@ -12733,14 +12733,14 @@ export const getFileSystemPartialUpdateUrl = (projectId: string, id: string) => 
 export const fileSystemPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedFileSystem: NonReadonly<PatchedFileSystem>,
+    patchedFileSystemApi: NonReadonly<PatchedFileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemPartialUpdateResponse> => {
     return apiMutator<fileSystemPartialUpdateResponse>(getFileSystemPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedFileSystem),
+        body: JSON.stringify(patchedFileSystemApi),
     })
 }
 
@@ -12789,14 +12789,14 @@ export const getFileSystemCountCreateUrl = (projectId: string, id: string) => {
 export const fileSystemCountCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemCountCreateResponse> => {
     return apiMutator<fileSystemCountCreateResponse>(getFileSystemCountCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12817,14 +12817,14 @@ export const getFileSystemLinkCreateUrl = (projectId: string, id: string) => {
 export const fileSystemLinkCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemLinkCreateResponse> => {
     return apiMutator<fileSystemLinkCreateResponse>(getFileSystemLinkCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12845,14 +12845,14 @@ export const getFileSystemMoveCreateUrl = (projectId: string, id: string) => {
 export const fileSystemMoveCreate = async (
     projectId: string,
     id: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemMoveCreateResponse> => {
     return apiMutator<fileSystemMoveCreateResponse>(getFileSystemMoveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12875,14 +12875,14 @@ export const getFileSystemCountByPathCreateUrl = (projectId: string) => {
 
 export const fileSystemCountByPathCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemCountByPathCreateResponse> => {
     return apiMutator<fileSystemCountByPathCreateResponse>(getFileSystemCountByPathCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12926,14 +12926,14 @@ export const getFileSystemLogViewCreateUrl = (projectId: string) => {
 
 export const fileSystemLogViewCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemLogViewCreateResponse> => {
     return apiMutator<fileSystemLogViewCreateResponse>(getFileSystemLogViewCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12953,14 +12953,14 @@ export const getFileSystemUndoDeleteCreateUrl = (projectId: string) => {
 
 export const fileSystemUndoDeleteCreate = async (
     projectId: string,
-    fileSystem: NonReadonly<FileSystem>,
+    fileSystemApi: NonReadonly<FileSystemApi>,
     options?: RequestInit
 ): Promise<fileSystemUndoDeleteCreateResponse> => {
     return apiMutator<fileSystemUndoDeleteCreateResponse>(getFileSystemUndoDeleteCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(fileSystem),
+        body: JSON.stringify(fileSystemApi),
     })
 }
 
@@ -12992,7 +12992,7 @@ export const fileSystemUnfiledRetrieve = async (
  * List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
  */
 export type groupsListResponse200 = {
-    data: PaginatedGroupList
+    data: PaginatedGroupListApi
     status: 200
 }
 
@@ -13029,7 +13029,7 @@ export const groupsList = async (
 }
 
 export type groupsCreateResponse201 = {
-    data: Group
+    data: GroupApi
     status: 201
 }
 
@@ -13044,14 +13044,14 @@ export const getGroupsCreateUrl = (projectId: string) => {
 
 export const groupsCreate = async (
     projectId: string,
-    createGroup: CreateGroup,
+    createGroupApi: CreateGroupApi,
     options?: RequestInit
 ): Promise<groupsCreateResponse> => {
     return apiMutator<groupsCreateResponse>(getGroupsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(createGroup),
+        body: JSON.stringify(createGroupApi),
     })
 }
 
@@ -13120,7 +13120,7 @@ export const getGroupsDeletePropertyCreateUrl = (projectId: string, params: Grou
 
 export const groupsDeletePropertyCreate = async (
     projectId: string,
-    group: NonReadonly<Group>,
+    groupApi: NonReadonly<GroupApi>,
     params: GroupsDeletePropertyCreateParams,
     options?: RequestInit
 ): Promise<groupsDeletePropertyCreateResponse> => {
@@ -13128,7 +13128,7 @@ export const groupsDeletePropertyCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(group),
+        body: JSON.stringify(groupApi),
     })
 }
 
@@ -13282,7 +13282,7 @@ export const getGroupsUpdatePropertyCreateUrl = (projectId: string, params: Grou
 
 export const groupsUpdatePropertyCreate = async (
     projectId: string,
-    group: NonReadonly<Group>,
+    groupApi: NonReadonly<GroupApi>,
     params: GroupsUpdatePropertyCreateParams,
     options?: RequestInit
 ): Promise<groupsUpdatePropertyCreateResponse> => {
@@ -13290,12 +13290,12 @@ export const groupsUpdatePropertyCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(group),
+        body: JSON.stringify(groupApi),
     })
 }
 
 export type insightsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -13323,7 +13323,7 @@ export const insightsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type insightsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -13339,7 +13339,7 @@ export const getInsightsSharingPasswordsCreateUrl = (projectId: string, insightI
 export const insightsSharingPasswordsCreate = async (
     projectId: string,
     insightId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<insightsSharingPasswordsCreateResponse> => {
     return apiMutator<insightsSharingPasswordsCreateResponse>(
@@ -13348,7 +13348,7 @@ export const insightsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -13386,7 +13386,7 @@ export const insightsSharingPasswordsDestroy = async (
 }
 
 export type insightsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -13402,19 +13402,19 @@ export const getInsightsSharingRefreshCreateUrl = (projectId: string, insightId:
 export const insightsSharingRefreshCreate = async (
     projectId: string,
     insightId: number,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<insightsSharingRefreshCreateResponse> => {
     return apiMutator<insightsSharingRefreshCreateResponse>(getInsightsSharingRefreshCreateUrl(projectId, insightId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sharingConfiguration),
+        body: JSON.stringify(sharingConfigurationApi),
     })
 }
 
 export type integrationsListResponse200 = {
-    data: PaginatedIntegrationList
+    data: PaginatedIntegrationListApi
     status: 200
 }
 
@@ -13451,7 +13451,7 @@ export const integrationsList = async (
 }
 
 export type integrationsCreateResponse201 = {
-    data: Integration
+    data: IntegrationApi
     status: 201
 }
 
@@ -13466,19 +13466,19 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integration: NonReadonly<Integration>,
+    integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
 ): Promise<integrationsCreateResponse> => {
     return apiMutator<integrationsCreateResponse>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integration),
+        body: JSON.stringify(integrationApi),
     })
 }
 
 export type integrationsRetrieveResponse200 = {
-    data: Integration
+    data: IntegrationApi
     status: 200
 }
 
@@ -13650,14 +13650,14 @@ export const getIntegrationsEmailVerifyCreateUrl = (projectId: string, id: numbe
 export const integrationsEmailVerifyCreate = async (
     projectId: string,
     id: number,
-    integration: NonReadonly<Integration>,
+    integrationApi: NonReadonly<IntegrationApi>,
     options?: RequestInit
 ): Promise<integrationsEmailVerifyCreateResponse> => {
     return apiMutator<integrationsEmailVerifyCreateResponse>(getIntegrationsEmailVerifyCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integration),
+        body: JSON.stringify(integrationApi),
     })
 }
 
@@ -13884,7 +13884,7 @@ export const integrationsAuthorizeRetrieve = async (
 }
 
 export type propertyDefinitionsListResponse200 = {
-    data: PaginatedPropertyDefinitionList
+    data: PaginatedPropertyDefinitionListApi
     status: 200
 }
 
@@ -13921,7 +13921,7 @@ export const propertyDefinitionsList = async (
 }
 
 export type propertyDefinitionsRetrieveResponse200 = {
-    data: PropertyDefinition
+    data: PropertyDefinitionApi
     status: 200
 }
 
@@ -13946,7 +13946,7 @@ export const propertyDefinitionsRetrieve = async (
 }
 
 export type propertyDefinitionsUpdateResponse200 = {
-    data: PropertyDefinition
+    data: PropertyDefinitionApi
     status: 200
 }
 
@@ -13962,19 +13962,19 @@ export const getPropertyDefinitionsUpdateUrl = (projectId: string, id: string) =
 export const propertyDefinitionsUpdate = async (
     projectId: string,
     id: string,
-    propertyDefinition: NonReadonly<PropertyDefinition>,
+    propertyDefinitionApi: NonReadonly<PropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<propertyDefinitionsUpdateResponse> => {
     return apiMutator<propertyDefinitionsUpdateResponse>(getPropertyDefinitionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(propertyDefinition),
+        body: JSON.stringify(propertyDefinitionApi),
     })
 }
 
 export type propertyDefinitionsPartialUpdateResponse200 = {
-    data: PropertyDefinition
+    data: PropertyDefinitionApi
     status: 200
 }
 
@@ -13990,14 +13990,14 @@ export const getPropertyDefinitionsPartialUpdateUrl = (projectId: string, id: st
 export const propertyDefinitionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedPropertyDefinition: NonReadonly<PatchedPropertyDefinition>,
+    patchedPropertyDefinitionApi: NonReadonly<PatchedPropertyDefinitionApi>,
     options?: RequestInit
 ): Promise<propertyDefinitionsPartialUpdateResponse> => {
     return apiMutator<propertyDefinitionsPartialUpdateResponse>(getPropertyDefinitionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPropertyDefinition),
+        body: JSON.stringify(patchedPropertyDefinitionApi),
     })
 }
 
@@ -14062,7 +14062,7 @@ export const propertyDefinitionsSeenTogetherRetrieve = async (
  * Create, read, update and delete scheduled changes.
  */
 export type scheduledChangesListResponse200 = {
-    data: PaginatedScheduledChangeList
+    data: PaginatedScheduledChangeListApi
     status: 200
 }
 
@@ -14102,7 +14102,7 @@ export const scheduledChangesList = async (
  * Create, read, update and delete scheduled changes.
  */
 export type scheduledChangesCreateResponse201 = {
-    data: ScheduledChange
+    data: ScheduledChangeApi
     status: 201
 }
 
@@ -14117,14 +14117,14 @@ export const getScheduledChangesCreateUrl = (projectId: string) => {
 
 export const scheduledChangesCreate = async (
     projectId: string,
-    scheduledChange: NonReadonly<ScheduledChange>,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
     options?: RequestInit
 ): Promise<scheduledChangesCreateResponse> => {
     return apiMutator<scheduledChangesCreateResponse>(getScheduledChangesCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(scheduledChange),
+        body: JSON.stringify(scheduledChangeApi),
     })
 }
 
@@ -14132,7 +14132,7 @@ export const scheduledChangesCreate = async (
  * Create, read, update and delete scheduled changes.
  */
 export type scheduledChangesRetrieveResponse200 = {
-    data: ScheduledChange
+    data: ScheduledChangeApi
     status: 200
 }
 
@@ -14160,7 +14160,7 @@ export const scheduledChangesRetrieve = async (
  * Create, read, update and delete scheduled changes.
  */
 export type scheduledChangesUpdateResponse200 = {
-    data: ScheduledChange
+    data: ScheduledChangeApi
     status: 200
 }
 
@@ -14176,14 +14176,14 @@ export const getScheduledChangesUpdateUrl = (projectId: string, id: number) => {
 export const scheduledChangesUpdate = async (
     projectId: string,
     id: number,
-    scheduledChange: NonReadonly<ScheduledChange>,
+    scheduledChangeApi: NonReadonly<ScheduledChangeApi>,
     options?: RequestInit
 ): Promise<scheduledChangesUpdateResponse> => {
     return apiMutator<scheduledChangesUpdateResponse>(getScheduledChangesUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(scheduledChange),
+        body: JSON.stringify(scheduledChangeApi),
     })
 }
 
@@ -14191,7 +14191,7 @@ export const scheduledChangesUpdate = async (
  * Create, read, update and delete scheduled changes.
  */
 export type scheduledChangesPartialUpdateResponse200 = {
-    data: ScheduledChange
+    data: ScheduledChangeApi
     status: 200
 }
 
@@ -14207,14 +14207,14 @@ export const getScheduledChangesPartialUpdateUrl = (projectId: string, id: numbe
 export const scheduledChangesPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedScheduledChange: NonReadonly<PatchedScheduledChange>,
+    patchedScheduledChangeApi: NonReadonly<PatchedScheduledChangeApi>,
     options?: RequestInit
 ): Promise<scheduledChangesPartialUpdateResponse> => {
     return apiMutator<scheduledChangesPartialUpdateResponse>(getScheduledChangesPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedScheduledChange),
+        body: JSON.stringify(patchedScheduledChangeApi),
     })
 }
 
@@ -14247,7 +14247,7 @@ export const scheduledChangesDestroy = async (
 }
 
 export type sessionRecordingsSharingListResponse200 = {
-    data: SharingConfiguration[]
+    data: SharingConfigurationApi[]
     status: 200
 }
 
@@ -14278,7 +14278,7 @@ export const sessionRecordingsSharingList = async (
  * Create a new password for the sharing configuration.
  */
 export type sessionRecordingsSharingPasswordsCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -14295,7 +14295,7 @@ export const getSessionRecordingsSharingPasswordsCreateUrl = (projectId: string,
 export const sessionRecordingsSharingPasswordsCreate = async (
     projectId: string,
     recordingId: string,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<sessionRecordingsSharingPasswordsCreateResponse> => {
     return apiMutator<sessionRecordingsSharingPasswordsCreateResponse>(
@@ -14304,7 +14304,7 @@ export const sessionRecordingsSharingPasswordsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
@@ -14347,7 +14347,7 @@ export const sessionRecordingsSharingPasswordsDestroy = async (
 }
 
 export type sessionRecordingsSharingRefreshCreateResponse200 = {
-    data: SharingConfiguration
+    data: SharingConfigurationApi
     status: 200
 }
 
@@ -14363,7 +14363,7 @@ export const getSessionRecordingsSharingRefreshCreateUrl = (projectId: string, r
 export const sessionRecordingsSharingRefreshCreate = async (
     projectId: string,
     recordingId: string,
-    sharingConfiguration: NonReadonly<SharingConfiguration>,
+    sharingConfigurationApi: NonReadonly<SharingConfigurationApi>,
     options?: RequestInit
 ): Promise<sessionRecordingsSharingRefreshCreateResponse> => {
     return apiMutator<sessionRecordingsSharingRefreshCreateResponse>(
@@ -14372,13 +14372,13 @@ export const sessionRecordingsSharingRefreshCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sharingConfiguration),
+            body: JSON.stringify(sharingConfigurationApi),
         }
     )
 }
 
 export type subscriptionsListResponse200 = {
-    data: PaginatedSubscriptionList
+    data: PaginatedSubscriptionListApi
     status: 200
 }
 
@@ -14415,7 +14415,7 @@ export const subscriptionsList = async (
 }
 
 export type subscriptionsCreateResponse201 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 201
 }
 
@@ -14430,19 +14430,19 @@ export const getSubscriptionsCreateUrl = (projectId: string) => {
 
 export const subscriptionsCreate = async (
     projectId: string,
-    subscription: NonReadonly<Subscription>,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
 ): Promise<subscriptionsCreateResponse> => {
     return apiMutator<subscriptionsCreateResponse>(getSubscriptionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscription),
+        body: JSON.stringify(subscriptionApi),
     })
 }
 
 export type subscriptionsRetrieveResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -14467,7 +14467,7 @@ export const subscriptionsRetrieve = async (
 }
 
 export type subscriptionsUpdateResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -14483,19 +14483,19 @@ export const getSubscriptionsUpdateUrl = (projectId: string, id: number) => {
 export const subscriptionsUpdate = async (
     projectId: string,
     id: number,
-    subscription: NonReadonly<Subscription>,
+    subscriptionApi: NonReadonly<SubscriptionApi>,
     options?: RequestInit
 ): Promise<subscriptionsUpdateResponse> => {
     return apiMutator<subscriptionsUpdateResponse>(getSubscriptionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(subscription),
+        body: JSON.stringify(subscriptionApi),
     })
 }
 
 export type subscriptionsPartialUpdateResponse200 = {
-    data: Subscription
+    data: SubscriptionApi
     status: 200
 }
 
@@ -14511,14 +14511,14 @@ export const getSubscriptionsPartialUpdateUrl = (projectId: string, id: number) 
 export const subscriptionsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedSubscription: NonReadonly<PatchedSubscription>,
+    patchedSubscriptionApi: NonReadonly<PatchedSubscriptionApi>,
     options?: RequestInit
 ): Promise<subscriptionsPartialUpdateResponse> => {
     return apiMutator<subscriptionsPartialUpdateResponse>(getSubscriptionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSubscription),
+        body: JSON.stringify(patchedSubscriptionApi),
     })
 }
 
@@ -14551,7 +14551,7 @@ export const subscriptionsDestroy = async (
 }
 
 export type usersListResponse200 = {
-    data: PaginatedUserList
+    data: PaginatedUserListApi
     status: 200
 }
 
@@ -14582,7 +14582,7 @@ export const usersList = async (params?: UsersListParams, options?: RequestInit)
 }
 
 export type usersRetrieveResponse200 = {
-    data: User
+    data: UserApi
     status: 200
 }
 
@@ -14603,7 +14603,7 @@ export const usersRetrieve = async (uuid: string, options?: RequestInit): Promis
 }
 
 export type usersUpdateResponse200 = {
-    data: User
+    data: UserApi
     status: 200
 }
 
@@ -14618,19 +14618,19 @@ export const getUsersUpdateUrl = (uuid: string) => {
 
 export const usersUpdate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersUpdateResponse> => {
     return apiMutator<usersUpdateResponse>(getUsersUpdateUrl(uuid), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
 export type usersPartialUpdateResponse200 = {
-    data: User
+    data: UserApi
     status: 200
 }
 
@@ -14645,14 +14645,14 @@ export const getUsersPartialUpdateUrl = (uuid: string) => {
 
 export const usersPartialUpdate = async (
     uuid: string,
-    patchedUser: NonReadonly<PatchedUser>,
+    patchedUserApi: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<usersPartialUpdateResponse> => {
     return apiMutator<usersPartialUpdateResponse>(getUsersPartialUpdateUrl(uuid), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUser),
+        body: JSON.stringify(patchedUserApi),
     })
 }
 
@@ -14717,14 +14717,14 @@ export const getUsersHedgehogConfigPartialUpdateUrl = (uuid: string) => {
 
 export const usersHedgehogConfigPartialUpdate = async (
     uuid: string,
-    patchedUser: NonReadonly<PatchedUser>,
+    patchedUserApi: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<usersHedgehogConfigPartialUpdateResponse> => {
     return apiMutator<usersHedgehogConfigPartialUpdateResponse>(getUsersHedgehogConfigPartialUpdateUrl(uuid), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedUser),
+        body: JSON.stringify(patchedUserApi),
     })
 }
 
@@ -14744,14 +14744,14 @@ export const getUsersScenePersonalisationCreateUrl = (uuid: string) => {
 
 export const usersScenePersonalisationCreate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersScenePersonalisationCreateResponse> => {
     return apiMutator<usersScenePersonalisationCreateResponse>(getUsersScenePersonalisationCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -14798,14 +14798,14 @@ export const getUsersTwoFactorBackupCodesCreateUrl = (uuid: string) => {
 
 export const usersTwoFactorBackupCodesCreate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersTwoFactorBackupCodesCreateResponse> => {
     return apiMutator<usersTwoFactorBackupCodesCreateResponse>(getUsersTwoFactorBackupCodesCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -14828,14 +14828,14 @@ export const getUsersTwoFactorDisableCreateUrl = (uuid: string) => {
 
 export const usersTwoFactorDisableCreate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersTwoFactorDisableCreateResponse> => {
     return apiMutator<usersTwoFactorDisableCreateResponse>(getUsersTwoFactorDisableCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -14906,14 +14906,14 @@ export const getUsersTwoFactorValidateCreateUrl = (uuid: string) => {
 
 export const usersTwoFactorValidateCreate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersTwoFactorValidateCreateResponse> => {
     return apiMutator<usersTwoFactorValidateCreateResponse>(getUsersTwoFactorValidateCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -14933,14 +14933,14 @@ export const getUsersValidate2faCreateUrl = (uuid: string) => {
 
 export const usersValidate2faCreate = async (
     uuid: string,
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersValidate2faCreateResponse> => {
     return apiMutator<usersValidate2faCreateResponse>(getUsersValidate2faCreateUrl(uuid), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -14961,7 +14961,7 @@ export const getUsersCancelEmailChangeRequestPartialUpdateUrl = () => {
 }
 
 export const usersCancelEmailChangeRequestPartialUpdate = async (
-    patchedUser: NonReadonly<PatchedUser>,
+    patchedUserApi: NonReadonly<PatchedUserApi>,
     options?: RequestInit
 ): Promise<usersCancelEmailChangeRequestPartialUpdateResponse> => {
     return apiMutator<usersCancelEmailChangeRequestPartialUpdateResponse>(
@@ -14970,7 +14970,7 @@ export const usersCancelEmailChangeRequestPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedUser),
+            body: JSON.stringify(patchedUserApi),
         }
     )
 }
@@ -14990,14 +14990,14 @@ export const getUsersRequestEmailVerificationCreateUrl = () => {
 }
 
 export const usersRequestEmailVerificationCreate = async (
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersRequestEmailVerificationCreateResponse> => {
     return apiMutator<usersRequestEmailVerificationCreateResponse>(getUsersRequestEmailVerificationCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -15016,14 +15016,14 @@ export const getUsersVerifyEmailCreateUrl = () => {
 }
 
 export const usersVerifyEmailCreate = async (
-    user: NonReadonly<User>,
+    userApi: NonReadonly<UserApi>,
     options?: RequestInit
 ): Promise<usersVerifyEmailCreateResponse> => {
     return apiMutator<usersVerifyEmailCreateResponse>(getUsersVerifyEmailCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(user),
+        body: JSON.stringify(userApi),
     })
 }
 
@@ -15033,7 +15033,7 @@ export const usersVerifyEmailCreate = async (
 Standard CRUD operations plus transcript management as a subresource.
  */
 export type environmentsDesktopRecordingsListResponse200 = {
-    data: PaginatedDesktopRecordingList
+    data: PaginatedDesktopRecordingListApi
     status: 200
 }
 
@@ -15079,7 +15079,7 @@ export const environmentsDesktopRecordingsList = async (
  * Create a new recording and get Recall.ai upload token for the desktop SDK
  */
 export type environmentsDesktopRecordingsCreateResponse201 = {
-    data: CreateRecordingResponse
+    data: CreateRecordingResponseApi
     status: 201
 }
 
@@ -15094,7 +15094,7 @@ export const getEnvironmentsDesktopRecordingsCreateUrl = (projectId: string) => 
 
 export const environmentsDesktopRecordingsCreate = async (
     projectId: string,
-    createRecordingRequest: CreateRecordingRequest,
+    createRecordingRequestApi: CreateRecordingRequestApi,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsCreateResponse> => {
     return apiMutator<environmentsDesktopRecordingsCreateResponse>(
@@ -15103,7 +15103,7 @@ export const environmentsDesktopRecordingsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(createRecordingRequest),
+            body: JSON.stringify(createRecordingRequestApi),
         }
     )
 }
@@ -15114,7 +15114,7 @@ export const environmentsDesktopRecordingsCreate = async (
 Standard CRUD operations plus transcript management as a subresource.
  */
 export type environmentsDesktopRecordingsRetrieveResponse200 = {
-    data: DesktopRecording
+    data: DesktopRecordingApi
     status: 200
 }
 
@@ -15147,7 +15147,7 @@ export const environmentsDesktopRecordingsRetrieve = async (
 Standard CRUD operations plus transcript management as a subresource.
  */
 export type environmentsDesktopRecordingsUpdateResponse200 = {
-    data: DesktopRecording
+    data: DesktopRecordingApi
     status: 200
 }
 
@@ -15163,7 +15163,7 @@ export const getEnvironmentsDesktopRecordingsUpdateUrl = (projectId: string, id:
 export const environmentsDesktopRecordingsUpdate = async (
     projectId: string,
     id: string,
-    desktopRecording: NonReadonly<DesktopRecording>,
+    desktopRecordingApi: NonReadonly<DesktopRecordingApi>,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsUpdateResponse> => {
     return apiMutator<environmentsDesktopRecordingsUpdateResponse>(
@@ -15172,7 +15172,7 @@ export const environmentsDesktopRecordingsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(desktopRecording),
+            body: JSON.stringify(desktopRecordingApi),
         }
     )
 }
@@ -15183,7 +15183,7 @@ export const environmentsDesktopRecordingsUpdate = async (
 Standard CRUD operations plus transcript management as a subresource.
  */
 export type environmentsDesktopRecordingsPartialUpdateResponse200 = {
-    data: DesktopRecording
+    data: DesktopRecordingApi
     status: 200
 }
 
@@ -15201,7 +15201,7 @@ export const getEnvironmentsDesktopRecordingsPartialUpdateUrl = (projectId: stri
 export const environmentsDesktopRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedDesktopRecording: NonReadonly<PatchedDesktopRecording>,
+    patchedDesktopRecordingApi: NonReadonly<PatchedDesktopRecordingApi>,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsPartialUpdateResponse> => {
     return apiMutator<environmentsDesktopRecordingsPartialUpdateResponse>(
@@ -15210,7 +15210,7 @@ export const environmentsDesktopRecordingsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedDesktopRecording),
+            body: JSON.stringify(patchedDesktopRecordingApi),
         }
     )
 }
@@ -15252,7 +15252,7 @@ export const environmentsDesktopRecordingsDestroy = async (
  * Append transcript segments (supports batched real-time streaming)
  */
 export type environmentsDesktopRecordingsAppendSegmentsCreateResponse200 = {
-    data: DesktopRecording
+    data: DesktopRecordingApi
     status: 200
 }
 
@@ -15270,7 +15270,7 @@ export const getEnvironmentsDesktopRecordingsAppendSegmentsCreateUrl = (projectI
 export const environmentsDesktopRecordingsAppendSegmentsCreate = async (
     projectId: string,
     id: string,
-    appendSegments: AppendSegments,
+    appendSegmentsApi: AppendSegmentsApi,
     options?: RequestInit
 ): Promise<environmentsDesktopRecordingsAppendSegmentsCreateResponse> => {
     return apiMutator<environmentsDesktopRecordingsAppendSegmentsCreateResponse>(
@@ -15279,13 +15279,13 @@ export const environmentsDesktopRecordingsAppendSegmentsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(appendSegments),
+            body: JSON.stringify(appendSegmentsApi),
         }
     )
 }
 
 export type environmentsHogFunctionsListResponse200 = {
-    data: PaginatedHogFunctionMinimalList
+    data: PaginatedHogFunctionMinimalListApi
     status: 200
 }
 
@@ -15331,7 +15331,7 @@ export const environmentsHogFunctionsList = async (
 }
 
 export type environmentsHogFunctionsCreateResponse201 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 201
 }
 
@@ -15346,19 +15346,19 @@ export const getEnvironmentsHogFunctionsCreateUrl = (projectId: string) => {
 
 export const environmentsHogFunctionsCreate = async (
     projectId: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsCreateResponse> => {
     return apiMutator<environmentsHogFunctionsCreateResponse>(getEnvironmentsHogFunctionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
 export type environmentsHogFunctionsRetrieveResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15383,7 +15383,7 @@ export const environmentsHogFunctionsRetrieve = async (
 }
 
 export type environmentsHogFunctionsUpdateResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15399,19 +15399,19 @@ export const getEnvironmentsHogFunctionsUpdateUrl = (projectId: string, id: stri
 export const environmentsHogFunctionsUpdate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsUpdateResponse> => {
     return apiMutator<environmentsHogFunctionsUpdateResponse>(getEnvironmentsHogFunctionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
 export type environmentsHogFunctionsPartialUpdateResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15427,7 +15427,7 @@ export const getEnvironmentsHogFunctionsPartialUpdateUrl = (projectId: string, i
 export const environmentsHogFunctionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFunction: NonReadonly<PatchedHogFunction>,
+    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsPartialUpdateResponse> => {
     return apiMutator<environmentsHogFunctionsPartialUpdateResponse>(
@@ -15436,7 +15436,7 @@ export const environmentsHogFunctionsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedHogFunction),
+            body: JSON.stringify(patchedHogFunctionApi),
         }
     )
 }
@@ -15487,7 +15487,7 @@ export const getEnvironmentsHogFunctionsBroadcastCreateUrl = (projectId: string,
 export const environmentsHogFunctionsBroadcastCreate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsBroadcastCreateResponse> => {
     return apiMutator<environmentsHogFunctionsBroadcastCreateResponse>(
@@ -15496,7 +15496,7 @@ export const environmentsHogFunctionsBroadcastCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(hogFunction),
+            body: JSON.stringify(hogFunctionApi),
         }
     )
 }
@@ -15519,7 +15519,7 @@ export const getEnvironmentsHogFunctionsInvocationsCreateUrl = (projectId: strin
 export const environmentsHogFunctionsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsInvocationsCreateResponse> => {
     return apiMutator<environmentsHogFunctionsInvocationsCreateResponse>(
@@ -15528,7 +15528,7 @@ export const environmentsHogFunctionsInvocationsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(hogFunction),
+            body: JSON.stringify(hogFunctionApi),
         }
     )
 }
@@ -15695,7 +15695,7 @@ export const getEnvironmentsHogFunctionsRearrangePartialUpdateUrl = (projectId: 
 
 export const environmentsHogFunctionsRearrangePartialUpdate = async (
     projectId: string,
-    patchedHogFunction: NonReadonly<PatchedHogFunction>,
+    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<environmentsHogFunctionsRearrangePartialUpdateResponse> => {
     return apiMutator<environmentsHogFunctionsRearrangePartialUpdateResponse>(
@@ -15704,13 +15704,13 @@ export const environmentsHogFunctionsRearrangePartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedHogFunction),
+            body: JSON.stringify(patchedHogFunctionApi),
         }
     )
 }
 
 export type hogFunctionsListResponse200 = {
-    data: PaginatedHogFunctionMinimalList
+    data: PaginatedHogFunctionMinimalListApi
     status: 200
 }
 
@@ -15756,7 +15756,7 @@ export const hogFunctionsList = async (
 }
 
 export type hogFunctionsCreateResponse201 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 201
 }
 
@@ -15771,19 +15771,19 @@ export const getHogFunctionsCreateUrl = (projectId: string) => {
 
 export const hogFunctionsCreate = async (
     projectId: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsCreateResponse> => {
     return apiMutator<hogFunctionsCreateResponse>(getHogFunctionsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
 export type hogFunctionsRetrieveResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15808,7 +15808,7 @@ export const hogFunctionsRetrieve = async (
 }
 
 export type hogFunctionsUpdateResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15824,19 +15824,19 @@ export const getHogFunctionsUpdateUrl = (projectId: string, id: string) => {
 export const hogFunctionsUpdate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsUpdateResponse> => {
     return apiMutator<hogFunctionsUpdateResponse>(getHogFunctionsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
 export type hogFunctionsPartialUpdateResponse200 = {
-    data: HogFunction
+    data: HogFunctionApi
     status: 200
 }
 
@@ -15852,14 +15852,14 @@ export const getHogFunctionsPartialUpdateUrl = (projectId: string, id: string) =
 export const hogFunctionsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedHogFunction: NonReadonly<PatchedHogFunction>,
+    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsPartialUpdateResponse> => {
     return apiMutator<hogFunctionsPartialUpdateResponse>(getHogFunctionsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFunction),
+        body: JSON.stringify(patchedHogFunctionApi),
     })
 }
 
@@ -15908,14 +15908,14 @@ export const getHogFunctionsBroadcastCreateUrl = (projectId: string, id: string)
 export const hogFunctionsBroadcastCreate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsBroadcastCreateResponse> => {
     return apiMutator<hogFunctionsBroadcastCreateResponse>(getHogFunctionsBroadcastCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
@@ -15936,14 +15936,14 @@ export const getHogFunctionsInvocationsCreateUrl = (projectId: string, id: strin
 export const hogFunctionsInvocationsCreate = async (
     projectId: string,
     id: string,
-    hogFunction: NonReadonly<HogFunction>,
+    hogFunctionApi: NonReadonly<HogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsInvocationsCreateResponse> => {
     return apiMutator<hogFunctionsInvocationsCreateResponse>(getHogFunctionsInvocationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(hogFunction),
+        body: JSON.stringify(hogFunctionApi),
     })
 }
 
@@ -16092,14 +16092,14 @@ export const getHogFunctionsRearrangePartialUpdateUrl = (projectId: string) => {
 
 export const hogFunctionsRearrangePartialUpdate = async (
     projectId: string,
-    patchedHogFunction: NonReadonly<PatchedHogFunction>,
+    patchedHogFunctionApi: NonReadonly<PatchedHogFunctionApi>,
     options?: RequestInit
 ): Promise<hogFunctionsRearrangePartialUpdateResponse> => {
     return apiMutator<hogFunctionsRearrangePartialUpdateResponse>(getHogFunctionsRearrangePartialUpdateUrl(projectId), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedHogFunction),
+        body: JSON.stringify(patchedHogFunctionApi),
     })
 }
 
@@ -16128,7 +16128,7 @@ The response includes the summary text and optional metadata.
         
  */
 export type environmentsLlmAnalyticsSummarizationCreateResponse200 = {
-    data: SummarizeResponse
+    data: SummarizeResponseApi
     status: 200
 }
 
@@ -16169,7 +16169,7 @@ export const getEnvironmentsLlmAnalyticsSummarizationCreateUrl = (projectId: str
 
 export const environmentsLlmAnalyticsSummarizationCreate = async (
     projectId: string,
-    summarizeRequest: SummarizeRequest,
+    summarizeRequestApi: SummarizeRequestApi,
     options?: RequestInit
 ): Promise<environmentsLlmAnalyticsSummarizationCreateResponse> => {
     return apiMutator<environmentsLlmAnalyticsSummarizationCreateResponse>(
@@ -16178,7 +16178,7 @@ export const environmentsLlmAnalyticsSummarizationCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(summarizeRequest),
+            body: JSON.stringify(summarizeRequestApi),
         }
     )
 }
@@ -16220,7 +16220,7 @@ The response includes the formatted text and metadata about the rendering.
         
  */
 export type environmentsLlmAnalyticsTextReprCreateResponse200 = {
-    data: TextReprResponse
+    data: TextReprResponseApi
     status: 200
 }
 
@@ -16261,7 +16261,7 @@ export const getEnvironmentsLlmAnalyticsTextReprCreateUrl = (projectId: string) 
 
 export const environmentsLlmAnalyticsTextReprCreate = async (
     projectId: string,
-    textReprRequest: TextReprRequest,
+    textReprRequestApi: TextReprRequestApi,
     options?: RequestInit
 ): Promise<environmentsLlmAnalyticsTextReprCreateResponse> => {
     return apiMutator<environmentsLlmAnalyticsTextReprCreateResponse>(
@@ -16270,7 +16270,7 @@ export const environmentsLlmAnalyticsTextReprCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(textReprRequest),
+            body: JSON.stringify(textReprRequestApi),
         }
     )
 }
@@ -16279,7 +16279,7 @@ export const environmentsLlmAnalyticsTextReprCreate = async (
  * Override list to include synthetic playlists
  */
 export type environmentsSessionRecordingPlaylistsListResponse200 = {
-    data: PaginatedSessionRecordingPlaylistList
+    data: PaginatedSessionRecordingPlaylistListApi
     status: 200
 }
 
@@ -16323,7 +16323,7 @@ export const environmentsSessionRecordingPlaylistsList = async (
 }
 
 export type environmentsSessionRecordingPlaylistsCreateResponse201 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 201
 }
 
@@ -16340,7 +16340,7 @@ export const getEnvironmentsSessionRecordingPlaylistsCreateUrl = (projectId: str
 
 export const environmentsSessionRecordingPlaylistsCreate = async (
     projectId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingPlaylistsCreateResponse> => {
     return apiMutator<environmentsSessionRecordingPlaylistsCreateResponse>(
@@ -16349,13 +16349,13 @@ export const environmentsSessionRecordingPlaylistsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecordingPlaylist),
+            body: JSON.stringify(sessionRecordingPlaylistApi),
         }
     )
 }
 
 export type environmentsSessionRecordingPlaylistsRetrieveResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16385,7 +16385,7 @@ export const environmentsSessionRecordingPlaylistsRetrieve = async (
 }
 
 export type environmentsSessionRecordingPlaylistsUpdateResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16403,7 +16403,7 @@ export const getEnvironmentsSessionRecordingPlaylistsUpdateUrl = (projectId: str
 export const environmentsSessionRecordingPlaylistsUpdate = async (
     projectId: string,
     shortId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingPlaylistsUpdateResponse> => {
     return apiMutator<environmentsSessionRecordingPlaylistsUpdateResponse>(
@@ -16412,13 +16412,13 @@ export const environmentsSessionRecordingPlaylistsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecordingPlaylist),
+            body: JSON.stringify(sessionRecordingPlaylistApi),
         }
     )
 }
 
 export type environmentsSessionRecordingPlaylistsPartialUpdateResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16436,7 +16436,7 @@ export const getEnvironmentsSessionRecordingPlaylistsPartialUpdateUrl = (project
 export const environmentsSessionRecordingPlaylistsPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedSessionRecordingPlaylist: NonReadonly<PatchedSessionRecordingPlaylist>,
+    patchedSessionRecordingPlaylistApi: NonReadonly<PatchedSessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingPlaylistsPartialUpdateResponse> => {
     return apiMutator<environmentsSessionRecordingPlaylistsPartialUpdateResponse>(
@@ -16445,7 +16445,7 @@ export const environmentsSessionRecordingPlaylistsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedSessionRecordingPlaylist),
+            body: JSON.stringify(patchedSessionRecordingPlaylistApi),
         }
     )
 }
@@ -16537,7 +16537,7 @@ export const environmentsSessionRecordingPlaylistsRecordingsCreate = async (
     projectId: string,
     shortId: string,
     sessionRecordingId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingPlaylistsRecordingsCreateResponse> => {
     return apiMutator<environmentsSessionRecordingPlaylistsRecordingsCreateResponse>(
@@ -16546,7 +16546,7 @@ export const environmentsSessionRecordingPlaylistsRecordingsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecordingPlaylist),
+            body: JSON.stringify(sessionRecordingPlaylistApi),
         }
     )
 }
@@ -16587,7 +16587,7 @@ export const environmentsSessionRecordingPlaylistsRecordingsDestroy = async (
 }
 
 export type environmentsSessionRecordingsListResponse200 = {
-    data: PaginatedSessionRecordingList
+    data: PaginatedSessionRecordingListApi
     status: 200
 }
 
@@ -16630,7 +16630,7 @@ export const environmentsSessionRecordingsList = async (
 }
 
 export type environmentsSessionRecordingsRetrieveResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -16658,7 +16658,7 @@ export const environmentsSessionRecordingsRetrieve = async (
 }
 
 export type environmentsSessionRecordingsUpdateResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -16674,7 +16674,7 @@ export const getEnvironmentsSessionRecordingsUpdateUrl = (projectId: string, id:
 export const environmentsSessionRecordingsUpdate = async (
     projectId: string,
     id: string,
-    sessionRecording: NonReadonly<SessionRecording>,
+    sessionRecordingApi: NonReadonly<SessionRecordingApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingsUpdateResponse> => {
     return apiMutator<environmentsSessionRecordingsUpdateResponse>(
@@ -16683,13 +16683,13 @@ export const environmentsSessionRecordingsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecording),
+            body: JSON.stringify(sessionRecordingApi),
         }
     )
 }
 
 export type environmentsSessionRecordingsPartialUpdateResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -16707,7 +16707,7 @@ export const getEnvironmentsSessionRecordingsPartialUpdateUrl = (projectId: stri
 export const environmentsSessionRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSessionRecording: NonReadonly<PatchedSessionRecording>,
+    patchedSessionRecordingApi: NonReadonly<PatchedSessionRecordingApi>,
     options?: RequestInit
 ): Promise<environmentsSessionRecordingsPartialUpdateResponse> => {
     return apiMutator<environmentsSessionRecordingsPartialUpdateResponse>(
@@ -16716,7 +16716,7 @@ export const environmentsSessionRecordingsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedSessionRecording),
+            body: JSON.stringify(patchedSessionRecordingApi),
         }
     )
 }
@@ -16753,7 +16753,7 @@ export const environmentsSessionRecordingsDestroy = async (
  * Override list to include synthetic playlists
  */
 export type sessionRecordingPlaylistsListResponse200 = {
-    data: PaginatedSessionRecordingPlaylistList
+    data: PaginatedSessionRecordingPlaylistListApi
     status: 200
 }
 
@@ -16793,7 +16793,7 @@ export const sessionRecordingPlaylistsList = async (
 }
 
 export type sessionRecordingPlaylistsCreateResponse201 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 201
 }
 
@@ -16808,19 +16808,19 @@ export const getSessionRecordingPlaylistsCreateUrl = (projectId: string) => {
 
 export const sessionRecordingPlaylistsCreate = async (
     projectId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<sessionRecordingPlaylistsCreateResponse> => {
     return apiMutator<sessionRecordingPlaylistsCreateResponse>(getSessionRecordingPlaylistsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingPlaylist),
+        body: JSON.stringify(sessionRecordingPlaylistApi),
     })
 }
 
 export type sessionRecordingPlaylistsRetrieveResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16848,7 +16848,7 @@ export const sessionRecordingPlaylistsRetrieve = async (
 }
 
 export type sessionRecordingPlaylistsUpdateResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16864,7 +16864,7 @@ export const getSessionRecordingPlaylistsUpdateUrl = (projectId: string, shortId
 export const sessionRecordingPlaylistsUpdate = async (
     projectId: string,
     shortId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<sessionRecordingPlaylistsUpdateResponse> => {
     return apiMutator<sessionRecordingPlaylistsUpdateResponse>(
@@ -16873,13 +16873,13 @@ export const sessionRecordingPlaylistsUpdate = async (
             ...options,
             method: 'PUT',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecordingPlaylist),
+            body: JSON.stringify(sessionRecordingPlaylistApi),
         }
     )
 }
 
 export type sessionRecordingPlaylistsPartialUpdateResponse200 = {
-    data: SessionRecordingPlaylist
+    data: SessionRecordingPlaylistApi
     status: 200
 }
 
@@ -16896,7 +16896,7 @@ export const getSessionRecordingPlaylistsPartialUpdateUrl = (projectId: string, 
 export const sessionRecordingPlaylistsPartialUpdate = async (
     projectId: string,
     shortId: string,
-    patchedSessionRecordingPlaylist: NonReadonly<PatchedSessionRecordingPlaylist>,
+    patchedSessionRecordingPlaylistApi: NonReadonly<PatchedSessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<sessionRecordingPlaylistsPartialUpdateResponse> => {
     return apiMutator<sessionRecordingPlaylistsPartialUpdateResponse>(
@@ -16905,7 +16905,7 @@ export const sessionRecordingPlaylistsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedSessionRecordingPlaylist),
+            body: JSON.stringify(patchedSessionRecordingPlaylistApi),
         }
     )
 }
@@ -16994,7 +16994,7 @@ export const sessionRecordingPlaylistsRecordingsCreate = async (
     projectId: string,
     shortId: string,
     sessionRecordingId: string,
-    sessionRecordingPlaylist: NonReadonly<SessionRecordingPlaylist>,
+    sessionRecordingPlaylistApi: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
 ): Promise<sessionRecordingPlaylistsRecordingsCreateResponse> => {
     return apiMutator<sessionRecordingPlaylistsRecordingsCreateResponse>(
@@ -17003,7 +17003,7 @@ export const sessionRecordingPlaylistsRecordingsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(sessionRecordingPlaylist),
+            body: JSON.stringify(sessionRecordingPlaylistApi),
         }
     )
 }
@@ -17044,7 +17044,7 @@ export const sessionRecordingPlaylistsRecordingsDestroy = async (
 }
 
 export type sessionRecordingsListResponse200 = {
-    data: PaginatedSessionRecordingList
+    data: PaginatedSessionRecordingListApi
     status: 200
 }
 
@@ -17081,7 +17081,7 @@ export const sessionRecordingsList = async (
 }
 
 export type sessionRecordingsRetrieveResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -17106,7 +17106,7 @@ export const sessionRecordingsRetrieve = async (
 }
 
 export type sessionRecordingsUpdateResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -17122,19 +17122,19 @@ export const getSessionRecordingsUpdateUrl = (projectId: string, id: string) => 
 export const sessionRecordingsUpdate = async (
     projectId: string,
     id: string,
-    sessionRecording: NonReadonly<SessionRecording>,
+    sessionRecordingApi: NonReadonly<SessionRecordingApi>,
     options?: RequestInit
 ): Promise<sessionRecordingsUpdateResponse> => {
     return apiMutator<sessionRecordingsUpdateResponse>(getSessionRecordingsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecording),
+        body: JSON.stringify(sessionRecordingApi),
     })
 }
 
 export type sessionRecordingsPartialUpdateResponse200 = {
-    data: SessionRecording
+    data: SessionRecordingApi
     status: 200
 }
 
@@ -17150,14 +17150,14 @@ export const getSessionRecordingsPartialUpdateUrl = (projectId: string, id: stri
 export const sessionRecordingsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSessionRecording: NonReadonly<PatchedSessionRecording>,
+    patchedSessionRecordingApi: NonReadonly<PatchedSessionRecordingApi>,
     options?: RequestInit
 ): Promise<sessionRecordingsPartialUpdateResponse> => {
     return apiMutator<sessionRecordingsPartialUpdateResponse>(getSessionRecordingsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSessionRecording),
+        body: JSON.stringify(patchedSessionRecordingApi),
     })
 }
 
@@ -17187,7 +17187,7 @@ export const sessionRecordingsDestroy = async (
 }
 
 export type listResponse200 = {
-    data: PaginatedOrganizationList
+    data: PaginatedOrganizationListApi
     status: 200
 }
 
@@ -17218,7 +17218,7 @@ export const list = async (params?: ListParams, options?: RequestInit): Promise<
 }
 
 export type createResponse201 = {
-    data: Organization
+    data: OrganizationApi
     status: 201
 }
 
@@ -17232,19 +17232,19 @@ export const getCreateUrl = () => {
 }
 
 export const create = async (
-    organization: NonReadonly<Organization>,
+    organizationApi: NonReadonly<OrganizationApi>,
     options?: RequestInit
 ): Promise<createResponse> => {
     return apiMutator<createResponse>(getCreateUrl(), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organization),
+        body: JSON.stringify(organizationApi),
     })
 }
 
 export type retrieveResponse200 = {
-    data: Organization
+    data: OrganizationApi
     status: 200
 }
 
@@ -17265,7 +17265,7 @@ export const retrieve = async (id: string, options?: RequestInit): Promise<retri
 }
 
 export type updateResponse200 = {
-    data: Organization
+    data: OrganizationApi
     status: 200
 }
 
@@ -17280,19 +17280,19 @@ export const getUpdateUrl = (id: string) => {
 
 export const update = async (
     id: string,
-    organization: NonReadonly<Organization>,
+    organizationApi: NonReadonly<OrganizationApi>,
     options?: RequestInit
 ): Promise<updateResponse> => {
     return apiMutator<updateResponse>(getUpdateUrl(id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organization),
+        body: JSON.stringify(organizationApi),
     })
 }
 
 export type partialUpdateResponse200 = {
-    data: Organization
+    data: OrganizationApi
     status: 200
 }
 
@@ -17307,14 +17307,14 @@ export const getPartialUpdateUrl = (id: string) => {
 
 export const partialUpdate = async (
     id: string,
-    patchedOrganization: NonReadonly<PatchedOrganization>,
+    patchedOrganizationApi: NonReadonly<PatchedOrganizationApi>,
     options?: RequestInit
 ): Promise<partialUpdateResponse> => {
     return apiMutator<partialUpdateResponse>(getPartialUpdateUrl(id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedOrganization),
+        body: JSON.stringify(patchedOrganizationApi),
     })
 }
 
@@ -17345,7 +17345,7 @@ The request data should be a mapping of source environment IDs to target environ
 Example: { "2": 2, "116911": 2, "99346": 99346, "140256": 99346 }
  */
 export type environmentsRollbackCreateResponse200 = {
-    data: Organization
+    data: OrganizationApi
     status: 200
 }
 
@@ -17360,14 +17360,14 @@ export const getEnvironmentsRollbackCreateUrl = (id: string) => {
 
 export const environmentsRollbackCreate = async (
     id: string,
-    organization: NonReadonly<Organization>,
+    organizationApi: NonReadonly<OrganizationApi>,
     options?: RequestInit
 ): Promise<environmentsRollbackCreateResponse> => {
     return apiMutator<environmentsRollbackCreateResponse>(getEnvironmentsRollbackCreateUrl(id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(organization),
+        body: JSON.stringify(organizationApi),
     })
 }
 
@@ -17421,7 +17421,7 @@ export const featureFlagsCopyFlagsCreate = async (
 }
 
 export type proxyRecordsListResponse200 = {
-    data: PaginatedProxyRecordList
+    data: PaginatedProxyRecordListApi
     status: 200
 }
 
@@ -17458,7 +17458,7 @@ export const proxyRecordsList = async (
 }
 
 export type proxyRecordsCreateResponse201 = {
-    data: ProxyRecord
+    data: ProxyRecordApi
     status: 201
 }
 
@@ -17473,19 +17473,19 @@ export const getProxyRecordsCreateUrl = (organizationId: string) => {
 
 export const proxyRecordsCreate = async (
     organizationId: string,
-    proxyRecord: NonReadonly<ProxyRecord>,
+    proxyRecordApi: NonReadonly<ProxyRecordApi>,
     options?: RequestInit
 ): Promise<proxyRecordsCreateResponse> => {
     return apiMutator<proxyRecordsCreateResponse>(getProxyRecordsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(proxyRecord),
+        body: JSON.stringify(proxyRecordApi),
     })
 }
 
 export type proxyRecordsRetrieveResponse200 = {
-    data: ProxyRecord
+    data: ProxyRecordApi
     status: 200
 }
 
@@ -17510,7 +17510,7 @@ export const proxyRecordsRetrieve = async (
 }
 
 export type proxyRecordsUpdateResponse200 = {
-    data: ProxyRecord
+    data: ProxyRecordApi
     status: 200
 }
 
@@ -17526,19 +17526,19 @@ export const getProxyRecordsUpdateUrl = (organizationId: string, id: string) => 
 export const proxyRecordsUpdate = async (
     organizationId: string,
     id: string,
-    proxyRecord: NonReadonly<ProxyRecord>,
+    proxyRecordApi: NonReadonly<ProxyRecordApi>,
     options?: RequestInit
 ): Promise<proxyRecordsUpdateResponse> => {
     return apiMutator<proxyRecordsUpdateResponse>(getProxyRecordsUpdateUrl(organizationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(proxyRecord),
+        body: JSON.stringify(proxyRecordApi),
     })
 }
 
 export type proxyRecordsPartialUpdateResponse200 = {
-    data: ProxyRecord
+    data: ProxyRecordApi
     status: 200
 }
 
@@ -17554,14 +17554,14 @@ export const getProxyRecordsPartialUpdateUrl = (organizationId: string, id: stri
 export const proxyRecordsPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedProxyRecord: NonReadonly<PatchedProxyRecord>,
+    patchedProxyRecordApi: NonReadonly<PatchedProxyRecordApi>,
     options?: RequestInit
 ): Promise<proxyRecordsPartialUpdateResponse> => {
     return apiMutator<proxyRecordsPartialUpdateResponse>(getProxyRecordsPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedProxyRecord),
+        body: JSON.stringify(patchedProxyRecordApi),
     })
 }
 
@@ -17591,7 +17591,7 @@ export const proxyRecordsDestroy = async (
 }
 
 export type rolesRoleMembershipsListResponse200 = {
-    data: PaginatedRoleMembershipList
+    data: PaginatedRoleMembershipListApi
     status: 200
 }
 
@@ -17636,7 +17636,7 @@ export const rolesRoleMembershipsList = async (
 }
 
 export type rolesRoleMembershipsCreateResponse201 = {
-    data: RoleMembership
+    data: RoleMembershipApi
     status: 201
 }
 
@@ -17652,14 +17652,14 @@ export const getRolesRoleMembershipsCreateUrl = (organizationId: string, roleId:
 export const rolesRoleMembershipsCreate = async (
     organizationId: string,
     roleId: string,
-    roleMembership: NonReadonly<RoleMembership>,
+    roleMembershipApi: NonReadonly<RoleMembershipApi>,
     options?: RequestInit
 ): Promise<rolesRoleMembershipsCreateResponse> => {
     return apiMutator<rolesRoleMembershipsCreateResponse>(getRolesRoleMembershipsCreateUrl(organizationId, roleId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(roleMembership),
+        body: JSON.stringify(roleMembershipApi),
     })
 }
 
@@ -17697,17 +17697,17 @@ export const rolesRoleMembershipsDestroy = async (
  * @summary OpenAI Chat Completions API
  */
 export type llmGatewayV1ChatCompletionsCreateResponse200 = {
-    data: ChatCompletionResponse
+    data: ChatCompletionResponseApi
     status: 200
 }
 
 export type llmGatewayV1ChatCompletionsCreateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
 export type llmGatewayV1ChatCompletionsCreateResponse500 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 500
 }
 
@@ -17746,7 +17746,7 @@ export const getLlmGatewayV1ChatCompletionsCreateUrl = (
 
 export const llmGatewayV1ChatCompletionsCreate = async (
     projectId: string,
-    chatCompletionRequest: ChatCompletionRequest,
+    chatCompletionRequestApi: ChatCompletionRequestApi,
     params?: LlmGatewayV1ChatCompletionsCreateParams,
     options?: RequestInit
 ): Promise<llmGatewayV1ChatCompletionsCreateResponse> => {
@@ -17756,7 +17756,7 @@ export const llmGatewayV1ChatCompletionsCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(chatCompletionRequest),
+            body: JSON.stringify(chatCompletionRequestApi),
         }
     )
 }
@@ -17766,17 +17766,17 @@ export const llmGatewayV1ChatCompletionsCreate = async (
  * @summary Anthropic Messages API
  */
 export type llmGatewayV1MessagesCreateResponse200 = {
-    data: AnthropicMessagesResponse
+    data: AnthropicMessagesResponseApi
     status: 200
 }
 
 export type llmGatewayV1MessagesCreateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
 export type llmGatewayV1MessagesCreateResponse500 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 500
 }
 
@@ -17812,7 +17812,7 @@ export const getLlmGatewayV1MessagesCreateUrl = (projectId: string, params?: Llm
 
 export const llmGatewayV1MessagesCreate = async (
     projectId: string,
-    anthropicMessagesRequest: AnthropicMessagesRequest,
+    anthropicMessagesRequestApi: AnthropicMessagesRequestApi,
     params?: LlmGatewayV1MessagesCreateParams,
     options?: RequestInit
 ): Promise<llmGatewayV1MessagesCreateResponse> => {
@@ -17820,7 +17820,7 @@ export const llmGatewayV1MessagesCreate = async (
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(anthropicMessagesRequest),
+        body: JSON.stringify(anthropicMessagesRequestApi),
     })
 }
 
@@ -17829,7 +17829,7 @@ export const llmGatewayV1MessagesCreate = async (
  * @summary List task runs
  */
 export type tasksRunsListResponse200 = {
-    data: PaginatedTaskRunDetailList
+    data: PaginatedTaskRunDetailListApi
     status: 200
 }
 
@@ -17871,7 +17871,7 @@ export const tasksRunsList = async (
  * @summary Create task run
  */
 export type tasksRunsCreateResponse201 = {
-    data: TaskRunDetail
+    data: TaskRunDetailApi
     status: 201
 }
 
@@ -17899,7 +17899,7 @@ export const tasksRunsCreate = async (
  * API for managing task runs. Each run represents an execution of a task.
  */
 export type tasksRunsRetrieveResponse200 = {
-    data: TaskRunDetail
+    data: TaskRunDetailApi
     status: 200
 }
 
@@ -17929,12 +17929,12 @@ export const tasksRunsRetrieve = async (
  * @summary Update task run
  */
 export type tasksRunsPartialUpdateResponse200 = {
-    data: TaskRunDetail
+    data: TaskRunDetailApi
     status: 200
 }
 
 export type tasksRunsPartialUpdateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
@@ -17963,14 +17963,14 @@ export const tasksRunsPartialUpdate = async (
     projectId: string,
     taskId: string,
     id: string,
-    patchedTaskRunUpdate: PatchedTaskRunUpdate,
+    patchedTaskRunUpdateApi: PatchedTaskRunUpdateApi,
     options?: RequestInit
 ): Promise<tasksRunsPartialUpdateResponse> => {
     return apiMutator<tasksRunsPartialUpdateResponse>(getTasksRunsPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedTaskRunUpdate),
+        body: JSON.stringify(patchedTaskRunUpdateApi),
     })
 }
 
@@ -17979,12 +17979,12 @@ export const tasksRunsPartialUpdate = async (
  * @summary Append log entries
  */
 export type tasksRunsAppendLogCreateResponse200 = {
-    data: TaskRunDetail
+    data: TaskRunDetailApi
     status: 200
 }
 
 export type tasksRunsAppendLogCreateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
@@ -18015,14 +18015,14 @@ export const tasksRunsAppendLogCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskRunAppendLogRequest: TaskRunAppendLogRequest,
+    taskRunAppendLogRequestApi: TaskRunAppendLogRequestApi,
     options?: RequestInit
 ): Promise<tasksRunsAppendLogCreateResponse> => {
     return apiMutator<tasksRunsAppendLogCreateResponse>(getTasksRunsAppendLogCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunAppendLogRequest),
+        body: JSON.stringify(taskRunAppendLogRequestApi),
     })
 }
 
@@ -18031,12 +18031,12 @@ export const tasksRunsAppendLogCreate = async (
  * @summary Upload artifacts for a task run
  */
 export type tasksRunsArtifactsCreateResponse200 = {
-    data: TaskRunArtifactsUploadResponse
+    data: TaskRunArtifactsUploadResponseApi
     status: 200
 }
 
 export type tasksRunsArtifactsCreateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
@@ -18067,14 +18067,14 @@ export const tasksRunsArtifactsCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskRunArtifactsUploadRequest: TaskRunArtifactsUploadRequest,
+    taskRunArtifactsUploadRequestApi: TaskRunArtifactsUploadRequestApi,
     options?: RequestInit
 ): Promise<tasksRunsArtifactsCreateResponse> => {
     return apiMutator<tasksRunsArtifactsCreateResponse>(getTasksRunsArtifactsCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taskRunArtifactsUploadRequest),
+        body: JSON.stringify(taskRunArtifactsUploadRequestApi),
     })
 }
 
@@ -18083,12 +18083,12 @@ export const tasksRunsArtifactsCreate = async (
  * @summary Generate presigned URL for an artifact
  */
 export type tasksRunsArtifactsPresignCreateResponse200 = {
-    data: TaskRunArtifactPresignResponse
+    data: TaskRunArtifactPresignResponseApi
     status: 200
 }
 
 export type tasksRunsArtifactsPresignCreateResponse400 = {
-    data: ErrorResponse
+    data: ErrorResponseApi
     status: 400
 }
 
@@ -18119,7 +18119,7 @@ export const tasksRunsArtifactsPresignCreate = async (
     projectId: string,
     taskId: string,
     id: string,
-    taskRunArtifactPresignRequest: TaskRunArtifactPresignRequest,
+    taskRunArtifactPresignRequestApi: TaskRunArtifactPresignRequestApi,
     options?: RequestInit
 ): Promise<tasksRunsArtifactsPresignCreateResponse> => {
     return apiMutator<tasksRunsArtifactsPresignCreateResponse>(
@@ -18128,7 +18128,7 @@ export const tasksRunsArtifactsPresignCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(taskRunArtifactPresignRequest),
+            body: JSON.stringify(taskRunArtifactPresignRequestApi),
         }
     )
 }
@@ -18138,7 +18138,7 @@ export const tasksRunsArtifactsPresignCreate = async (
  * @summary Set run output
  */
 export type tasksRunsSetOutputPartialUpdateResponse200 = {
-    data: TaskRunDetail
+    data: TaskRunDetailApi
     status: 200
 }
 
@@ -18178,7 +18178,7 @@ export const tasksRunsSetOutputPartialUpdate = async (
 }
 
 export type userHomeSettingsRetrieveResponse200 = {
-    data: PinnedSceneTabs
+    data: PinnedSceneTabsApi
     status: 200
 }
 
@@ -18202,7 +18202,7 @@ export const userHomeSettingsRetrieve = async (
 }
 
 export type userHomeSettingsPartialUpdateResponse200 = {
-    data: PinnedSceneTabs
+    data: PinnedSceneTabsApi
     status: 200
 }
 
@@ -18217,13 +18217,13 @@ export const getUserHomeSettingsPartialUpdateUrl = (uuid: string) => {
 
 export const userHomeSettingsPartialUpdate = async (
     uuid: string,
-    patchedPinnedSceneTabs: PatchedPinnedSceneTabs,
+    patchedPinnedSceneTabsApi: PatchedPinnedSceneTabsApi,
     options?: RequestInit
 ): Promise<userHomeSettingsPartialUpdateResponse> => {
     return apiMutator<userHomeSettingsPartialUpdateResponse>(getUserHomeSettingsPartialUpdateUrl(uuid), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedPinnedSceneTabs),
+        body: JSON.stringify(patchedPinnedSceneTabsApi),
     })
 }

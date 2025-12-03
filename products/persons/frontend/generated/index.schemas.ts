@@ -4,14 +4,14 @@
  * PostHog API - persons
  * OpenAPI spec version: 1.0.0
  */
-export type PropertyTypeEnum = (typeof PropertyTypeEnum)[keyof typeof PropertyTypeEnum]
-export const PropertyTypeEnum = {
+export type PropertyTypeEnumApi = (typeof PropertyTypeEnumApi)[keyof typeof PropertyTypeEnumApi]
+export const PropertyTypeEnumApi = {
     AND: 'AND',
     OR: 'OR',
 } as const
 
-export type OperatorEnum = (typeof OperatorEnum)[keyof typeof OperatorEnum]
-export const OperatorEnum = {
+export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
+export const OperatorEnumApi = {
     exact: 'exact',
     is_not: 'is_not',
     icontains: 'icontains',
@@ -31,16 +31,16 @@ export const OperatorEnum = {
     not_in: 'not_in',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type PropertyItemTypeEnum = (typeof PropertyItemTypeEnum)[keyof typeof PropertyItemTypeEnum]
-export const PropertyItemTypeEnum = {
+export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+export const PropertyItemTypeEnumApi = {
     event: 'event',
     event_metadata: 'event_metadata',
     feature: 'feature',
@@ -64,7 +64,7 @@ export const PropertyItemTypeEnum = {
     flag: 'flag',
 } as const
 
-export interface Property {
+export interface PropertyApi {
     /** 
  You can use a simplified version:
 ```json
@@ -107,20 +107,20 @@ Or you can create more complicated queries with AND and OR:
 
 * `AND` - AND
 * `OR` - OR */
-    type?: PropertyTypeEnum
-    values: PropertyItem[]
+    type?: PropertyTypeEnumApi
+    values: PropertyItemApi[]
 }
 
-export interface PaginatedPersonList {
+export interface PaginatedPersonListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
     count?: number
-    results?: Person[]
+    results?: PersonApi[]
 }
 
-export interface Person {
+export interface PersonApi {
     readonly id: number
     readonly name: string
     readonly distinct_ids: readonly string[]
@@ -129,7 +129,7 @@ export interface Person {
     readonly uuid: string
 }
 
-export interface PatchedPerson {
+export interface PatchedPersonApi {
     readonly id?: number
     readonly name?: string
     readonly distinct_ids?: readonly string[]
@@ -146,22 +146,22 @@ export interface PatchedPerson {
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemOperator = { ...OperatorEnum, ...BlankEnum, ...NullEnum } as const
+export const PropertyItemApiOperator = { ...OperatorEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type PropertyItemOperator = (typeof PropertyItemOperator)[keyof typeof PropertyItemOperator] | null
+export type PropertyItemApiOperator = (typeof PropertyItemApiOperator)[keyof typeof PropertyItemApiOperator] | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PropertyItemType = { ...PropertyItemTypeEnum, ...BlankEnum } as const
-export interface PropertyItem {
+export const PropertyItemApiType = { ...PropertyItemTypeEnumApi, ...BlankEnumApi } as const
+export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
     value: string
     /** @nullable */
-    operator?: PropertyItemOperator
-    type?: (typeof PropertyItemType)[keyof typeof PropertyItemType]
+    operator?: PropertyItemApiOperator
+    type?: (typeof PropertyItemApiType)[keyof typeof PropertyItemApiType]
 }
 
 /**
@@ -237,7 +237,7 @@ export type EnvironmentsPersonsListParams = {
     /**
      * Filter Persons by person properties.
      */
-    properties?: Property[]
+    properties?: PropertyApi[]
     /**
      * Search persons, either by email (full text search) or distinct_id (exact match).
      */
@@ -601,7 +601,7 @@ export type PersonsListParams = {
     /**
      * Filter Persons by person properties.
      */
-    properties?: Property[]
+    properties?: PropertyApi[]
     /**
      * Search persons, either by email (full text search) or distinct_id (exact match).
      */

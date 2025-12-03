@@ -6,11 +6,11 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    EarlyAccessFeature,
+    EarlyAccessFeatureApi,
     EarlyAccessFeatureListParams,
-    EarlyAccessFeatureSerializerCreateOnly,
-    PaginatedEarlyAccessFeatureList,
-    PatchedEarlyAccessFeature,
+    EarlyAccessFeatureSerializerCreateOnlyApi,
+    PaginatedEarlyAccessFeatureListApi,
+    PatchedEarlyAccessFeatureApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -31,7 +31,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type earlyAccessFeatureListResponse200 = {
-    data: PaginatedEarlyAccessFeatureList
+    data: PaginatedEarlyAccessFeatureListApi
     status: 200
 }
 
@@ -68,7 +68,7 @@ export const earlyAccessFeatureList = async (
 }
 
 export type earlyAccessFeatureCreateResponse201 = {
-    data: EarlyAccessFeatureSerializerCreateOnly
+    data: EarlyAccessFeatureSerializerCreateOnlyApi
     status: 201
 }
 
@@ -83,19 +83,19 @@ export const getEarlyAccessFeatureCreateUrl = (projectId: string) => {
 
 export const earlyAccessFeatureCreate = async (
     projectId: string,
-    earlyAccessFeatureSerializerCreateOnly: NonReadonly<EarlyAccessFeatureSerializerCreateOnly>,
+    earlyAccessFeatureSerializerCreateOnlyApi: NonReadonly<EarlyAccessFeatureSerializerCreateOnlyApi>,
     options?: RequestInit
 ): Promise<earlyAccessFeatureCreateResponse> => {
     return apiMutator<earlyAccessFeatureCreateResponse>(getEarlyAccessFeatureCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(earlyAccessFeatureSerializerCreateOnly),
+        body: JSON.stringify(earlyAccessFeatureSerializerCreateOnlyApi),
     })
 }
 
 export type earlyAccessFeatureRetrieveResponse200 = {
-    data: EarlyAccessFeature
+    data: EarlyAccessFeatureApi
     status: 200
 }
 
@@ -120,7 +120,7 @@ export const earlyAccessFeatureRetrieve = async (
 }
 
 export type earlyAccessFeatureUpdateResponse200 = {
-    data: EarlyAccessFeature
+    data: EarlyAccessFeatureApi
     status: 200
 }
 
@@ -136,19 +136,19 @@ export const getEarlyAccessFeatureUpdateUrl = (projectId: string, id: string) =>
 export const earlyAccessFeatureUpdate = async (
     projectId: string,
     id: string,
-    earlyAccessFeature: NonReadonly<EarlyAccessFeature>,
+    earlyAccessFeatureApi: NonReadonly<EarlyAccessFeatureApi>,
     options?: RequestInit
 ): Promise<earlyAccessFeatureUpdateResponse> => {
     return apiMutator<earlyAccessFeatureUpdateResponse>(getEarlyAccessFeatureUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(earlyAccessFeature),
+        body: JSON.stringify(earlyAccessFeatureApi),
     })
 }
 
 export type earlyAccessFeaturePartialUpdateResponse200 = {
-    data: EarlyAccessFeature
+    data: EarlyAccessFeatureApi
     status: 200
 }
 
@@ -164,14 +164,14 @@ export const getEarlyAccessFeaturePartialUpdateUrl = (projectId: string, id: str
 export const earlyAccessFeaturePartialUpdate = async (
     projectId: string,
     id: string,
-    patchedEarlyAccessFeature: NonReadonly<PatchedEarlyAccessFeature>,
+    patchedEarlyAccessFeatureApi: NonReadonly<PatchedEarlyAccessFeatureApi>,
     options?: RequestInit
 ): Promise<earlyAccessFeaturePartialUpdateResponse> => {
     return apiMutator<earlyAccessFeaturePartialUpdateResponse>(getEarlyAccessFeaturePartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedEarlyAccessFeature),
+        body: JSON.stringify(patchedEarlyAccessFeatureApi),
     })
 }
 

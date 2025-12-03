@@ -6,14 +6,14 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    Experiment,
-    ExperimentHoldout,
+    ExperimentApi,
+    ExperimentHoldoutApi,
     ExperimentHoldoutsListParams,
     ExperimentsListParams,
-    PaginatedExperimentHoldoutList,
-    PaginatedExperimentList,
-    PatchedExperiment,
-    PatchedExperimentHoldout,
+    PaginatedExperimentHoldoutListApi,
+    PaginatedExperimentListApi,
+    PatchedExperimentApi,
+    PatchedExperimentHoldoutApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -34,7 +34,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type experimentHoldoutsListResponse200 = {
-    data: PaginatedExperimentHoldoutList
+    data: PaginatedExperimentHoldoutListApi
     status: 200
 }
 
@@ -71,7 +71,7 @@ export const experimentHoldoutsList = async (
 }
 
 export type experimentHoldoutsCreateResponse201 = {
-    data: ExperimentHoldout
+    data: ExperimentHoldoutApi
     status: 201
 }
 
@@ -86,19 +86,19 @@ export const getExperimentHoldoutsCreateUrl = (projectId: string) => {
 
 export const experimentHoldoutsCreate = async (
     projectId: string,
-    experimentHoldout: NonReadonly<ExperimentHoldout>,
+    experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<experimentHoldoutsCreateResponse> => {
     return apiMutator<experimentHoldoutsCreateResponse>(getExperimentHoldoutsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentHoldout),
+        body: JSON.stringify(experimentHoldoutApi),
     })
 }
 
 export type experimentHoldoutsRetrieveResponse200 = {
-    data: ExperimentHoldout
+    data: ExperimentHoldoutApi
     status: 200
 }
 
@@ -123,7 +123,7 @@ export const experimentHoldoutsRetrieve = async (
 }
 
 export type experimentHoldoutsUpdateResponse200 = {
-    data: ExperimentHoldout
+    data: ExperimentHoldoutApi
     status: 200
 }
 
@@ -139,19 +139,19 @@ export const getExperimentHoldoutsUpdateUrl = (projectId: string, id: number) =>
 export const experimentHoldoutsUpdate = async (
     projectId: string,
     id: number,
-    experimentHoldout: NonReadonly<ExperimentHoldout>,
+    experimentHoldoutApi: NonReadonly<ExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<experimentHoldoutsUpdateResponse> => {
     return apiMutator<experimentHoldoutsUpdateResponse>(getExperimentHoldoutsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentHoldout),
+        body: JSON.stringify(experimentHoldoutApi),
     })
 }
 
 export type experimentHoldoutsPartialUpdateResponse200 = {
-    data: ExperimentHoldout
+    data: ExperimentHoldoutApi
     status: 200
 }
 
@@ -167,14 +167,14 @@ export const getExperimentHoldoutsPartialUpdateUrl = (projectId: string, id: num
 export const experimentHoldoutsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperimentHoldout: NonReadonly<PatchedExperimentHoldout>,
+    patchedExperimentHoldoutApi: NonReadonly<PatchedExperimentHoldoutApi>,
     options?: RequestInit
 ): Promise<experimentHoldoutsPartialUpdateResponse> => {
     return apiMutator<experimentHoldoutsPartialUpdateResponse>(getExperimentHoldoutsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExperimentHoldout),
+        body: JSON.stringify(patchedExperimentHoldoutApi),
     })
 }
 
@@ -204,7 +204,7 @@ export const experimentHoldoutsDestroy = async (
 }
 
 export type experimentsListResponse200 = {
-    data: PaginatedExperimentList
+    data: PaginatedExperimentListApi
     status: 200
 }
 
@@ -241,7 +241,7 @@ export const experimentsList = async (
 }
 
 export type experimentsCreateResponse201 = {
-    data: Experiment
+    data: ExperimentApi
     status: 201
 }
 
@@ -256,19 +256,19 @@ export const getExperimentsCreateUrl = (projectId: string) => {
 
 export const experimentsCreate = async (
     projectId: string,
-    experiment: NonReadonly<Experiment>,
+    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsCreateResponse> => {
     return apiMutator<experimentsCreateResponse>(getExperimentsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experiment),
+        body: JSON.stringify(experimentApi),
     })
 }
 
 export type experimentsRetrieveResponse200 = {
-    data: Experiment
+    data: ExperimentApi
     status: 200
 }
 
@@ -293,7 +293,7 @@ export const experimentsRetrieve = async (
 }
 
 export type experimentsUpdateResponse200 = {
-    data: Experiment
+    data: ExperimentApi
     status: 200
 }
 
@@ -309,19 +309,19 @@ export const getExperimentsUpdateUrl = (projectId: string, id: number) => {
 export const experimentsUpdate = async (
     projectId: string,
     id: number,
-    experiment: NonReadonly<Experiment>,
+    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsUpdateResponse> => {
     return apiMutator<experimentsUpdateResponse>(getExperimentsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experiment),
+        body: JSON.stringify(experimentApi),
     })
 }
 
 export type experimentsPartialUpdateResponse200 = {
-    data: Experiment
+    data: ExperimentApi
     status: 200
 }
 
@@ -337,14 +337,14 @@ export const getExperimentsPartialUpdateUrl = (projectId: string, id: number) =>
 export const experimentsPartialUpdate = async (
     projectId: string,
     id: number,
-    patchedExperiment: NonReadonly<PatchedExperiment>,
+    patchedExperimentApi: NonReadonly<PatchedExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsPartialUpdateResponse> => {
     return apiMutator<experimentsPartialUpdateResponse>(getExperimentsPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedExperiment),
+        body: JSON.stringify(patchedExperimentApi),
     })
 }
 
@@ -395,7 +395,7 @@ export const getExperimentsCreateExposureCohortForExperimentCreateUrl = (project
 export const experimentsCreateExposureCohortForExperimentCreate = async (
     projectId: string,
     id: number,
-    experiment: NonReadonly<Experiment>,
+    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsCreateExposureCohortForExperimentCreateResponse> => {
     return apiMutator<experimentsCreateExposureCohortForExperimentCreateResponse>(
@@ -404,7 +404,7 @@ export const experimentsCreateExposureCohortForExperimentCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(experiment),
+            body: JSON.stringify(experimentApi),
         }
     )
 }
@@ -426,14 +426,14 @@ export const getExperimentsDuplicateCreateUrl = (projectId: string, id: number) 
 export const experimentsDuplicateCreate = async (
     projectId: string,
     id: number,
-    experiment: NonReadonly<Experiment>,
+    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsDuplicateCreateResponse> => {
     return apiMutator<experimentsDuplicateCreateResponse>(getExperimentsDuplicateCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experiment),
+        body: JSON.stringify(experimentApi),
     })
 }
 
@@ -462,7 +462,7 @@ export const getExperimentsRecalculateTimeseriesCreateUrl = (projectId: string, 
 export const experimentsRecalculateTimeseriesCreate = async (
     projectId: string,
     id: number,
-    experiment: NonReadonly<Experiment>,
+    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
 ): Promise<experimentsRecalculateTimeseriesCreateResponse> => {
     return apiMutator<experimentsRecalculateTimeseriesCreateResponse>(
@@ -471,7 +471,7 @@ export const experimentsRecalculateTimeseriesCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(experiment),
+            body: JSON.stringify(experimentApi),
         }
     )
 }

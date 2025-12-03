@@ -6,16 +6,16 @@
  */
 import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
-    BatchExport,
-    BatchExportRun,
+    BatchExportApi,
+    BatchExportRunApi,
     BatchExportsList2Params,
     BatchExportsListParams,
     BatchExportsRunsListParams,
     EnvironmentsBatchExportsListParams,
     EnvironmentsBatchExportsRunsListParams,
-    PaginatedBatchExportList,
-    PaginatedBatchExportRunList,
-    PatchedBatchExport,
+    PaginatedBatchExportListApi,
+    PaginatedBatchExportRunListApi,
+    PatchedBatchExportApi,
 } from './index.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -36,7 +36,7 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
     : DistributeReadOnlyOverUnions<T>
 
 export type environmentsBatchExportsListResponse200 = {
-    data: PaginatedBatchExportList
+    data: PaginatedBatchExportListApi
     status: 200
 }
 
@@ -73,7 +73,7 @@ export const environmentsBatchExportsList = async (
 }
 
 export type environmentsBatchExportsCreateResponse201 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 201
 }
 
@@ -88,19 +88,19 @@ export const getEnvironmentsBatchExportsCreateUrl = (projectId: string) => {
 
 export const environmentsBatchExportsCreate = async (
     projectId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsCreateResponse> => {
     return apiMutator<environmentsBatchExportsCreateResponse>(getEnvironmentsBatchExportsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type environmentsBatchExportsRunsListResponse200 = {
-    data: PaginatedBatchExportRunList
+    data: PaginatedBatchExportRunListApi
     status: 200
 }
 
@@ -145,7 +145,7 @@ export const environmentsBatchExportsRunsList = async (
 }
 
 export type environmentsBatchExportsRunsRetrieveResponse200 = {
-    data: BatchExportRun
+    data: BatchExportRunApi
     status: 200
 }
 
@@ -199,7 +199,7 @@ export const environmentsBatchExportsRunsCancelCreate = async (
     projectId: string,
     batchExportId: string,
     id: string,
-    batchExportRun: NonReadonly<BatchExportRun>,
+    batchExportRunApi: NonReadonly<BatchExportRunApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsRunsCancelCreateResponse> => {
     return apiMutator<environmentsBatchExportsRunsCancelCreateResponse>(
@@ -208,7 +208,7 @@ export const environmentsBatchExportsRunsCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportRun),
+            body: JSON.stringify(batchExportRunApi),
         }
     )
 }
@@ -272,7 +272,7 @@ export const environmentsBatchExportsRunsRetryCreate = async (
     projectId: string,
     batchExportId: string,
     id: string,
-    batchExportRun: NonReadonly<BatchExportRun>,
+    batchExportRunApi: NonReadonly<BatchExportRunApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsRunsRetryCreateResponse> => {
     return apiMutator<environmentsBatchExportsRunsRetryCreateResponse>(
@@ -281,13 +281,13 @@ export const environmentsBatchExportsRunsRetryCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportRun),
+            body: JSON.stringify(batchExportRunApi),
         }
     )
 }
 
 export type environmentsBatchExportsRetrieveResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -312,7 +312,7 @@ export const environmentsBatchExportsRetrieve = async (
 }
 
 export type environmentsBatchExportsUpdateResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -328,19 +328,19 @@ export const getEnvironmentsBatchExportsUpdateUrl = (projectId: string, id: stri
 export const environmentsBatchExportsUpdate = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsUpdateResponse> => {
     return apiMutator<environmentsBatchExportsUpdateResponse>(getEnvironmentsBatchExportsUpdateUrl(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type environmentsBatchExportsPartialUpdateResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -356,7 +356,7 @@ export const getEnvironmentsBatchExportsPartialUpdateUrl = (projectId: string, i
 export const environmentsBatchExportsPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedBatchExport: NonReadonly<PatchedBatchExport>,
+    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsPartialUpdateResponse> => {
     return apiMutator<environmentsBatchExportsPartialUpdateResponse>(
@@ -365,7 +365,7 @@ export const environmentsBatchExportsPartialUpdate = async (
             ...options,
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(patchedBatchExport),
+            body: JSON.stringify(patchedBatchExportApi),
         }
     )
 }
@@ -418,7 +418,7 @@ export const getEnvironmentsBatchExportsBackfillCreateUrl = (projectId: string, 
 export const environmentsBatchExportsBackfillCreate = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsBackfillCreateResponse> => {
     return apiMutator<environmentsBatchExportsBackfillCreateResponse>(
@@ -427,7 +427,7 @@ export const environmentsBatchExportsBackfillCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -480,7 +480,7 @@ export const getEnvironmentsBatchExportsPauseCreateUrl = (projectId: string, id:
 export const environmentsBatchExportsPauseCreate = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsPauseCreateResponse> => {
     return apiMutator<environmentsBatchExportsPauseCreateResponse>(
@@ -489,7 +489,7 @@ export const environmentsBatchExportsPauseCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -512,7 +512,7 @@ export const getEnvironmentsBatchExportsRunTestStepCreateUrl = (projectId: strin
 export const environmentsBatchExportsRunTestStepCreate = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsRunTestStepCreateResponse> => {
     return apiMutator<environmentsBatchExportsRunTestStepCreateResponse>(
@@ -521,7 +521,7 @@ export const environmentsBatchExportsRunTestStepCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -546,7 +546,7 @@ export const getEnvironmentsBatchExportsUnpauseCreateUrl = (projectId: string, i
 export const environmentsBatchExportsUnpauseCreate = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsUnpauseCreateResponse> => {
     return apiMutator<environmentsBatchExportsUnpauseCreateResponse>(
@@ -555,7 +555,7 @@ export const environmentsBatchExportsUnpauseCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -578,7 +578,7 @@ export const getEnvironmentsBatchExportsRunTestStepNewCreateUrl = (projectId: st
 
 export const environmentsBatchExportsRunTestStepNewCreate = async (
     projectId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<environmentsBatchExportsRunTestStepNewCreateResponse> => {
     return apiMutator<environmentsBatchExportsRunTestStepNewCreateResponse>(
@@ -587,7 +587,7 @@ export const environmentsBatchExportsRunTestStepNewCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -620,7 +620,7 @@ export const environmentsBatchExportsTestRetrieve = async (
 }
 
 export type batchExportsListResponse200 = {
-    data: PaginatedBatchExportList
+    data: PaginatedBatchExportListApi
     status: 200
 }
 
@@ -657,7 +657,7 @@ export const batchExportsList = async (
 }
 
 export type batchExportsCreateResponse201 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 201
 }
 
@@ -672,19 +672,19 @@ export const getBatchExportsCreateUrl = (organizationId: string) => {
 
 export const batchExportsCreate = async (
     organizationId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsCreateResponse> => {
     return apiMutator<batchExportsCreateResponse>(getBatchExportsCreateUrl(organizationId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type batchExportsRetrieveResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -709,7 +709,7 @@ export const batchExportsRetrieve = async (
 }
 
 export type batchExportsUpdateResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -725,19 +725,19 @@ export const getBatchExportsUpdateUrl = (organizationId: string, id: string) => 
 export const batchExportsUpdate = async (
     organizationId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsUpdateResponse> => {
     return apiMutator<batchExportsUpdateResponse>(getBatchExportsUpdateUrl(organizationId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type batchExportsPartialUpdateResponse200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -753,14 +753,14 @@ export const getBatchExportsPartialUpdateUrl = (organizationId: string, id: stri
 export const batchExportsPartialUpdate = async (
     organizationId: string,
     id: string,
-    patchedBatchExport: NonReadonly<PatchedBatchExport>,
+    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsPartialUpdateResponse> => {
     return apiMutator<batchExportsPartialUpdateResponse>(getBatchExportsPartialUpdateUrl(organizationId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBatchExport),
+        body: JSON.stringify(patchedBatchExportApi),
     })
 }
 
@@ -811,14 +811,14 @@ export const getBatchExportsBackfillCreateUrl = (organizationId: string, id: str
 export const batchExportsBackfillCreate = async (
     organizationId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsBackfillCreateResponse> => {
     return apiMutator<batchExportsBackfillCreateResponse>(getBatchExportsBackfillCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -867,14 +867,14 @@ export const getBatchExportsPauseCreateUrl = (organizationId: string, id: string
 export const batchExportsPauseCreate = async (
     organizationId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsPauseCreateResponse> => {
     return apiMutator<batchExportsPauseCreateResponse>(getBatchExportsPauseCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -895,14 +895,14 @@ export const getBatchExportsRunTestStepCreateUrl = (organizationId: string, id: 
 export const batchExportsRunTestStepCreate = async (
     organizationId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsRunTestStepCreateResponse> => {
     return apiMutator<batchExportsRunTestStepCreateResponse>(getBatchExportsRunTestStepCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -926,14 +926,14 @@ export const getBatchExportsUnpauseCreateUrl = (organizationId: string, id: stri
 export const batchExportsUnpauseCreate = async (
     organizationId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsUnpauseCreateResponse> => {
     return apiMutator<batchExportsUnpauseCreateResponse>(getBatchExportsUnpauseCreateUrl(organizationId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -953,7 +953,7 @@ export const getBatchExportsRunTestStepNewCreateUrl = (organizationId: string) =
 
 export const batchExportsRunTestStepNewCreate = async (
     organizationId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsRunTestStepNewCreateResponse> => {
     return apiMutator<batchExportsRunTestStepNewCreateResponse>(
@@ -962,7 +962,7 @@ export const batchExportsRunTestStepNewCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExport),
+            body: JSON.stringify(batchExportApi),
         }
     )
 }
@@ -992,7 +992,7 @@ export const batchExportsTestRetrieve = async (
 }
 
 export type batchExportsList2Response200 = {
-    data: PaginatedBatchExportList
+    data: PaginatedBatchExportListApi
     status: 200
 }
 
@@ -1029,7 +1029,7 @@ export const batchExportsList2 = async (
 }
 
 export type batchExportsCreate2Response201 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 201
 }
 
@@ -1044,19 +1044,19 @@ export const getBatchExportsCreate2Url = (projectId: string) => {
 
 export const batchExportsCreate2 = async (
     projectId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsCreate2Response> => {
     return apiMutator<batchExportsCreate2Response>(getBatchExportsCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type batchExportsRunsListResponse200 = {
-    data: PaginatedBatchExportRunList
+    data: PaginatedBatchExportRunListApi
     status: 200
 }
 
@@ -1098,7 +1098,7 @@ export const batchExportsRunsList = async (
 }
 
 export type batchExportsRunsRetrieveResponse200 = {
-    data: BatchExportRun
+    data: BatchExportRunApi
     status: 200
 }
 
@@ -1144,7 +1144,7 @@ export const batchExportsRunsCancelCreate = async (
     projectId: string,
     batchExportId: string,
     id: string,
-    batchExportRun: NonReadonly<BatchExportRun>,
+    batchExportRunApi: NonReadonly<BatchExportRunApi>,
     options?: RequestInit
 ): Promise<batchExportsRunsCancelCreateResponse> => {
     return apiMutator<batchExportsRunsCancelCreateResponse>(
@@ -1153,7 +1153,7 @@ export const batchExportsRunsCancelCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportRun),
+            body: JSON.stringify(batchExportRunApi),
         }
     )
 }
@@ -1211,7 +1211,7 @@ export const batchExportsRunsRetryCreate = async (
     projectId: string,
     batchExportId: string,
     id: string,
-    batchExportRun: NonReadonly<BatchExportRun>,
+    batchExportRunApi: NonReadonly<BatchExportRunApi>,
     options?: RequestInit
 ): Promise<batchExportsRunsRetryCreateResponse> => {
     return apiMutator<batchExportsRunsRetryCreateResponse>(
@@ -1220,13 +1220,13 @@ export const batchExportsRunsRetryCreate = async (
             ...options,
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(batchExportRun),
+            body: JSON.stringify(batchExportRunApi),
         }
     )
 }
 
 export type batchExportsRetrieve2Response200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -1251,7 +1251,7 @@ export const batchExportsRetrieve2 = async (
 }
 
 export type batchExportsUpdate2Response200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -1267,19 +1267,19 @@ export const getBatchExportsUpdate2Url = (projectId: string, id: string) => {
 export const batchExportsUpdate2 = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsUpdate2Response> => {
     return apiMutator<batchExportsUpdate2Response>(getBatchExportsUpdate2Url(projectId, id), {
         ...options,
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
 export type batchExportsPartialUpdate2Response200 = {
-    data: BatchExport
+    data: BatchExportApi
     status: 200
 }
 
@@ -1295,14 +1295,14 @@ export const getBatchExportsPartialUpdate2Url = (projectId: string, id: string) 
 export const batchExportsPartialUpdate2 = async (
     projectId: string,
     id: string,
-    patchedBatchExport: NonReadonly<PatchedBatchExport>,
+    patchedBatchExportApi: NonReadonly<PatchedBatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsPartialUpdate2Response> => {
     return apiMutator<batchExportsPartialUpdate2Response>(getBatchExportsPartialUpdate2Url(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedBatchExport),
+        body: JSON.stringify(patchedBatchExportApi),
     })
 }
 
@@ -1353,14 +1353,14 @@ export const getBatchExportsBackfillCreate2Url = (projectId: string, id: string)
 export const batchExportsBackfillCreate2 = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsBackfillCreate2Response> => {
     return apiMutator<batchExportsBackfillCreate2Response>(getBatchExportsBackfillCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1409,14 +1409,14 @@ export const getBatchExportsPauseCreate2Url = (projectId: string, id: string) =>
 export const batchExportsPauseCreate2 = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsPauseCreate2Response> => {
     return apiMutator<batchExportsPauseCreate2Response>(getBatchExportsPauseCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1437,14 +1437,14 @@ export const getBatchExportsRunTestStepCreate2Url = (projectId: string, id: stri
 export const batchExportsRunTestStepCreate2 = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsRunTestStepCreate2Response> => {
     return apiMutator<batchExportsRunTestStepCreate2Response>(getBatchExportsRunTestStepCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1468,14 +1468,14 @@ export const getBatchExportsUnpauseCreate2Url = (projectId: string, id: string) 
 export const batchExportsUnpauseCreate2 = async (
     projectId: string,
     id: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsUnpauseCreate2Response> => {
     return apiMutator<batchExportsUnpauseCreate2Response>(getBatchExportsUnpauseCreate2Url(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 
@@ -1495,14 +1495,14 @@ export const getBatchExportsRunTestStepNewCreate2Url = (projectId: string) => {
 
 export const batchExportsRunTestStepNewCreate2 = async (
     projectId: string,
-    batchExport: NonReadonly<BatchExport>,
+    batchExportApi: NonReadonly<BatchExportApi>,
     options?: RequestInit
 ): Promise<batchExportsRunTestStepNewCreate2Response> => {
     return apiMutator<batchExportsRunTestStepNewCreate2Response>(getBatchExportsRunTestStepNewCreate2Url(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(batchExport),
+        body: JSON.stringify(batchExportApi),
     })
 }
 

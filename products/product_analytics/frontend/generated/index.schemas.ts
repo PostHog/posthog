@@ -4,16 +4,16 @@
  * PostHog API - product_analytics
  * OpenAPI spec version: 1.0.0
  */
-export interface PaginatedColumnConfigurationList {
+export interface PaginatedColumnConfigurationListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ColumnConfiguration[]
+    results: ColumnConfigurationApi[]
 }
 
-export interface ColumnConfiguration {
+export interface ColumnConfigurationApi {
     readonly id: string
     /** @maxLength 255 */
     context_key: string
@@ -22,7 +22,7 @@ export interface ColumnConfiguration {
     readonly updated_at: string
 }
 
-export interface PatchedColumnConfiguration {
+export interface PatchedColumnConfigurationApi {
     readonly id?: string
     /** @maxLength 255 */
     context_key?: string
@@ -31,16 +31,16 @@ export interface PatchedColumnConfiguration {
     readonly updated_at?: string
 }
 
-export interface PaginatedElementList {
+export interface PaginatedElementListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: Element[]
+    results: ElementApi[]
 }
 
-export interface Element {
+export interface ElementApi {
     /**
      * @maxLength 10000
      * @nullable
@@ -84,7 +84,7 @@ export interface Element {
     order?: number | null
 }
 
-export interface PatchedElement {
+export interface PatchedElementApi {
     /**
      * @maxLength 10000
      * @nullable

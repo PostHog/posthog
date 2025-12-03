@@ -4,25 +4,17 @@
  * PostHog API - data_warehouse
  * OpenAPI spec version: 1.0.0
  */
-
-// Re-exported from canonical sources (TS-owned types)
-export type {
-    DataModelingJob,
-    DataWarehouseSavedQuery,
-    DataWarehouseSavedQueryDraft,
-    ExternalDataSourceRevenueAnalyticsConfig,
-    QueryTabState,
-} from '~/types'
-export type DataModelingJobStatusEnum = (typeof DataModelingJobStatusEnum)[keyof typeof DataModelingJobStatusEnum]
-export const DataModelingJobStatusEnum = {
+export type DataModelingJobStatusEnumApi =
+    (typeof DataModelingJobStatusEnumApi)[keyof typeof DataModelingJobStatusEnumApi]
+export const DataModelingJobStatusEnumApi = {
     Running: 'Running',
     Completed: 'Completed',
     Failed: 'Failed',
     Cancelled: 'Cancelled',
 } as const
 
-export type SourceTypeEnum = (typeof SourceTypeEnum)[keyof typeof SourceTypeEnum]
-export const SourceTypeEnum = {
+export type SourceTypeEnumApi = (typeof SourceTypeEnumApi)[keyof typeof SourceTypeEnumApi]
+export const SourceTypeEnumApi = {
     Supabase: 'Supabase',
     CustomerIO: 'CustomerIO',
     Github: 'Github',
@@ -57,7 +49,9 @@ export const SourceTypeEnum = {
     Shopify: 'Shopify',
 } as const
 
-export const DataWarehouseSavedQueryStatusEnum = {
+export type DataWarehouseSavedQueryStatusEnumApi =
+    (typeof DataWarehouseSavedQueryStatusEnumApi)[keyof typeof DataWarehouseSavedQueryStatusEnumApi]
+export const DataWarehouseSavedQueryStatusEnumApi = {
     Cancelled: 'Cancelled',
     Modified: 'Modified',
     Completed: 'Completed',
@@ -65,11 +59,11 @@ export const DataWarehouseSavedQueryStatusEnum = {
     Running: 'Running',
 } as const
 
-export type NullEnum = (typeof NullEnum)[keyof typeof NullEnum]
-export const NullEnum = {} as const
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+export const NullEnumApi = {} as const
 
-export type RoleAtOrganizationEnum = (typeof RoleAtOrganizationEnum)[keyof typeof RoleAtOrganizationEnum]
-export const RoleAtOrganizationEnum = {
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+export const RoleAtOrganizationEnumApi = {
     engineering: 'engineering',
     data: 'data',
     product: 'product',
@@ -80,34 +74,55 @@ export const RoleAtOrganizationEnum = {
     other: 'other',
 } as const
 
-export type BlankEnum = (typeof BlankEnum)[keyof typeof BlankEnum]
-export const BlankEnum = {
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+export const BlankEnumApi = {
     '': '',
 } as const
 
-export interface PaginatedDataModelingJobList {
+export interface PaginatedDataModelingJobListApi {
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DataModelingJob[]
+    results: DataModelingJobApi[]
 }
 
-export interface PaginatedExternalDataSourceSerializersList {
+export interface DataModelingJobApi {
+    readonly id: string
+    /** @nullable */
+    readonly saved_query_id: string | null
+    readonly status: DataModelingJobStatusEnumApi
+    readonly rows_materialized: number
+    /** @nullable */
+    readonly error: string | null
+    readonly created_at: string
+    readonly last_run_at: string
+    /** @nullable */
+    readonly workflow_id: string | null
+    /** @nullable */
+    readonly workflow_run_id: string | null
+    /**
+     * Total rows expected to be materialized
+     * @nullable
+     */
+    readonly rows_expected: number | null
+}
+
+export interface PaginatedExternalDataSourceSerializersListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ExternalDataSourceSerializers[]
+    results: ExternalDataSourceSerializersApi[]
 }
 
 /**
  * @nullable
  */
-export type ExternalDataSourceSerializersJobInputs = unknown | null
+export type ExternalDataSourceSerializersApiJobInputs = unknown | null
 
-export interface ExternalDataSourceSerializers {
+export interface ExternalDataSourceSerializersApi {
     readonly id: string
     readonly created_at: string
     /** @nullable */
@@ -115,23 +130,23 @@ export interface ExternalDataSourceSerializers {
     readonly status: string
     client_secret: string
     account_id: string
-    readonly source_type: SourceTypeEnum
+    readonly source_type: SourceTypeEnumApi
     readonly latest_error: string
     /** @nullable */
     readonly prefix: string | null
     readonly last_run_at: string
     readonly schemas: string
     /** @nullable */
-    job_inputs?: ExternalDataSourceSerializersJobInputs
-    readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
+    job_inputs?: ExternalDataSourceSerializersApiJobInputs
+    readonly revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfigApi
 }
 
 /**
  * @nullable
  */
-export type PatchedExternalDataSourceSerializersJobInputs = unknown | null
+export type PatchedExternalDataSourceSerializersApiJobInputs = unknown | null
 
-export interface PatchedExternalDataSourceSerializers {
+export interface PatchedExternalDataSourceSerializersApi {
     readonly id?: string
     readonly created_at?: string
     /** @nullable */
@@ -139,34 +154,34 @@ export interface PatchedExternalDataSourceSerializers {
     readonly status?: string
     client_secret?: string
     account_id?: string
-    readonly source_type?: SourceTypeEnum
+    readonly source_type?: SourceTypeEnumApi
     readonly latest_error?: string
     /** @nullable */
     readonly prefix?: string | null
     readonly last_run_at?: string
     readonly schemas?: string
     /** @nullable */
-    job_inputs?: PatchedExternalDataSourceSerializersJobInputs
-    readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfig
+    job_inputs?: PatchedExternalDataSourceSerializersApiJobInputs
+    readonly revenue_analytics_config?: ExternalDataSourceRevenueAnalyticsConfigApi
 }
 
-export interface PaginatedDataWarehouseSavedQueryList {
+export interface PaginatedDataWarehouseSavedQueryListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DataWarehouseSavedQuery[]
+    results: DataWarehouseSavedQueryApi[]
 }
 
 /**
  * HogQL query
  * @nullable
  */
-export type DataWarehouseSavedQueryQuery = unknown | null
+export type DataWarehouseSavedQueryApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const DataWarehouseSavedQueryStatus = { ...DataWarehouseSavedQueryStatusEnum, ...NullEnum } as const
+export const DataWarehouseSavedQueryApiStatus = { ...DataWarehouseSavedQueryStatusEnumApi, ...NullEnumApi } as const
 /**
  * The status of when this SavedQuery last ran.
 
@@ -177,18 +192,61 @@ export const DataWarehouseSavedQueryStatus = { ...DataWarehouseSavedQueryStatusE
 * `Running` - Running
  * @nullable
  */
-export type DataWarehouseSavedQueryStatus =
-    | (typeof DataWarehouseSavedQueryStatus)[keyof typeof DataWarehouseSavedQueryStatus]
+export type DataWarehouseSavedQueryApiStatus =
+    | (typeof DataWarehouseSavedQueryApiStatus)[keyof typeof DataWarehouseSavedQueryApiStatus]
     | null
+
+export interface DataWarehouseSavedQueryApi {
+    readonly id: string
+    /** @nullable */
+    deleted?: boolean | null
+    /** @maxLength 128 */
+    name: string
+    /**
+     * HogQL query
+     * @nullable
+     */
+    query?: DataWarehouseSavedQueryApiQuery
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly sync_frequency: string
+    readonly columns: string
+    /**
+   * The status of when this SavedQuery last ran.
+
+* `Cancelled` - Cancelled
+* `Modified` - Modified
+* `Completed` - Completed
+* `Failed` - Failed
+* `Running` - Running
+   * @nullable
+   */
+    readonly status: DataWarehouseSavedQueryApiStatus
+    /** @nullable */
+    readonly last_run_at: string | null
+    readonly managed_viewset_kind: string
+    /** @nullable */
+    readonly latest_error: string | null
+    /** @nullable */
+    edited_history_id?: string | null
+    readonly latest_history_id: string
+    /** @nullable */
+    soft_update?: boolean | null
+    /** @nullable */
+    readonly is_materialized: boolean | null
+}
 
 /**
  * HogQL query
  * @nullable
  */
-export type PatchedDataWarehouseSavedQueryQuery = unknown | null
+export type PatchedDataWarehouseSavedQueryApiQuery = unknown | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const PatchedDataWarehouseSavedQueryStatus = { ...DataWarehouseSavedQueryStatusEnum, ...NullEnum } as const
+export const PatchedDataWarehouseSavedQueryApiStatus = {
+    ...DataWarehouseSavedQueryStatusEnumApi,
+    ...NullEnumApi,
+} as const
 /**
  * The status of when this SavedQuery last ran.
 
@@ -199,11 +257,11 @@ export const PatchedDataWarehouseSavedQueryStatus = { ...DataWarehouseSavedQuery
 * `Running` - Running
  * @nullable
  */
-export type PatchedDataWarehouseSavedQueryStatus =
-    | (typeof PatchedDataWarehouseSavedQueryStatus)[keyof typeof PatchedDataWarehouseSavedQueryStatus]
+export type PatchedDataWarehouseSavedQueryApiStatus =
+    | (typeof PatchedDataWarehouseSavedQueryApiStatus)[keyof typeof PatchedDataWarehouseSavedQueryApiStatus]
     | null
 
-export interface PatchedDataWarehouseSavedQuery {
+export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
     deleted?: boolean | null
@@ -213,8 +271,8 @@ export interface PatchedDataWarehouseSavedQuery {
      * HogQL query
      * @nullable
      */
-    query?: PatchedDataWarehouseSavedQueryQuery
-    readonly created_by?: UserBasic
+    query?: PatchedDataWarehouseSavedQueryApiQuery
+    readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly sync_frequency?: string
     readonly columns?: string
@@ -228,7 +286,7 @@ export interface PatchedDataWarehouseSavedQuery {
 * `Running` - Running
    * @nullable
    */
-    readonly status?: PatchedDataWarehouseSavedQueryStatus
+    readonly status?: PatchedDataWarehouseSavedQueryApiStatus
     /** @nullable */
     readonly last_run_at?: string | null
     readonly managed_viewset_kind?: string
@@ -243,16 +301,35 @@ export interface PatchedDataWarehouseSavedQuery {
     readonly is_materialized?: boolean | null
 }
 
-export interface PaginatedDataWarehouseSavedQueryDraftList {
+export interface PaginatedDataWarehouseSavedQueryDraftListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: DataWarehouseSavedQueryDraft[]
+    results: DataWarehouseSavedQueryDraftApi[]
 }
 
-export interface PatchedDataWarehouseSavedQueryDraft {
+export interface DataWarehouseSavedQueryDraftApi {
+    readonly id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** HogQL query draft */
+    query?: unknown
+    /** @nullable */
+    saved_query_id?: string | null
+    /** @nullable */
+    name?: string | null
+    /**
+     * view history id that the draft branched from
+     * @maxLength 255
+     * @nullable
+     */
+    edited_history_id?: string | null
+}
+
+export interface PatchedDataWarehouseSavedQueryDraftApi {
     readonly id?: string
     readonly created_at?: string
     /** @nullable */
@@ -271,13 +348,13 @@ export interface PatchedDataWarehouseSavedQueryDraft {
     edited_history_id?: string | null
 }
 
-export interface PaginatedQueryTabStateList {
+export interface PaginatedQueryTabStateListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: QueryTabState[]
+    results: QueryTabStateApi[]
 }
 
 /**
@@ -289,7 +366,21 @@ export interface PaginatedQueryTabStateList {
             
  * @nullable
  */
-export type QueryTabStateState = unknown | null
+export type QueryTabStateApiState = unknown | null
+
+export interface QueryTabStateApi {
+    readonly id: string
+    /**
+   * 
+            Dict of query tab state for a user. Keys are editorModelsStateKey, activeModelStateKey, activeModelVariablesStateKey
+            and values are the state for that key. EditorModelsStateKey is a list of all the editor models for a user.
+            ActiveModelStateKey is the active model for a user. ActiveModelVariablesStateKey is the active model variables
+            for a user.
+            
+   * @nullable
+   */
+    state?: QueryTabStateApiState
+}
 
 /**
  * 
@@ -300,9 +391,9 @@ export type QueryTabStateState = unknown | null
             
  * @nullable
  */
-export type PatchedQueryTabStateState = unknown | null
+export type PatchedQueryTabStateApiState = unknown | null
 
-export interface PatchedQueryTabState {
+export interface PatchedQueryTabStateApi {
     readonly id?: string
     /**
    * 
@@ -313,24 +404,75 @@ export interface PatchedQueryTabState {
             
    * @nullable
    */
-    state?: PatchedQueryTabStateState
+    state?: PatchedQueryTabStateApiState
+}
+
+/**
+ * * `Running` - Running
+ * `Completed` - Completed
+ * `Failed` - Failed
+ * `Cancelled` - Cancelled
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+/**
+ * * `Supabase` - Supabase
+ * `CustomerIO` - CustomerIO
+ * `Github` - Github
+ * `Stripe` - Stripe
+ * `Hubspot` - Hubspot
+ * `Postgres` - Postgres
+ * `Zendesk` - Zendesk
+ * `Snowflake` - Snowflake
+ * `Salesforce` - Salesforce
+ * `MySQL` - MySQL
+ * `MongoDB` - MongoDB
+ * `MSSQL` - MSSQL
+ * `Vitally` - Vitally
+ * `BigQuery` - BigQuery
+ * `Chargebee` - Chargebee
+ * `GoogleAds` - GoogleAds
+ * `TemporalIO` - TemporalIO
+ * `DoIt` - DoIt
+ * `GoogleSheets` - GoogleSheets
+ * `MetaAds` - MetaAds
+ * `Klaviyo` - Klaviyo
+ * `Mailchimp` - Mailchimp
+ * `Braze` - Braze
+ * `Mailjet` - Mailjet
+ * `Redshift` - Redshift
+ * `Polar` - Polar
+ * `RevenueCat` - RevenueCat
+ * `LinkedinAds` - LinkedinAds
+ * `RedditAds` - RedditAds
+ * `TikTokAds` - TikTokAds
+ * `BingAds` - BingAds
+ * `Shopify` - Shopify
+ */
+
+// eslint-disable-next-line @typescript-eslint/no-redeclare
+
+export interface ExternalDataSourceRevenueAnalyticsConfigApi {
+    enabled?: boolean
+    include_invoiceless_charges?: boolean
 }
 
 /**
  * @nullable
  */
-export type UserBasicHedgehogConfig = { [key: string]: unknown } | null
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
-export const UserBasicRoleAtOrganization = { ...RoleAtOrganizationEnum, ...BlankEnum, ...NullEnum } as const
+export const UserBasicApiRoleAtOrganization = { ...RoleAtOrganizationEnumApi, ...BlankEnumApi, ...NullEnumApi } as const
 /**
  * @nullable
  */
-export type UserBasicRoleAtOrganization =
-    | (typeof UserBasicRoleAtOrganization)[keyof typeof UserBasicRoleAtOrganization]
+export type UserBasicApiRoleAtOrganization =
+    | (typeof UserBasicApiRoleAtOrganization)[keyof typeof UserBasicApiRoleAtOrganization]
     | null
 
-export interface UserBasic {
+export interface UserBasicApi {
     readonly id: number
     readonly uuid: string
     /**
@@ -347,9 +489,9 @@ export interface UserBasic {
     /** @nullable */
     is_email_verified?: boolean | null
     /** @nullable */
-    readonly hedgehog_config: UserBasicHedgehogConfig
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
     /** @nullable */
-    role_at_organization?: UserBasicRoleAtOrganization
+    role_at_organization?: UserBasicApiRoleAtOrganization
 }
 
 /**
@@ -359,8 +501,6 @@ export interface UserBasic {
  * `Failed` - Failed
  * `Running` - Running
  */
-export type DataWarehouseSavedQueryStatusEnum =
-    (typeof DataWarehouseSavedQueryStatusEnum)[keyof typeof DataWarehouseSavedQueryStatusEnum]
 
 // eslint-disable-next-line @typescript-eslint/no-redeclare
 
