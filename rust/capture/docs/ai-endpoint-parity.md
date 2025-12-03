@@ -7,24 +7,21 @@ This document compares the `/i/v0/ai` endpoint with the `/i/v0/e` (events) endpo
 ## Endpoint Comparison
 
 ### File References
+
 - `/i/v0/e` handler: `rust/capture/src/v0_endpoint.rs:118`
 - `/i/v0/ai` handler: `rust/capture/src/ai_endpoint.rs:71`
-- Quota limiter: `rust/capture/src/limiters/mod.rs:17`
-- Token dropper: `rust/capture/src/limiters/token_bucket.rs:1`
+- Quota limiter: `rust/capture/src/limiters.rs`
+- Token dropper: `rust/common/limiters/src/token_dropper.rs`
 
 ## Responsibility Matrix
 
 ### Features Only in `/i/v0/e` (Events Endpoint)
 
-| Feature | Description | Priority |
-|---------|-------------|----------|
-| **Quota limiting and billing checks** | Apply quota limiter checks via `state.quota_limiter.check_and_filter()`. Drop events if billing limits are exceeded. | **HIGH** |
-| **Token dropper filtering** | Filter events based on token dropper rules (rate limiting per token + distinct_id basis) | **HIGH** |
-| **Data type routing** | Determine data type routing (AnalyticsMain, AnalyticsHistorical, ClientIngestionWarning, HeatmapMain, ExceptionMain) | **MEDIUM** |
-| **Historical rerouting** | Apply historical rerouting logic based on event timestamp age | **MEDIUM** |
-| Multiple request format support | Support for array, batch, single, engage formats | **LOW** (AI has specific multipart format) |
-| Multiple compression formats | Support GZIP, LZ64, Base64 detection | **LOW** (AI only needs GZIP) |
-| Batch request support | Accept and process multiple events in a single request | **N/A** (AI processes one event per request by design) |
+| Feature | Description | Priority | Status |
+|---------|-------------|----------|--------|
+| **Quota limiting and billing checks** | Apply quota limiter checks via `state.quota_limiter.check_and_filter()`. Drop events if billing limits are exceeded. | **HIGH** | ✅ DONE |
+| **Token dropper filtering** | Filter events based on token dropper rules (rate limiting per token + distinct_id basis) | **HIGH** | ✅ DONE |
+| **Historical rerouting** | Apply historical rerouting logic based on event timestamp age | **MEDIUM** | Not needed |
 
 ### Features Only in `/i/v0/ai` (AI Endpoint)
 
@@ -55,65 +52,45 @@ This document compares the `/i/v0/ai` endpoint with the `/i/v0/e` (events) endpo
 | CORS handling | ✅ Both |
 | User agent tracking | ✅ Both |
 
-## Critical Gaps for AI Endpoint
+## Implemented Features
 
-### 1. Quota Limiting and Billing Checks (HIGH PRIORITY)
+### 1. Quota Limiting and Billing Checks ✅ DONE
 
-**Current State:** The AI endpoint has no quota or billing limit enforcement.
+**Implementation:** The AI endpoint now enforces quota limits using the `LLMEvents` quota resource.
 
-**How `/e` does it:** Calls `state.quota_limiter.check_and_filter()` on `Vec<RawEvent>` after token validation but before event processing (`v0_endpoint.rs:225-228`). Returns `CaptureError::BillingLimit` if exceeded, which is handled to return 200 OK without sending to Kafka.
+**How it works:**
 
-**Required Changes:**
-- AI endpoint needs to adapt this for single-event case (not a Vec)
-- Call quota limiter after multipart parsing but before building Kafka event
-- Handle `BillingLimit` error: return 200 OK without sending to Kafka
-- Add appropriate error tracking and metrics
+1. After parsing the event metadata (event name, distinct_id), the endpoint calls `state.quota_limiter.check_and_filter()` with a single-element vector
+2. The `is_llm_event()` predicate matches all `$ai_*` events
+3. If over quota, returns HTTP 429 (Too Many Requests) with "billing limit reached" error
+4. Metrics are reported via `capture_quota_limit_exceeded` and `capture_events_dropped_total`
 
-**Impact:** Without this, AI events bypass billing limits and quota enforcement entirely.
+**Key changes:**
 
-### 2. Token Dropper Filtering (HIGH PRIORITY)
+- Added `HasEventName` trait to `common_types` for generic quota checking
+- Refactored `check_and_filter` to be generic over `T: HasEventName`
+- Implemented `HasEventName` for `EventMetadata` struct in AI endpoint
 
-**Current State:** The AI endpoint has no token dropper (rate limiting) support.
+### 2. Token Dropper Filtering ✅ DONE
 
-**How `/e` does it:** After processing events to `ProcessedEvent`, filters the Vec by calling `dropper.should_drop(&token, &distinct_id)` for each event (`v0_endpoint.rs:507-514`). Dropped events are not sent to Kafka and metrics are reported.
+**Implementation:** The AI endpoint now checks the token dropper before processing blob parts.
 
-**Required Changes:**
-- After building the `ProcessedEvent` in AI endpoint, check `state.token_dropper.should_drop()`
-- If dropped: report metrics via `report_dropped_events("token_dropper", 1)` and return 200 OK without sending to Kafka
-- If not dropped: proceed to send to Kafka as usual
+**How it works:**
 
-**Impact:** No protection against abuse or rate limiting for AI endpoints.
+1. After parsing just the event metadata (via `retrieve_event_metadata()`), checks `state.token_dropper.should_drop(token, distinct_id)`
+2. If dropped, returns HTTP 429 (Too Many Requests) with "billing limit reached" error
+3. Metrics reported via `report_dropped_events("token_dropper", 1)`
+4. Early return avoids parsing potentially large blob parts for dropped events
 
-### 3. Data Type Routing (MEDIUM PRIORITY)
+**Optimization:** The token dropper check happens before parsing blob parts, saving processing time when events are dropped.
 
-**Current State:** AI endpoint hardcodes `DataType::AnalyticsMain` (`ai_endpoint.rs:278`).
+### 3. Historical Rerouting - Not Needed
 
-**How `/e` does it:** Routes events based on event name and context (`v0_endpoint.rs:411-417`):
-- `$$client_ingestion_warning` → ClientIngestionWarning
-- `$exception` → ExceptionMain
-- `$$heatmap` → HeatmapMain
-- If `historical_migration=true` → AnalyticsHistorical
-- Otherwise → AnalyticsMain
+AI endpoint hardcodes `historical_migration: false`. This is intentional because:
 
-**Considerations:**
-- AI events have a strict allowlist of 6 event types, none of which are `$$client_ingestion_warning`, `$exception`, or `$$heatmap`
-- Historical migration flag is not exposed in AI endpoint
-- Current hardcoding is likely intentional - AI events don't need special routing
-
-**Required Decision:** Determine if AI events need multi-type routing or if AnalyticsMain is sufficient. Likely can remain as-is.
-
-### 4. Historical Rerouting (MEDIUM PRIORITY)
-
-**Current State:** AI endpoint has no historical data rerouting based on timestamp age. It hardcodes `historical_migration: false` (`ai_endpoint.rs:273`).
-
-**How `/e` does it:** After computing event timestamp, checks `historical_cfg.should_reroute(data_type, computed_timestamp)` which compares event age against a configured threshold (`v0_endpoint.rs:459-466`). Old events get rerouted to `DataType::AnalyticsHistorical`.
-
-**Considerations:**
-- Does the AI use case need historical event support? (e.g., backfilling old AI traces)
-- What is the expected latency for AI event ingestion? (typically real-time)
-- AI events with large blobs may have different performance characteristics for historical processing
-
-**Required Decision:** Determine if historical rerouting is needed for AI events. Likely not needed for initial implementation.
+- AI events are expected to be real-time (not backfilled)
+- Historical rerouting adds complexity without clear benefit for AI use case
+- Can be added later if backfill support is needed
 
 ## Notes
 
