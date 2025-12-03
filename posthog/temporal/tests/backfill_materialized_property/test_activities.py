@@ -1,9 +1,9 @@
 """Tests for backfill materialized property activities."""
 
-import json
 import uuid
 
 import pytest
+from posthog.test.base import _create_event, flush_persons_and_events
 from unittest.mock import patch
 
 from posthog.clickhouse.client import sync_execute
@@ -201,25 +201,13 @@ class TestBackfillMaterializedColumnClickHouse:
         3. Verify dmat column is now populated
         """
         property_name = f"test_prop_{uuid.uuid4().hex[:8]}"
-        event_uuid = str(uuid.uuid4())
-
-        # Insert event with the property
-        sync_execute(
-            """
-            INSERT INTO sharded_events (
-                uuid, team_id, event, distinct_id, properties, timestamp, created_at
-            ) VALUES (
-                %(uuid)s, %(team_id)s, %(event)s, %(distinct_id)s, %(properties)s, now(), now()
-            )
-            """,
-            {
-                "uuid": event_uuid,
-                "team_id": team.id,
-                "event": "$test_event",
-                "distinct_id": "test_user",
-                "properties": f'{{"{property_name}": "{property_value}"}}',
-            },
+        event_uuid = _create_event(
+            team=team,
+            event="$test_event",
+            distinct_id="test_user",
+            properties={property_name: property_value},
         )
+        flush_persons_and_events()
 
         # Verify dmat column is empty before backfill
         result_before = sync_execute(
@@ -262,27 +250,14 @@ class TestBackfillMaterializedColumnClickHouse:
     )
     def test_backfill_handles_special_characters_in_property_name(self, team, activity_environment, property_name):
         """Test that property names with special characters work correctly in ClickHouse."""
-        event_uuid = str(uuid.uuid4())
         expected_value = "test_value"
-
-        properties_json = json.dumps({property_name: expected_value})
-
-        sync_execute(
-            """
-            INSERT INTO sharded_events (
-                uuid, team_id, event, distinct_id, properties, timestamp, created_at
-            ) VALUES (
-                %(uuid)s, %(team_id)s, %(event)s, %(distinct_id)s, %(properties)s, now(), now()
-            )
-            """,
-            {
-                "uuid": event_uuid,
-                "team_id": team.id,
-                "event": "$test_event",
-                "distinct_id": "test_user",
-                "properties": properties_json,
-            },
+        event_uuid = _create_event(
+            team=team,
+            event="$test_event",
+            distinct_id="test_user",
+            properties={property_name: expected_value},
         )
+        flush_persons_and_events()
 
         # Run backfill
         activity_environment.run(
@@ -305,25 +280,15 @@ class TestBackfillMaterializedColumnClickHouse:
     def test_backfill_handles_missing_property(self, team, activity_environment):
         """Test that backfill leaves dmat column empty when property doesn't exist on event."""
         property_name = f"nonexistent_prop_{uuid.uuid4().hex[:8]}"
-        event_uuid = str(uuid.uuid4())
 
         # Insert event WITHOUT the property
-        sync_execute(
-            """
-            INSERT INTO sharded_events (
-                uuid, team_id, event, distinct_id, properties, timestamp, created_at
-            ) VALUES (
-                %(uuid)s, %(team_id)s, %(event)s, %(distinct_id)s, %(properties)s, now(), now()
-            )
-            """,
-            {
-                "uuid": event_uuid,
-                "team_id": team.id,
-                "event": "$test_event",
-                "distinct_id": "test_user",
-                "properties": '{"other_prop": "value"}',
-            },
+        event_uuid = _create_event(
+            team=team,
+            event="$test_event",
+            distinct_id="test_user",
+            properties={"other_prop": "value"},
         )
+        flush_persons_and_events()
 
         # Run backfill for a property that doesn't exist on this event
         activity_environment.run(
@@ -351,27 +316,21 @@ class TestBackfillMaterializedColumnClickHouse:
         other_team = Team.objects.create(organization=organization, name="Other Team")
 
         property_name = f"test_prop_{uuid.uuid4().hex[:8]}"
-        event_uuid_team1 = str(uuid.uuid4())
-        event_uuid_team2 = str(uuid.uuid4())
 
         # Insert events for both teams
-        for event_uuid, tid in [(event_uuid_team1, team.id), (event_uuid_team2, other_team.id)]:
-            sync_execute(
-                """
-                INSERT INTO sharded_events (
-                    uuid, team_id, event, distinct_id, properties, timestamp, created_at
-                ) VALUES (
-                    %(uuid)s, %(team_id)s, %(event)s, %(distinct_id)s, %(properties)s, now(), now()
-                )
-                """,
-                {
-                    "uuid": event_uuid,
-                    "team_id": tid,
-                    "event": "$test_event",
-                    "distinct_id": "test_user",
-                    "properties": f'{{"{property_name}": "test_value"}}',
-                },
-            )
+        event_uuid_team1 = _create_event(
+            team=team,
+            event="$test_event",
+            distinct_id="test_user",
+            properties={property_name: "test_value"},
+        )
+        event_uuid_team2 = _create_event(
+            team=other_team,
+            event="$test_event",
+            distinct_id="test_user",
+            properties={property_name: "test_value"},
+        )
+        flush_persons_and_events()
 
         # Run backfill only for team1
         activity_environment.run(
