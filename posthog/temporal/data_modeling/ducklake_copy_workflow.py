@@ -70,10 +70,11 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         return False
 
     try:
-        flag_result = posthoganalytics.get_feature_flag(
+        return posthoganalytics.feature_enabled(
             "ducklake-data-modeling-copy-workflow",
             str(team.uuid),
             groups={"organization": str(team.organization_id)},
+            only_evaluate_locally=True,
         )
     except Exception as error:
         await logger.awarning(
@@ -82,8 +83,6 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         )
         capture_exception(error)
         return False
-
-    return bool(flag_result == "test")
 
 
 @activity.defn
