@@ -353,6 +353,7 @@ export const FEATURE_FLAGS = {
     SURVEYS_FF_CROSS_SELL: 'surveys-ff-cross-sell', // owner: @adboio #team-surveys
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
     REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
+    SURVEYS_INSIGHT_BUTTON_EXPERIMENT: 'ask-users-why-ai-vs-quickcreate', // owner: @adboio #team-surveys multivariate
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

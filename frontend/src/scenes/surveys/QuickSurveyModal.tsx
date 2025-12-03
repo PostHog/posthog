@@ -9,6 +9,7 @@ import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EventSelector } from './quick-create/components/EventSelector'
+import { FunnelSequence } from './quick-create/components/FunnelSequence'
 import { URLInput } from './quick-create/components/URLInput'
 import { VariantSelector } from './quick-create/components/VariantSelector'
 import {
@@ -63,6 +64,8 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                                 <EventSelector />
                             </>
                         )}
+
+                        {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
 
                         <URLInput />
                     </BindLogic>
