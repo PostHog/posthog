@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0929_remove_legacy_batch_export_notification_setting"),
+        ("posthog", "0930_user_shortcut_position"),
     ]
 
     operations = [
