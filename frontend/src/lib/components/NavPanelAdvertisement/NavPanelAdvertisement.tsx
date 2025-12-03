@@ -11,15 +11,20 @@ import { addProductIntent } from 'lib/utils/product-intents'
 import { pinnedFolderLogic } from '~/layout/panel-layout/PinnedFolder/pinnedFolderLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { getTreeItemsProducts } from '~/products'
-import { FileSystemImport } from '~/queries/schema/schema-general'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import {
+    FileSystemImport,
+    ProductIntentContext,
+    ProductKey,
+    UserProductListItem,
+    UserProductListReason,
+} from '~/queries/schema/schema-general'
 
 import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
-import { navPanelSalesLedLogic } from './navPanelSalesLedLogic'
+import { navPanelAdvertisementRecommendedLogic } from './navPanelAdvertisementRecommendedLogic'
 
 export function NavPanelAdvertisement(): JSX.Element | null {
-    const logic = navPanelSalesLedLogic()
-    const { oldestSalesLedProduct } = useValues(logic)
+    const logic = navPanelAdvertisementRecommendedLogic()
+    const { oldestRecommendedProduct } = useValues(logic)
     const { pinnedFolder } = useValues(pinnedFolderLogic)
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
 
@@ -28,43 +33,40 @@ export function NavPanelAdvertisement(): JSX.Element | null {
         return null
     }
 
-    if (!oldestSalesLedProduct) {
+    if (!oldestRecommendedProduct) {
         return null
     }
 
-    return <NavPanelAdvertisementContent salesLedProduct={oldestSalesLedProduct} />
+    return <NavPanelAdvertisementContent recommendedProduct={oldestRecommendedProduct} />
 }
 
 export function NavPanelAdvertisementContent({
-    salesLedProduct,
+    recommendedProduct,
 }: {
-    salesLedProduct: { product_path: string; reason_text: string | null; id: string }
+    recommendedProduct: UserProductListItem
 }): JSX.Element | null {
     const allProducts = getTreeItemsProducts()
     const productInfo: FileSystemImport | undefined = allProducts.find(
-        (p: FileSystemImport) => p.path === salesLedProduct.product_path
+        (p: FileSystemImport) => p.path === recommendedProduct.product_path
     )
 
-    const logic = navPanelAdvertisementLogic({ productKey: salesLedProduct.product_path })
+    const logic = navPanelAdvertisementLogic({ productKey: recommendedProduct.product_path })
     const { hideAdvertisement } = useActions(logic)
     const { hidden } = useValues(logic)
 
     useEffect(() => {
         if (!hidden && productInfo) {
             posthog.capture('nav panel advertisement shown', {
-                product_path: salesLedProduct.product_path,
-                product_id: salesLedProduct.id,
+                product_path: recommendedProduct.product_path,
+                product_id: recommendedProduct.id,
             })
         }
-    }, [salesLedProduct.product_path, salesLedProduct.id, productInfo, hidden])
+    }, [recommendedProduct.product_path, recommendedProduct.id, productInfo, hidden])
 
-    if (hidden || !productInfo) {
+    const reasonText = getReasonText(recommendedProduct)
+    if (hidden || !productInfo || !reasonText) {
         return null
     }
-
-    const reasonText =
-        salesLedProduct.reason_text ??
-        "We've added this product to your sidebar because we believe you'd benefit from it! Your TAM will reach out to help you learn more about it."
 
     return (
         <div className="w-full">
@@ -73,8 +75,8 @@ export function NavPanelAdvertisementContent({
                 className="text-primary"
                 onClick={() => {
                     posthog.capture('nav panel advertisement clicked', {
-                        product_path: salesLedProduct.product_path,
-                        product_id: salesLedProduct.id,
+                        product_path: recommendedProduct.product_path,
+                        product_id: recommendedProduct.id,
                     })
                     if (productInfo.intents && productInfo.intents.length > 0) {
                         const productKey = productInfo.intents[0]
@@ -82,7 +84,7 @@ export function NavPanelAdvertisementContent({
                             addProductIntent({
                                 product_type: productKey as ProductKey,
                                 intent_context: ProductIntentContext.NAV_PANEL_ADVERTISEMENT_CLICKED,
-                                metadata: { product_path: salesLedProduct.product_path },
+                                metadata: { product_path: recommendedProduct.product_path },
                             })
                         }
                     }
@@ -108,8 +110,8 @@ export function NavPanelAdvertisementContent({
                                 e.stopPropagation()
 
                                 posthog.capture('nav panel advertisement dismissed', {
-                                    product_path: salesLedProduct.product_path,
-                                    product_id: salesLedProduct.id,
+                                    product_path: recommendedProduct.product_path,
+                                    product_id: recommendedProduct.id,
                                 })
 
                                 hideAdvertisement()
@@ -119,10 +121,25 @@ export function NavPanelAdvertisementContent({
                     </div>
 
                     <div className="flex flex-col gap-1">
-                        <p className="mb-0">{reasonText}</p>
+                        <p className="mb-0">{getReasonText(recommendedProduct)}</p>
                     </div>
                 </div>
             </Link>
         </div>
     )
+}
+
+const getReasonText = (product: UserProductListItem): string | null => {
+    if (product.reason_text) {
+        return product.reason_text
+    }
+
+    switch (product.reason) {
+        case UserProductListReason.SALES_LED:
+            return "We've added this product to your sidebar because we believe you'd benefit from it! Your TAM will reach out to help you learn more about it."
+        case UserProductListReason.NEW_PRODUCT:
+            return "We've just released this new product. Based on your usage, we believe you'll like it. Give it a try!"
+    }
+
+    return null
 }

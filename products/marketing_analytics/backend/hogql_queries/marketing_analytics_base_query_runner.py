@@ -88,13 +88,19 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign, ID, and source fields if we're grouping by them
+        # Only include campaign, ID, source, and match_key fields if we're grouping by them
         if group_by_exprs:
             select_columns.extend(
                 [
                     ast.Field(chain=[self.config.campaign_field]),
                     ast.Field(chain=[self.config.id_field]),
                     ast.Field(chain=[self.config.source_field]),
+                    # match_key is used for joining with conversion goals
+                    # Use any() since all rows in a group have the same match_key value
+                    ast.Alias(
+                        alias=self.config.match_key_field,
+                        expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
+                    ),
                 ]
             )
 

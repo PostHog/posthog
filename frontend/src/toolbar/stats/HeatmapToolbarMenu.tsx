@@ -92,6 +92,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         heatmapColorPalette,
         samplingFactor,
         elementsLoading,
+        processingProgress,
     } = useValues(heatmapToolbarMenuLogic)
     const {
         setCommonFilters,
@@ -177,7 +178,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                 <div className="p-2">
                     <SectionButton
                         onChange={(e) => toggleClickmapsEnabled(e)}
-                        loading={elementStatsLoading}
+                        loading={elementStatsLoading || elementsLoading || !!processingProgress}
                         checked={!!clickmapsEnabled}
                     >
                         Clickmaps (autocapture)
@@ -189,6 +190,10 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                 Clickmaps are built using Autocapture events. They are more accurate than heatmaps if
                                 the event can be mapped to a specific element found on the page you are viewing but less
                                 data is usually captured.
+                            </p>
+                            <p className="text-xs italic">
+                                Tip: Hold <kbd className="border rounded px-1 py-0.5 bg-surface-tertiary">shift</kbd> to
+                                interact with the page beneath the clickmap.
                             </p>
                             <div className="flex items-center justify-between pb-2">
                                 <div className="flex items-center gap-1">
@@ -263,7 +268,17 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
 
                             <div className="my-2">
                                 Found: {countedElements.length} elements / {clickCount} clicks
-                                {elementsLoading ? ' (processing...)' : '!'}
+                                {processingProgress ? (
+                                    <span className="text-muted">
+                                        {' '}
+                                        (Processing: {processingProgress.processed.toLocaleString()}/
+                                        {processingProgress.total.toLocaleString()})
+                                    </span>
+                                ) : elementsLoading ? (
+                                    ' (processing...)'
+                                ) : (
+                                    '!'
+                                )}
                             </div>
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (

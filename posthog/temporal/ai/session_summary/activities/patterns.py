@@ -41,7 +41,6 @@ from ee.hogai.session_summaries.llm.consume import (
 )
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
 from ee.hogai.session_summaries.session_group.patterns import (
-    EnrichedSessionGroupSummaryPatternsList,
     RawSessionGroupPatternAssignmentsList,
     RawSessionGroupSummaryPattern,
     RawSessionGroupSummaryPatternsList,
@@ -340,8 +339,8 @@ async def _generate_patterns_assignments(
 @temporalio.activity.defn
 async def assign_events_to_patterns_activity(
     inputs: SessionGroupSummaryOfSummariesInputs,
-) -> tuple[EnrichedSessionGroupSummaryPatternsList, str]:
-    """Summarize a group of sessions in one call. Returns tuple of (patterns, session_group_summary_id)."""
+) -> str:
+    """Summarize a group of sessions in one call. Returns session_group_summary_id."""
     session_ids = _get_session_ids_from_inputs(inputs)
     # Not checking for existing summary in the DB, as the input of `~300 exactly the same ids + context` seems highly unlikely
     redis_client, redis_input_key, _ = get_redis_state_client(
@@ -445,7 +444,7 @@ async def assign_events_to_patterns_activity(
         run_metadata=asdict(SessionSummaryRunMeta(model_used=inputs.model_to_use, visual_confirmation=False)),
         created_by=user,
     )
-    return patterns_with_events_context, str(session_group_summary.id)
+    return str(session_group_summary.id)
 
 
 @temporalio.activity.defn
