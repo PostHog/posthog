@@ -206,6 +206,7 @@ export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Elemen
             )}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
+            menu={{ className: 'min-w-48' }}
             className="flex-shrink-0 border [&>span]:text-secondary"
         />
     )
