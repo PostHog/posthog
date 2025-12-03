@@ -463,6 +463,72 @@ class FeatureFlagSerializer(
         else:
             return None
 
+    def validate(self, attrs):
+        """Validate feature flag creation/update including evaluation tag requirements."""
+        attrs = super().validate(attrs)
+
+        request = self.context.get("request")
+        if not request:
+            return attrs
+
+        # Survey flags are exempt from evaluation tag requirements
+        # They are created automatically by the survey system and don't need manual tagging
+        creation_context = self.initial_data.get("creation_context") if hasattr(self, "initial_data") else None
+        if creation_context == "surveys":
+            return attrs
+
+        # Get the team to check if evaluation tags are required
+        # The context uses a lambda for lazy evaluation
+        get_team = self.context.get("get_team")
+        if not get_team:
+            return attrs
+
+        team = get_team()
+        if not team or not team.require_evaluation_environment_tags:
+            return attrs
+
+        # Check if evaluation tags feature is enabled
+        if not self._is_evaluation_tags_feature_enabled():
+            return attrs
+
+        # Get evaluation_tags from attrs (validated data)
+        # Note: for creation_context, we use initial_data since it's metadata not part of the model
+        evaluation_tags = attrs.get("evaluation_tags")
+
+        # Validate evaluation tag requirements based on operation type
+        if request.method == "POST":
+            # Creating a new flag: require at least one evaluation tag
+            if not evaluation_tags:
+                raise serializers.ValidationError(
+                    "At least one evaluation environment tag is required to create a new feature flag."
+                )
+        elif request.method in ["PUT", "PATCH"] and self.instance:
+            # Updating an existing flag: if it currently has evaluation tags, require at least one in the update
+            # TRICKY: This creates asymmetric behavior - flags WITH eval tags can't have them removed,
+            # but flags WITHOUT eval tags aren't required to add them on update (only on creation).
+            # This is intentional: we enforce eval tags going forward (new flags) without breaking
+            # existing workflows (updating old flags that were created before the requirement).
+
+            # Check if evaluation tags are already loaded to avoid extra query
+            if (
+                hasattr(self.instance, "_prefetched_objects_cache")
+                and "evaluation_tags" in self.instance._prefetched_objects_cache
+            ):
+                existing_eval_tag_count = len(self.instance.evaluation_tags.all())
+            else:
+                existing_eval_tag_count = self.instance.evaluation_tags.count()
+
+            if existing_eval_tag_count > 0:
+                # Flag currently has evaluation tags, so we need to enforce the requirement
+                # Only validate if evaluation_tags is explicitly provided in the request
+                if evaluation_tags is not None and not evaluation_tags:
+                    raise serializers.ValidationError(
+                        "Cannot remove all evaluation environment tags. At least one tag is required because "
+                        "this flag already has evaluation tags and the team requires them."
+                    )
+
+        return attrs
+
     def validate_key(self, value):
         exclude_kwargs = {}
         if self.instance:
@@ -864,7 +930,9 @@ class FeatureFlagSerializer(
         # updates were already occurring outside of a transaction.
 
         # Handle evaluation tags (uses initial_data like TaggedItemSerializerMixin does)
-        self._attempt_set_evaluation_tags(self.initial_data.get("evaluation_tags"), instance)
+        # Only update if explicitly provided in request, otherwise preserve existing tags
+        if "evaluation_tags" in self.initial_data:
+            self._attempt_set_evaluation_tags(self.initial_data.get("evaluation_tags"), instance)
 
         analytics_dashboards = validated_data.pop("analytics_dashboards", None)
 
@@ -1289,6 +1357,19 @@ class FeatureFlagViewSet(
                 except (json.JSONDecodeError, TypeError):
                     # If the JSON is invalid, ignore the filter
                     pass
+            elif key == "has_evaluation_tags":
+                from django.db.models import Count
+
+                # Convert string to boolean
+                filter_value = filters[key].lower() in ("true", "1", "yes")
+
+                # Annotate with count of evaluation tags
+                queryset = queryset.annotate(eval_tag_count=Count("evaluation_tags"))
+
+                if filter_value:
+                    queryset = queryset.filter(eval_tag_count__gt=0)
+                else:
+                    queryset = queryset.filter(eval_tag_count=0)
 
         return queryset
 
@@ -1407,6 +1488,14 @@ class FeatureFlagViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="JSON-encoded list of tag names to filter feature flags by.",
+            ),
+            OpenApiParameter(
+                "has_evaluation_tags",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description="Filter feature flags by presence of evaluation environment tags. 'true' returns only flags with at least one evaluation tag, 'false' returns only flags without evaluation tags.",
             ),
         ]
     )
