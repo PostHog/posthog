@@ -419,9 +419,9 @@ PROXY_BASE_CNAME = get_from_env("PROXY_BASE_CNAME", "")
 
 # Cloudflare for SaaS proxy settings
 CLOUDFLARE_PROXY_ENABLED = get_from_env("CLOUDFLARE_PROXY_ENABLED", False, type_cast=str_to_bool)
-CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "", optional=True)
-CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "", optional=True)
-CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "", optional=True)
+CLOUDFLARE_API_TOKEN = get_from_env("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ZONE_ID = get_from_env("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_WORKER_NAME = get_from_env("CLOUDFLARE_WORKER_NAME", "")
 
 ####
 # CDP
