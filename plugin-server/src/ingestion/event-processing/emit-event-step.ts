@@ -15,11 +15,17 @@ export interface EmitEventStepConfig {
     groupId: string
 }
 
-export function createEmitEventStep<
-    T extends { eventToEmit?: RawKafkaEvent; headers?: EventHeaders; message?: Message },
->(config: EmitEventStepConfig): ProcessingStep<T, void> {
+export interface EmitEventStepInput {
+    eventToEmit?: RawKafkaEvent
+    inputHeaders?: EventHeaders
+    inputMessage?: Message
+}
+
+export function createEmitEventStep<T extends EmitEventStepInput>(
+    config: EmitEventStepConfig
+): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit, headers, message } = input
+        const { eventToEmit, inputHeaders, inputMessage } = input
 
         if (!eventToEmit) {
             return Promise.resolve(ok(undefined, []))
@@ -27,9 +33,11 @@ export function createEmitEventStep<
         const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
 
         // Record ingestion lag metric if we have the required data
-        if (headers?.now && message?.topic !== undefined && message?.partition !== undefined) {
-            const lag = Date.now() - headers.now.getTime()
-            ingestionLagGauge.labels({ topic: message.topic, partition: String(message.partition), groupId }).set(lag)
+        if (inputHeaders?.now && inputMessage?.topic !== undefined && inputMessage?.partition !== undefined) {
+            const lag = Date.now() - inputHeaders.now.getTime()
+            ingestionLagGauge
+                .labels({ topic: inputMessage.topic, partition: String(inputMessage.partition), groupId })
+                .set(lag)
         }
 
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here

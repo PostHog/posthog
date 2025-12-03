@@ -431,13 +431,13 @@ describe('emit-event-step', () => {
             jest.useRealTimers()
         })
 
-        it('should record ingestion lag when headers.now and message are present', async () => {
+        it('should record ingestion lag when inputHeaders.now and inputMessage are present', async () => {
             const captureTime = new Date(FAKE_NOW_MS - 5432) // 5.432 seconds before fake now
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: captureTime }),
-                message: createMessage(),
+                inputHeaders: createHeaders({ now: captureTime }),
+                inputMessage: createMessage(),
             }
 
             await step(input)
@@ -451,12 +451,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).toHaveBeenCalledWith(5432)
         })
 
-        it('should not record ingestion lag when headers.now is missing', async () => {
+        it('should not record ingestion lag when inputHeaders.now is missing', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders(),
-                message: createMessage(),
+                inputHeaders: createHeaders(),
+                inputMessage: createMessage(),
             }
 
             await step(input)
@@ -465,11 +465,11 @@ describe('emit-event-step', () => {
             expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when message is missing', async () => {
+        it('should not record ingestion lag when inputMessage is missing', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
             }
 
             await step(input)
@@ -478,12 +478,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when message.topic is undefined', async () => {
+        it('should not record ingestion lag when inputMessage.topic is undefined', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ topic: undefined as unknown as string }),
+                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                inputMessage: createMessage({ topic: undefined as unknown as string }),
             }
 
             await step(input)
@@ -492,12 +492,12 @@ describe('emit-event-step', () => {
             expect(mockSetFn).not.toHaveBeenCalled()
         })
 
-        it('should not record ingestion lag when message.partition is undefined', async () => {
+        it('should not record ingestion lag when inputMessage.partition is undefined', async () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: undefined as unknown as number }),
+                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                inputMessage: createMessage({ partition: undefined as unknown as number }),
             }
 
             await step(input)
@@ -511,8 +511,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(customConfig)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage(),
+                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                inputMessage: createMessage(),
             }
 
             await step(input)
@@ -528,8 +528,8 @@ describe('emit-event-step', () => {
             const step = createEmitEventStep(config)
             const input = {
                 eventToEmit: mockRawEvent,
-                headers: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
-                message: createMessage({ partition: 0 }),
+                inputHeaders: createHeaders({ now: new Date(FAKE_NOW_MS - 1000) }),
+                inputMessage: createMessage({ partition: 0 }),
             }
 
             await step(input)

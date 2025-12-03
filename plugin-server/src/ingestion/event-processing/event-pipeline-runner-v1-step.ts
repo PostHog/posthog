@@ -24,8 +24,8 @@ export function createEventPipelineRunnerV1Step(
         const {
             event,
             team,
-            headers,
-            message,
+            headers: inputHeaders,
+            message: inputMessage,
             personsStoreForBatch,
             groupStoreForBatch,
             processPerson,
@@ -38,14 +38,14 @@ export function createEventPipelineRunnerV1Step(
             hogTransformer,
             personsStoreForBatch,
             groupStoreForBatch,
-            headers
+            inputHeaders
         )
         const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
 
         // Pass through message and headers for downstream metric recording
         if (isOkResult(result)) {
-            result.value.headers = headers
-            result.value.message = message
+            result.value.inputHeaders = inputHeaders
+            result.value.inputMessage = inputMessage
         }
 
         return result

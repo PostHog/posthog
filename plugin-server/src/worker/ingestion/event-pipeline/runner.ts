@@ -40,8 +40,8 @@ export type EventPipelineResult = {
     eventToEmit?: RawKafkaEvent
     error?: string
     // For ingestion lag metric
-    headers?: EventHeaders
-    message?: Message
+    inputHeaders?: EventHeaders
+    inputMessage?: Message
 }
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
