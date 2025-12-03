@@ -7,7 +7,12 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, LemonText
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 import { teamLogic } from 'scenes/teamLogic'
+
+import { Survey } from '~/types'
 
 import { EventSelector } from './quick-create/components/EventSelector'
 import { FunnelSequence } from './quick-create/components/FunnelSequence'
@@ -37,7 +42,13 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
     const { setSurveyFormValue, setCreateMode } = useActions(quickSurveyFormLogic(logicProps))
 
     const { currentTeam } = useValues(teamLogic)
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
     const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+
+    const versionWarnings = useMemo(
+        () => getSurveyVersionWarnings(previewSurvey as Survey, teamSdkVersions),
+        [previewSurvey, teamSdkVersions]
+    )
 
     const handleSubmit = (mode: QuickSurveyCreateMode): void => {
         setCreateMode(mode)
@@ -166,12 +177,14 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                 </div>
             </div>
 
-            <div className="mt-6">
+            <div className="flex flex-col gap-3 mt-2">
                 {shouldShowSurveyToggle && (
-                    <div className="mb-4 p-4 border rounded bg-warning-highlight">
+                    <div className="p-4 border rounded bg-warning-highlight">
                         <SurveyPopupToggle />
                     </div>
                 )}
+
+                <SdkVersionWarnings warnings={versionWarnings} />
 
                 {submitDisabledReason && (
                     <LemonBanner type="error" className="mb-4">

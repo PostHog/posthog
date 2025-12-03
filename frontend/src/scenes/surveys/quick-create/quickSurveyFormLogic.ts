@@ -37,6 +37,7 @@ export interface QuickSurveyFormValues {
     question: string
     description?: string
     questionType: QuickSurveyQuestionType
+    scaleType?: 'number' | 'emoji'
     ratingLowerBound?: string
     ratingUpperBound?: string
     buttonText?: string
@@ -62,7 +63,7 @@ function buildSurveyQuestion(
             type: SurveyQuestionType.Rating,
             question: formValues.question,
             optional: false,
-            display: 'emoji',
+            display: formValues.scaleType || 'emoji',
             scale: SURVEY_RATING_SCALE.LIKERT_5_POINT,
             lowerBoundLabel: formValues.ratingLowerBound || DEFAULT_RATING_LOWER_LABEL,
             upperBoundLabel: formValues.ratingUpperBound || DEFAULT_RATING_UPPER_LABEL,

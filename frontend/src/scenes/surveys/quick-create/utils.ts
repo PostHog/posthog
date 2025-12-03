@@ -82,6 +82,34 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     question: 'Hog mode is now available!',
                     description: 'You can never have too many hedgehogs.',
                     buttonText: 'Check it out 👉',
+                }
+            }
+
+        case QuickSurveyType.ERROR_TRACKING:
+            return {
+                key: `error-tracking-${context.issueId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.ERROR_TRACKING,
+                defaults: {
+                    name: `Exception feedback (${randomId})`,
+                    question: 'Looks like we hit a snag - how disruptive was this?',
+                    questionType: SurveyQuestionType.Rating,
+                    scaleType: 'number',
+                    ratingLowerBound: 'Minor glitch',
+                    ratingUpperBound: "Can't continue",
+                    conditions: {
+                        actions: null,
+                        events: {
+                            values: [
+                                {
+                                    name: '$exception',
+                                    propertyFilters: {
+                                        $exception_issue_id: { values: [context.issueId], operator: 'exact' },
+                                    },
+                                },
+                            ],
+                        },
+                    },
                 },
             }
     }

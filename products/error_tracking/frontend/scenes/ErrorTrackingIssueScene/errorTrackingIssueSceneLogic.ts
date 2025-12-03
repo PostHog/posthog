@@ -18,7 +18,7 @@ import {
     ErrorTrackingRelationalIssue,
     SimilarIssue,
 } from '~/queries/schema/schema-general'
-import { ActivityScope, Breadcrumb, IntegrationType } from '~/types'
+import { ActivityScope, Breadcrumb, IntegrationType, Survey } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
@@ -249,6 +249,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
             },
         ],
+        exceptionSurveys: {
+            __default: [] as Survey[],
+            loadExceptionSurveys: async () => {
+                const response = await api.surveys.list()
+                return response.results.filter((survey) =>
+                    survey.conditions?.events?.values?.some((event) => event.name === '$exception')
+                )
+            },
+        },
     })),
 
     selectors(({ actions }) => ({
@@ -308,6 +317,22 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             (s) => [s.eventsQuery],
             () => {
                 return uuid()
+            },
+        ],
+
+        surveysByIssueId: [
+            (s) => [s.exceptionSurveys],
+            (surveys): Record<string, Survey[]> => {
+                const map: Record<string, Survey[]> = {}
+                for (const survey of surveys) {
+                    const issueIds = survey.conditions?.events?.values
+                        ?.filter((e) => e.name === '$exception')
+                        ?.flatMap((e) => e.propertyFilters?.['$exception_issue_id']?.values ?? [])
+                    for (const id of issueIds ?? []) {
+                        map[id] = [...(map[id] ?? []), survey]
+                    }
+                }
+                return map
             },
         ],
     })),
@@ -377,6 +402,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            actions.loadExceptionSurveys()
         },
     })),
 ])
