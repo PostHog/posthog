@@ -46,7 +46,8 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
-    clustering_run_id = f"team_{inputs.team_id}_{window_end.isoformat()}"
+    # Use a URL-friendly format: <team_id>_<YYYYMMDD>_<HHMMSS>
+    clustering_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
 
     # Fetch trace IDs and embeddings
     trace_ids, embeddings_map = fetch_trace_embeddings_for_clustering(

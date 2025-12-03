@@ -187,7 +187,7 @@ class TestActivityInputOutputModels:
     def test_clustering_compute_result(self):
         """Test ClusteringComputeResult structure."""
         result = ClusteringComputeResult(
-            clustering_run_id="team_1_2025-01-08T00:00:00",
+            clustering_run_id="1_20250108_000000",
             trace_ids=["trace_1", "trace_2", "trace_3"],
             labels=[0, 0, 1],
             centroids=[[1.0, 2.0], [3.0, 4.0]],
@@ -195,7 +195,7 @@ class TestActivityInputOutputModels:
             representative_trace_ids={0: ["trace_1"], 1: ["trace_3"]},
         )
 
-        assert result.clustering_run_id == "team_1_2025-01-08T00:00:00"
+        assert result.clustering_run_id == "1_20250108_000000"
         assert len(result.trace_ids) == 3
         assert len(result.labels) == 3
         assert len(result.centroids) == 2
@@ -236,7 +236,7 @@ class TestActivityInputOutputModels:
         """Test EmitEventsActivityInputs structure."""
         inputs = EmitEventsActivityInputs(
             team_id=1,
-            clustering_run_id="team_1_2025-01-08T00:00:00",
+            clustering_run_id="1_20250108_000000",
             window_start="2025-01-01T00:00:00Z",
             window_end="2025-01-08T00:00:00Z",
             trace_ids=["trace_1", "trace_2"],
@@ -250,7 +250,7 @@ class TestActivityInputOutputModels:
         )
 
         assert inputs.team_id == 1
-        assert inputs.clustering_run_id == "team_1_2025-01-08T00:00:00"
+        assert inputs.clustering_run_id == "1_20250108_000000"
         assert len(inputs.trace_ids) == 2
         assert len(inputs.labels) == 2
         assert len(inputs.centroids) == 2
