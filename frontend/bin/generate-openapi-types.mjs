@@ -36,37 +36,11 @@ const generateAll = process.argv.includes('--all')
  * - productFoldersOnDisk: Set of product folder names that exist in products/
  */
 function loadProductMappings() {
-    const productsJsonPath = path.resolve(frontendRoot, 'src', 'products.json')
     const productFoldersOnDisk = discoverProductFolders()
 
-    if (!fs.existsSync(productsJsonPath)) {
-        console.warn('Warning: products.json not found, falling back to filesystem discovery')
-        return {
-            knownProducts: productFoldersOnDisk,
-            intentToProduct: new Map(),
-            productFoldersOnDisk,
-        }
-    }
-
-    const productsData = JSON.parse(fs.readFileSync(productsJsonPath, 'utf8'))
-    const knownProducts = new Set()
-    const intentToProduct = new Map()
-
-    // Process all product categories (products, metadata, games)
-    for (const category of ['products', 'metadata', 'games']) {
-        for (const item of productsData[category] || []) {
-            // Convert path to folder name: "Feature flags" → "feature_flags"
-            const productName = item.path.toLowerCase().replace(/\s+/g, '_')
-            knownProducts.add(productName)
-
-            // Map intents to product name
-            for (const intent of item.intents || []) {
-                intentToProduct.set(intent, productName)
-            }
-        }
-    }
-
-    return { knownProducts, intentToProduct, productFoldersOnDisk }
+    // Tags should match folder names directly (e.g., @extend_schema(tags=["replay"]))
+    // No need for complex intent mapping - just use folder names as the source of truth
+    return { productFoldersOnDisk }
 }
 
 /**
@@ -77,44 +51,23 @@ function discoverProductFolders() {
     const products = new Set()
     for (const entry of fs.readdirSync(productsDir, { withFileTypes: true })) {
         if (entry.isDirectory() && !entry.name.startsWith('_')) {
-            // Only include products that have package.json (ready for TS)
-            const packageJsonPath = path.join(productsDir, entry.name, 'package.json')
-            if (fs.existsSync(packageJsonPath)) {
-                products.add(entry.name)
-            }
+            products.add(entry.name)
         }
     }
     return products
 }
 
 /**
- * LEVEL 1: Resolve tag → product name
+ * Resolve tag → product folder name
  *
- * Checks both:
- * 1. products.json (products with manifest.tsx)
- * 2. Product folders with package.json (products ready for TS but without manifest)
- *
- * Returns null if tag doesn't map to any known product → goes to "core"
+ * Tags should match folder names directly (e.g., "replay", "feature_flags").
+ * Returns null if tag doesn't match any product folder → goes to "core"
  */
 function resolveTagToProduct(tag, mappings) {
-    const { knownProducts, intentToProduct, productFoldersOnDisk } = mappings
+    const { productFoldersOnDisk } = mappings
     const normalizedTag = tag.replace(/-/g, '_')
 
-    // Direct match to known product from products.json
-    if (knownProducts.has(normalizedTag)) {
-        return normalizedTag
-    }
-
-    // Check intent mapping from products.json
-    if (intentToProduct.has(tag)) {
-        return intentToProduct.get(tag)
-    }
-    if (intentToProduct.has(normalizedTag)) {
-        return intentToProduct.get(normalizedTag)
-    }
-
-    // Check if tag matches a product folder on disk (has package.json but no manifest.tsx)
-    // This handles products like batch_exports that are TS-ready but not in products.json
+    // Tag must match a product folder on disk
     if (productFoldersOnDisk.has(normalizedTag)) {
         return normalizedTag
     }
@@ -141,14 +94,6 @@ function resolveProductToOutputDir(product, productFoldersOnDisk) {
 
     // Product exists in products.json but folder not yet created
     return path.resolve(frontendRoot, 'src', 'generated', product)
-}
-
-/**
- * Combined: tag → output directory (for convenience)
- */
-function getOutputDirForTag(tag, mappings) {
-    const product = resolveTagToProduct(tag, mappings)
-    return resolveProductToOutputDir(product, mappings.productFoldersOnDisk)
 }
 
 function createTempDir() {
@@ -191,10 +136,19 @@ function resolveNestedRefs(schemas, refs) {
     return allRefs
 }
 
-function buildGroupedSchemasByTag(schema) {
-    const grouped = new Map()
+/**
+ * Group endpoints by output directory.
+ * Simple logic:
+ * - tag matches product folder → goes there
+ * - tag is explicitly "core" → goes to core
+ * - no tag or unrecognized tag → skipped (tracked for reporting)
+ */
+function buildGroupedSchemasByOutput(schema, mappings) {
+    const grouped = new Map() // outputDir → { paths, _refs }
     const httpMethods = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace'])
     const allSchemas = schema.components?.schemas ?? {}
+    const skippedTags = new Map() // tag → count (for unrecognized tags)
+    let skippedNoTags = 0
 
     for (const [pathKey, operations] of Object.entries(schema.paths ?? {})) {
         for (const [method, operation] of Object.entries(operations ?? {})) {
@@ -202,32 +156,60 @@ function buildGroupedSchemasByTag(schema) {
                 continue
             }
 
-            // Use x-explicit-tags (from @extend_schema decorator) instead of auto-derived tags
+            // Use x-explicit-tags (from @extend_schema decorator)
             const explicitTags = operation['x-explicit-tags']
             const tags = Array.isArray(explicitTags) && explicitTags.length ? explicitTags : []
 
-            for (const tag of tags) {
-                if (!grouped.has(tag)) {
-                    grouped.set(tag, {
-                        openapi: schema.openapi,
-                        info: { ...schema.info, title: `${schema.info?.title ?? 'API'} - ${tag}` },
-                        paths: {},
-                        _refs: new Set(),
-                    })
+            // Find first tag that matches a product folder
+            const productTag = tags.find((t) => resolveTagToProduct(t, mappings) !== null)
+
+            let outputDir
+            if (productTag) {
+                outputDir = resolveProductToOutputDir(productTag, mappings.productFoldersOnDisk)
+            } else if (tags.includes('core')) {
+                outputDir = resolveProductToOutputDir('core', mappings.productFoldersOnDisk)
+            } else {
+                // Track skipped endpoints
+                if (tags.length === 0) {
+                    skippedNoTags++
+                } else {
+                    for (const tag of tags) {
+                        skippedTags.set(tag, (skippedTags.get(tag) || 0) + 1)
+                    }
                 }
-
-                const entry = grouped.get(tag)
-                entry.paths[pathKey] ??= {}
-                entry.paths[pathKey][method] = operation
-
-                // Collect schema refs used by this operation
-                collectSchemaRefs(operation, entry._refs)
+                continue
             }
+
+            if (!grouped.has(outputDir)) {
+                grouped.set(outputDir, {
+                    openapi: schema.openapi,
+                    info: schema.info,
+                    paths: {},
+                    _refs: new Set(),
+                })
+            }
+
+            const entry = grouped.get(outputDir)
+            entry.paths[pathKey] ??= {}
+            entry.paths[pathKey][method] = operation
+            collectSchemaRefs(operation, entry._refs)
         }
     }
 
+    // Report skipped endpoints
+    if (skippedNoTags > 0 || skippedTags.size > 0) {
+        console.log('⚠️  Skipped endpoints (no matching product folder):')
+        if (skippedNoTags > 0) {
+            console.log(`   ${skippedNoTags} endpoints with no @extend_schema tags`)
+        }
+        for (const [tag, count] of [...skippedTags.entries()].sort((a, b) => b[1] - a[1])) {
+            console.log(`   ${count} endpoints tagged "${tag}"`)
+        }
+        console.log('')
+    }
+
     // Build final schemas with only referenced components
-    for (const [tag, entry] of grouped.entries()) {
+    for (const [outputDir, entry] of grouped.entries()) {
         const allRefs = resolveNestedRefs(allSchemas, entry._refs)
         const filteredSchemas = {}
 
@@ -238,14 +220,11 @@ function buildGroupedSchemasByTag(schema) {
             }
         }
 
-        // Build final schema object
-        grouped.set(tag, {
+        grouped.set(outputDir, {
             openapi: entry.openapi,
-            info: entry.info,
+            info: { ...entry.info, title: `${entry.info?.title ?? 'API'} - ${path.basename(outputDir)}` },
             paths: entry.paths,
-            components: {
-                schemas: filteredSchemas,
-            },
+            components: { schemas: filteredSchemas },
         })
     }
 
@@ -397,21 +376,6 @@ function reorderEnumsInSchemaFile(schemaFile) {
     fs.writeFileSync(schemaFile, cleanedLines.join('\n'))
 }
 
-function mergeSchemas(schemas) {
-    // Merge multiple OpenAPI schemas into one
-    const merged = {
-        openapi: schemas[0].openapi,
-        info: { ...schemas[0].info, title: schemas[0].info?.title?.replace(/ - \w+$/, '') || 'API' },
-        paths: {},
-        components: { schemas: {} },
-    }
-    for (const schema of schemas) {
-        Object.assign(merged.paths, schema.paths)
-        Object.assign(merged.components.schemas, schema.components?.schemas || {})
-    }
-    return merged
-}
-
 // Main execution
 
 const schema = JSON.parse(fs.readFileSync(schemaPath, 'utf8'))
@@ -442,47 +406,20 @@ if (generateAll) {
     console.log('─'.repeat(72))
     console.log('')
 
-    schemasByOutput = new Map([[outputDir, { tags: ['all'], schemas: [schema] }]])
+    schemasByOutput = new Map([[outputDir, schema]])
 } else {
-    // Normal mode: filter by tags and route to product folders
-    const groupedSchemas = buildGroupedSchemasByTag(schema)
+    // Normal mode: route to product folders or core
+    schemasByOutput = buildGroupedSchemasByOutput(schema, mappings)
 
-    // Group schemas by output directory
-    schemasByOutput = new Map()
-    const tagRouting = [] // For logging
-
-    for (const [tag, groupedSchema] of groupedSchemas.entries()) {
-        const outputDir = getOutputDirForTag(tag, mappings)
-
-        if (!schemasByOutput.has(outputDir)) {
-            schemasByOutput.set(outputDir, { tags: [], schemas: [] })
-        }
-        schemasByOutput.get(outputDir).tags.push(tag)
-        schemasByOutput.get(outputDir).schemas.push(groupedSchema)
-
-        // Track routing for logging
-        const relPath = path.relative(repoRoot, outputDir)
-        tagRouting.push({ tag, output: relPath })
-    }
-
-    // Show tag routing info
-    console.log(`Found ${groupedSchemas.size} tags, routing to ${schemasByOutput.size} output directories:`)
+    // Show routing info
+    console.log(`Routing to ${schemasByOutput.size} output directories:`)
     console.log('')
 
-    // Group by output for cleaner display
-    const byOutput = new Map()
-    for (const { tag, output } of tagRouting) {
-        if (!byOutput.has(output)) {
-            byOutput.set(output, [])
-        }
-        byOutput.get(output).push(tag)
-    }
-
-    for (const [output, tags] of byOutput) {
-        const isProducts = output.startsWith('products/')
+    for (const outputDir of schemasByOutput.keys()) {
+        const relPath = path.relative(repoRoot, outputDir)
+        const isProducts = relPath.startsWith('products/')
         const icon = isProducts ? '📦' : '📁'
-        console.log(`  ${icon} ${output}`)
-        console.log(`     └─ ${tags.join(', ')}`)
+        console.log(`  ${icon} ${relPath}`)
     }
 
     console.log('')
@@ -495,17 +432,18 @@ let failed = 0
 const entries = [...schemasByOutput.entries()]
 
 // Prepare all jobs first (write temp files, log info)
-const jobs = entries.map(([outputDir, { tags, schemas }]) => {
-    const mergedSchema = schemas.length > 1 ? mergeSchemas(schemas) : schemas[0]
-    const pathCount = Object.keys(mergedSchema.paths).length
-    const schemaCount = Object.keys(mergedSchema.components?.schemas || {}).length
-    const tagLabel = tags.length > 1 ? `${tags[0]} (+${tags.length - 1} more)` : tags[0]
-    const tempFile = path.join(tmpDir, `${tags[0].replace(/[^a-zA-Z0-9_-]/g, '_')}.json`)
-    fs.writeFileSync(tempFile, JSON.stringify(mergedSchema, null, 2))
+const jobs = entries.map(([outputDir, groupedSchema]) => {
+    const pathCount = Object.keys(groupedSchema.paths).length
+    const schemaCount = Object.keys(groupedSchema.components?.schemas || {}).length
+    // Use product folder name as label (e.g., "batch_exports" from "products/batch_exports/frontend/generated")
+    const relPath = path.relative(repoRoot, outputDir)
+    const label = relPath.startsWith('products/') ? relPath.split('/')[1] : 'core'
+    const tempFile = path.join(tmpDir, `${label}.json`)
+    fs.writeFileSync(tempFile, JSON.stringify(groupedSchema, null, 2))
 
-    console.log(`📦 ${tagLabel}: ${pathCount} endpoints, ${schemaCount} schemas`)
+    console.log(`📦 ${label}: ${pathCount} endpoints, ${schemaCount} schemas`)
 
-    return { tempFile, outputDir, tags, tagLabel }
+    return { tempFile, outputDir, label }
 })
 
 console.log('')
@@ -514,9 +452,9 @@ console.log('')
 
 // Run all orval generations in parallel
 const results = await Promise.allSettled(
-    jobs.map(async ({ tempFile, outputDir, tags, tagLabel }) => {
+    jobs.map(async ({ tempFile, outputDir, label }) => {
         const { execSync } = await import('node:child_process')
-        const configFile = path.join(tmpDir, `orval-${tags[0].replace(/[^a-zA-Z0-9_-]/g, '_')}.config.mjs`)
+        const configFile = path.join(tmpDir, `orval-${label}.config.mjs`)
         const outputFile = path.join(outputDir, 'index.ts')
         const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
 
@@ -552,7 +490,7 @@ export default defineConfig({
         const schemaOutputFile = path.join(outputDir, 'index.schemas.ts')
         reorderEnumsInSchemaFile(schemaOutputFile)
 
-        return { tagLabel, outputDir, schemaOutputFile }
+        return { label, outputDir, schemaOutputFile }
     })
 )
 
@@ -560,7 +498,7 @@ export default defineConfig({
 const outputDirs = []
 for (const result of results) {
     if (result.status === 'fulfilled') {
-        console.log(`   ✓ ${result.value.tagLabel} → ${path.relative(repoRoot, result.value.outputDir)}`)
+        console.log(`   ✓ ${result.value.label} → ${path.relative(repoRoot, result.value.outputDir)}`)
         outputDirs.push(result.value.outputDir)
         generated++
     } else {

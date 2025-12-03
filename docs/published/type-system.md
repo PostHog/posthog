@@ -10,9 +10,9 @@ PostHog has two type generation systems that keep frontend and backend in sync. 
 
 ## Overview
 
-| Flow               | Source of truth        | Generated output     | Used for                               |
-| ------------------ | ---------------------- | -------------------- | -------------------------------------- |
-| Backend → Frontend | Django serializers     | TypeScript (Orval)   | API responses                          |
+| Flow | Source of truth | Generated output | Used for |
+|------|-----------------|------------------|----------|
+| Backend → Frontend | Django serializers | TypeScript (Orval) | API responses |
 | Frontend → Backend | TypeScript `schema.ts` | Pydantic `schema.py` | Query types (HogQL, filters, insights) |
 
 These are independent systems. Don't conflate them.
@@ -31,11 +31,11 @@ We use [Orval](https://orval.dev/) to generate TypeScript types and API client f
 
 ### Where types live
 
-| Type                | Location                                 | Editable? |
-| ------------------- | ---------------------------------------- | --------- |
-| Generated API types | `products/<product>/frontend/generated/` | No        |
-| Core API types      | `frontend/src/generated/core/`           | No        |
-| Handwritten types   | `frontend/src/types/`                    | Yes       |
+| Type | Location | Editable? |
+|------|----------|-----------|
+| Generated API types | `products/<product>/frontend/generated/` | No |
+| Core API types | `frontend/src/generated/core/` | No |
+| Handwritten types | `frontend/src/types/` | Yes |
 
 Never edit files in `generated/` – they're overwritten on regeneration.
 
@@ -51,7 +51,7 @@ This prevents name collisions between generated and manual types.
 
 ```typescript
 // Import from generated
-import { type TaskApi, tasksCreate, tasksList } from 'products/tasks/frontend/generated'
+import { tasksList, tasksCreate, type TaskApi } from 'products/tasks/frontend/generated'
 
 // Call the API
 const response = await tasksList(projectId, { stage: 'open' })
@@ -67,11 +67,11 @@ If the UI needs a different shape, convert explicitly:
 
 ```typescript
 function convertApiTaskToTask(api: TaskApi): Task {
-  return {
-    id: api.id,
-    title: api.title,
-    // ... transform as needed
-  }
+    return {
+        id: api.id,
+        title: api.title,
+        // ... transform as needed
+    }
 }
 ```
 

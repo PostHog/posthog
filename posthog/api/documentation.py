@@ -294,7 +294,8 @@ def custom_postprocessing_hook(result, generator, request, public):
         paths[path] = {}
         for method, definition in methods.items():
             # Preserve explicit tags from @extend_schema before filtering/adding auto-derived ones
-            explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects"]]
+            # Exclude auto-derived URL structure tags (projects, environments) - these aren't real product tags
+            explicit_tags = [d for d in definition.get("tags", []) if d not in ["projects", "environments"]]
             definition["x-explicit-tags"] = explicit_tags
 
             definition["tags"] = [d for d in definition["tags"] if d not in ["projects"]]
