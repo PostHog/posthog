@@ -1,6 +1,12 @@
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
 
+/**
+ * Type of filter for realtime cohort evaluation.
+ *
+ * - 'behavioral': Event-based filters that require processing event streams (e.g., "performed pageview")
+ * - 'person_property': Person property filters evaluated against person state (e.g., "email is set")
+ */
 export type FilterType = 'behavioral' | 'person_property'
 
 export interface RealtimeSupportedFilter {
