@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
@@ -100,13 +101,6 @@ export function StepConditionalBranchConfiguration({
                         />
                     </div>
 
-                    <LemonInput
-                        value={localConditionNames[index] || ''}
-                        onChange={(value) => handleNameChange(index, value)}
-                        placeholder={`If condition #${index + 1} matches`}
-                        size="small"
-                    />
-
                     <HogFlowPropertyFilters
                         actionId={`${action.id}.${index}`}
                         filters={condition.filters ?? {}}
@@ -119,6 +113,15 @@ export function StepConditionalBranchConfiguration({
                         }
                         typeKey={`workflow-trigger-${index}`}
                     />
+
+                    <LemonField.Pure label="Condition name (optional)">
+                        <LemonInput
+                            value={localConditionNames[index] || ''}
+                            onChange={(value) => handleNameChange(index, value)}
+                            placeholder={`If condition #${index + 1} matches`}
+                            size="small"
+                        />
+                    </LemonField.Pure>
                 </div>
             ))}
 
