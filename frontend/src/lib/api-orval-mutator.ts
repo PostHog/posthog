@@ -10,7 +10,8 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
 
 export const apiMutator = async <T>(url: string, options: RequestInit & { method: HttpMethod }): Promise<T> => {
     const { method, body, signal } = options
-    const data = body ? JSON.parse(body as string) : undefined
+    // Handle both JSON strings and FormData bodies
+    const data = body ? (typeof body === 'string' ? JSON.parse(body) : body) : undefined
     const apiOptions = signal ? { signal } : undefined
 
     switch (method) {
