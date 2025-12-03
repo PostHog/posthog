@@ -2661,6 +2661,7 @@ class PropertyFilterType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     FLAG = "flag"
     LOG = "log"
+    WORKFLOW_VARIABLE = "workflow_variable"
 
 
 class PropertyMathType(StrEnum):
@@ -3347,6 +3348,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+    WORKFLOW_VARIABLES = "workflow_variables"
 
 
 class TestSetupRequest(BaseModel):
