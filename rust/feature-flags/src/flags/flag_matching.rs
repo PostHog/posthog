@@ -1206,6 +1206,11 @@ impl FeatureFlagMatcher {
                 }
                 // If device_id bucketing is set but no device_id provided,
                 // fall through to hash_key_overrides or distinct_id
+                tracing::warn!(
+                    flag_key = %feature_flag.key,
+                    team_id = %feature_flag.team_id,
+                    "Flag configured for device_id bucketing but no device_id provided, falling back to distinct_id"
+                );
             }
 
             // Use hash key overrides for experience continuity
