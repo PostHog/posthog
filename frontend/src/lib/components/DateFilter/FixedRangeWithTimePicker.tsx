@@ -25,7 +25,8 @@ export function FixedRangeWithTimePicker({
 
     const handleApply = (): void => {
         if (localFrom && localTo) {
-            setDate(localFrom.format('YYYY-MM-DDTHH:mm:ss'), localTo.format('YYYY-MM-DDTHH:mm:ss'), false, true)
+            const [from, to] = localFrom.isBefore(localTo) ? [localFrom, localTo] : [localTo, localFrom]
+            setDate(from.format('YYYY-MM-DDTHH:mm:ss'), to.format('YYYY-MM-DDTHH:mm:ss'), false, true)
         }
     }
 
