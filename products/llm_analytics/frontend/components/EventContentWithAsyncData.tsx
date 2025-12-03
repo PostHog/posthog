@@ -1,4 +1,5 @@
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
+import { isObject } from 'lib/utils'
 
 import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
@@ -80,7 +81,11 @@ export function EventContentDisplayAsync({
             <div>
                 <h3 className="font-semibold mb-2">Input</h3>
                 <div className="p-2 bg-surface-secondary rounded text-xs overflow-auto">
-                    <HighlightedJSONViewer src={input} name={null} collapsed={5} />
+                    {isObject(input) ? (
+                        <HighlightedJSONViewer src={input} name={null} collapsed={5} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(input ?? null)}</span>
+                    )}
                 </div>
             </div>
             <div>
@@ -90,7 +95,11 @@ export function EventContentDisplayAsync({
                         raisedError ? 'bg-danger-highlight' : 'bg-surface-secondary'
                     }`}
                 >
-                    <HighlightedJSONViewer src={output} name={null} collapsed={5} />
+                    {isObject(output) ? (
+                        <HighlightedJSONViewer src={output} name={null} collapsed={5} />
+                    ) : (
+                        <span className="font-mono">{JSON.stringify(output ?? null)}</span>
+                    )}
                 </div>
             </div>
         </div>
