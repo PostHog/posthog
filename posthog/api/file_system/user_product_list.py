@@ -96,5 +96,5 @@ class UserProductListViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         UserProductList.sync_from_team_colleagues(user, team, count=5)
 
         # Return all products the user has enabled in this team, not just the ones we created above
-        serializer = self.get_serializer(self.safely_get_queryset(), many=True)
+        serializer = self.get_serializer(self.safely_get_queryset(self.queryset), many=True)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
