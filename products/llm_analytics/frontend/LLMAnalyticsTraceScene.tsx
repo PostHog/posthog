@@ -52,7 +52,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
-import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -68,13 +68,6 @@ import {
     isLLMEvent,
     removeMilliseconds,
 } from './utils'
-
-enum TraceViewMode {
-    Conversation = 'conversation',
-    Raw = 'raw',
-    Summary = 'summary',
-    Evals = 'evals',
-}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -670,10 +663,8 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
-        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
-
-        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+        const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -913,6 +904,7 @@ const EventContent = React.memo(
                                                       trace={!isLLMEvent(event) ? event : undefined}
                                                       event={isLLMEvent(event) ? event : undefined}
                                                       tree={tree}
+                                                      autoGenerate={initialTab === 'summary'}
                                                   />
                                               ),
                                           },
