@@ -102,7 +102,7 @@
               sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
               sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
               sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
->>>>>>> origin/master
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
           
   FROM
               (
@@ -342,6 +342,7 @@
       tuple(current_period.CTR, previous_period.CTR) AS CTR,
       tuple(current_period.`Reported Conversion`, previous_period.`Reported Conversion`) AS `Reported Conversion`,
       tuple(current_period.`Reported Conversion Value`, previous_period.`Reported Conversion Value`) AS `Reported Conversion Value`,
+      tuple(current_period.`Reported ROAS`, previous_period.`Reported ROAS`) AS `Reported ROAS`,
       tuple(current_period.`Sign Up Conversions`, previous_period.`Sign Up Conversions`) AS `Sign Up Conversions`,
       tuple(current_period.`Cost per Sign Up Conversions`, previous_period.`Cost per Sign Up Conversions`) AS `Cost per Sign Up Conversions`
   
@@ -358,6 +359,7 @@
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
           round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
+          round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -368,11 +370,11 @@
               id,
               source,
               any(match_key) AS match_key,
-              sum(cost) AS total_cost,
-              sum(clicks) AS total_clicks,
-              sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions,
-              sum(reported_conversion_value) AS total_reported_conversion_value
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
           
   FROM
               (
@@ -480,6 +482,7 @@
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
           round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
+          round(divide(campaign_costs.total_reported_conversion_value, nullif(campaign_costs.total_cost, 0)), 2) AS `Reported ROAS`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -490,11 +493,11 @@
               id,
               source,
               any(match_key) AS match_key,
-              sum(cost) AS total_cost,
-              sum(clicks) AS total_clicks,
-              sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions,
-              sum(reported_conversion_value) AS total_reported_conversion_value
+              sum(ifNull(toFloat(cost), 0)) AS total_cost,
+              sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
+              sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
+              sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
+              sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
           
   FROM
               (
@@ -640,7 +643,7 @@
                   sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
                   sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
                   sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
->>>>>>> origin/master
+                  sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
               
       FROM
                   (
@@ -726,7 +729,7 @@
                   sum(ifNull(toFloat(clicks), 0)) AS total_clicks,
                   sum(ifNull(toFloat(impressions), 0)) AS total_impressions,
                   sum(ifNull(toFloat(reported_conversion), 0)) AS total_reported_conversions,
->>>>>>> origin/master
+                  sum(ifNull(toFloat(reported_conversion_value), 0)) AS total_reported_conversion_value
               
       FROM
                   (

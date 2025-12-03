@@ -196,12 +196,6 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                         ],
                     ),
                 ),
-                ast.Alias(
-                    alias=self.config.total_reported_conversion_value_field,
-                    expr=ast.Call(
-                        name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_value_field])]
-                    ),
-                ),
             ]
         )
 
