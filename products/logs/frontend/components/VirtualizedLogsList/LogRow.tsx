@@ -47,7 +47,7 @@ export function LogRow({
         <div
             key={isNew ? `new-${log.uuid}` : log.uuid}
             className={cn(
-                'flex items-center gap-3 py-1 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
+                'flex items-center gap-3 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
                 isHighlighted && 'bg-primary-highlight',
                 pinned && 'bg-warning-highlight',
                 pinned && showPinnedWithOpacity && 'opacity-50',
@@ -68,7 +68,7 @@ export function LogRow({
             </span>
             <span
                 className={cn(
-                    'flex-1 font-mono text-xs break-all',
+                    'flex-1 font-mono text-xs break-all py-1.5',
                     wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
                 )}
             >
