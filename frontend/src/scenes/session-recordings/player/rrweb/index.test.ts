@@ -33,6 +33,18 @@ describe('CorsPlugin', () => {
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
     })
+
+    it('can replace a stylesheet css link', () => {
+        const el = document.createElement('link')
+        el.setAttribute('rel', 'stylesheet')
+        el.href = 'https://app.posthog.com/assets/styles.css'
+        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
+        expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/assets/styles.css`)
+    })
+
+    it.each(['https://app.posthog.com/styles.css'])('should replace CSS urls', (cssUrl) => {
+        expect(CorsPlugin._replaceCSSUrl(cssUrl)).toEqual(`https://replay.ph-proxy.com/proxy?url=${cssUrl}`)
+    })
 })
 
 describe('WindowTitlePlugin', () => {
