@@ -294,7 +294,7 @@ class PostHogSCIMUser(SCIMUser):
                         organization_domain=self._organization_domain,
                         defaults={
                             "active": True,
-                            "username": self.obj.email,
+                            "username": self.user_name,
                             "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
                         },
                     )
@@ -354,7 +354,7 @@ class PostHogSCIMUser(SCIMUser):
                     organization_domain=self._organization_domain,
                     defaults={
                         "active": True,
-                        "username": self.obj.email,
+                        "username": self.user_name,
                         "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
                     },
                 )
