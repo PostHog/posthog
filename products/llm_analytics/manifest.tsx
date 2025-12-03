@@ -101,6 +101,8 @@ export const manifest: ProductManifest = {
         '/llm-analytics/evaluations': ['LLMAnalytics', 'llmAnalyticsEvaluations'],
         '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
         '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
+        '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
+        '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
     },
     redirects: {
         '/llm-observability': (_params, searchParams, hashParams) =>
@@ -156,6 +158,8 @@ export const manifest: ProductManifest = {
         llmAnalyticsEvaluations: (): string => '/llm-analytics/evaluations',
         llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
         llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
+        llmAnalyticsClusters: (runId?: string): string =>
+            runId ? `/llm-analytics/clusters/${runId}` : '/llm-analytics/clusters',
     },
     fileSystemTypes: {},
     treeItemsNew: [],
