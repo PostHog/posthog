@@ -4444,6 +4444,7 @@ export enum MarketingAnalyticsBaseColumns {
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
