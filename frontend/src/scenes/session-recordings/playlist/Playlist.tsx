@@ -266,7 +266,7 @@ export function Playlist({
                             className="mt-2"
                             disabledReason={!firstRecordingItem ? 'No recordings in the list' : undefined}
                         >
-                            Summarize above recordings
+                            Summarize these recordings
                             <LemonTag type="warning" size="small" className="ml-auto uppercase">
                                 Beta
                             </LemonTag>
