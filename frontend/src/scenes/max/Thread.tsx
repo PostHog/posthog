@@ -6,6 +6,7 @@ import { twMerge } from 'tailwind-merge'
 
 import {
     IconBrain,
+    IconBug,
     IconCheck,
     IconChevronRight,
     IconCollapse,
@@ -38,15 +39,13 @@ import {
     SeriesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { NotebookTarget } from 'scenes/notebooks/types'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -65,27 +64,28 @@ import {
     PlanningStep,
     PlanningStepStatus,
     VisualizationItem,
-    VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
-import { InsightShortId, Region } from '~/types'
+import { isHogQLQuery } from '~/queries/utils'
+import { Region } from '~/types'
 
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
+import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
-import { ToolRegistration, getToolDefinition } from './max-constants'
+import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
-import { MessageStatus, ThreadMessage, maxLogic } from './maxLogic'
+import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
-import { UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
+    isArtifactMessage,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isDeepResearchReportCompletion,
@@ -94,7 +94,7 @@ import {
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
     isNotebookUpdateMessage,
-    isVisualizationMessage,
+    isVisualizationArtifactContent,
 } from './utils'
 import { getThinkingMessageFromResponse } from './utils/thinkingMessages'
 
@@ -401,11 +401,16 @@ function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps)
                                 isFinalGroup={isFinal}
                             />
                         )
-                    } else if (isVisualizationMessage(message)) {
+                    } else if (isArtifactMessage(message)) {
+                        if (!isVisualizationArtifactContent(message.content)) {
+                            return null
+                        }
+
                         return (
-                            <VisualizationAnswer
+                            <VisualizationArtifactAnswer
                                 key={key}
                                 message={message}
+                                content={message.content}
                                 status={message.status}
                                 isEditingInsight={editInsightToolRegistered}
                                 activeTabId={activeTabId}
@@ -767,6 +772,7 @@ function AssistantActionComponent({
     icon,
     animate = true,
     showCompletionIcon = true,
+    widget = null,
 }: {
     id: string
     content: string
@@ -775,6 +781,7 @@ function AssistantActionComponent({
     icon?: React.ReactNode
     animate?: boolean
     showCompletionIcon?: boolean
+    widget?: JSX.Element | null
 }): JSX.Element {
     const isPending = state === 'pending'
     const isCompleted = state === 'completed'
@@ -866,6 +873,7 @@ function AssistantActionComponent({
                     })}
                 </div>
             )}
+            {widget}
         </div>
     )
 }
@@ -904,6 +912,9 @@ interface ToolCallsAnswerProps {
 }
 
 function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps): JSX.Element {
+    const { isDev } = useValues(preflightLogic)
+    const [showToolCallsJson, setShowToolCallsJson] = useState(false)
+
     // Separate todo_write tool calls from regular tool calls
     const todoWriteToolCalls = toolCalls.filter((tc) => tc.name === 'todo_write')
     const regularToolCalls = toolCalls.filter((tc) => tc.name !== 'todo_write')
@@ -930,11 +941,31 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                     {regularToolCalls.map((toolCall) => {
                         const commentary = toolCall.args.commentary as string
                         const updates = toolCall.updates ?? []
-                        const definition = getToolDefinition(toolCall.name)
+                        const definition = getToolDefinitionFromToolCall(toolCall)
                         let description = `Executing ${toolCall.name}`
+                        let widget: JSX.Element | null = null
                         if (definition) {
                             if (definition.displayFormatter) {
-                                description = definition.displayFormatter(toolCall, { registeredToolMap })
+                                const displayFormatterResult = definition.displayFormatter(toolCall, {
+                                    registeredToolMap,
+                                })
+                                if (typeof displayFormatterResult === 'string') {
+                                    description = displayFormatterResult
+                                } else {
+                                    description = displayFormatterResult[0]
+                                    switch (displayFormatterResult[1]?.widget) {
+                                        case 'recordings':
+                                            widget = (
+                                                <RecordingsWidget
+                                                    toolCallId={toolCall.id}
+                                                    filters={displayFormatterResult[1].args}
+                                                />
+                                            )
+                                            break
+                                        default:
+                                            break
+                                    }
+                                }
                             }
                             if (commentary) {
                                 description = commentary
@@ -949,9 +980,29 @@ function ToolCallsAnswer({ toolCalls, registeredToolMap }: ToolCallsAnswerProps)
                                 state={toolCall.status}
                                 icon={definition?.icon || <IconWrench />}
                                 showCompletionIcon={true}
+                                widget={widget}
                             />
                         )
                     })}
+                </div>
+            )}
+
+            {isDev && toolCalls.length > 0 && (
+                <div className="ml-5 flex flex-col gap-1">
+                    <LemonButton
+                        size="xxsmall"
+                        type="secondary"
+                        icon={<IconBug />}
+                        onClick={() => setShowToolCallsJson(!showToolCallsJson)}
+                        tooltip="Development-only. Note: The JSON here is prettified"
+                        tooltipPlacement="top-start"
+                        className="w-fit"
+                    >
+                        {showToolCallsJson ? 'Hide' : 'Show'} above tool call(s) as JSON
+                    </LemonButton>
+                    {showToolCallsJson && (
+                        <CodeSnippet language={Language.JSON}>{JSON.stringify(toolCalls, null, 2)}</CodeSnippet>
+                    )}
                 </div>
             )}
         </>
@@ -1023,139 +1074,6 @@ const Visualization = React.memo(function Visualization({
             )}
         </>
     )
-})
-
-function InsightSuggestionButton({ tabId }: { tabId: string }): JSX.Element {
-    const { insight } = useValues(insightSceneLogic({ tabId }))
-    const insightProps = { dashboardItemId: insight?.short_id }
-    const { suggestedQuery, previousQuery } = useValues(insightLogic(insightProps))
-    const { onRejectSuggestedInsight, onReapplySuggestedInsight } = useActions(insightLogic(insightProps))
-
-    return (
-        <>
-            {suggestedQuery && (
-                <LemonButton
-                    onClick={() => {
-                        if (previousQuery) {
-                            onRejectSuggestedInsight()
-                        } else {
-                            onReapplySuggestedInsight()
-                        }
-                    }}
-                    sideIcon={previousQuery ? <IconX /> : <IconRefresh />}
-                    size="xsmall"
-                    tooltip={previousQuery ? 'Reject changes' : 'Reapply changes'}
-                />
-            )}
-        </>
-    )
-}
-
-const VisualizationAnswer = React.memo(function VisualizationAnswer({
-    message,
-    status,
-    isEditingInsight,
-    activeTabId,
-    activeSceneId,
-}: {
-    message: VisualizationMessage
-    status?: MessageStatus
-    isEditingInsight: boolean
-    activeTabId?: string | null
-    activeSceneId?: string | null
-}): JSX.Element | null {
-    const [isSummaryShown, setIsSummaryShown] = useState(false)
-    const [isCollapsed, setIsCollapsed] = useState(isEditingInsight)
-
-    useLayoutEffect(() => {
-        setIsCollapsed(isEditingInsight)
-    }, [isEditingInsight])
-
-    const query = useMemo(() => visualizationTypeToQuery(message), [message])
-    const queryWithShowHeader = useMemo(() => {
-        if (query && isInsightVizNode(query)) {
-            return { ...query, showHeader: true }
-        }
-        return query
-    }, [query])
-
-    return status !== 'completed'
-        ? null
-        : query && (
-              <>
-                  <MessageTemplate
-                      type="ai"
-                      className="w-full"
-                      wrapperClassName="w-full"
-                      boxClassName="flex flex-col w-full"
-                  >
-                      {!isCollapsed && (
-                          <div
-                              className={clsx(
-                                  'flex flex-col overflow-auto',
-                                  isFunnelsQuery(message.answer) ? 'h-[580px]' : 'h-96'
-                              )}
-                          >
-                              <Query query={query} readOnly embedded />
-                          </div>
-                      )}
-                      <div className={clsx('flex items-center justify-between', !isCollapsed && 'mt-2')}>
-                          <div className="flex items-center gap-1.5">
-                              <LemonButton
-                                  sideIcon={isSummaryShown ? <IconCollapse /> : <IconExpand />}
-                                  onClick={() => setIsSummaryShown(!isSummaryShown)}
-                                  size="xsmall"
-                                  className="-m-1 shrink"
-                                  tooltip={isSummaryShown ? 'Hide definition' : 'Show definition'}
-                              >
-                                  <h5 className="m-0 leading-none">
-                                      <TopHeading query={query} />
-                                  </h5>
-                              </LemonButton>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                              {isEditingInsight && activeTabId && activeSceneId === Scene.Insight && (
-                                  <InsightSuggestionButton tabId={activeTabId} />
-                              )}
-                              {!isEditingInsight && (
-                                  <LemonButton
-                                      to={
-                                          message.short_id
-                                              ? urls.insightView(message.short_id as InsightShortId)
-                                              : urls.insightNew({
-                                                    query: queryWithShowHeader as
-                                                        | InsightVizNode
-                                                        | DataVisualizationNode,
-                                                })
-                                      }
-                                      icon={<IconOpenInNew />}
-                                      size="xsmall"
-                                      tooltip={message.short_id ? 'Open insight' : 'Open as new insight'}
-                                  />
-                              )}
-                              <LemonButton
-                                  icon={isCollapsed ? <IconEye /> : <IconHide />}
-                                  onClick={() => setIsCollapsed(!isCollapsed)}
-                                  size="xsmall"
-                                  className="-m-1 shrink"
-                                  tooltip={isCollapsed ? 'Show visualization' : 'Hide visualization'}
-                              />
-                          </div>
-                      </div>
-                      {isSummaryShown && (
-                          <>
-                              <SeriesSummary query={query.source} heading={null} />
-                              {!isHogQLQuery(query.source) && (
-                                  <div className="flex flex-wrap gap-4 mt-1 *:grow">
-                                      <PropertiesSummary properties={query.source.properties} />
-                                      <InsightBreakdownSummary query={query.source} />
-                                  </div>
-                              )}
-                          </>
-                      )}
-                  </MessageTemplate>
-              </>
-          )
 })
 
 interface MultiVisualizationAnswerProps {

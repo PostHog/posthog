@@ -269,7 +269,7 @@ def get_people(
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
         PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(person_id=OuterRef("person_id"))
+        .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons: QuerySet[Person] = (
