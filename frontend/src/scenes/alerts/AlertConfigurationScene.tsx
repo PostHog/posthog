@@ -4,13 +4,13 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconArrowLeft } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { AlertStateIndicator } from 'lib/components/Alerts/views/ManageAlertsModal'
-import { DetectorBuilder, createDefaultDetectorsConfig } from 'lib/components/Alerts/detectors'
+import { DetectorBuilder } from 'lib/components/Alerts/detectors'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -18,14 +18,23 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 import { urls } from 'scenes/urls'
 
-import { alertConfigurationSceneLogic } from './alertConfigurationSceneLogic'
+import { SceneExport } from '../sceneTypes'
+import { alertConfigurationSceneLogic, AlertConfigurationSceneLogicProps } from './alertConfigurationSceneLogic'
 
 export interface AlertConfigurationSceneProps {
     alertId?: string
     insightId?: string
 }
 
-export function AlertConfigurationScene({ alertId, insightId }: AlertConfigurationSceneProps): JSX.Element {
+export const scene: SceneExport = {
+    component: AlertConfiguration,
+    paramsToProps: ({ params }: { params: { alertId?: string; insightId?: string } }): AlertConfigurationSceneLogicProps => ({
+        alertId: params.alertId,
+        insightId: params.insightId,
+    }),
+}
+
+export function AlertConfiguration({ alertId, insightId }: AlertConfigurationSceneProps): JSX.Element {
     const logicProps = { alertId, insightId }
     const logic = alertConfigurationSceneLogic(logicProps)
     const {

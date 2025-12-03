@@ -1,8 +1,10 @@
 import { DeepPartial } from 'chart.js/dist/types/utils'
+import { useMemo } from 'react'
 import { useValues } from 'kea'
 
 import { Chart, ChartType, LegendOptions, defaults } from 'lib/Chart'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
+import { evaluateBreachPoints } from 'lib/components/Alerts/detectors'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ciRanges, movingAverage } from 'lib/statistics'
@@ -14,7 +16,7 @@ import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 import { ChartDisplayType, ChartParams, GraphType } from '~/types'
 
 import { InsightEmptyState } from '../../insights/EmptyStates'
-import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
+import { AlertBreachPointConfig, LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
 
@@ -55,9 +57,32 @@ export function ActionsLineGraph({
     } = useValues(trendsDataLogic(insightProps))
     const { weekStartDay, timezone } = useValues(teamLogic)
 
-    const { alertThresholdLines } = useValues(
+    const { alertThresholdLines, alertBreachPointConfigs } = useValues(
         insightAlertsLogic({ insightId: insight.id!, insightLogicProps: insightProps })
     )
+
+    // Calculate breach points for visualization
+    const alertBreachPoints: AlertBreachPointConfig[] = useMemo(() => {
+        if (!alertBreachPointConfigs || alertBreachPointConfigs.length === 0 || !indexedResults || indexedResults.length === 0) {
+            return []
+        }
+
+        // Use data from first series (series_index 0 typically)
+        const primaryData = indexedResults[0]?.data
+        if (!primaryData || primaryData.length === 0) {
+            return []
+        }
+
+        // Convert to number array (filter out nulls/undefined)
+        const numericData = primaryData.map((v) => (typeof v === 'number' ? v : 0))
+
+        return alertBreachPointConfigs.map((config) => ({
+            alertId: config.alertId,
+            alertName: config.alertName,
+            color: config.color,
+            breachIndices: evaluateBreachPoints(config.config, numericData),
+        }))
+    }, [alertBreachPointConfigs, indexedResults])
 
     const labels =
         (indexedResults.length === 2 &&
@@ -206,6 +231,7 @@ export function ActionsLineGraph({
             legend={legend}
             hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
+            alertBreachPoints={alertBreachPoints}
             onClick={
                 context?.onDataPointClick ||
                 (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)

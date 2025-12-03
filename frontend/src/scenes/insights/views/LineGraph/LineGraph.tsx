@@ -233,6 +233,14 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    alertBreachPoints?: AlertBreachPointConfig[]
+}
+
+export interface AlertBreachPointConfig {
+    alertId: string
+    alertName: string
+    color: string
+    breachIndices: number[] // Indices in the data array where breaches occur
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
@@ -277,6 +285,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    alertBreachPoints = [],
 }: LineGraphProps): JSX.Element {
     const originalDatasets = _datasets
     let datasets = _datasets
@@ -657,23 +666,49 @@ export function LineGraph_({
                 },
                 legend: legend,
                 annotation: {
-                    annotations: goalLines.reduce((acc: Record<string, any>, annotation, idx) => {
-                        acc[`line-${idx}`] = {
-                            type: 'line',
-                            yMin: annotation.value,
-                            yMax: annotation.value,
-                            borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
-                            label: {
-                                content: annotation.label,
-                                display: annotation.displayLabel ?? true,
-                                position: annotation.position ?? 'end',
-                            },
-                            borderWidth: 1,
-                            borderDash: [5, 8],
-                        }
-
-                        return acc
-                    }, {}),
+                    annotations: {
+                        // Goal line annotations
+                        ...goalLines.reduce((acc: Record<string, any>, annotation, idx) => {
+                            acc[`line-${idx}`] = {
+                                type: 'line',
+                                yMin: annotation.value,
+                                yMax: annotation.value,
+                                borderColor: resolveVariableColor(annotation.borderColor) || 'rgb(255, 99, 132)',
+                                label: {
+                                    content: annotation.label,
+                                    display: annotation.displayLabel ?? true,
+                                    position: annotation.position ?? 'end',
+                                },
+                                borderWidth: 1,
+                                borderDash: [5, 8],
+                            }
+                            return acc
+                        }, {}),
+                        // Breach point annotations - render circles at breach indices
+                        ...alertBreachPoints.flatMap((config, alertIdx) =>
+                            config.breachIndices.map((dataIndex, pointIdx) => {
+                                const dataValue = datasets[0]?.data?.[dataIndex]
+                                if (dataValue == null) {
+                                    return null
+                                }
+                                return {
+                                    [`breach-${alertIdx}-${pointIdx}`]: {
+                                        type: 'point',
+                                        xValue: dataIndex,
+                                        yValue: dataValue,
+                                        backgroundColor: hexToRGBA(config.color, 0.3),
+                                        borderColor: config.color,
+                                        borderWidth: 2,
+                                        radius: 8,
+                                        label: {
+                                            content: config.alertName,
+                                            display: false,
+                                        },
+                                    },
+                                }
+                            })
+                        ).filter(Boolean).reduce((acc, item) => ({ ...acc, ...item }), {}),
+                    },
                 },
                 tooltip: {
                     ...tooltipOptions,
@@ -1039,6 +1074,7 @@ export function LineGraph_({
         type,
         isArea,
         showTrendLines,
+        alertBreachPoints,
     ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (

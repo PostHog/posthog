@@ -21,6 +21,7 @@ import { PercentStackViewFilter } from 'scenes/insights/EditorFilters/PercentSta
 import { ResultCustomizationByPicker } from 'scenes/insights/EditorFilters/ResultCustomizationByPicker'
 import { ScalePicker } from 'scenes/insights/EditorFilters/ScalePicker'
 import { ShowAlertThresholdLinesFilter } from 'scenes/insights/EditorFilters/ShowAlertThresholdLinesFilter'
+import { ShowAlertBreachPointsFilter } from 'scenes/insights/EditorFilters/ShowAlertBreachPointsFilter'
 import { ShowLegendFilter } from 'scenes/insights/EditorFilters/ShowLegendFilter'
 import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMultipleYAxesFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
@@ -111,6 +112,9 @@ export function InsightDisplayConfig(): JSX.Element {
                           ...(hasLegend ? [{ label: () => <ShowLegendFilter /> }] : []),
                           ...(showAlertThresholdLinesConfig
                               ? [{ label: () => <ShowAlertThresholdLinesFilter /> }]
+                              : []),
+                          ...(showAlertThresholdLinesConfig
+                              ? [{ label: () => <ShowAlertBreachPointsFilter /> }]
                               : []),
                           ...(showMultipleYAxesConfig ? [{ label: () => <ShowMultipleYAxesFilter /> }] : []),
                           ...(isTrends || isRetention ? [{ label: () => <ShowTrendLinesFilter /> }] : []),

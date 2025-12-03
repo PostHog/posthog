@@ -5,7 +5,14 @@ import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
-import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertConditionType,
+    AlertDetectorsConfig,
+    DetectorType,
+    GoalLine,
+    InsightThresholdType,
+    ThresholdDetectorConfig,
+} from '~/queries/schema/schema-general'
 import { isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
@@ -33,7 +40,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
         values: [
             insightVizDataLogic(props.insightLogicProps),
-            ['showAlertThresholdLines'],
+            ['showAlertThresholdLines', 'showAlertBreachPoints'],
             insightLogic(props.insightLogicProps),
             ['insight'],
         ],
@@ -92,6 +99,65 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     return annotations
                 })
                 return result
+            },
+        ],
+
+        // Returns breach point configurations per alert for visualization
+        alertBreachPointConfigs: [
+            (s) => [s.alerts, s.showAlertBreachPoints],
+            (
+                alerts: AlertType[],
+                showAlertBreachPoints: boolean
+            ): { alertId: string; alertName: string; color: string; config: AlertDetectorsConfig | ThresholdDetectorConfig }[] => {
+                if (!showAlertBreachPoints) {
+                    return []
+                }
+
+                const colors = [
+                    '#F44336', // red
+                    '#E91E63', // pink
+                    '#9C27B0', // purple
+                    '#673AB7', // deep purple
+                    '#3F51B5', // indigo
+                    '#2196F3', // blue
+                    '#FF9800', // orange
+                    '#FF5722', // deep orange
+                ]
+
+                return alerts
+                    .filter((alert) => alert.enabled)
+                    .map((alert, index) => {
+                        // Use detectors if available, otherwise fall back to legacy threshold
+                        if (alert.detectors) {
+                            return {
+                                alertId: alert.id,
+                                alertName: alert.name || `Alert ${index + 1}`,
+                                color: colors[index % colors.length],
+                                config: alert.detectors,
+                            }
+                        }
+
+                        // Legacy threshold-based alerts - convert to detector config format
+                        if (
+                            alert.threshold?.configuration?.bounds &&
+                            alert.condition?.type === AlertConditionType.ABSOLUTE_VALUE
+                        ) {
+                            const thresholdConfig: ThresholdDetectorConfig = {
+                                type: DetectorType.THRESHOLD,
+                                bounds: alert.threshold.configuration.bounds,
+                                threshold_type: alert.threshold.configuration.type,
+                            }
+                            return {
+                                alertId: alert.id,
+                                alertName: alert.name || `Alert ${index + 1}`,
+                                color: colors[index % colors.length],
+                                config: thresholdConfig,
+                            }
+                        }
+
+                        return null
+                    })
+                    .filter(Boolean) as { alertId: string; alertName: string; color: string; config: AlertDetectorsConfig | ThresholdDetectorConfig }[]
             },
         ],
     }),

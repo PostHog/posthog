@@ -29572,6 +29572,10 @@
                     ],
                     "description": "Customizations for the appearance of result datasets."
                 },
+                "showAlertBreachPoints": {
+                    "default": false,
+                    "type": "boolean"
+                },
                 "showAlertThresholdLines": {
                     "default": false,
                     "type": "boolean"

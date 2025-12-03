@@ -6008,6 +6008,7 @@ class TrendsFilter(BaseModel):
     resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
         Field(default=None, description="Customizations for the appearance of result datasets.")
     )
+    showAlertBreachPoints: bool | None = False
     showAlertThresholdLines: bool | None = False
     showConfidenceIntervals: bool | None = None
     showLabelsOnSeries: bool | None = None

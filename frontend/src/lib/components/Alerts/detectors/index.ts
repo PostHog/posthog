@@ -2,3 +2,4 @@ export { DetectorBuilder, createDefaultDetectorsConfig } from './DetectorBuilder
 export { ThresholdDetectorForm, createDefaultThresholdConfig } from './ThresholdDetectorForm'
 export { ZScoreDetectorForm, createDefaultZScoreConfig } from './ZScoreDetectorForm'
 export { KMeansDetectorForm, createDefaultKMeansConfig } from './KMeansDetectorForm'
+export { evaluateBreachPoints } from './evaluateBreachPoints'

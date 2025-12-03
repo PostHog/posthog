@@ -83,6 +83,8 @@ export const urls = {
     },
     annotations: (): string => '/data-management/annotations',
     annotation: (id: AnnotationType['id'] | ':id'): string => `/data-management/annotations/${id}`,
+    alertConfiguration: (alertId: string | ':alertId'): string => `/alerts/${alertId}/configure`,
+    alertConfigurationNew: (insightId: string | ':insightId'): string => `/insights/${insightId}/alerts/new`,
     comments: (): string => '/data-management/comments',
     comment: (id: CommentType['id'] | ':id'): string => `/data-management/comments/${id}`,
     organizationCreateFirst: (): string => '/create-organization',

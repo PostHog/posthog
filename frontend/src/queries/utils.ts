@@ -479,6 +479,13 @@ export const getShowAlertThresholdLines = (query: InsightQueryNode): boolean | u
     return undefined
 }
 
+export const getShowAlertBreachPoints = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showAlertBreachPoints
+    }
+    return undefined
+}
+
 export const getShowLabelsOnSeries = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showLabelsOnSeries

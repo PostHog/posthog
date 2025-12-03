@@ -42,6 +42,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
+    [Scene.AlertConfiguration]: {
+        projectBased: true,
+        name: 'Alert configuration',
+        description: 'Configure alert detection rules and notifications for insights.',
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.Annotations]: {
         projectBased: true,
@@ -617,6 +622,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.alert(':shortId')]: [Scene.SavedInsights, 'alert'],
     [urls.alerts()]: [Scene.SavedInsights, 'alerts'],
     [urls.insightAlerts(':shortId' as InsightShortId)]: [Scene.Insight, 'insightAlerts'],
+    [urls.alertConfiguration(':alertId')]: [Scene.AlertConfiguration, 'alertConfiguration'],
+    [urls.alertConfigurationNew(':insightId')]: [Scene.AlertConfiguration, 'alertConfigurationNew'],
     [urls.insightSharing(':shortId' as InsightShortId)]: [Scene.Insight, 'insightSharing'],
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
