@@ -1,6 +1,7 @@
 import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconPlus, IconX } from '@posthog/icons'
 
@@ -23,6 +24,24 @@ export function StepConditionalBranchConfiguration({
 
     const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
+
+    // Local state for condition names to avoid input lag
+    const [localConditionNames, setLocalConditionNames] = useState<(string | undefined)[]>(
+        conditions.map((c) => c.name)
+    )
+
+    // Update local state when conditions change from external sources
+    useEffect(() => {
+        setLocalConditionNames(conditions.map((c) => c.name))
+    }, [conditions.length]) // Only update when number of conditions changes
+
+    // Debounced function to update the actual conditions
+    const debouncedSetConditions = useDebouncedCallback(
+        (index: number, value: string | undefined) => {
+            setConditions(conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
+        },
+        300 // Wait 300ms after user stops typing
+    )
 
     const nodeEdges = edgesByActionId[action.id]
 
@@ -98,12 +117,16 @@ export function StepConditionalBranchConfiguration({
                     </div>
 
                     <LemonInput
-                        value={condition.name || ''}
-                        onChange={(value) =>
-                            setConditions(
-                                conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c))
-                            )
-                        }
+                        value={localConditionNames[index] || ''}
+                        onChange={(value) => {
+                            // Update local state immediately for responsive typing
+                            const newNames = [...localConditionNames]
+                            newNames[index] = value
+                            setLocalConditionNames(newNames)
+
+                            // Also update the actual conditions after a delay
+                            debouncedSetConditions(index, value)
+                        }}
                         placeholder={`If condition #${index + 1} matches`}
                         size="small"
                     />
