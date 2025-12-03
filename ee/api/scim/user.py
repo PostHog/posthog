@@ -65,6 +65,13 @@ class PostHogSCIMUser(SCIMUser):
         return scim_user.username if scim_user else self.obj.email
 
     @property
+    def identity_provider(self) -> SCIMProvisionedUser.IdentityProvider:
+        scim_user = SCIMProvisionedUser.objects.filter(
+            user=self.obj, organization_domain=self._organization_domain
+        ).first()
+        return scim_user.identity_provider if scim_user else SCIMProvisionedUser.IdentityProvider.OTHER
+
+    @property
     def active(self) -> bool:
         # A user is "active" in SCIM context if they have membership in this org
         if not hasattr(self, "_organization_domain"):
@@ -226,7 +233,7 @@ class PostHogSCIMUser(SCIMUser):
                 defaults={
                     "username": user_name,
                     "active": is_active,
-                    "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                    "identity_provider": self.identity_provider,
                 },
             )
 
@@ -295,7 +302,7 @@ class PostHogSCIMUser(SCIMUser):
                         defaults={
                             "active": True,
                             "username": self.user_name,
-                            "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                            "identity_provider": self.identity_provider,
                         },
                     )
 
@@ -327,7 +334,7 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={
                         "username": value,
                         "active": True,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 
@@ -355,7 +362,7 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={
                         "active": True,
                         "username": self.user_name,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 
@@ -389,7 +396,7 @@ class PostHogSCIMUser(SCIMUser):
                     defaults={
                         "username": value,
                         "active": True,
-                        "identity_provider": SCIMProvisionedUser.IdentityProvider.OTHER,
+                        "identity_provider": self.identity_provider,
                     },
                 )
 
