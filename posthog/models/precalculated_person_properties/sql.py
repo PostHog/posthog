@@ -61,16 +61,13 @@ def PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE_SQL():
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    date Date,
     person_id UUID,
     condition String,
     matches Bool,
     source String,
     _timestamp DateTime64(6),
-    _partition UInt64,
     _offset UInt64
 ) ENGINE = {engine}
-PARTITION BY toYYYYMM(date)
 ORDER BY (team_id, condition, person_id)
 """.format(
         table_name=PRECALCULATED_PERSON_PROPERTIES_SHARDED_TABLE,
@@ -87,13 +84,11 @@ def PRECALCULATED_PERSON_PROPERTIES_DISTRIBUTED_TABLE_SQL(table_name: str = PREC
 CREATE TABLE IF NOT EXISTS {table_name}
 (
     team_id Int64,
-    date Date,
     person_id UUID,
     condition String,
     matches Bool,
     source String,
     _timestamp DateTime64(6),
-    _partition UInt64,
     _offset UInt64
 ) ENGINE = {engine}
 """.format(
@@ -137,14 +132,12 @@ def PRECALCULATED_PERSON_PROPERTIES_MV_SQL():
 CREATE MATERIALIZED VIEW IF NOT EXISTS {mv_name} TO {writable_table_name}
 AS SELECT
     team_id,
-    toDate(evaluation_timestamp) AS date,
     person_id,
     condition,
     matches,
     source,
     _timestamp,
-    _offset,
-    _partition
+    _offset
 FROM {kafka_table_name}
     """.format(
         mv_name=PRECALCULATED_PERSON_PROPERTIES_MV,

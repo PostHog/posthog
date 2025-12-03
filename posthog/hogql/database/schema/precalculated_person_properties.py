@@ -1,6 +1,5 @@
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
-    DateDatabaseField,
     DateTimeDatabaseField,
     FieldOrTable,
     IntegerDatabaseField,
@@ -18,10 +17,8 @@ class PrecalculatedPersonPropertiesTable(Table):
         "person_id": UUIDDatabaseField(name="person_id", nullable=False),
         "condition": StringDatabaseField(name="condition", nullable=False),
         "matches": BooleanDatabaseField(name="matches", nullable=False),
-        "date": DateDatabaseField(name="date", nullable=False),
         "source": StringDatabaseField(name="source", nullable=False),
         "_timestamp": DateTimeDatabaseField(name="_timestamp", nullable=False),
-        "_partition": IntegerDatabaseField(name="_partition", nullable=False),
         "_offset": IntegerDatabaseField(name="_offset", nullable=False),
     }
 
