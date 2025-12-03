@@ -318,6 +318,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
+        limit: universalFilters.limit,
     }
 }
 
@@ -538,8 +539,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
             {
                 loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery(values.filters)
                     const params: RecordingsQuery & { add_events_to_property_queries?: '1' } = {
-                        ...convertUniversalFiltersToRecordingsQuery(values.filters),
+                        ...convertedQuery,
                         person_uuid: props.personUUID ?? '',
                         // KLUDGE: some persons have >8MB of distinct_ids,
                         // which wouldn't fit in the URL,
@@ -548,7 +550,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         // you probably want the person UUID PoE optimisation anyway
                         // TODO: maybe we can slice this instead
                         distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
-                        limit: RECORDINGS_LIMIT,
+                        // Use the limit from filters if set, otherwise use the default limit
+                        limit: convertedQuery.limit ?? RECORDINGS_LIMIT,
                         // If a recording is selected from URL, ensure it's always included in results
                         session_recording_id: values.selectedRecordingId ?? undefined,
                     }

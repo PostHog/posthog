@@ -38,6 +38,7 @@ import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
@@ -282,6 +283,7 @@ export class IngestionConsumer {
                         b
                             .sequentially((c) =>
                                 c
+                                    .pipe(createValidateEventMetadataStep())
                                     .pipe(createValidateEventPropertiesStep())
                                     .pipe(
                                         createApplyPersonProcessingRestrictionsStep(
@@ -331,6 +333,7 @@ export class IngestionConsumer {
                                             createEmitEventStep({
                                                 kafkaProducer: this.kafkaProducer!,
                                                 clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                groupId: this.groupId,
                                             })
                                         ),
                                 {
