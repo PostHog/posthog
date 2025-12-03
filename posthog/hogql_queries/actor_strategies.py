@@ -51,10 +51,11 @@ class PersonStrategy(ActorStrategy):
     origin = "persons"
     origin_id = "id"
 
+    # batching is needed to prevent timeouts when reading from Postgres
     BATCH_SIZE = 1000
 
     # This is hand written instead of using the ORM because the ORM was blowing up the memory on exports and taking forever
-    def get_actors(self, actor_ids, order_by: str = "") -> dict[str, dict]:
+    def get_actors(self, actor_ids, sort_by_created_at_descending: bool = False) -> dict[str, dict]:
         person_table = Person._meta.db_table
         pdi_table = PersonDistinctId._meta.db_table
         conn = connections[READ_DB_FOR_PERSONS]
@@ -70,10 +71,14 @@ class PersonStrategy(ActorStrategy):
                     FROM {person_table}
                     WHERE {person_table}.uuid = ANY(%(uuids)s)
                     AND {person_table}.team_id = %(team_id)s"""
-                if order_by:
-                    persons_query += f" ORDER BY {order_by}"
                 cursor.execute(persons_query, {"uuids": batch, "team_id": self.team.pk})
                 all_people.extend(cursor.fetchall())
+
+            if sort_by_created_at_descending:
+                from datetime import datetime
+
+                min_dt = datetime.min
+                all_people.sort(key=lambda p: (-(p[4] or min_dt).timestamp(), str(p[1])))
 
             person_ids = [x[0] for x in all_people]
             for i in range(0, len(person_ids), self.BATCH_SIZE):
