@@ -29,7 +29,11 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models import User
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.rate_limit import (
+    LLMAnalyticsSummarizationBurstThrottle,
+    LLMAnalyticsSummarizationDailyThrottle,
+    LLMAnalyticsSummarizationSustainedThrottle,
+)
 
 from products.llm_analytics.backend.summarization.constants import (
     EARLY_ADOPTERS_FEATURE_FLAG,
@@ -132,7 +136,11 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
     def get_throttles(self):
         """Apply rate limiting to prevent abuse of summarization endpoint."""
-        return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
+        return [
+            LLMAnalyticsSummarizationBurstThrottle(),
+            LLMAnalyticsSummarizationSustainedThrottle(),
+            LLMAnalyticsSummarizationDailyThrottle(),
+        ]
 
     def _validate_feature_access(self, request: Request) -> None:
         """Validate that the user has access to the summarization feature."""
