@@ -6,6 +6,7 @@ export enum DateFilterView {
     QuickList = 'QuickList',
     DateToNow = 'DateToNow',
     FixedRange = 'FixedRange',
+    FixedRangeWithTime = 'FixedRangeWithTime',
     FixedDate = 'FixedDate',
 }
 

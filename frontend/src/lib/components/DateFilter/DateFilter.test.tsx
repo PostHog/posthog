@@ -54,3 +54,40 @@ describe('DateFilter', () => {
         await waitFor(() => expect(onChange).toHaveBeenCalledWith('-5d', '', false))
     })
 })
+
+describe('DateFilter with allowTimePrecision', () => {
+    let onChange = jest.fn()
+    beforeEach(() => {
+        initKeaTests()
+        onChange = jest.fn()
+        render(
+            <Provider>
+                <DateFilter onChange={onChange} dateOptions={dateMapping} allowTimePrecision />
+            </Provider>
+        )
+    })
+
+    afterEach(() => {
+        cleanup()
+    })
+
+    it('shows custom fixed date range with time option', async () => {
+        const dateFilter = screen.getByTestId('date-filter')
+        userEvent.click(dateFilter)
+
+        expect(screen.getByText('Custom fixed date range with time…')).toBeInTheDocument()
+        expect(screen.getByText('Custom fixed date range…')).toBeInTheDocument()
+    })
+
+    it('opens the time range picker when clicking custom fixed date range with time', async () => {
+        const dateFilter = screen.getByTestId('date-filter')
+        userEvent.click(dateFilter)
+
+        const timeRangeOption = screen.getByText('Custom fixed date range with time…')
+        userEvent.click(timeRangeOption)
+
+        await waitFor(() => {
+            expect(screen.getByText('Select a date and time range')).toBeInTheDocument()
+        })
+    })
+})
