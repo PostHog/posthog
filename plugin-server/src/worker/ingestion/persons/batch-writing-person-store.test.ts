@@ -1744,10 +1744,9 @@ describe('BatchWritingPersonStore', () => {
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             // Update person with only filtered properties but with force_update=true (simulating $identify/$set events)
-            // Using $current_url and $pathname which are in FILTERED_PERSON_UPDATE_PROPERTIES
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                { ...person, properties: { $current_url: 'https://old.com', $pathname: '/old' } },
-                { $current_url: 'https://new.com', $pathname: '/new' },
+                { ...person, properties: { $browser: 'Firefox', $app_build: '100' } },
+                { $browser: 'Chrome', $app_build: '200' },
                 [],
                 {},
                 'test',
@@ -1769,8 +1768,8 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             // personPropertyKeyUpdateCounter should be called for the updated properties
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$current_url' })
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$pathname' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$app_build' })
         })
 
         it('integration: multiple events with only filtered properties should not trigger database write', async () => {
