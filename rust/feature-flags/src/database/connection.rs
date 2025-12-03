@@ -1,18 +1,71 @@
 use common_database::{Client, CustomDatabaseError};
-use common_metrics::{gauge, inc};
-use sqlx::{pool::PoolConnection, Postgres};
-use std::sync::Arc;
-
-use crate::metrics::consts::{
-    FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_DB_CONNECTION_TIME, FLAG_POOL_UTILIZATION_GAUGE,
+use common_metrics::{gauge, histogram, inc};
+use sqlx::{pool::PoolConnection, postgres::PgConnection, Postgres};
+use std::{
+    ops::{Deref, DerefMut},
+    sync::Arc,
+    time::Instant,
 };
 
-/// Acquires a database connection while tracking acquisition time and timeout metrics.
+use crate::metrics::consts::{
+    FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_CONNECTION_HOLD_TIME, FLAG_DB_CONNECTION_TIME,
+    FLAG_POOL_UTILIZATION_GAUGE,
+};
+
+/// A wrapper around `PoolConnection<Postgres>` that tracks how long the connection is held.
+/// When dropped, it records the hold time to `flags_connection_hold_time_ms`.
+pub struct TrackedConnection {
+    conn: PoolConnection<Postgres>,
+    start: Instant,
+    pool_name: String,
+    operation: String,
+}
+
+impl TrackedConnection {
+    fn new(conn: PoolConnection<Postgres>, pool_name: String, operation: String) -> Self {
+        Self {
+            conn,
+            start: Instant::now(),
+            pool_name,
+            operation,
+        }
+    }
+}
+
+impl Deref for TrackedConnection {
+    type Target = PgConnection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.conn
+    }
+}
+
+impl DerefMut for TrackedConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.conn
+    }
+}
+
+impl Drop for TrackedConnection {
+    fn drop(&mut self) {
+        histogram(
+            FLAG_CONNECTION_HOLD_TIME,
+            &[
+                ("pool".to_string(), self.pool_name.clone()),
+                ("operation".to_string(), self.operation.clone()),
+            ],
+            self.start.elapsed().as_millis() as f64,
+        );
+    }
+}
+
+/// Acquires a database connection while tracking metrics.
 ///
 /// This helper wraps the standard `get_connection()` call and:
 /// - Records acquisition time to `flags_db_connection_time`
 /// - Emits pool utilization ratio to `flags_pool_utilization_ratio`
 /// - Increments `flags_acquire_timeout_total` when pool acquisition times out
+/// - Records connection hold time to `flags_connection_hold_time_ms` when the connection is dropped
 ///
 /// Works with any database client (reader or writer pools) since PostgresReader and
 /// PostgresWriter are both `Arc<dyn Client + Send + Sync>`.
@@ -23,21 +76,23 @@ use crate::metrics::consts::{
 /// * `operation` - Name of the operation for metrics (e.g., "fetch_flags", "write_hash_key")
 ///
 /// # Returns
-/// * `Result<PoolConnection<Postgres>, CustomDatabaseError>` - The connection or an error
+/// * `Result<TrackedConnection, CustomDatabaseError>` - A wrapped connection that records hold time on drop
 ///
 /// # Example
 /// ```ignore
-/// let conn = get_connection_with_metrics(
+/// let mut conn = get_connection_with_metrics(
 ///     &reader,
 ///     "persons_reader",
 ///     "fetch_person_properties"
 /// ).await?;
+/// // Use conn like a normal connection via Deref/DerefMut
+/// // Hold time is automatically recorded when conn goes out of scope
 /// ```
 pub async fn get_connection_with_metrics(
     client: &Arc<dyn Client + Send + Sync>,
     pool_name: &str,
     operation: &str,
-) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+) -> Result<TrackedConnection, CustomDatabaseError> {
     let labels = vec![
         ("pool".to_string(), pool_name.to_string()),
         ("operation".to_string(), operation.to_string()),
@@ -66,10 +121,10 @@ pub async fn get_connection_with_metrics(
         }
     }
 
-    result
+    result.map(|conn| TrackedConnection::new(conn, pool_name.to_string(), operation.to_string()))
 }
 
-/// Acquires a writer database connection while tracking acquisition time and timeout metrics.
+/// Acquires a writer database connection while tracking metrics.
 ///
 /// This is a convenience alias for `get_connection_with_metrics` for semantic clarity when
 /// working with writer pools.
@@ -78,6 +133,6 @@ pub async fn get_writer_connection_with_metrics(
     client: &Arc<dyn Client + Send + Sync>,
     pool_name: &str,
     operation: &str,
-) -> Result<PoolConnection<Postgres>, CustomDatabaseError> {
+) -> Result<TrackedConnection, CustomDatabaseError> {
     get_connection_with_metrics(client, pool_name, operation).await
 }
