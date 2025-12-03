@@ -518,7 +518,7 @@ async def materialize_model(
             await database_sync_to_async(job.save)()
 
             # Explicitly delete batch to free memory after writing
-            del batch, ch_types, res
+            del batch, ch_types
 
             shutdown_monitor.raise_if_is_worker_shutdown()
 
