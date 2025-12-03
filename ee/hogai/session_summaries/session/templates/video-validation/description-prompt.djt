@@ -1,43 +1,25 @@
-<video_observation_task>
-- I have a short video - part of a user session, visiting a website
-- An issue may have occurred that affected the user experience
+<task>
+- You got a short video - section of a user session, visiting a website/app
+- Assume that the session was happening before this section and will continue after, focus on this section only
 - Watch the entire video carefully and provide a detailed observation report of what happened
 </video_observation_task>
 
-<observation_guidelines>
-Focus on capturing:
+<visual_constraints>
+- Ignore red lines/trails overlaying the screen (mouse tracking artifacts)
+- If no interaction or movement occurs, output only: "Static - no user activity"
+- IMPORTANT: Ignore and don't mention screen transitions into dark, if any - it means no interaction
+</visual_constraints>
 
-USER ACTIONS:
-- What the user was trying to accomplish
-- Which UI elements they interacted with
-- Whether their actions succeeded or failed
-
-ERRORS & ISSUES:
-- Exact text of any error messages, warnings, or notifications (use quotation marks)
-- Visual problem indicators (red text, error icons, failed states, stopped spinners)
-- Unexpected UI behaviors, state changes, or system responses that seem abnormal
-
-CONTEXT:
-- Relevant on-screen text or labels
-- State of the interface before and after issues, if any
-- Any patterns or notable details about the interaction
-
-IMPORTANT: 
-- Report only what you directly observe. 
-- Don't mention or focus on specific timecodes, only ensure the chronological order
-- Be factual, avoiding interpretation or speculation.
-</observation_guidelines>
-
-<assumption>
-For reference, I initially suspected this issue occurred: 
-
-"{{ EVENT_DESCRIPTION | safe}}"
-
-However, describe everything you observe, not just what relates to this assumption.
-</assumption>
+<rules>
+- Report ONLY what you directly observe
+- When mentioning user actions, ensure they actually happened
+- Quote exact text for errors, labels, notifications, and messages, especially for elements that were interacted with
+- Don't provide timestamps
+</rules>
 
 <output_instructions>
-- Provide a natural language summary of your observations, 5-15 sentences based on activity
+- Provide a natural language summary of your observations
 - Ensure to mention only actions and behaviors that were actually observed through the video
 - Keep language clear and factual - write as if describing to someone who cannot see the video
+- IMPORTANT: Don't mention if the screen transitions into a dark background
 </output_instructions>
