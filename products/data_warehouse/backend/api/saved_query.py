@@ -327,9 +327,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 )
                 self.context["activity_log"] = latest_activity_log
 
-            if sync_frequency and sync_frequency != "never":
-                view.setup_model_paths()
-
         return view
 
     def validate_query(self, query):

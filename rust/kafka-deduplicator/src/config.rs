@@ -86,6 +86,12 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
+    #[envconfig(default = "1000")] // 1000 messages
+    pub kafka_consumer_batch_size: usize,
+
+    #[envconfig(default = "500")] // 1/2 second
+    pub kafka_consumer_batch_timeout_ms: u64,
+
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,
 
@@ -235,6 +241,11 @@ impl Config {
         Duration::from_secs(self.commit_interval_secs)
     }
 
+    /// Get kafka consumer batch timeout as Duration
+    pub fn kafka_consumer_batch_timeout(&self) -> Duration {
+        Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
+    }
+
     /// Get flush interval as Duration
     pub fn flush_interval(&self) -> Duration {
         Duration::from_secs(self.flush_interval_secs)
@@ -269,15 +280,11 @@ impl Config {
                 .parse()
                 .with_context(|| format!("Failed to parse scientific notation: {s}"))?;
             if float_val < 0.0 {
-                return Err(anyhow::anyhow!(
-                    "Storage capacity cannot be negative: {}",
-                    s
-                ));
+                return Err(anyhow::anyhow!("Storage capacity cannot be negative: {s}"));
             }
             if float_val > u64::MAX as f64 {
                 return Err(anyhow::anyhow!(
-                    "Storage capacity exceeds maximum value: {}",
-                    s
+                    "Storage capacity exceeds maximum value: {s}"
                 ));
             }
             return Ok(float_val as u64);

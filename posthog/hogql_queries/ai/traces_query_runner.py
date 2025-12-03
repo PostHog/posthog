@@ -75,8 +75,11 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             offset_value = self.query.offset if self.query.offset else 0
             pagination_limit = limit_value + offset_value + 1
 
+            # Determine ordering based on randomOrder parameter
+            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+
             trace_ids_query = parse_select(
-                """
+                f"""
                 SELECT
                     groupArray(trace_id) as trace_ids,
                     min(first_ts) as min_timestamp,
@@ -88,10 +91,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         max(timestamp) as last_ts
                     FROM events
                     WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND {conditions}
+                      AND {{conditions}}
                     GROUP BY trace_id
-                    ORDER BY max(timestamp) DESC
-                    LIMIT {limit}
+                    ORDER BY {order_clause}
+                    LIMIT {{limit}}
                 )
                 """,
             )
