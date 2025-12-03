@@ -9,6 +9,7 @@ import { debounce, slugify } from 'lib/utils'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { urls } from 'scenes/urls'
 
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { EndpointRequest } from '~/queries/schema/schema-general'
 import { DataWarehouseSyncInterval, EndpointType } from '~/types'
 
@@ -26,7 +27,7 @@ export const endpointLogic = kea<endpointLogicType>([
     props({} as EndpointLogicProps),
     key((props) => props.tabId),
     connect(() => ({
-        actions: [endpointsLogic, ['loadEndpoints']],
+        actions: [endpointsLogic, ['loadEndpoints'], sceneLayoutLogic, ['setScenePanelOpen']],
     })),
     actions({
         setEndpointName: (endpointName: string) => ({ endpointName }),
@@ -41,8 +42,12 @@ export const endpointLogic = kea<endpointLogicType>([
         createEndpoint: (request: EndpointRequest) => ({ request }),
         createEndpointSuccess: (response: any) => ({ response }),
         createEndpointFailure: () => ({}),
-        updateEndpoint: (name: string, request: Partial<EndpointRequest>) => ({ name, request }),
-        updateEndpointSuccess: (response: any) => ({ response }),
+        updateEndpoint: (name: string, request: Partial<EndpointRequest>, showViewButton?: boolean) => ({
+            name,
+            request,
+            showViewButton,
+        }),
+        updateEndpointSuccess: (response: any, showViewButton?: boolean) => ({ response, showViewButton }),
         updateEndpointFailure: () => ({}),
         deleteEndpoint: (name: string) => ({ name }),
         deleteEndpointSuccess: (response: any) => ({ response }),
@@ -144,25 +149,40 @@ export const endpointLogic = kea<endpointLogicType>([
                 lemonToast.success(<>Endpoint created</>, {
                     button: {
                         label: 'View',
-                        action: () => router.actions.push(urls.endpoint(response.name)),
+                        action: () => {
+                            // Close the scene panel (info & actions panel) if endpoint was created from insight
+                            if (response.derived_from_insight) {
+                                actions.setScenePanelOpen(false)
+                            }
+                            router.actions.push(urls.endpoint(response.name))
+                        },
                     },
                 })
             },
             createEndpointFailure: () => {
                 lemonToast.error('Failed to create endpoint')
             },
-            updateEndpoint: async ({ name, request }) => {
+            updateEndpoint: async ({ name, request, showViewButton }) => {
                 try {
                     const response = await api.endpoint.update(name, request)
-                    actions.updateEndpointSuccess(response)
+                    actions.updateEndpointSuccess(response, showViewButton)
                     actions.loadEndpoints()
                 } catch (error) {
                     console.error('Failed to update endpoint:', error)
                     actions.updateEndpointFailure()
                 }
             },
-            updateEndpointSuccess: ({ response }) => {
-                lemonToast.success('Endpoint updated')
+            updateEndpointSuccess: ({ response, showViewButton }) => {
+                if (showViewButton) {
+                    lemonToast.success(<>Endpoint updated</>, {
+                        button: {
+                            label: 'View',
+                            action: () => router.actions.push(urls.endpoint(response.name)),
+                        },
+                    })
+                } else {
+                    lemonToast.success('Endpoint updated')
+                }
                 reloadEndpoint(response.name)
             },
             updateEndpointFailure: () => {
