@@ -1265,10 +1265,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK] &&
                     newSnapshots.length > 0
                 ) {
-                    const hasFullSnapshotInExisting = currentEvents.some((e) => e.type === EventType.FullSnapshot)
-                    const hasFullSnapshotInNew = newSnapshots.some((e) => e.type === EventType.FullSnapshot)
+                    const hasFullSnapshot = allSnapshots.some((e) => e.type === EventType.FullSnapshot)
 
-                    if (!hasFullSnapshotInExisting && !hasFullSnapshotInNew) {
+                    if (!hasFullSnapshot) {
                         // We have new snapshots but no full snapshot anywhere yet - wait for it
                         return
                     }
