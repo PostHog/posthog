@@ -55,12 +55,10 @@ function SessionSceneWrapper(): JSX.Element {
         traceSummaries,
         summariesLoading,
     } = useValues(llmAnalyticsSessionDataLogic)
-    const hasSummaries = Object.keys(traceSummaries).length > 0
     const { sessionId } = useValues(llmAnalyticsSessionLogic)
     const { toggleTraceExpanded, toggleGenerationExpanded, summarizeAllTraces } =
         useActions(llmAnalyticsSessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const showSessionSummarization =
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||

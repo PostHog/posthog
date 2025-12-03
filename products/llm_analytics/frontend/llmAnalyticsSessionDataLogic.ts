@@ -164,13 +164,6 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 clearTraceSummaries: () => ({}),
             },
         ],
-        isSummarizingSession: [
-            false,
-            {
-                summarizeAllTraces: () => true,
-                clearTraceSummaries: () => false,
-            },
-        ],
     }),
 
     selectors({
@@ -180,10 +173,6 @@ export const llmAnalyticsSessionDataLogic = kea<llmAnalyticsSessionDataLogicType
                 const tracesResponse = response as TracesQueryResponse | null
                 return tracesResponse?.results || []
             },
-        ],
-        hasSummaries: [
-            (s) => [s.traceSummaries],
-            (traceSummaries: Record<string, TraceSummary>): boolean => Object.keys(traceSummaries).length > 0,
         ],
         summariesLoading: [
             (s) => [s.traceSummaries],
