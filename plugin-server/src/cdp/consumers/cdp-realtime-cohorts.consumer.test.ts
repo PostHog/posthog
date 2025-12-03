@@ -6,7 +6,7 @@ import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestData
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { CdpBehaviouralEventsConsumer } from './cdp-behavioural-events.consumer'
+import { CdpRealtimeCohortsConsumer } from './cdp-realtime-cohorts.consumer'
 
 jest.setTimeout(20_000)
 
@@ -149,8 +149,8 @@ const TEST_FILTERS = {
     isOrgFirstUser: ['_H', 1, 29, 32, 'is_organization_first_user', 32, 'properties', 32, 'person', 1, 3, 11],
 }
 
-describe('CdpBehaviouralEventsConsumer', () => {
-    let processor: CdpBehaviouralEventsConsumer
+describe('CdpRealtimeCohortsConsumer', () => {
+    let processor: CdpRealtimeCohortsConsumer
     let hub: Hub
     let team: Team
 
@@ -162,7 +162,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpBehaviouralEventsConsumer(hub)
+        processor = new CdpRealtimeCohortsConsumer(hub)
         await processor.start()
     })
 
@@ -228,12 +228,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
             ]
 
             // Parse messages which should create pre-calculated events
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents } = await processor._parseKafkaBatch(messages)
 
             // Should create one pre-calculated event for the matching cohort filter
-            expect(events).toHaveLength(1)
+            expect(behavioralEvents).toHaveLength(1)
 
-            const preCalculatedEvent = events[0]
+            const preCalculatedEvent = behavioralEvents[0]
             expect(preCalculatedEvent.key).toBe(distinctId) // Partitioned by distinct_id
 
             expect(preCalculatedEvent.payload).toMatchObject({
@@ -246,7 +246,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 source: `cohort_filter_${conditionHash}`,
             })
             // Test publishing the events to Kafka
-            await processor['publishEvents'](events)
+            await processor['publishBehavioralEvents'](behavioralEvents)
 
             // Check published messages to Kafka
             const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
@@ -290,13 +290,13 @@ describe('CdpBehaviouralEventsConsumer', () => {
             ]
 
             // Parse messages
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents } = await processor._parseKafkaBatch(messages)
 
             // Should not create any events since cohort filter doesn't match
-            expect(events).toHaveLength(0)
+            expect(behavioralEvents).toHaveLength(0)
 
             // Verify nothing was published to Kafka
-            await processor['publishEvents'](events)
+            await processor['publishBehavioralEvents'](behavioralEvents)
             const kafkaMessages = mockProducerObserver.getProducedKafkaMessagesForTopic(
                 KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS
             )
@@ -335,12 +335,12 @@ describe('CdpBehaviouralEventsConsumer', () => {
             ]
 
             // Parse messages
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents } = await processor._parseKafkaBatch(messages)
 
             // Should only create one event despite having two cohorts with same conditionHash
-            expect(events).toHaveLength(1)
+            expect(behavioralEvents).toHaveLength(1)
 
-            const preCalculatedEvent = events[0]
+            const preCalculatedEvent = behavioralEvents[0]
             expect(preCalculatedEvent.payload.condition).toBe(conditionHash)
             expect(preCalculatedEvent.payload.source).toBe(`cohort_filter_${conditionHash}`)
         })
@@ -430,15 +430,15 @@ describe('CdpBehaviouralEventsConsumer', () => {
             ]
 
             // Parse messages
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents } = await processor._parseKafkaBatch(messages)
 
             // Should create two events - one for each matching cohort filter
-            expect(events).toHaveLength(2)
+            expect(behavioralEvents).toHaveLength(2)
 
             // Sort by condition hash for consistent testing
-            events.sort((a, b) => a.payload.condition.localeCompare(b.payload.condition))
+            behavioralEvents.sort((a, b) => a.payload.condition.localeCompare(b.payload.condition))
 
-            const [event1, event2] = events
+            const [event1, event2] = behavioralEvents
 
             // First event should be for pageview filter
             expect(event1.payload.condition).toBe(conditionHash1)
@@ -543,7 +543,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 } as any,
             ]
 
-            const events1 = await processor._parseKafkaBatch(messages1)
+            const { behavioralEvents: events1 } = await processor._parseKafkaBatch(messages1)
 
             expect(events1).toHaveLength(1)
 
@@ -559,7 +559,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
             })
         })
 
-        it('should not process person property filters as they are filtered out', async () => {
+        it('should process person property filters and emit to person properties topic', async () => {
             // Create a cohort with person property filter
             const filters = JSON.stringify({
                 properties: {
@@ -570,7 +570,7 @@ describe('CdpBehaviouralEventsConsumer', () => {
                             values: [
                                 {
                                     key: 'is_organization_first_user',
-                                    type: 'person', // This type is filtered out
+                                    type: 'person',
                                     value: ['true'],
                                     bytecode: TEST_FILTERS.isOrgFirstUser,
                                     negation: false,
@@ -609,10 +609,20 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 } as any,
             ]
 
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents, personPropertyEvents } = await processor._parseKafkaBatch(messages)
 
-            // Should NOT create any events since person filters are filtered out
-            expect(events).toHaveLength(0)
+            // Should NOT create behavioral events
+            expect(behavioralEvents).toHaveLength(0)
+
+            // Should create person property event
+            expect(personPropertyEvents).toHaveLength(1)
+            expect(personPropertyEvents[0].payload).toMatchObject({
+                person_id: personId,
+                team_id: team.id,
+                condition: 'person_prop_test_001',
+                matches: true,
+                source: 'cohort_filter_person_prop_test_001',
+            })
         })
 
         it('should produce events for negated filters', async () => {
@@ -674,13 +684,13 @@ describe('CdpBehaviouralEventsConsumer', () => {
                 } as any,
             ]
 
-            const events = await processor._parseKafkaBatch(messages)
+            const { behavioralEvents } = await processor._parseKafkaBatch(messages)
 
             // Should create an event because consumer doesn't handle negation
             // It just evaluates the bytecode which will return true for matching event
-            expect(events).toHaveLength(1)
+            expect(behavioralEvents).toHaveLength(1)
 
-            const preCalculatedEvent = events[0]
+            const preCalculatedEvent = behavioralEvents[0]
             expect(preCalculatedEvent.key).toBe(distinctId)
             expect(preCalculatedEvent.payload).toMatchObject({
                 uuid: eventUuid,
