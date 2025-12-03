@@ -1,3 +1,5 @@
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
+
 import { ConversationMessagesDisplay } from '../ConversationDisplay/ConversationMessagesDisplay'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../utils'
@@ -77,19 +79,19 @@ export function EventContentDisplayAsync({
         <div className="space-y-4">
             <div>
                 <h3 className="font-semibold mb-2">Input</h3>
-                <pre className="p-2 bg-surface-secondary rounded text-xs overflow-auto">
-                    {JSON.stringify(input, null, 2)}
-                </pre>
+                <div className="p-2 bg-surface-secondary rounded text-xs overflow-auto">
+                    <HighlightedJSONViewer src={input} name={null} collapsed={5} />
+                </div>
             </div>
             <div>
                 <h3 className="font-semibold mb-2">Output</h3>
-                <pre
+                <div
                     className={`p-2 rounded text-xs overflow-auto ${
                         raisedError ? 'bg-danger-highlight' : 'bg-surface-secondary'
                     }`}
                 >
-                    {JSON.stringify(output, null, 2)}
-                </pre>
+                    <HighlightedJSONViewer src={output} name={null} collapsed={5} />
+                </div>
             </div>
         </div>
     )
