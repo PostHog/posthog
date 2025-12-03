@@ -183,7 +183,7 @@ async def backfill_precalculated_person_properties_activity(
                         "team_id": inputs.team_id,
                         "evaluation_timestamp": evaluation_timestamp,
                         "condition": filter_info.condition_hash,
-                        "matches": 1 if matches else 0,
+                        "matches": matches,
                         "source": f"cohort_backfill_{inputs.cohort_id}",
                     }
                     events_to_produce.append(event)
