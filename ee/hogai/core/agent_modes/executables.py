@@ -185,22 +185,24 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         message = await model.ainvoke(system_prompts + langchain_messages, config)
 
-        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion] = (
-            self._process_output_message(message)
-        )
-        # Replace the messages with the new message window
-        if messages_to_replace:
-            new_messages = ReplaceMessages([*messages_to_replace, *new_messages])
+        generated_messages = self._process_output_message(message)
 
         # Set new tool call count
-        tool_call_count = (state.root_tool_calls_count or 0) + 1 if new_messages[-1].tool_calls else None
+        tool_call_count = (state.root_tool_calls_count or 0) + 1 if generated_messages[-1].tool_calls else None
+
+        # Replace the messages with the new message window
+        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion]
+        if messages_to_replace:
+            new_messages = ReplaceMessages([*messages_to_replace, *generated_messages])
+        else:
+            new_messages = cast(list[AssistantMessageUnion], generated_messages)
 
         return PartialAssistantState(
             messages=new_messages,
             root_tool_calls_count=tool_call_count,
             root_conversation_start_id=window_id,
             start_id=start_id,
-            agent_mode=self._get_updated_agent_mode(new_messages[-1], state.agent_mode_or_default),
+            agent_mode=self._get_updated_agent_mode(generated_messages[-1], state.agent_mode_or_default),
         )
 
     def router(self, state: AssistantState):
@@ -338,7 +340,10 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
             team=self._team, user=self._user, context_manager=self.context_manager
         )
         available_tools = await toolkit_manager.get_tools(state, config)
-        tool = next((tool for tool in available_tools if tool.get_name() == tool_call.name), None)
+        # Filter to only MaxTool instances (dicts are server-side tools like web_search handled by Anthropic)
+        tool = next(
+            (tool for tool in available_tools if isinstance(tool, MaxTool) and tool.get_name() == tool_call.name), None
+        )
 
         # If the tool doesn't exist, return the message to the agent
         if not tool:

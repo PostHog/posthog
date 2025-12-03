@@ -280,7 +280,7 @@ def normalize_ai_message(message: AIMessage | AIMessageChunk) -> list[AssistantM
                     # have an empty `input` even `partial_json` is ready and clearly has args
                     if content_item.get("partial_json"):
                         try:
-                            content_item["input"] = json.loads(content_item["partial_json"])  # type: ignore
+                            content_item["input"] = json.loads(content_item["partial_json"])
                         except json.JSONDecodeError:
                             pass
                 if content_item["type"] == "text":

@@ -76,7 +76,7 @@ class ChatAgentToolkit(AgentToolkit):
 
 class ChatAgentToolkitManager(AgentToolkitManager):
     async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list[MaxTool | dict[str, Any]]:
-        available_tools: list[MaxTool | dict[str, Any]] = await super().get_tools(state, config)
+        available_tools = await super().get_tools(state, config)
 
         tool_names = self._context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[MaxTool]] = []
@@ -97,11 +97,12 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         contextual_tools = await asyncio.gather(*awaited_contextual_tools)
 
         # Deduplicate contextual tools
-        initialized_tool_names = {tool.get_name() for tool in available_tools}
+        initialized_tool_names = {tool.get_name() for tool in available_tools if isinstance(tool, MaxTool)}
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
                 available_tools.append(tool)
 
+        # Final tools = available contextual tools + LLM provider server tools
         if has_web_search_feature_flag(self._team, self._user):
             available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
