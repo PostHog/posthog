@@ -41,6 +41,7 @@ rust-analyzer.pkg-group = "rust-analyzer"
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
+util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
