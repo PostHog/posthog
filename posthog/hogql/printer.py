@@ -925,10 +925,6 @@ class _Printer(Visitor[str]):
         if not isinstance(property_source, PrintableMaterializedColumn):
             return None
 
-        # Only apply optimization for non-nullable materialized columns
-        if property_source.is_nullable:
-            return None
-
         # Build the optimized comparison using the raw materialized column
         materialized_column_sql = str(property_source)
         constant_sql = self.visit(constant_expr)
