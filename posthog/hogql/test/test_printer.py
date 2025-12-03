@@ -3043,7 +3043,7 @@ class TestPrinter(BaseTest):
         assert clean_varying_query_parts(result, replace_all_numbers=False) == self.snapshot  # type: ignore
 
 
-class TestMaterialisedColumnOptimisation(BaseTest):
+class TestMaterializedColumnOptimization(BaseTest):
     maxDiff = None
 
     def _expr(
