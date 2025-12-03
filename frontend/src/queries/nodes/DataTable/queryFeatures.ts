@@ -39,10 +39,8 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
-    /** Enables custom row actions via QueryContext.rowActions */
-    rowActions,
-    /** Enables custom cell actions via QueryContextColumn.cellActions */
-    cellActions,
+    /** Enables cell and row actions for non-integrated conversions mapping */
+    nonIntegratedConversionsActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -135,6 +133,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.nonIntegratedConversionsActions)
     }
 
     if (isTracesQuery(query)) {

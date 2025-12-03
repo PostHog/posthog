@@ -33,6 +33,7 @@ pub struct Team {
     pub session_recording_masking_config: Option<Json<serde_json::Value>>,
     pub session_replay_config: Option<Json<serde_json::Value>>,
     pub survey_config: Option<Json<serde_json::Value>>,
+    pub extra_settings: Option<Json<serde_json::Value>>,
     pub session_recording_url_trigger_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_url_blocklist_config: Option<Vec<Json<serde_json::Value>>>, // jsonb[] in postgres
     pub session_recording_event_trigger_config: Option<Vec<Option<String>>>, // text[] in postgres. NB: this also contains NULL entries along with strings.

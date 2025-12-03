@@ -176,6 +176,8 @@ export type HogFunctionFilterGlobals = {
     group_4: {
         properties: Record<string, any>
     }
+
+    variables: Record<string, any> | undefined // For HogFlows, workflow-level variables
 }
 
 export type MetricLogSource = 'hog_function' | 'hog_flow'

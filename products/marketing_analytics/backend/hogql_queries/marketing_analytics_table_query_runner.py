@@ -269,6 +269,8 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
 
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
+            # Join on match_key - each adapter decides whether to use campaign or id based on team preferences
+            # UCG's match_key is the utm_campaign value from events
             unified_join = ast.JoinExpr(
                 join_type="LEFT JOIN",
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
@@ -276,32 +278,14 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
-                            # Join on campaign OR id to support both campaign_name and campaign_id matching
-                            # When campaign_name matching is used, campaign fields match
-                            # When campaign_id matching is used, id fields match
-                            ast.Or(
-                                exprs=[
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(
-                                                self.config.campaign_field
-                                            )
-                                        ),
-                                    ),
-                                    ast.CompareOperation(
-                                        left=ast.Field(
-                                            chain=self.config.get_campaign_cost_field_chain(self.config.id_field)
-                                        ),
-                                        op=ast.CompareOperationOp.Eq,
-                                        right=ast.Field(
-                                            chain=self.config.get_unified_conversion_field_chain(self.config.id_field)
-                                        ),
-                                    ),
-                                ]
+                            ast.CompareOperation(
+                                left=ast.Field(
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
+                                ),
+                                op=ast.CompareOperationOp.Eq,
+                                right=ast.Field(
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
+                                ),
                             ),
                             self._build_flexible_source_join_condition(),
                         ]

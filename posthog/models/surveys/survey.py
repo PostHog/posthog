@@ -138,6 +138,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice

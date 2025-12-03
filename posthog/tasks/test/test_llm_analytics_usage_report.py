@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -59,7 +59,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
     ) -> None:
         """Helper to create AI events."""
         if timestamp is None:
-            timestamp = datetime.now() - timedelta(hours=12)
+            timestamp = datetime.now(UTC) - timedelta(hours=12)
 
         base_properties = properties or {}
 
@@ -526,6 +526,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         # Verify org 1 report
         org_1_report = org_reports[str(self.organization.id)]
+        assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
@@ -549,6 +550,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         # Verify org 2 report
         org_2_report = org_reports[str(org_2.id)]
+        assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
         assert org_2_report["ai_generation_count"] == 2
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025
@@ -903,7 +905,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         _create_person(distinct_ids=[distinct_id], team=self.team)
 
         # Create AI events for January 5th (within Jan 4th period when at="2022-01-05")
-        jan_5_timestamp = datetime(2022, 1, 5, 12, 0, 0)
+        jan_5_timestamp = datetime(2022, 1, 5, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
             distinct_id,
@@ -913,7 +915,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
         )
 
         # Create AI events for January 9th (within the default period based on freeze_time)
-        jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0)
+        jan_9_timestamp = datetime(2022, 1, 9, 12, 0, 0, tzinfo=UTC)
         self._create_ai_events(
             self.team,
             distinct_id,

@@ -220,6 +220,7 @@ def call_memory_onboarding():
 
         graph = (
             AssistantGraph(team=team, user=user)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.MEMORY_ONBOARDING)
             .add_memory_onboarding(AssistantNodeName.END)
             .compile(checkpointer=DjangoCheckpointer())
         )

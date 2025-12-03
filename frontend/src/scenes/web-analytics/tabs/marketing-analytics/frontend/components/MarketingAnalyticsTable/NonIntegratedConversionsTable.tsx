@@ -11,7 +11,6 @@ import { LearnMorePopover } from 'scenes/web-analytics/WebAnalyticsDashboard'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import {
     DataTableNode,
     NodeKind,
@@ -126,7 +125,6 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             columnFeatures: [ColumnFeature.canSort],
-            extraDataTableQueryFeatures: [QueryFeature.cellActions, QueryFeature.rowActions],
             rowActions: (props) => rowActionsRef.current(props),
             columns: selectColumns.reduce(
                 (acc, column) => {

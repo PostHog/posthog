@@ -25,7 +25,6 @@ import {
     MarketingAnalyticsValidationWarningBanner,
     validateConversionGoals,
 } from '../MarketingAnalyticsValidationWarningBanner'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -76,15 +75,10 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <DraftConversionGoalControls />
-                    </div>
-                    <div className="self-start">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                    </div>
+                <div className="flex gap-4 justify-end">
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
                 </div>
             </div>
             {validationWarnings && validationWarnings.length > 0 && (

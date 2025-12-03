@@ -10,11 +10,13 @@ import { attributeBreakdownLogic } from './attributeBreakdownLogic'
 export const AttributeBreakdowns = ({
     attribute,
     addFilter,
+    tabId,
 }: {
     attribute: string
     addFilter: (key: string, value: string, operator?: PropertyOperator) => void
+    tabId: string
 }): JSX.Element => {
-    const logic = attributeBreakdownLogic({ attribute })
+    const logic = attributeBreakdownLogic({ attribute, tabId })
     const { attributeValues, logCount, breakdowns } = useValues(logic)
 
     const dataSource = Object.entries(breakdowns)
