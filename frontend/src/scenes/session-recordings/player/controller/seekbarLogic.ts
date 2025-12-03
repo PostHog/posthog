@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { MutableRefObject } from 'react'
 
 import { clamp } from 'lib/utils'
@@ -111,6 +111,12 @@ export const seekbarLogic = kea<seekbarLogicType>([
             (selectors) => [selectors.scrubbingTime],
             (scrubbingTime) => Math.floor(scrubbingTime / 1000),
         ],
+    }),
+    beforeUnmount(({ actions }) => {
+        document.removeEventListener('touchmove', actions.handleMove)
+        document.removeEventListener('touchend', actions.handleUp)
+        document.removeEventListener('mousemove', actions.handleMove)
+        document.removeEventListener('mouseup', actions.handleUp)
     }),
     listeners(({ values, actions }) => ({
         setCurrentTimestamp: () => {

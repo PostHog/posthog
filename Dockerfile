@@ -35,6 +35,7 @@ COPY common/hogvm/typescript/ common/hogvm/typescript/
 COPY common/esbuilder/ common/esbuilder/
 COPY common/tailwind/ common/tailwind/
 COPY products/ products/
+COPY docs/onboarding/ docs/onboarding/
 COPY .git/config .git/config
 COPY .git/HEAD .git/HEAD
 COPY .git/refs/heads .git/refs/heads

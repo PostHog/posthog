@@ -8,6 +8,7 @@ from rest_framework import serializers
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
@@ -42,11 +43,17 @@ class ConversationSerializer(ConversationMinimalSerializer):
     has_unsupported_content = serializers.SerializerMethodField()
     agent_mode = serializers.SerializerMethodField()
 
-    def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
+    @async_to_sync
+    async def get_messages(self, conversation: Conversation) -> list[dict[str, Any]]:
         state, _ = self._get_cached_state(conversation)
         if state is None:
             return []
-        messages = [message.model_dump() for message in state.messages if should_output_assistant_message(message)]
+
+        team = self.context["team"]
+        user = self.context["user"]
+        artifact_manager = ArtifactManager(team, user)
+        enriched_messages = await artifact_manager.aenrich_messages(list(state.messages))
+        messages = [message.model_dump() for message in enriched_messages if should_output_assistant_message(message)]
         return messages
 
     def get_has_unsupported_content(self, conversation: Conversation) -> bool:

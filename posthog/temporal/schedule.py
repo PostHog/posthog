@@ -24,6 +24,7 @@ from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
+from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -231,6 +232,7 @@ schedules = [
     create_upgrade_queries_schedule,
     create_enforce_max_replay_retention_schedule,
     create_weekly_digest_schedule,
+    create_batch_trace_summarization_schedule,
 ]
 
 if settings.EE_AVAILABLE:
