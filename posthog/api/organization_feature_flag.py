@@ -176,6 +176,7 @@ class OrganizationFeatureFlagView(
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
+                "bucketing_identifier": flag_to_copy.bucketing_identifier,
             }
             existing_flag = FeatureFlag.objects.filter(
                 key=feature_flag_key, team__project_id=target_project_id, deleted=False

@@ -490,6 +490,32 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 }
             )
 
+        # Validate that question shuffling and branching are not used together
+        # Check both incoming data and existing survey data (existing_survey is None for POST)
+        appearance = data.get("appearance")
+        questions = data.get("questions")
+
+        effective_appearance = {}
+        if existing_survey and existing_survey.appearance:
+            effective_appearance = dict(existing_survey.appearance)
+        if appearance is not None:
+            effective_appearance.update(appearance)
+
+        effective_questions = (
+            questions if questions is not None else (existing_survey.questions if existing_survey else [])
+        )
+
+        shuffle_questions = effective_appearance.get("shuffleQuestions", False)
+
+        if shuffle_questions and effective_questions:
+            has_branching = any(question.get("branching") is not None for question in effective_questions)
+
+            if has_branching:
+                raise serializers.ValidationError(
+                    "Question shuffling and question branching cannot be used together. "
+                    "Please disable one of these features."
+                )
+
         # Validate external survey constraints
         if data.get("type") == Survey.SurveyType.EXTERNAL_SURVEY:
             errors = {}
@@ -893,11 +919,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         Args:
             exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+            survey_ids: Optional comma-separated list of survey IDs to filter by
 
         Returns:
             Dictionary mapping survey IDs to response counts
         """
         exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
+        survey_ids_param = request.query_params.get("survey_ids")
 
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
@@ -923,6 +951,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 archived_filter = f"AND {archived_filter_sql}"
                 params.update(archived_params)
 
+        survey_ids_filter = ""
+        if survey_ids_param:
+            survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
+            if survey_ids:
+                survey_ids_filter = (
+                    f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
+                )
+                params["survey_ids"] = survey_ids
+
         query = f"""
             SELECT
                 JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
@@ -934,6 +971,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
                 {archived_filter}
+                {survey_ids_filter}
             GROUP BY survey_id
         """
 

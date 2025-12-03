@@ -8,20 +8,24 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from braintrust_langchain import BraintrustCallbackHandler, set_global_handler
+from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import FailureMessage, HumanMessage, VisualizationMessage
+from posthog.schema import FailureMessage, HumanMessage
 
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.models import Organization, Team, User
 from posthog.tasks.demo_create_data import HedgeboxMatrix
 
+from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
+from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 
 # We want the PostHog set_up_evals fixture here
 from ee.hogai.eval.conftest import set_up_evals  # noqa: F401
 from ee.hogai.eval.scorers import PlanAndQueryOutput
-from ee.hogai.graph.graph import AssistantGraph
 from ee.hogai.utils.types import AssistantNodeName, AssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import Conversation, CoreMemory
 
 handler = BraintrustCallbackHandler()
@@ -57,25 +61,26 @@ def call_root_for_insight_generation(demo_org_team_user):
             conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
 
             # Invoke the graph. The state will be updated through planner and then generator.
-            final_state_raw = await graph.ainvoke(initial_state, {"configurable": {"thread_id": conversation.id}})
+            config = RunnableConfig(configurable={"thread_id": conversation.id})
+            final_state_raw = await graph.ainvoke(initial_state, config)
 
             final_state = AssistantState.model_validate(final_state_raw)
 
             # If we have extra context for the potential ask_user tool, and there's no message of type ai/failure
-            # or ai/visualization, we should answer with that extra context. We only do this once at most in an eval case.
+            # or artifact, we should answer with that extra context. We only do this once at most in an eval case.
             if isinstance(query_with_extra_context, tuple) and not any(
-                isinstance(m, VisualizationMessage | FailureMessage) for m in final_state.messages
+                isinstance(m, ArtifactRefMessage | FailureMessage) for m in final_state.messages
             ):
                 final_state.messages = [*final_state.messages, HumanMessage(content=query_with_extra_context[1])]
                 final_state.graph_status = "resumed"
-                final_state_raw = await graph.ainvoke(final_state, {"configurable": {"thread_id": conversation.id}})
+                final_state_raw = await graph.ainvoke(final_state, config)
                 final_state = AssistantState.model_validate(final_state_raw)
 
             # The order is a viz message, tool call message, and assistant message.
             if (
                 not final_state.messages
                 or not len(final_state.messages) >= 3
-                or not isinstance(final_state.messages[-3], VisualizationMessage)
+                or not isinstance(final_state.messages[-3], ArtifactRefMessage)
             ):
                 return {
                     "plan": None,
@@ -83,9 +88,18 @@ def call_root_for_insight_generation(demo_org_team_user):
                     "query_generation_retry_count": final_state.query_generation_retry_count,
                 }
 
+            artifact_manager = ArtifactManager(team=demo_org_team_user[1], user=demo_org_team_user[2], config=config)
+            enriched_message = await artifact_manager.aget_enriched_message(final_state.messages[-3])
+            content = unwrap_visualization_artifact_content(enriched_message)
+            if content is None:
+                return {
+                    "plan": None,
+                    "query": None,
+                    "query_generation_retry_count": final_state.query_generation_retry_count,
+                }
             return {
-                "plan": final_state.messages[-3].plan,
-                "query": final_state.messages[-3].answer,
+                "plan": content.description,
+                "query": content.query,
                 "query_generation_retry_count": final_state.query_generation_retry_count,
             }
 

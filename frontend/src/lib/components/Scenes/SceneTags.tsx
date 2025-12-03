@@ -65,6 +65,7 @@ export const SceneTags = ({
                     placeholder='try "official"'
                     size="xsmall"
                     autoFocus
+                    className="max-w-full"
                 />
             </ScenePanelLabel>
             <SceneSaveCancelButtons

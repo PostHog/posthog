@@ -214,8 +214,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="test_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "test_signature"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -249,8 +248,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="invalid_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "invalid_signature"},
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -269,8 +267,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             "/api/alerts/github",
             data=json.dumps(self.valid_payload),
             content_type="application/json",
-            HTTP_GITHUB_PUBLIC_KEY_IDENTIFIER="test_kid",
-            HTTP_GITHUB_PUBLIC_KEY_SIGNATURE="invalid_signature",
+            headers={"github-public-key-identifier": "test_kid", "github-public-key-signature": "invalid_signature"},
         )
 
         # Should get 401 for invalid signature, not 500 for RawPostDataException

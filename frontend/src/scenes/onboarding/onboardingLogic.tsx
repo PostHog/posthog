@@ -5,7 +5,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -25,14 +24,21 @@ export interface OnboardingLogicProps {
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
+const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
+    [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
+}
+
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
-    return (
-        stepKey &&
-        stepKey
-            .split('_')
-            .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
-            .join(' ')
-    )
+    if (!stepKey) {
+        return undefined
+    }
+    if (STEP_KEY_TITLE_OVERRIDES[stepKey]) {
+        return STEP_KEY_TITLE_OVERRIDES[stepKey]
+    }
+    return stepKey
+        .split('_')
+        .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
+        .join(' ')
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -87,7 +93,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
-        logic: [liveEventsTableLogic({ tabId: 'onboarding', showLiveStreamErrorToast: false })],
     })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
@@ -312,6 +317,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({

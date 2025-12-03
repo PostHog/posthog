@@ -1141,6 +1141,7 @@ class TestSurvey(APIBaseTest):
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_tags": [],
+                        "bucketing_identifier": "distinct_id",
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
@@ -2150,6 +2151,159 @@ class TestSurveyQuestionValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
         assert response_data["detail"] == "Question choices cannot be empty"
 
+    def test_validate_shuffling_with_branching_on_create(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with shuffling and branching",
+                "type": "popover",
+                "appearance": {
+                    "shuffleQuestions": True,
+                },
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "How likely are you to recommend us?",
+                        "scale": 10,
+                        "branching": {
+                            "type": "response_based",
+                            "responseValues": {
+                                "promoters": "end",
+                                "passives": "end",
+                                "detractors": "specific_question",
+                            },
+                            "index": 1,
+                        },
+                    },
+                    {
+                        "type": "open",
+                        "question": "What can we improve?",
+                    },
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Question shuffling and question branching cannot be used together" in response_data["detail"]
+
+    def test_validate_shuffling_with_branching_on_update(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Survey",
+            type="popover",
+            questions=[
+                {
+                    "type": "rating",
+                    "question": "How likely are you to recommend us?",
+                    "scale": 10,
+                    "branching": {
+                        "type": "end",
+                    },
+                }
+            ],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "appearance": {
+                    "shuffleQuestions": True,
+                },
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Question shuffling and question branching cannot be used together" in response_data["detail"]
+
+    def test_validate_branching_with_shuffling_on_update_questions(self):
+        survey = Survey.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Test Survey",
+            type="popover",
+            appearance={
+                "shuffleQuestions": True,
+            },
+            questions=[
+                {
+                    "type": "open",
+                    "question": "What do you think?",
+                }
+            ],
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/surveys/{survey.id}/",
+            data={
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "How likely are you to recommend us?",
+                        "scale": 10,
+                        "branching": {
+                            "type": "end",
+                        },
+                    }
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response_data
+        assert "Question shuffling and question branching cannot be used together" in response_data["detail"]
+
+    def test_shuffling_without_branching_is_allowed(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with just shuffling",
+                "type": "popover",
+                "appearance": {
+                    "shuffleQuestions": True,
+                },
+                "questions": [
+                    {
+                        "type": "open",
+                        "question": "Question 1",
+                    },
+                    {
+                        "type": "open",
+                        "question": "Question 2",
+                    },
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["appearance"]["shuffleQuestions"] is True
+
+    def test_branching_without_shuffling_is_allowed(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/",
+            data={
+                "name": "Survey with just branching",
+                "type": "popover",
+                "questions": [
+                    {
+                        "type": "rating",
+                        "question": "How likely are you to recommend us?",
+                        "scale": 10,
+                        "branching": {
+                            "type": "end",
+                        },
+                    },
+                ],
+            },
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert response_data["questions"][0]["branching"]["type"] == "end"
+
 
 class TestSurveyQuestionValidationWithEnterpriseFeatures(APIBaseTest):
     def setUp(self):
@@ -2877,7 +3031,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
         return self.client.get(
             "/api/surveys/",
             data={"token": token or self.team.api_token},
-            HTTP_ORIGIN=origin,
+            headers={"origin": origin},
             REMOTE_ADDR=ip,
         )
 
@@ -2947,6 +3101,7 @@ class TestSurveysAPIList(BaseTest, QueryMatchingTest):
                                                 "event": "$pageview",
                                                 "properties": None,
                                                 "selector": None,
+                                                "selector_regex": None,
                                                 "tag_name": None,
                                                 "text": None,
                                                 "text_matching": None,
@@ -3375,6 +3530,58 @@ class TestResponsesCount(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data.get(survey_id, 0), 0)
+
+    @freeze_time("2024-05-01 14:40:09")
+    def test_responses_count_filters_by_survey_ids(self):
+        survey_id_1 = str(uuid.uuid4())
+        survey_id_2 = str(uuid.uuid4())
+        survey_id_3 = str(uuid.uuid4())
+
+        Survey.objects.create(team_id=self.team.id, id=survey_id_1, start_date=datetime.now() - timedelta(days=10))
+
+        for survey_id, count in [(survey_id_1, 5), (survey_id_2, 3), (survey_id_3, 7)]:
+            for _ in range(count):
+                _create_event(
+                    event="survey sent",
+                    team=self.team,
+                    distinct_id=self.user.id,
+                    properties={"$survey_id": survey_id},
+                    timestamp=datetime.now() - timedelta(days=1),
+                )
+
+        # Without filter - should return all surveys
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data[survey_id_1], 5)
+        self.assertEqual(data[survey_id_2], 3)
+        self.assertEqual(data[survey_id_3], 7)
+
+        # Filter to single survey
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5})
+
+        # Filter to multiple surveys
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids={survey_id_1},{survey_id_2}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_1: 5, survey_id_2: 3})
+
+        # Filter with spaces around IDs (should be trimmed)
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids= {survey_id_3} ")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data, {survey_id_3: 7})
+
+        # Empty survey_ids should return all
+        response = self.client.get(f"/api/projects/{self.team.id}/surveys/responses_count?survey_ids=")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 3)
 
 
 class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):

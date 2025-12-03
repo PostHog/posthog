@@ -9,7 +9,6 @@ import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AppShortcutMenu } from 'lib/components/AppShortcuts/AppShortcutMenu'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
@@ -76,7 +75,6 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
     const { isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
-    const useAppShortcuts = useFeatureFlag('APP_SHORTCUTS')
 
     // Set layout config
     useEffect(() => {
@@ -107,7 +105,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                             scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                         'p-0':
                             sceneConfig?.layout === 'app-raw-no-header' || (sceneConfig?.layout === 'app-raw' && 'p-0'),
-                        'h-[calc(100vh-var(--scene-layout-header-height))]':
+                        'h-[calc(100vh-var(--scene-layout-header-height))] overflow-auto':
                             sceneConfig?.layout === 'app-full-scene-height',
                     }
                 )}
@@ -184,7 +182,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                 </>
             )}
 
-            {useAppShortcuts && <AppShortcutMenu />}
+            <AppShortcutMenu />
         </>
     )
 }

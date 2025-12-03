@@ -63,6 +63,8 @@ interface LemonInputPropsBase
     stopPropagation?: boolean
     /** Small label shown above the top-right corner, e.g. "last used" */
     badgeText?: string
+    /** Whether to show the focus pulse animation */
+    showFocusPulse?: boolean
 }
 
 export interface LemonInputPropsText extends LemonInputPropsBase {
@@ -105,6 +107,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         disabled,
         disabledReason,
         badgeText,
+        showFocusPulse = true,
         ...props
     },
     ref
@@ -190,6 +193,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     !disabled && !disabledReason && focused && 'LemonInput--focused',
                     transparentBackground && 'LemonInput--transparent-background',
                     badgeText && 'relative',
+                    props.autoFocus && showFocusPulse && 'animate-input-focus-pulse',
                     className
                 )}
                 aria-disabled={disabled || !!disabledReason}

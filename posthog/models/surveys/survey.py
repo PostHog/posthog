@@ -78,7 +78,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         on_delete=models.SET_NULL,
         related_name="surveys_linked_insight",
         related_query_name="survey_linked_insight",
-        db_index=False,
+        db_index=True,
         db_constraint=True,
     )
     internal_targeting_flag = models.ForeignKey(
@@ -138,6 +138,7 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         - `scale`: The scale of the rating (`number`).
         - `lowerBoundLabel`: Label for the lower bound of the scale.
         - `upperBoundLabel`: Label for the upper bound of the scale.
+        - `isNpsQuestion`: Whether the question is an NPS rating.
         - `branching`: Branching logic for the question. See branching types below for details.
 
         Multiple choice

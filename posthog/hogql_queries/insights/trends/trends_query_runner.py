@@ -663,12 +663,6 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             res.append(series_object)
         return res
 
-    @property
-    def exact_timerange(self):
-        return (self.query.dateRange and self.query.dateRange.explicitDate) or (
-            self.query.trendsFilter and self.query.trendsFilter.display == ChartDisplayType.BOLD_NUMBER
-        )
-
     @cached_property
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
@@ -676,6 +670,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
 
         return None
+
+    @property
+    def exact_timerange(self):
+        return self.query.dateRange and self.query.dateRange.explicitDate
 
     @cached_property
     def query_date_range(self):

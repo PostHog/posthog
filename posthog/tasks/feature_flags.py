@@ -7,7 +7,7 @@ from celery import shared_task
 
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
-    get_flags_cache_stats,
+    get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
@@ -100,7 +100,7 @@ def refresh_expiring_flags_cache_entries() -> None:
         # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
 
         # Only scan once after refresh for metrics
-        stats_after = get_flags_cache_stats()
+        stats_after = get_cache_stats()
 
         coverage_percent = stats_after.get("cache_coverage_percent", 0)
         HYPERCACHE_COVERAGE_GAUGE.labels(namespace="feature_flags").set(coverage_percent)
