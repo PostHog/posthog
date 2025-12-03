@@ -156,21 +156,22 @@ async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
         block_deleted_counter = 0
         block_deleted_error_counter = 0
 
-        tmpfile = None
+        tmpfile_path = None
+        tmpfile_fd = None
         try:
-            _, tmpfile = mkstemp()
+            tmpfile_fd, tmpfile_path = mkstemp()
 
-            await storage.download_file(input.path, tmpfile)
+            await storage.download_file(input.path, tmpfile_path)
 
             for start_byte, end_byte in input.ranges:
                 try:
                     block_length = end_byte - start_byte + 1
 
-                    size_before = Path(tmpfile).stat().st_size
+                    size_before = Path(tmpfile_path).stat().st_size
 
-                    overwrite_block(tmpfile, start_byte, block_length)
+                    overwrite_block(tmpfile_path, start_byte, block_length)
 
-                    size_after = Path(tmpfile).stat().st_size
+                    size_after = Path(tmpfile_path).stat().st_size
 
                     assert size_before == size_after
                     block_deleted_counter += 1
@@ -181,7 +182,7 @@ async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
                     logger.warning(f"Got exception {e}")
                     block_deleted_error_counter += 1
 
-            await storage.upload_file(input.path, tmpfile)
+            await storage.upload_file(input.path, tmpfile_path)
 
             logger.info(f"Deleted {len(input.ranges)} blocks in {input.path}")
         except session_recording_v2_object_storage.FileDownloadError:
@@ -189,8 +190,17 @@ async def delete_recording_blocks(input: RecordingBlockGroup) -> None:
         except session_recording_v2_object_storage.FileUploadError:
             logger.warning(f"Failed to upload file to {input.path}, skipping...")
         finally:
-            if tmpfile is not None:
-                os.remove(tmpfile)
+            if tmpfile_fd is not None:
+                try:
+                    os.close(tmpfile_fd)
+                except OSError:
+                    pass
+
+            if tmpfile_path is not None:
+                try:
+                    os.remove(tmpfile_path)
+                except FileNotFoundError:
+                    pass
 
     get_block_deleted_counter().add(block_deleted_counter)
     get_block_deleted_error_counter().add(block_deleted_error_counter)
