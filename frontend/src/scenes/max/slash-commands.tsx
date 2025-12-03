@@ -1,4 +1,4 @@
-import { IconActivity, IconMemory, IconRocket, IconThumbsUp } from '@posthog/icons'
+import { IconActivity, IconMemory, IconRocket, IconSupport, IconThumbsUp } from '@posthog/icons'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
@@ -12,6 +12,8 @@ export interface SlashCommand {
     description: string
     icon: JSX.Element
     flag?: FeatureFlagKey
+    /** If true, this command is only available when the conversation is idle (not streaming) */
+    requiresIdle?: boolean
 }
 
 export const MAX_SLASH_COMMANDS: SlashCommand[] = [
@@ -38,5 +40,11 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         description: 'Share feedback about your PostHog AI experience',
         icon: <IconThumbsUp />,
         flag: FEATURE_FLAGS.POSTHOG_AI_FEEDBACK_COMMAND,
+    },
+    {
+        name: SlashCommandName.SlashTicket,
+        description: 'Create a support ticket with a summary of this conversation',
+        icon: <IconSupport />,
+        requiresIdle: true,
     },
 ]

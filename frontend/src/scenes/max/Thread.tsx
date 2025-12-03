@@ -72,6 +72,7 @@ import { Region } from '~/types'
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
+import { TicketPrompt } from './TicketPrompt'
 import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
@@ -103,6 +104,92 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
+    // Detect if /ticket was sent as first message and needs input form
+    const isTicketPromptNeeded = useMemo(() => {
+        if (threadGrouped.length < 2 || streamingActive) {
+            return false
+        }
+        const firstMessage = threadGrouped[0]
+        const lastMessage = threadGrouped[threadGrouped.length - 1]
+        // Check if first message is /ticket and last message is the prompt response
+        const isInitialTicketPrompt =
+            firstMessage?.type === 'human' &&
+            'content' in firstMessage &&
+            firstMessage.content === '/ticket' &&
+            lastMessage?.type === 'ai' &&
+            'content' in lastMessage &&
+            lastMessage.content.includes("I'll help you create a support ticket")
+
+        // If a ticket confirmation already exists, don't show the form
+        if (isInitialTicketPrompt) {
+            const hasConfirmationMessage = threadGrouped.some(
+                (msg) =>
+                    msg?.type === 'ai' &&
+                    'content' in msg &&
+                    msg.content?.includes("I've created a support ticket for you")
+            )
+            return !hasConfirmationMessage
+        }
+
+        return false
+    }, [threadGrouped, streamingActive])
+
+    // Detect if /ticket was sent with an existing conversation (summary response)
+    // Find the /ticket human message and check if it was NOT the first message
+    const ticketSummaryData = useMemo(() => {
+        if (threadGrouped.length < 3 || streamingActive) {
+            return null
+        }
+
+        // Find the last /ticket command
+        let ticketCommandIndex = -1
+        for (let i = threadGrouped.length - 1; i >= 0; i--) {
+            const msg = threadGrouped[i]
+            if (msg?.type === 'human' && 'content' in msg && msg.content === '/ticket') {
+                ticketCommandIndex = i
+                break
+            }
+        }
+
+        // If /ticket is NOT the first human message, and there's an AI response after it
+        if (ticketCommandIndex > 0 && ticketCommandIndex < threadGrouped.length - 1) {
+            const responseMessage = threadGrouped[ticketCommandIndex + 1]
+            if (
+                responseMessage?.type === 'ai' &&
+                'content' in responseMessage &&
+                responseMessage.content &&
+                !responseMessage.content.includes("I'll help you create a support ticket")
+            ) {
+                // Check if user continued the conversation (sent another message after the summary)
+                // or if a ticket was already created
+                const messagesAfterSummary = threadGrouped.slice(ticketCommandIndex + 2)
+                const userContinuedConversation = messagesAfterSummary.some((msg) => msg?.type === 'human')
+                const hasConfirmationMessage = messagesAfterSummary.some(
+                    (msg) =>
+                        msg?.type === 'ai' &&
+                        'content' in msg &&
+                        msg.content?.includes("I've created a support ticket for you")
+                )
+
+                if (hasConfirmationMessage) {
+                    return null
+                }
+                if (userContinuedConversation) {
+                    return {
+                        discarded: true,
+                        messageIndex: ticketCommandIndex + 1,
+                    }
+                }
+                return {
+                    summary: responseMessage.content,
+                    messageIndex: ticketCommandIndex + 1,
+                }
+            }
+        }
+
+        return null
+    }, [threadGrouped, streamingActive])
+
     return (
         <div
             className={twMerge(
@@ -127,24 +214,48 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
-                        // Hiding rating buttons after /feedback command output
+                        // Hiding rating buttons after /feedback and /ticket command outputs
                         const prevMessage = threadGrouped[index - 1]
-                        const isFeedbackCommandResponse =
+                        const isSlashCommandResponse =
                             message.type !== 'human' &&
                             prevMessage?.type === 'human' &&
                             'content' in prevMessage &&
-                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+                            (prevMessage.content.startsWith(SlashCommandName.SlashFeedback) ||
+                                prevMessage.content.startsWith(SlashCommandName.SlashTicket))
+
+                        // Also hide for ticket confirmation messages
+                        const isTicketConfirmationMessage =
+                            message.type !== 'human' &&
+                            'content' in message &&
+                            typeof message.content === 'string' &&
+                            message.content.includes("I've created a support ticket for you")
+
+                        // Check if this message is a ticket summary that needs the ticket creation button
+                        const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
 
                         return (
-                            <Message
-                                key={`${conversationId}-${index}`}
-                                message={message}
-                                nextMessage={nextMessage}
-                                isLastInGroup={isLastInGroup}
-                                isFinal={index === threadGrouped.length - 1}
-                                streamingActive={streamingActive}
-                                isFeedbackCommandResponse={isFeedbackCommandResponse}
-                            />
+                            <React.Fragment key={`${conversationId}-${index}`}>
+                                <Message
+                                    message={message}
+                                    nextMessage={nextMessage}
+                                    isLastInGroup={isLastInGroup}
+                                    isFinal={index === threadGrouped.length - 1}
+                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmationMessage}
+                                />
+                                {conversationId &&
+                                    isTicketSummaryMessage &&
+                                    (ticketSummaryData.discarded ? (
+                                        <p className="m-0 ml-1 mt-1 text-xs text-muted italic">
+                                            Ticket creation discarded
+                                        </p>
+                                    ) : (
+                                        <TicketPrompt
+                                            conversationId={conversationId}
+                                            traceId={traceId}
+                                            summary={ticketSummaryData.summary}
+                                        />
+                                    ))}
+                            </React.Fragment>
                         )
                     })}
                     {conversationId && isPromptVisible && !streamingActive && (
@@ -162,6 +273,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         <MessageTemplate type="ai">
                             <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
                         </MessageTemplate>
+                    )}
+                    {conversationId && isTicketPromptNeeded && (
+                        <TicketPrompt conversationId={conversationId} traceId={traceId} />
                     )}
                 </>
             ) : (
@@ -209,17 +323,10 @@ interface MessageProps {
     nextMessage?: ThreadMessage
     isLastInGroup: boolean
     isFinal: boolean
-    streamingActive: boolean
-    isFeedbackCommandResponse?: boolean
+    isSlashCommandResponse?: boolean
 }
 
-function Message({
-    message,
-    nextMessage,
-    isLastInGroup,
-    isFinal,
-    isFeedbackCommandResponse,
-}: MessageProps): JSX.Element {
+function Message({ message, nextMessage, isLastInGroup, isFinal, isSlashCommandResponse }: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -384,7 +491,7 @@ function Message({
                                     <SuccessActions
                                         key={`${key}-actions`}
                                         retriable={retriable}
-                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                        hideRatingAndRetry={isSlashCommandResponse}
                                     />
                                 )
                             }

@@ -829,12 +829,17 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags],
-            (question: string, featureFlags: Record<string, boolean | string>): SlashCommand[] =>
+            (s) => [s.question, s.featureFlags, s.threadLoading],
+            (
+                question: string,
+                featureFlags: Record<string, boolean | string>,
+                threadLoading: boolean
+            ): SlashCommand[] =>
                 MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
-                        (!command.flag || featureFlags[command.flag])
+                        (!command.flag || featureFlags[command.flag]) &&
+                        (!command.requiresIdle || !threadLoading)
                 ),
         ],
 
