@@ -178,7 +178,7 @@ export function VirtualizedLogsList({
                                     rowCount={dataSource.length}
                                     rowHeight={cache.rowHeight}
                                     deferredMeasurementCache={cache}
-                                    rowRenderer={createRowRenderer()}
+                                    rowRenderer={createRowRenderer(width)}
                                     overscanRowCount={5}
                                     tabIndex={null}
                                     style={{ outline: 'none' }}
