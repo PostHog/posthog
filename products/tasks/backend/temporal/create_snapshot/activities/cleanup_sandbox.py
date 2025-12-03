@@ -16,7 +16,7 @@ class CleanupSandboxInput:
     sandbox_id: str
 
 
-@activity.defn
+@activity.defn(name="snapshot_cleanup_sandbox")
 @asyncify
 def cleanup_sandbox(input: CleanupSandboxInput) -> None:
     with log_activity_execution(
