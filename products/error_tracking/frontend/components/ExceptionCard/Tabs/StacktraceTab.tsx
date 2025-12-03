@@ -19,8 +19,8 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
+import { ReleasePreviewPill } from '../../ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -43,7 +43,7 @@ export function StacktraceTab({
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
     const { setShowAllFrames } = useActions(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType } =
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType, release } =
         useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
@@ -62,7 +62,7 @@ export function StacktraceTab({
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    <ReleasePreviewPill />
+                    {release && <ReleasePreviewPill release={release} />}
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (
