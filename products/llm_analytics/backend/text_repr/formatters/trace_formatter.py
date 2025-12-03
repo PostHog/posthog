@@ -10,6 +10,8 @@ import json
 import base64
 from typing import Any
 
+from posthog.schema import LLMTrace
+
 from .constants import MAX_TREE_DEPTH, SEPARATOR
 from .event_formatter import format_event_text_repr
 from .message_formatter import (
@@ -19,6 +21,43 @@ from .message_formatter import (
     format_output_messages,
     truncate_content,
 )
+
+
+def llm_trace_to_formatter_format(llm_trace: LLMTrace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """
+    Convert an LLMTrace object to the format expected by format_trace_text_repr.
+
+    Args:
+        llm_trace: The LLMTrace object from TraceQueryRunner
+
+    Returns:
+        A tuple of (trace_dict, hierarchy) suitable for format_trace_text_repr
+    """
+    trace_dict = {
+        "id": llm_trace.id,
+        "properties": {
+            "$ai_trace_id": llm_trace.id,
+            "$ai_span_name": llm_trace.traceName,
+            "$ai_session_id": llm_trace.aiSessionId,
+            "$ai_input_state": llm_trace.inputState,
+            "$ai_output_state": llm_trace.outputState,
+        },
+    }
+
+    hierarchy = [
+        {
+            "event": {
+                "id": event.id,
+                "event": event.event,
+                "properties": event.properties,
+                "timestamp": event.createdAt,
+            },
+            "children": [],
+        }
+        for event in llm_trace.events
+    ]
+
+    return trace_dict, hierarchy
 
 
 def _format_latency(latency: float) -> str:

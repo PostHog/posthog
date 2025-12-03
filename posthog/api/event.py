@@ -203,16 +203,18 @@ class EventViewSet(
             except ValueError:
                 offset = 0
 
-            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
+            team = self.team
+
+            deprecate_offset = (
+                settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or team.id in settings.PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM
+            )
+            if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 or deprecate_offset:
                 if offset > 0:
                     time.sleep(1)
-                if offset > 50000 and (
-                    settings.PATCH_EVENT_LIST_MAX_OFFSET > 1 or random.random() < 0.01
-                ):  # 1% of queries fail
-                    raise serializers.ValidationError("Max supported offset value is 50000")
+                if offset > 50000 and (deprecate_offset or random.random() < 0.01):  # 1% of queries fail
+                    raise serializers.ValidationError("Offset is deprecated. Max supported offset value is 50000")
 
-            team = self.team
-            filter = Filter(request=request, team=self.team)
+            filter = Filter(request=request, team=team)
             order_by: list[str] = (
                 list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else ["-timestamp"]
             )
@@ -251,7 +253,14 @@ class EventViewSet(
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             headers = None
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Notif": "https://posthog.com/docs/events_list-upcoming-changes"}
+                headers = {"X-PostHog-Warn": "https://posthog.com/docs/events_list-upcoming-changes"}
+            elif deprecate_offset and offset:
+                headers = {
+                    "X-PostHog-Warn": (
+                        "offset is deprecated. "
+                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                    )
+                }
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:

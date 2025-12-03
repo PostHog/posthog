@@ -5,7 +5,6 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
@@ -920,7 +919,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 s.featureFlags,
                 s.isGreaterThanMd,
-                s.currentTeam,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.marketingTiles,
@@ -942,7 +940,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
                 marketingTiles,
@@ -996,27 +993,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           custom_name: 'Total conversions',
                       }
                     : undefined
-
-                // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
-
-                const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_analytics_config
-                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
-                              name: e.eventName,
-                              event: e.eventName,
-                              custom_name: e.eventName,
-                              math: PropertyMathType.Sum,
-                              kind: NodeKind.EventsNode,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          })) as EventsNode[])
-                        : []
-
-                const conversionRevenueSeries =
-                    conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
-                        : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -1090,7 +1066,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         title,
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
                         ...tab,
                     }
 
@@ -1261,7 +1236,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
@@ -1290,25 +1264,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
-                                !conversionGoal && revenueEventsSeries?.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.REVENUE_EVENTS,
-                                          <span>
-                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Revenue',
-                                          revenueEventsSeries,
-                                          {
-                                              display:
-                                                  revenueEventsSeries.length > 1
-                                                      ? ChartDisplayType.ActionsAreaGraph
-                                                      : ChartDisplayType.ActionsLineGraph,
-                                          },
-                                          {
-                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                          }
-                                      )
-                                    : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.UNIQUE_CONVERSIONS,
@@ -1335,16 +1290,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               formula: 'A / B',
                                               aggregationAxisFormat: 'percentage_scaled',
                                           }
-                                      )
-                                    : null,
-                                conversionGoal && conversionRevenueSeries.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_REVENUE,
-                                          <span>
-                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Conversion Revenue',
-                                          conversionRevenueSeries
                                       )
                                     : null,
                             ] as (TabsTileTab | null)[]
