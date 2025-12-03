@@ -13,6 +13,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
+use capture::logging::ServiceNameMakeWriter;
 use capture::server::serve;
 
 common_alloc::used!();
@@ -62,9 +63,12 @@ async fn main() {
     let config = Config::init_from_env().expect("Invalid configuration:");
 
     // Instantiate tracing outputs:
-    //   - stdout with a level configured by the RUST_LOG envvar (default=ERROR)
+    //   - stdout logging with level configured by the RUST_LOG envvar (default=ERROR)
     //   - OpenTelemetry if enabled, for levels INFO and higher
-    let log_layer = tracing_subscriber::fmt::layer().with_filter(EnvFilter::from_default_env());
+    let log_layer = tracing_subscriber::fmt::layer()
+        .with_writer(ServiceNameMakeWriter::new(config.otel_service_name.clone()))
+        .with_filter(EnvFilter::from_default_env());
+
     let otel_layer = config
         .otel_url
         .clone()
