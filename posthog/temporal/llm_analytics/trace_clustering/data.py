@@ -10,13 +10,20 @@ from typing import Any
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbeddings, TraceId, TraceSummaries
+from posthog.temporal.llm_analytics.trace_clustering.models import (
+    TraceEmbeddingRow,
+    TraceEmbeddings,
+    TraceId,
+    TraceSummaries,
+    TraceSummaryRow,
+)
 
 
 def _rows_to_dicts(rows: list[tuple[Any, ...]], column_types: list[tuple[str, str]]) -> list[dict[str, Any]]:
     """Convert ClickHouse rows to dictionaries using column names.
 
     This provides safe column access by name rather than fragile index-based access.
+    The returned dicts should be cast to appropriate TypedDicts by callers for type safety.
     """
     column_names = [col[0] for col in column_types]
     return [dict(zip(column_names, row)) for row in rows]
@@ -67,7 +74,7 @@ def fetch_trace_embeddings_for_clustering(
         with_column_types=True,
     )
 
-    results = _rows_to_dicts(rows, column_types)
+    results: list[TraceEmbeddingRow] = _rows_to_dicts(rows, column_types)  # type: ignore[assignment]
     trace_ids = [row["document_id"] for row in results]
     embeddings_map = {row["document_id"]: row["embedding"] for row in results}
 
@@ -121,7 +128,7 @@ def fetch_trace_summaries(
         with_column_types=True,
     )
 
-    results = _rows_to_dicts(rows, column_types)
+    results: list[TraceSummaryRow] = _rows_to_dicts(rows, column_types)  # type: ignore[assignment]
     trace_summaries: TraceSummaries = {
         row["trace_id"]: {
             "title": row["title"],

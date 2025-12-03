@@ -92,6 +92,23 @@ class TraceSummary(TypedDict):
     interesting_notes: str
 
 
+class TraceEmbeddingRow(TypedDict):
+    """Row from trace embeddings query."""
+
+    document_id: str
+    embedding: list[float]
+
+
+class TraceSummaryRow(TypedDict):
+    """Row from trace summaries query."""
+
+    trace_id: str
+    title: str
+    flow_diagram: str
+    bullets: str
+    interesting_notes: str
+
+
 # Type aliases for data access
 TraceId = str
 TraceEmbeddings = dict[TraceId, list[float]]
