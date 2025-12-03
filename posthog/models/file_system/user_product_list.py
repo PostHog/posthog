@@ -191,12 +191,6 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         # if user.allow_sidebar_suggestions is False:
         #     return []
 
-        # If the user already has products in this team, we don't need to backfill
-        # from other teams since the reasoning behind the backfill is to get them
-        # started with some products in their sidebar.
-        if UserProductList.objects.filter(user=user, team=team).exists():
-            return []
-
         # Get all other teams the user belongs to (through organization membership)
         user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
         other_teams = Team.objects.filter(organization_id__in=user_organizations).exclude(id=team.id)

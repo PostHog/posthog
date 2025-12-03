@@ -287,32 +287,6 @@ class TestUserProductListTeamCreation(BaseTest):
         user_products = UserProductList.objects.filter(user=user, team=new_team)
         self.assertEqual(user_products.count(), 0)
 
-    def test_create_team_no_backfill_if_team_already_has_products(self):
-        """Test that backfill doesn't happen if team already has products"""
-        # Create user with products in existing team
-        user = User.objects.create_user(
-            email="hasproducts@posthog.com",
-            password="password",
-            first_name="HasProducts",
-            allow_sidebar_suggestions=True,
-        )
-        user.join(organization=self.organization)
-        UserProductList.objects.create(user=user, team=self.team, product_path="product_analytics", enabled=True)
-
-        # Create new team and manually add a product first
-        new_team = Team.objects.create_with_data(initiating_user=user, organization=self.organization, name="New Team")
-        UserProductList.objects.create(user=user, team=new_team, product_path="feature_flags", enabled=True)
-
-        # Count products before potential backfill
-        initial_count = UserProductList.objects.filter(user=user, team=new_team).count()
-
-        # Try to trigger backfill again (should be no-op since team already has products)
-        UserProductList.backfill_from_other_teams(user, new_team)
-
-        # Verify count didn't change
-        final_count = UserProductList.objects.filter(user=user, team=new_team).count()
-        self.assertEqual(initial_count, final_count)
-
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_access_control_signal_triggers_backfill(self):
         """Test that AccessControl creation signal triggers product sync"""
