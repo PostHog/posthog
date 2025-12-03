@@ -1,4 +1,4 @@
-<task>
+<video_observation_task>
 - You got a short video - section of a user session, visiting a website/app
 - Assume that the session was happening before this section and will continue after, focus on this section only
 - Watch the entire video carefully and provide a detailed observation report of what happened
