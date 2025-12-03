@@ -9,7 +9,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0920_alter_integration_kind"),
+        ("posthog", "0928_add_team_require_evaluation_tags"),
     ]
 
     operations = [

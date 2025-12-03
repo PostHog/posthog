@@ -7,6 +7,11 @@ export type PersonGetArgs = {
     distinctId: string
 }
 
+export type BatchPersonGetArgs = {
+    teamId: number
+    properties: Record<string, any>[]
+}
+
 const toKey = (args: PersonGetArgs): string => `${args.teamId}:${args.distinctId}`
 
 const fromKey = (key: string): PersonGetArgs => {
@@ -43,6 +48,39 @@ export class PersonsManagerService {
     public async getMany(args: PersonGetArgs[]): Promise<Record<string, PersonManagerPerson | null>> {
         const keys = args.map(toKey)
         return await this.lazyLoader.getMany(keys)
+    }
+
+    public async countMany(filters: BatchPersonGetArgs): Promise<number> {
+        return await this.personRepository.fetchPersonsByProperties(filters)
+    }
+
+    public async streamMany(
+        filters: BatchPersonGetArgs,
+        onPerson: (person: PersonManagerPerson) => Promise<void>
+    ): Promise<void> {
+        const personStream = this.personRepository.fetchPersonsByProperties(filters)
+
+        const batch: PersonManagerPerson[] = []
+        const batchSize = 500
+
+        for await (const personRow of personStream) {
+            batch.push({
+                id: personRow.uuid,
+                properties: personRow.properties,
+                team_id: personRow.team_id,
+                distinct_id: personRow.distinct_id,
+            })
+
+            if (batch.length >= batchSize) {
+                await Promise.all(batch.map((person) => onPerson(person)))
+                batch.length = 0
+            }
+        }
+
+        // Process remaining batch
+        if (batch.length > 0) {
+            await Promise.all(batch.map((person) => onPerson(person)))
+        }
     }
 
     // NOTE: Currently this essentially loads the "latest" template each time. We may need to swap this to using a specific version

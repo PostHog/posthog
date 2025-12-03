@@ -296,6 +296,14 @@ export class PluginServer {
                 })
             }
 
+            if (capabilities.cdpCyclotronProducerBatch) {
+                serviceLoaders.push(async () => {
+                    const producer = new CdpCyclotronProducerBatch(hub)
+                    await producer.start()
+                    return producer.service
+                })
+            }
+
             const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
             this.services.push(...readyServices)
 

@@ -82,6 +82,7 @@ export enum PluginServerMode {
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
     ingestion_logs = 'ingestion-logs',
+    cdp_cyclotron_producer_batch = 'cdp-cyclotron-producer-batch',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(
@@ -562,6 +563,7 @@ export interface PluginServerCapabilities {
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
     cdpLegacyOnEvent?: boolean
+    cdpCyclotronProducerBatch?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
