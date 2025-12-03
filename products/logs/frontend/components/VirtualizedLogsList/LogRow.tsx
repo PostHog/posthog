@@ -43,6 +43,18 @@ export const getMinRowWidth = (): number => {
     return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
 }
 
+// Get cell style based on column config and available flex width
+const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSProperties => {
+    return column.flex
+        ? {
+              flexGrow: column.flex,
+              flexShrink: 1,
+              flexBasis: flexWidth ? Math.max(flexWidth, column.minWidth || 0) : column.minWidth,
+              minWidth: column.minWidth,
+          }
+        : { width: column.width, flexShrink: 0 }
+}
+
 export interface LogRowProps {
     log: ParsedLogMessage
     isHighlighted: boolean
@@ -72,14 +84,7 @@ export function LogRow({
     const flexWidth = rowWidth ? rowWidth - getFixedColumnsWidth() : undefined
 
     const renderCell = (column: LogColumnConfig): JSX.Element => {
-        const cellStyle: React.CSSProperties = column.flex
-            ? {
-                  flexGrow: column.flex,
-                  flexShrink: 1,
-                  flexBasis: flexWidth ? Math.max(flexWidth, column.minWidth || 0) : column.minWidth,
-                  minWidth: column.minWidth,
-              }
-            : { width: column.width, flexShrink: 0 }
+        const cellStyle = getCellStyle(column, flexWidth)
 
         switch (column.key) {
             case 'severity': {
@@ -162,22 +167,11 @@ export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
             className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
             style={{ width: rowWidth }}
         >
-            {LOG_COLUMNS.map((column) => {
-                const cellStyle: React.CSSProperties = column.flex
-                    ? {
-                          flexGrow: column.flex,
-                          flexShrink: 1,
-                          flexBasis: Math.max(flexWidth, column.minWidth || 0),
-                          minWidth: column.minWidth,
-                      }
-                    : { width: column.width, flexShrink: 0 }
-
-                return (
-                    <div key={column.key} style={cellStyle} className="flex items-center px-1">
-                        {column.label || ''}
-                    </div>
-                )
-            })}
+            {LOG_COLUMNS.map((column) => (
+                <div key={column.key} style={getCellStyle(column, flexWidth)} className="flex items-center px-1">
+                    {column.label || ''}
+                </div>
+            ))}
         </div>
     )
 }
