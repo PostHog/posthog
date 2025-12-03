@@ -5,11 +5,21 @@ providing a single source of truth for data fetching operations.
 """
 
 from datetime import datetime
+from typing import Any
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbeddings, TraceId, TraceSummaries
+
+
+def _rows_to_dicts(rows: list[tuple[Any, ...]], column_types: list[tuple[str, str]]) -> list[dict[str, Any]]:
+    """Convert ClickHouse rows to dictionaries using column names.
+
+    This provides safe column access by name rather than fragile index-based access.
+    """
+    column_names = [col[0] for col in column_types]
+    return [dict(zip(column_names, row)) for row in rows]
 
 
 def fetch_trace_embeddings_for_clustering(
@@ -42,7 +52,7 @@ def fetch_trace_embeddings_for_clustering(
         ORDER BY rand()
         LIMIT %(max_samples)s
     """
-    results = sync_execute(
+    rows, column_types = sync_execute(
         query,
         {
             "team_id": team_id,
@@ -54,10 +64,12 @@ def fetch_trace_embeddings_for_clustering(
             "max_samples": max_samples,
         },
         workload=Workload.OFFLINE,
+        with_column_types=True,
     )
 
-    trace_ids = [row[0] for row in results]
-    embeddings_map = {row[0]: row[1] for row in results}
+    results = _rows_to_dicts(rows, column_types)
+    trace_ids = [row["document_id"] for row in results]
+    embeddings_map = {row["document_id"]: row["embedding"] for row in results}
 
     return trace_ids, embeddings_map
 
@@ -95,7 +107,7 @@ def fetch_trace_summaries(
             AND JSONExtractString(properties, '$ai_trace_id') IN %(trace_ids)s
     """
 
-    results = sync_execute(
+    rows, column_types = sync_execute(
         query,
         {
             "team_id": team_id,
@@ -104,14 +116,16 @@ def fetch_trace_summaries(
             "end_dt": window_end,
         },
         workload=Workload.OFFLINE,
+        with_column_types=True,
     )
 
+    results = _rows_to_dicts(rows, column_types)
     trace_summaries: TraceSummaries = {
-        row[0]: {
-            "title": row[1],
-            "flow_diagram": row[2],
-            "bullets": row[3],
-            "interesting_notes": row[4],
+        row["trace_id"]: {
+            "title": row["title"],
+            "flow_diagram": row["flow_diagram"],
+            "bullets": row["bullets"],
+            "interesting_notes": row["interesting_notes"],
         }
         for row in results
     }
