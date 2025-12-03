@@ -221,7 +221,10 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                                 onClose={() => removeAction(item.id)}
                                 closable
                                 closeOnClick
-                                className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                                className={clsx(
+                                    'flex items-center text-secondary',
+                                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                                )}
                             >
                                 <span className="truncate min-w-0 flex-1">{name}</span>
                             </LemonTag>
@@ -279,7 +282,7 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
             <LemonTag
                 icon={toolContextItems[0].icon}
                 className={clsx(
-                    'flex items-center cursor-default border-dashed',
+                    'flex items-center cursor-default border-dashed text-secondary',
                     size === 'small' ? 'max-w-20' : 'max-w-48'
                 )}
             >
