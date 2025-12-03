@@ -195,8 +195,12 @@ def convert_legacy_filters_to_universal_filters(filters: Optional[dict[str, Any]
     }
 
 
-def convert_playlist_to_recordings_query(playlist: SessionRecordingPlaylist) -> RecordingsQuery:
-    """Convert playlist with filters to a RecordingsQuery object."""
+def convert_filters_to_recordings_query(playlist: SessionRecordingPlaylist) -> RecordingsQuery:
+    """
+    Convert universal filters to a RecordingsQuery object.
+    This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
+    """
+
     filters = playlist.filters
 
     # we used to send `version` and it's not part of query, so we pop to make sure
@@ -216,15 +220,6 @@ def convert_playlist_to_recordings_query(playlist: SessionRecordingPlaylist) -> 
             playlist.save(update_fields=["filters"])
             REPLAY_PLAYLIST_LEGACY_FILTERS_CONVERTED.inc()
 
-    return convert_filters_to_recordings_query(filters)
-
-
-def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQuery:
-    """
-    Convert universal filters to a RecordingsQuery object.
-    This is the Python equivalent of the frontend's convertUniversalFiltersToRecordingsQuery function.
-    """
-
     # Extract filters from the filter group
     extracted_filters = []
     if filters.get("filter_group") and filters["filter_group"].get("values"):
@@ -232,6 +227,8 @@ def convert_filters_to_recordings_query(filters: dict[str, Any]) -> RecordingsQu
         group = filters["filter_group"]["values"][0]
         if group and group.get("values"):
             extracted_filters = group["values"]
+    else:
+        raise Exception("Invalid universal filters")
 
     events = []
     actions = []
@@ -417,7 +414,7 @@ def count_recordings_that_match_playlist_filters(playlist_id: int) -> None:
             if should_skip_task(existing_value, playlist.filters):
                 return
 
-            query = convert_playlist_to_recordings_query(playlist)
+            query = convert_filters_to_recordings_query(playlist)
 
             # if we already have some data and the query is sorted by start_time,
             # we can query only new recordings, to (hopefully) reduce load on CH
