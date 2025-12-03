@@ -1,3 +1,4 @@
+from .dag import get_dag_structure_activity
 from .materialize import (
     copy_to_ducklake_activity,
     create_materialization_job_activity,
@@ -14,4 +15,5 @@ __all__ = [
     "copy_to_ducklake_activity",
     "finish_materialization_activity",
     "fail_materialization_activity",
+    "get_dag_structure_activity",
 ]
