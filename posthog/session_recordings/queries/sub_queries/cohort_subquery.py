@@ -23,6 +23,7 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
         GROUP BY distinct_id
         HAVING is_deleted = 0
     )
+    WHERE 1=1 AND {cohort_predicate}
         """
 
     def __init__(self, team: Team, query: RecordingsQuery):
