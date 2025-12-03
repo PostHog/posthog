@@ -43,8 +43,16 @@ export function VirtualizedLogsList({
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
     const prevDataLengthRef = useRef<number>(0)
+    const autosizerWidthRef = useRef<number>(0)
 
     const minRowWidth = useMemo(() => getMinRowWidth(), [])
+
+    // Sync AutoSizer width to Kea state after render (can't setState during render)
+    useEffect(() => {
+        if (autosizerWidthRef.current > 0 && autosizerWidthRef.current !== containerWidth) {
+            setContainerWidth(autosizerWidthRef.current)
+        }
+    })
 
     const cache = useMemo(
         () =>
@@ -166,9 +174,7 @@ export function VirtualizedLogsList({
             <div style={{ height: fixedHeight }} className="flex flex-col">
                 <AutoSizer disableHeight>
                     {({ width }) => {
-                        if (width !== containerWidth) {
-                            setContainerWidth(width)
-                        }
+                        autosizerWidthRef.current = width
                         return (
                             <>
                                 <LogRowHeader rowWidth={width} />
@@ -196,9 +202,7 @@ export function VirtualizedLogsList({
         <div className="h-full flex-1 flex flex-col">
             <AutoSizer>
                 {({ width, height }) => {
-                    if (width !== containerWidth) {
-                        setContainerWidth(width)
-                    }
+                    autosizerWidthRef.current = width
                     const rowWidth = Math.max(width, minRowWidth)
 
                     return (
