@@ -5,9 +5,10 @@ from posthog.schema import HumanMessage
 
 from ee.hogai.chat_agent.memory.nodes import MemoryOnboardingNode
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
 from ee.hogai.chat_agent.slash_commands.commands.remember import RememberCommand
 from ee.hogai.chat_agent.slash_commands.commands.usage import UsageCommand
-from ee.hogai.core.agent_modes.const import SLASH_COMMAND_REMEMBER, SLASH_COMMAND_USAGE
+from ee.hogai.core.agent_modes.const import SLASH_COMMAND_FEEDBACK, SLASH_COMMAND_REMEMBER, SLASH_COMMAND_USAGE
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
@@ -26,6 +27,7 @@ class SlashCommandHandlerNode(AssistantNode):
     COMMAND_HANDLERS: dict[str, type[SlashCommand]] = {
         SLASH_COMMAND_USAGE: UsageCommand,
         SLASH_COMMAND_REMEMBER: RememberCommand,
+        SLASH_COMMAND_FEEDBACK: FeedbackCommand,
     }
 
     def _get_command(self, state: AssistantState) -> str | None:

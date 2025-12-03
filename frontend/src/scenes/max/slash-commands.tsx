@@ -1,4 +1,4 @@
-import { IconActivity, IconMemory, IconRocket } from '@posthog/icons'
+import { IconActivity, IconMemory, IconRocket, IconThumbsUp } from '@posthog/icons'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 
@@ -27,5 +27,12 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         description: 'View AI credit usage for this conversation',
         icon: <IconActivity />,
         flag: FEATURE_FLAGS.POSTHOG_AI_BILLING_USAGE_COMMAND,
+    },
+    {
+        name: '/feedback',
+        arg: '[your feedback]',
+        description: 'Share feedback about your PostHog AI experience',
+        icon: <IconThumbsUp />,
+        flag: FEATURE_FLAGS.POSTHOG_AI_FEEDBACK_COMMAND,
     },
 ]

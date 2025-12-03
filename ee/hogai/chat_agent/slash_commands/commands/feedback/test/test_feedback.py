@@ -1,0 +1,63 @@
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from posthog.schema import HumanMessage
+
+from ee.hogai.chat_agent.slash_commands.commands.feedback import FeedbackCommand
+from ee.hogai.utils.types import AssistantState
+
+
+class TestFeedbackCommand(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.command = FeedbackCommand(self.team, self.user)
+
+    def test_get_feedback_content_extracts_text(self):
+        """Test that feedback text is extracted from the message."""
+        state = AssistantState(messages=[HumanMessage(content="/feedback This is great!")])
+        result = self.command.get_feedback_content(state)
+        self.assertEqual(result, "This is great!")
+
+    def test_get_feedback_content_returns_none_for_empty(self):
+        """Test that None is returned when no feedback text is provided."""
+        state = AssistantState(messages=[HumanMessage(content="/feedback")])
+        result = self.command.get_feedback_content(state)
+        self.assertEqual(result, "")
+
+    def test_get_feedback_content_strips_whitespace(self):
+        """Test that feedback text is stripped of whitespace."""
+        state = AssistantState(messages=[HumanMessage(content="/feedback   Some feedback   ")])
+        result = self.command.get_feedback_content(state)
+        self.assertEqual(result, "Some feedback")
+
+    async def test_execute_returns_usage_message_when_no_text(self):
+        """Test that /feedback without text returns usage instructions."""
+        state = AssistantState(messages=[HumanMessage(content="/feedback")])
+        config = {"configurable": {"thread_id": "test-conversation-id"}}
+
+        result = await self.command.execute(config, state)
+
+        self.assertEqual(len(result.messages), 1)
+        self.assertIn("Please provide your feedback", result.messages[0].content)
+        self.assertIn("/feedback <your feedback>", result.messages[0].content)
+
+    @patch("ee.hogai.chat_agent.slash_commands.commands.feedback.command.posthoganalytics.capture")
+    async def test_execute_captures_feedback_event(self, mock_capture):
+        """Test that /feedback with text captures the feedback event."""
+        state = AssistantState(messages=[HumanMessage(content="/feedback This is awesome!")])
+        config = {"configurable": {"thread_id": "test-conversation-id", "trace_id": "test-trace-id"}}
+
+        result = await self.command.execute(config, state)
+
+        self.assertEqual(len(result.messages), 1)
+        self.assertEqual(result.messages[0].content, "Thanks for making PostHog AI better!")
+
+        mock_capture.assert_called_once_with(
+            distinct_id=str(self.user.distinct_id),
+            event="$ai_feedback",
+            properties={
+                "$ai_feedback_text": "This is awesome!",
+                "$ai_session_id": "test-conversation-id",
+                "$ai_trace_id": "test-trace-id",
+            },
+        )
