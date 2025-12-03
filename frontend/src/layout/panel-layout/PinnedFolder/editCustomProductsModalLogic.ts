@@ -180,13 +180,12 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
                 }
             })
 
-            try {
-                await Promise.all(updatePromises)
-            } catch {
+            const results = await Promise.allSettled(updatePromises)
+            if (results.some((result) => result.status === 'rejected')) {
                 lemonToast.error('Failed to toggle category. Try again?')
-            } finally {
-                actions.loadCustomProducts()
             }
+
+            actions.loadCustomProducts()
         },
         toggleSidebarSuggestions: () => {
             try {
