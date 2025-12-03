@@ -645,6 +645,64 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             node._get_updated_agent_mode(message, AgentMode.PRODUCT_ANALYTICS), AgentMode.PRODUCT_ANALYTICS
         )
 
+    @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
+    @patch("ee.hogai.core.agent_modes.compaction_manager.AnthropicConversationCompactionManager.calculate_token_count")
+    @patch("ee.hogai.utils.conversation_summarizer.AnthropicConversationSummarizer.summarize")
+    async def test_node_returns_replace_messages_that_replaces_and_reorders(
+        self, mock_summarize, mock_calculate_tokens, mock_model
+    ):
+        """Test that the node returns ReplaceMessages that replaces and reorders existing messages."""
+        from langgraph.graph import END, START, StateGraph
+
+        from ee.hogai.utils.types.base import ReplaceMessages
+
+        # Trigger summarization flow which returns ReplaceMessages
+        mock_calculate_tokens.return_value = 150_000
+        mock_summarize.return_value = "Conversation summary"
+        mock_model.return_value = FakeChatOpenAI(responses=[LangchainAIMessage(content="Response")])
+
+        node = _create_agent_node(self.team, self.user)
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Second message", id="2"),
+                HumanMessage(content="Third message", id="3"),
+            ]
+        )
+
+        result = await node.arun(state, {})
+
+        # Verify the node returns ReplaceMessages
+        self.assertIsInstance(result.messages, ReplaceMessages)
+
+        # Build a graph to verify the ReplaceMessages behavior
+        graph = StateGraph(AssistantState)
+        graph.add_node("node", lambda _: result)
+        graph.add_edge(START, "node")
+        graph.add_edge("node", END)
+        compiled_graph = graph.compile()
+
+        res = await compiled_graph.ainvoke(
+            {
+                "messages": [
+                    # Different order/content than what the node returns
+                    HumanMessage(content="Original A", id="A"),
+                    AssistantMessage(content="Original B", id="B"),
+                ]
+            }
+        )
+
+        # Verify the original messages were replaced entirely (not merged)
+        # The result should contain only messages from the node's ReplaceMessages
+        message_ids = [msg.id for msg in res["messages"]]
+        self.assertNotIn("A", message_ids)
+        self.assertNotIn("B", message_ids)
+
+        # Verify the new messages are present with the summary context inserted
+        context_messages = [msg for msg in res["messages"] if isinstance(msg, ContextMessage)]
+        self.assertGreaterEqual(len(context_messages), 1)
+        self.assertTrue(any("summary" in msg.content.lower() for msg in context_messages))
+
 
 class TestRootNodeTools(BaseTest):
     def test_node_tools_router(self):

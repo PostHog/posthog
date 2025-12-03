@@ -167,7 +167,7 @@ class TestAgentNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("search_session_recordings", result.messages[0].content)
             # Original human message
             self.assertIsInstance(result.messages[1], HumanMessage)
-            # The message should be an AssistantMessage, not VisualizationMessage
+            # The message should be an AssistantMessage
             self.assertIsInstance(result.messages[2], AssistantMessage)
             assert isinstance(result.messages[2], AssistantMessage)
             self.assertEqual(result.messages[2].content, "I'll help with recordings")

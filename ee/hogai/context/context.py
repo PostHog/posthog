@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Sequence
+from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import uuid4
 
@@ -7,22 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
 
-from posthog.schema import (
-    AgentMode,
-    ContextMessage,
-    FunnelsQuery,
-    HogQLQuery,
-    HumanMessage,
-    MaxBillingContext,
-    MaxInsightContext,
-    MaxUIContext,
-    RetentionQuery,
-    RevenueAnalyticsGrossRevenueQuery,
-    RevenueAnalyticsMetricsQuery,
-    RevenueAnalyticsMRRQuery,
-    RevenueAnalyticsTopCustomersQuery,
-    TrendsQuery,
-)
+from posthog.schema import AgentMode, ContextMessage, HumanMessage, MaxBillingContext, MaxInsightContext, MaxUIContext
 
 from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_filters_to_dict,
@@ -34,12 +20,14 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
 from ee.hogai.utils.helpers import find_start_message, find_start_message_idx, insert_messages_before_start
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AnyAssistantSupportedQuery, AssistantMessageUnion, BaseStateWithMessages
+from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
+from ee.hogai.utils.types.base import AssistantMessageUnion, BaseStateWithMessages
 
 from .prompts import (
     CONTEXT_INITIAL_MODE_PROMPT,
@@ -52,20 +40,6 @@ from .prompts import (
     ROOT_UI_CONTEXT_PROMPT,
 )
 
-# Build mapping of query kind names to their model classes for validation
-# Use the 'kind' field value (e.g., "TrendsQuery") as the key
-# NOTE: This needs to be kept in sync with the schema
-SUPPORTED_QUERY_MODEL_BY_KIND: dict[str, type[AnyAssistantSupportedQuery]] = {
-    "TrendsQuery": TrendsQuery,
-    "FunnelsQuery": FunnelsQuery,
-    "RetentionQuery": RetentionQuery,
-    "HogQLQuery": HogQLQuery,
-    "RevenueAnalyticsGrossRevenueQuery": RevenueAnalyticsGrossRevenueQuery,
-    "RevenueAnalyticsMetricsQuery": RevenueAnalyticsMetricsQuery,
-    "RevenueAnalyticsMRRQuery": RevenueAnalyticsMRRQuery,
-    "RevenueAnalyticsTopCustomersQuery": RevenueAnalyticsTopCustomersQuery,
-}
-
 
 class AssistantContextManager(AssistantContextMixin):
     """Manager that provides context formatting capabilities."""
@@ -74,6 +48,16 @@ class AssistantContextManager(AssistantContextMixin):
         self._team = team
         self._user = user
         self._config = config or {}
+        self._artifact_manager = ArtifactManager(self._team, self._user, self._config)
+
+    @cached_property
+    def artifacts(self) -> ArtifactManager:
+        """
+        Returns the artifact manager for the team.
+
+        Exposed through .artifacts for easy access to artifact manager from nodes.
+        """
+        return self._artifact_manager
 
     async def get_state_messages_with_context(
         self, state: BaseStateWithMessages

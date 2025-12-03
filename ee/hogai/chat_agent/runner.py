@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 
@@ -84,7 +84,11 @@ class ChatAgentRunner(BaseAgentRunner):
             billing_context=billing_context,
             initial_state=initial_state,
             stream_processor=ChatAgentStreamProcessor(
-                verbose_nodes=VERBOSE_NODES, streaming_nodes=STREAMING_NODES, state_type=AssistantState
+                verbose_nodes=VERBOSE_NODES,
+                streaming_nodes=STREAMING_NODES,
+                state_type=AssistantState,
+                team=team,
+                user=user,
             ),
         )
 
@@ -115,25 +119,20 @@ class ChatAgentRunner(BaseAgentRunner):
         stream_only_assistant_messages: bool = False,
     ) -> AsyncGenerator[AssistantOutput, None]:
         last_ai_message: AssistantMessage | None = None
-        last_viz_message: VisualizationMessage | None = None
         async for stream_event in super().astream(
             stream_message_chunks, stream_subgraphs, stream_first_message, stream_only_assistant_messages
         ):
             _, message = stream_event
-            if isinstance(message, VisualizationMessage):
-                last_viz_message = message
             if isinstance(message, AssistantMessage):
                 last_ai_message = message
             yield stream_event
 
-        visualization_response = last_viz_message.model_dump_json(exclude_none=True) if last_viz_message else None
         output = last_ai_message.content if isinstance(last_ai_message, AssistantMessage) else None
         await self._report_conversation_state(
             "chat with ai",
             {
                 "prompt": self._latest_message.content if self._latest_message else None,
                 "output": output,
-                "response": visualization_response,
                 "is_new_conversation": self._is_new_conversation,
                 "$session_id": self._session_id,
             },
