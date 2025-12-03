@@ -131,6 +131,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         startElementObservation: true,
         stopElementObservation: true,
         processElements: true,
+        refreshClickmap: true,
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
         setElementsLoading: (loading: boolean) => ({ loading }),
         setProcessingProgress: (processed: number, total: number) => ({ processed, total }),
@@ -518,6 +519,14 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         setMatchLinksByHref: () => {
+            actions.processElements()
+        },
+
+        refreshClickmap: () => {
+            if (!values.clickmapsEnabled) {
+                return
+            }
+            invalidatePageElementsCache(cache as ElementProcessingCache)
             actions.processElements()
         },
 

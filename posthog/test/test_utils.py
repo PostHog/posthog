@@ -13,6 +13,7 @@ from django.http import HttpRequest
 from django.test import TestCase
 from django.test.client import RequestFactory
 
+from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
@@ -31,6 +32,7 @@ from posthog.utils import (
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    str_to_int_set,
 )
 
 
@@ -588,3 +590,20 @@ def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping"
     GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
     instance.refresh_from_db()
     return instance
+
+
+class TestStrToIntSet(TestCase):
+    @parameterized.expand(
+        [
+            (None, set()),
+            ("", set()),
+            ("[]", set()),
+            ("[1, 2, 3]", {1, 2, 3}),
+            ("[1, 1, 2]", {1, 2}),
+            ('["1", "2"]', {1, 2}),
+            ("invalid", set()),
+            ("123", set()),
+        ]
+    )
+    def test_str_to_int_set(self, value, expected):
+        assert str_to_int_set(value) == expected
