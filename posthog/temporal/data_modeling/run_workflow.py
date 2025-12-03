@@ -1565,11 +1565,7 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if (
-            settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED
-            and self.ducklake_copy_inputs
-            and self.ducklake_copy_inputs.models
-        ):
+        if self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
             temporalio.workflow.logger.info(
                 "Triggering DuckLake copy child workflow",
                 job_id=job_id,

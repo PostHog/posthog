@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 
 import duckdb
+import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -18,6 +19,8 @@ from posthog.ducklake.common import (
     get_config,
     normalize_endpoint,
 )
+from posthog.exceptions_capture import capture_exception
+from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -47,6 +50,39 @@ class DuckLakeCopyActivityInputs:
     team_id: int
     job_id: str
     model: DuckLakeCopyModelMetadata
+
+
+@dataclasses.dataclass
+class DuckLakeCopyWorkflowGateInputs:
+    team_id: int
+
+
+@activity.defn
+async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
+    """Evaluate whether the DuckLake copy workflow should run for a team."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    try:
+        team = await database_sync_to_async(Team.objects.only("uuid", "organization_id").get)(id=inputs.team_id)
+    except Team.DoesNotExist:
+        await logger.aerror("Team does not exist when evaluating DuckLake copy workflow gate")
+        return False
+
+    try:
+        return posthoganalytics.feature_enabled(
+            "ducklake-data-modeling-copy-workflow",
+            str(team.uuid),
+            groups={"organization": str(team.organization_id)},
+            only_evaluate_locally=True,
+        )
+    except Exception as error:
+        await logger.awarning(
+            "Failed to evaluate DuckLake copy workflow feature flag",
+            error=str(error),
+        )
+        capture_exception(error)
+        return False
 
 
 @activity.defn
@@ -135,6 +171,20 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
 
         if not inputs.models:
             workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
+            return
+
+        should_copy = await workflow.execute_activity(
+            ducklake_copy_workflow_gate_activity,
+            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        if not should_copy:
+            workflow.logger.info(
+                "DuckLake copy workflow disabled by feature flag",
+                **inputs.properties_to_log,
+            )
             return
 
         metadata = await workflow.execute_activity(
