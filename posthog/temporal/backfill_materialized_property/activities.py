@@ -6,7 +6,7 @@ from typing import Optional
 import structlog
 from temporalio import activity
 
-from posthog.clickhouse.cluster import AlterTableMutationRunner, get_cluster
+from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
@@ -84,17 +84,20 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     Backfill a materialized column by running ALTER TABLE UPDATE on historical events.
 
     Runs the mutation on all shards since sharded_events is a sharded table.
+    Uses mutations_sync=1 to block until each shard's mutation completes.
 
-    Returns the number of rows affected (from ClickHouse mutation info).
+    Returns 0 (row count not tracked).
     """
-    # Generate the SQL expression for extracting the property (uses %(property_name)s placeholder)
     extraction_sql = _generate_property_extraction_sql(inputs.property_type)
 
-    # Build the UPDATE command (without ALTER TABLE prefix - that's added by the runner)
     partition_clause = "IN PARTITION %(partition_id)s" if inputs.partition_id else ""
-    command = f"UPDATE {inputs.mat_column_name} = {extraction_sql} {partition_clause} WHERE team_id = %(team_id)s"
+    query = f"""
+        ALTER TABLE sharded_events
+        UPDATE {inputs.mat_column_name} = {extraction_sql}
+        {partition_clause}
+        WHERE team_id = %(team_id)s
+    """
 
-    # Build params dict - property_name is used in extraction_sql placeholder
     params: dict[str, str | int] = {
         "team_id": inputs.team_id,
         "property_name": inputs.property_name,
@@ -112,16 +115,14 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     )
 
     try:
-        # Use AlterTableMutationRunner to run on all shards
-        # sharded_events is a sharded table, so we must run on each shard
-        runner = AlterTableMutationRunner(
-            table="sharded_events",
-            commands={command},
-            parameters=params,
-        )
-
         cluster = get_cluster()
-        runner.run_on_shards(cluster)
+
+        # Execute mutation on one host per shard with mutations_sync=1
+        # This blocks until the mutation completes on each shard
+        def run_mutation(client):
+            client.execute(query, params, settings={"mutations_sync": 1})
+
+        cluster.map_one_host_per_shard(run_mutation).result()
 
         logger.info(
             "Backfill mutation completed on all shards",
@@ -130,7 +131,6 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
             mat_column_name=inputs.mat_column_name,
         )
 
-        # Return 0 since we don't have row count
         return 0
 
     except Exception as e:

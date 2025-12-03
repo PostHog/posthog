@@ -64,15 +64,16 @@ class TestBackfillMaterializedColumn:
             "prop'); DROP TABLE events; --",  # SQL injection attempt
         ],
     )
-    @patch("posthog.temporal.backfill_materialized_property.activities.sync_execute")
+    @patch("posthog.temporal.backfill_materialized_property.activities.get_cluster")
     def test_property_name_is_parameterized_not_interpolated(
-        self, mock_sync_execute, activity_environment, property_name
+        self, mock_get_cluster, activity_environment, property_name
     ):
-        """Test that property names are parameterized, preventing SQL injection.
+        """Test that property names are parameterized, preventing SQL injection."""
+        from unittest.mock import MagicMock
 
-        The property name should NEVER appear directly in the SQL query string.
-        This is a security test - we mock sync_execute to inspect the raw SQL.
-        """
+        mock_cluster = mock_get_cluster.return_value
+        mock_cluster.map_one_host_per_shard.return_value.result.return_value = {}
+
         activity_environment.run(
             backfill_materialized_column,
             BackfillMaterializedColumnInputs(
@@ -83,15 +84,24 @@ class TestBackfillMaterializedColumn:
             ),
         )
 
-        query = mock_sync_execute.call_args[0][0]
-        params = mock_sync_execute.call_args[0][1]
+        # Get the function passed to map_one_host_per_shard and call it with a mock client
+        run_mutation_fn = mock_cluster.map_one_host_per_shard.call_args[0][0]
+        mock_client = MagicMock()
+        run_mutation_fn(mock_client)
 
-        # Property name should NEVER be in the SQL string directly
+        # Check what client.execute was called with
+        call_args = mock_client.execute.call_args
+        query = call_args[0][0]
+        params = call_args[0][1]
+
+        # Property name should NEVER be in the SQL query directly
         assert property_name not in query, f"Property name '{property_name}' should not be in SQL: {query}"
         # It should use a parameterized placeholder
         assert "%(property_name)s" in query
         # And the actual value should be in params
         assert params["property_name"] == property_name
+        # Should use mutations_sync=1
+        assert call_args[1]["settings"]["mutations_sync"] == 1
 
 
 @pytest.mark.django_db(transaction=True)
