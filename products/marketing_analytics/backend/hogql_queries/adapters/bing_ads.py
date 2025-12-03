@@ -150,13 +150,6 @@ class BingAdsAdapter(MarketingSourceAdapter[BingAdsConfig]):
         sum = ast.Call(name="SUM", args=[field_as_float])
         return ast.Call(name="toFloat", args=[sum])
 
-    def _get_reported_conversion_value_field(self) -> ast.Expr:
-        stats_table_name = self.config.stats_table.name
-        sum = ast.Call(
-            name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "revenue"])])]
-        )
-        return ast.Call(name="toFloat", args=[sum])
-
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
         campaign_table_name = self.config.campaign_table.name
