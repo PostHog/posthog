@@ -168,7 +168,7 @@ interface ModeSelectorProps {
 }
 
 export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Element {
-    const { agentMode, threadLoading, deepResearchMode } = useValues(maxThreadLogic)
+    const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
 
     const currentValue: ModeValue = deepResearchMode ? 'deep_research' : agentMode
@@ -194,7 +194,6 @@ export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Elemen
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',
                 getDefaultTools()
             )}
-            disabledReason={threadLoading ? 'Loading...' : undefined}
             dropdownPlacement="top-start"
             dropdownMatchSelectWidth={false}
             className="flex-shrink-0 border"

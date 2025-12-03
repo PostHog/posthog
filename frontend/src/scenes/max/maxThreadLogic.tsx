@@ -803,8 +803,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (s) => [s.conversation, s.featureFlags],
             (conversation, featureFlags) =>
                 featureFlags[FEATURE_FLAGS.MAX_DEEP_RESEARCH]
-                    ? conversation?.type !== ConversationType.DeepResearch &&
-                      conversation?.status !== ConversationStatus.InProgress
+                    ? conversation?.type !== ConversationType.DeepResearch
                     : true,
         ],
     }),
