@@ -7,9 +7,13 @@ import { useChartColors } from '../shared/colors'
 
 interface VariantTimeseriesChartProps {
     chartData: ProcessedChartData
+    isRatioMetric?: boolean
 }
 
-export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesChartProps): JSX.Element {
+export function VariantTimeseriesChart({
+    chartData: data,
+    isRatioMetric = false,
+}: VariantTimeseriesChartProps): JSX.Element {
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const chartRef = useRef<Chart | null>(null)
     const colors = useChartColors()
@@ -101,8 +105,20 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                                             lines.push('⚠️ Data pending - showing last known value')
                                         }
 
-                                        if (dataPoint && dataPoint.number_of_samples) {
-                                            lines.push(`Samples: ${dataPoint.number_of_samples.toLocaleString()}`)
+                                        if (dataPoint) {
+                                            if (isRatioMetric) {
+                                                if (dataPoint.denominator_sum) {
+                                                    lines.push(
+                                                        `Denominator: ${dataPoint.denominator_sum.toLocaleString()}`
+                                                    )
+                                                }
+                                            } else {
+                                                if (dataPoint.number_of_samples) {
+                                                    lines.push(
+                                                        `Exposures: ${dataPoint.number_of_samples.toLocaleString()}`
+                                                    )
+                                                }
+                                            }
                                         }
                                         if (dataPoint && dataPoint.significant !== undefined) {
                                             lines.push(`Significant: ${dataPoint.significant ? 'Yes' : 'No'}`)
@@ -132,7 +148,7 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                 chartRef.current = null
             }
         }
-    }, [data, colors.EXPOSURES_AXIS_LINES])
+    }, [data, colors.EXPOSURES_AXIS_LINES, isRatioMetric])
 
     return (
         <div className="relative h-[224px]">

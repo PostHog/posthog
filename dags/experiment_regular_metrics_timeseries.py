@@ -308,7 +308,7 @@ def experiment_regular_metrics_timeseries_discovery_sensor(context: dagster.Sens
 
 @dagster.schedule(
     job=experiment_regular_metrics_timeseries_job,
-    cron_schedule="0 * * * *",  # Every hour at minute 0
+    cron_schedule="5 * * * *",  # Every hour at minute 5 (staggered from saved metrics at minute 0)
     execution_timezone="UTC",
     tags={"owner": JobOwners.TEAM_EXPERIMENTS.value},
 )

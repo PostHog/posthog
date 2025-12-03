@@ -4,7 +4,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field
 
-from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage, VisualizationArtifactContent
 
 from posthog.models import Team, User
 
@@ -71,8 +71,15 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
             return format_prompt_string(EXECUTE_SQL_RECOVERABLE_ERROR_PROMPT, error=str(e)), None
 
         # Display an ephemeral visualization message to the user.
-        viz_message = VisualizationMessage(answer=parsed_query.query, plan=query)
-        self.dispatcher.message(viz_message)
+        artifact = await self._context_manager.artifacts.create(
+            content=VisualizationArtifactContent(query=parsed_query.query),
+            name="SQL Query",
+        )
+        artifact_message = self._context_manager.artifacts.create_message(
+            artifact_id=artifact.short_id,
+            source=ArtifactSource.ARTIFACT,
+            content_type=ArtifactContentType.VISUALIZATION,
+        )
 
         try:
             result = await execute_and_format_query(self._team, parsed_query.query)
@@ -81,12 +88,9 @@ class ExecuteSQLTool(HogQLGeneratorMixin, MaxTool):
         except Exception:
             return EXECUTE_SQL_UNRECOVERABLE_ERROR_PROMPT, None
 
-        # Add a unique ID to the visualization message, so it gets persisted.
-        viz_message.id = str(uuid4())
-
         return "", ToolMessagesArtifact(
             messages=[
-                viz_message,
+                artifact_message,
                 AssistantToolCallMessage(
                     content=result,
                     id=str(uuid4()),

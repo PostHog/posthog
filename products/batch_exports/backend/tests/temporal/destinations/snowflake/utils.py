@@ -381,6 +381,7 @@ async def assert_clickhouse_records_in_snowflake(
     primary_key: list[str] | None = None,
     timestamp_columns: collections.abc.Sequence[str] = (),
     uppercase_columns: list[str] | None = None,
+    extra_fields: dict[str, t.Any] | None = None,
 ):
     """Assert ClickHouse records are written to Snowflake table.
 
@@ -396,6 +397,7 @@ async def assert_clickhouse_records_in_snowflake(
         batch_export_model: The model, or custom schema, used in the batch export.
         expected_fields: List of fields expected to be in the destination table.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
+        extra_fields: Additional fields present in the Snowflake table (that are not present in the ClickHouse table).
     """
     snowflake_cursor.execute(f'SELECT * FROM "{table_name}"')
 
@@ -493,6 +495,10 @@ async def assert_clickhouse_records_in_snowflake(
                 if uppercase_columns and k in uppercase_columns:
                     expected_record[k.upper()] = expected_record[k]
                     del expected_record[k]
+
+            if extra_fields:
+                for field, value in extra_fields.items():
+                    expected_record[field] = value
 
             expected_records.append(expected_record)
 

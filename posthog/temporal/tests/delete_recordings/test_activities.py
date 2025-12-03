@@ -12,6 +12,7 @@ from posthog.temporal.delete_recordings.activities import (
     load_recording_blocks,
     load_recordings_with_person,
     load_recordings_with_query,
+    load_recordings_with_team_id,
 )
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingError,
@@ -20,6 +21,7 @@ from posthog.temporal.delete_recordings.types import (
     RecordingBlockGroup,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
+    RecordingsWithTeamInput,
 )
 
 
@@ -173,6 +175,31 @@ async def test_load_recordings_with_person():
         result = await load_recordings_with_person(
             RecordingsWithPersonInput(distinct_ids=TEST_DISTINCT_IDS, team_id=TEST_TEAM_ID)
         )
+
+        assert result == EXPECTED_SESSION_IDS
+
+
+@pytest.mark.asyncio
+async def test_load_recordings_with_team_id():
+    TEST_TEAM_ID = 12345
+    EXPECTED_SESSION_IDS = ["session-1", "session-2", "session-3", "session-4", "session-5"]
+
+    mock_response = {"data": [{"session_id": sid} for sid in EXPECTED_SESSION_IDS]}
+    raw_response = json.dumps(mock_response).encode()
+
+    mock_client = MagicMock()
+    mock_ch_response = MagicMock()
+    mock_ch_response.content.read = AsyncMock(return_value=raw_response)
+    mock_client.aget_query = MagicMock()
+    mock_client.aget_query.return_value.__aenter__ = AsyncMock(return_value=mock_ch_response)
+    mock_client.aget_query.return_value.__aexit__ = AsyncMock(return_value=None)
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("posthog.temporal.delete_recordings.activities.get_client") as mock_get_client:
+        mock_get_client.return_value = mock_client
+
+        result = await load_recordings_with_team_id(RecordingsWithTeamInput(team_id=TEST_TEAM_ID))
 
         assert result == EXPECTED_SESSION_IDS
 
