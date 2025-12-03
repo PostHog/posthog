@@ -417,7 +417,7 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         Dictionary with cache statistics including size information
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         total_keys = 0
         ttl_buckets = {
