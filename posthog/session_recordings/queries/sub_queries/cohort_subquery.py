@@ -19,7 +19,7 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
             argMax(person_id, version) as person_id,
             argMax(is_deleted, version) as is_deleted
         FROM raw_person_distinct_ids
-        WHERE 1=1 AND {cohort_predicate}
+        WHERE team_id = {team_id}
         GROUP BY distinct_id
         HAVING is_deleted = 0
     )
