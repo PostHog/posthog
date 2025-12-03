@@ -11,7 +11,7 @@ from datetime import datetime
 from django.conf import settings
 
 import numpy as np
-from posthoganalytics.ai.openai import OpenAI
+import openai
 from pydantic import BaseModel
 
 from posthog.cloud_utils import is_cloud
@@ -176,11 +176,7 @@ def _call_llm_for_labels(
         raise Exception("OpenAI API key is not configured")
 
     # Create OpenAI client
-    class _NoOpPostHogClient:
-        privacy_mode = False
-
-    client = OpenAI(
-        posthog_client=_NoOpPostHogClient(),  # type: ignore[arg-type]
+    client = openai.OpenAI(
         timeout=LABELING_LLM_TIMEOUT,
         base_url=getattr(settings, "OPENAI_BASE_URL", None),
     )
