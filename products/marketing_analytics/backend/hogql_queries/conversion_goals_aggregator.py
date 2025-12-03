@@ -281,8 +281,9 @@ class ConversionGoalsAggregator:
         """Get the column mappings for accessing conversion goals from the unified CTE
 
         Args:
-            include_cost_per: If True, include "Cost per conversion" columns that reference campaign_costs CTE.
-                              Set to False for queries that don't join with campaign_costs (e.g., non-integrated conversions).
+            include_cost_per: If True, include "Cost per conversion" columns that reference
+                campaign_costs CTE. Set to False for queries that don't join with
+                campaign_costs (e.g., non-integrated conversions).
         """
         columns = {}
 

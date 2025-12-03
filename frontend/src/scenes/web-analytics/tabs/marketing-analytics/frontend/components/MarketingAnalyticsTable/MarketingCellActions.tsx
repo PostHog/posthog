@@ -23,6 +23,16 @@ import {
     getSourceMappingStatus,
 } from './marketingMappingUtils'
 
+/** Maximum characters to show in menu titles before truncating */
+const MENU_TITLE_MAX_LENGTH = 20
+/** Maximum characters to show in row action labels before truncating */
+const ROW_LABEL_MAX_LENGTH = 15
+
+/** Truncates a string with ellipsis if it exceeds maxLength */
+function truncateWithEllipsis(value: string, maxLength: number): string {
+    return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
+}
+
 /**
  * Extract the string value from a cell value.
  * In Marketing Analytics, values are MarketingAnalyticsItem objects.
@@ -31,12 +41,10 @@ function extractStringValue(value: unknown): string {
     if (value == null) {
         return ''
     }
-    // Handle MarketingAnalyticsItem objects
     if (typeof value === 'object' && 'value' in value) {
         const item = value as MarketingAnalyticsItem
         return String(item.value ?? '').trim()
     }
-    // Handle primitive values
     return String(value).trim()
 }
 
@@ -85,7 +93,7 @@ export function MapSourceCellActions({
     if (mappingStatus.type === 'default') {
         const menuItems: LemonMenuItems = [
             {
-                title: `"${utmSource.length > 20 ? utmSource.slice(0, 20) + '...' : utmSource}"`,
+                title: `"${truncateWithEllipsis(utmSource, MENU_TITLE_MAX_LENGTH)}"`,
                 items: [
                     {
                         label: 'Mapping',
@@ -130,7 +138,7 @@ export function MapSourceCellActions({
     // Build top-level menu with Mapping as parent
     const menuItems: LemonMenuItems = [
         {
-            title: `"${utmSource.length > 20 ? utmSource.slice(0, 20) + '...' : utmSource}"`,
+            title: `"${truncateWithEllipsis(utmSource, MENU_TITLE_MAX_LENGTH)}"`,
             items: [
                 {
                     label: 'Mapping',
@@ -205,7 +213,7 @@ export function MapCampaignCellActions({
     if (globalMapping && existingMappings.length === 0) {
         const menuItems: LemonMenuItems = [
             {
-                title: `"${utmCampaign.length > 20 ? utmCampaign.slice(0, 20) + '...' : utmCampaign}"`,
+                title: `"${truncateWithEllipsis(utmCampaign, MENU_TITLE_MAX_LENGTH)}"`,
                 items: [
                     {
                         label: 'Mapping',
@@ -252,7 +260,7 @@ export function MapCampaignCellActions({
     // Build top-level menu with Mapping as parent
     const menuItems: LemonMenuItems = [
         {
-            title: `"${utmCampaign.length > 20 ? utmCampaign.slice(0, 20) + '...' : utmCampaign}"`,
+            title: `"${truncateWithEllipsis(utmCampaign, MENU_TITLE_MAX_LENGTH)}"`,
             items: [
                 {
                     label: 'Mapping',
@@ -371,7 +379,7 @@ export function MarketingRowActions({
         // For default mappings, disable the entire menu
         if (sourceMappingStatus.type === 'default') {
             return {
-                label: `Source: "${sourceValue.length > 15 ? sourceValue.slice(0, 15) + '...' : sourceValue}"`,
+                label: `Source: "${truncateWithEllipsis(sourceValue, ROW_LABEL_MAX_LENGTH)}"`,
                 icon: <IconLink />,
                 disabledReason: 'This matches a default mapping, so it cannot be modified.',
             }
@@ -405,7 +413,7 @@ export function MarketingRowActions({
         }
 
         return {
-            label: `Source: "${sourceValue.length > 15 ? sourceValue.slice(0, 15) + '...' : sourceValue}"`,
+            label: `Source: "${truncateWithEllipsis(sourceValue, ROW_LABEL_MAX_LENGTH)}"`,
             icon: <IconLink />,
             sideIcon: <IconChevronRight />,
             items: submenuItems,
@@ -421,7 +429,7 @@ export function MarketingRowActions({
         // If already mapped globally and no existing mappings to remove, show disabled state
         if (globalCampaignMapping && existingCampaignMappings.length === 0) {
             return {
-                label: `Campaign: "${campaignValue.length > 15 ? campaignValue.slice(0, 15) + '...' : campaignValue}"`,
+                label: `Campaign: "${truncateWithEllipsis(campaignValue, ROW_LABEL_MAX_LENGTH)}"`,
                 icon: <IconLink />,
                 disabledReason: `Already mapped to ${globalCampaignMapping.integration}: ${globalCampaignMapping.campaignName}`,
             }
@@ -457,7 +465,7 @@ export function MarketingRowActions({
         }
 
         return {
-            label: `Campaign: "${campaignValue.length > 15 ? campaignValue.slice(0, 15) + '...' : campaignValue}"`,
+            label: `Campaign: "${truncateWithEllipsis(campaignValue, ROW_LABEL_MAX_LENGTH)}"`,
             icon: <IconLink />,
             sideIcon: <IconChevronRight />,
             items: submenuItems,
