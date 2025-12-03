@@ -10,6 +10,7 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "activity_log",
+    "alert",
     "annotation",
     "batch_export",
     "batch_import",
