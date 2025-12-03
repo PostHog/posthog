@@ -1,7 +1,7 @@
 import './VirtualizedLogsList.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { List, ListRowProps } from 'react-virtualized/dist/es/List'
@@ -110,38 +110,51 @@ export function VirtualizedLogsList({
         }
     }
 
-    const createRowRenderer = (rowWidth?: number) => {
-        return ({ index, key, style, parent }: ListRowProps): JSX.Element => {
-            const log = dataSource[index]
-            const isHighlighted = log.uuid === highlightedLogId
-            const pinned = isPinned(log.uuid)
+    const createRowRenderer = useCallback(
+        (rowWidth?: number) =>
+            ({ index, key, style, parent }: ListRowProps): JSX.Element => {
+                const log = dataSource[index]
+                const isHighlighted = log.uuid === highlightedLogId
+                const pinned = isPinned(log.uuid)
 
-            return (
-                <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
-                    {({ registerChild }) => (
-                        <div
-                            ref={registerChild as React.LegacyRef<HTMLDivElement>}
-                            style={style}
-                            data-row-key={log.uuid}
-                        >
-                            <LogRow
-                                log={log}
-                                isHighlighted={isHighlighted}
-                                pinned={pinned}
-                                showPinnedWithOpacity={showPinnedWithOpacity}
-                                wrapBody={wrapBody}
-                                prettifyJson={prettifyJson}
-                                tzLabelFormat={tzLabelFormat}
-                                onTogglePin={togglePinLog}
-                                onSetHighlighted={setHighlightedLogId}
-                                rowWidth={rowWidth}
-                            />
-                        </div>
-                    )}
-                </CellMeasurer>
-            )
-        }
-    }
+                return (
+                    <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
+                        {({ registerChild }) => (
+                            <div
+                                ref={registerChild as React.LegacyRef<HTMLDivElement>}
+                                style={style}
+                                data-row-key={log.uuid}
+                            >
+                                <LogRow
+                                    log={log}
+                                    isHighlighted={isHighlighted}
+                                    pinned={pinned}
+                                    showPinnedWithOpacity={showPinnedWithOpacity}
+                                    wrapBody={wrapBody}
+                                    prettifyJson={prettifyJson}
+                                    tzLabelFormat={tzLabelFormat}
+                                    onTogglePin={togglePinLog}
+                                    onSetHighlighted={setHighlightedLogId}
+                                    rowWidth={rowWidth}
+                                />
+                            </div>
+                        )}
+                    </CellMeasurer>
+                )
+            },
+        [
+            dataSource,
+            highlightedLogId,
+            isPinned,
+            cache,
+            showPinnedWithOpacity,
+            wrapBody,
+            prettifyJson,
+            tzLabelFormat,
+            togglePinLog,
+            setHighlightedLogId,
+        ]
+    )
 
     if (dataSource.length === 0 && !loading) {
         return <div className="p-4 text-muted text-center">No logs to display</div>

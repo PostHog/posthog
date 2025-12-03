@@ -18,7 +18,6 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     fatal: 'bg-danger-dark',
 }
 
-// Column configuration - shared between header and rows
 export interface LogColumnConfig {
     key: string
     label?: string
@@ -49,7 +48,6 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
     onTogglePin: (uuid: string) => void
     onSetHighlighted: (uuid: string | null) => void
-    /** Width of the row container, used for flex column calculations */
     rowWidth?: number
 }
 
@@ -67,7 +65,6 @@ export function LogRow({
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
 
-    // Calculate flex column width
     const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
     const flexWidth = rowWidth ? rowWidth - fixedColumnsWidth : undefined
 
@@ -154,7 +151,6 @@ export function LogRow({
     )
 }
 
-// Header component for the logs table
 export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
     const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
     const flexWidth = rowWidth - fixedColumnsWidth
