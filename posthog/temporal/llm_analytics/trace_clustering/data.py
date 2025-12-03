@@ -16,7 +16,7 @@ def fetch_trace_embeddings_for_clustering(
     team_id: int,
     window_start: datetime,
     window_end: datetime,
-    max_samples: int | None = None,
+    max_samples: int,
 ) -> tuple[list[TraceId], TraceEmbeddings]:
     """Query trace IDs and embeddings from document_embeddings table.
 
@@ -24,7 +24,7 @@ def fetch_trace_embeddings_for_clustering(
         team_id: Team ID to query embeddings for
         window_start: Start of time window
         window_end: End of time window
-        max_samples: Maximum number of traces to sample (None = all traces)
+        max_samples: Maximum number of traces to sample
 
     Returns:
         Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector)
@@ -39,24 +39,22 @@ def fetch_trace_embeddings_for_clustering(
             AND document_type = %(document_type)s
             AND rendering = %(rendering)s
             AND length(embedding) > 0
+        ORDER BY rand()
+        LIMIT %(max_samples)s
     """
-    params = {
-        "team_id": team_id,
-        "start_dt": window_start,
-        "end_dt": window_end,
-        "product": constants.LLMA_TRACE_PRODUCT,
-        "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
-        "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-    }
-
-    if max_samples and max_samples > 0:
-        query += """
-            ORDER BY rand()
-            LIMIT %(max_samples)s
-        """
-        params["max_samples"] = max_samples
-
-    results = sync_execute(query, params, workload=Workload.OFFLINE)
+    results = sync_execute(
+        query,
+        {
+            "team_id": team_id,
+            "start_dt": window_start,
+            "end_dt": window_end,
+            "product": constants.LLMA_TRACE_PRODUCT,
+            "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
+            "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
+            "max_samples": max_samples,
+        },
+        workload=Workload.OFFLINE,
+    )
 
     trace_ids = [row[0] for row in results]
     embeddings_map = {row[0]: row[1] for row in results}
