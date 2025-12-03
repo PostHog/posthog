@@ -105,7 +105,6 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Styling input appearance',
-        // TODO: update version once https://github.com/PostHog/posthog-js/pull/2677 is released
         sdkVersions: { 'posthog-js': '1.300.0' },
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
     },

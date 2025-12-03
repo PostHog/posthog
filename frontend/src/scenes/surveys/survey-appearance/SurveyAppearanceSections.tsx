@@ -252,24 +252,22 @@ export function SurveyColorsAppearance({
                     />
                 </>
             )}
+            <SurveyAppearanceInput
+                value={appearance.inputBackground}
+                onChange={(inputBackground) => onAppearanceChange({ inputBackground })}
+                error={validationErrors?.inputBackground}
+                label="Input background color"
+                info="Requires at least version 1.300.0 of posthog-js"
+            />
+            <SurveyAppearanceInput
+                value={appearance.inputTextColor}
+                onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
+                error={validationErrors?.inputTextColor}
+                label="Input text color"
+                info="Requires at least version 1.300.0 of posthog-js"
+            />
             {customizePlaceholderText && (
                 <>
-                    <SurveyAppearanceInput
-                        value={appearance.inputBackground}
-                        onChange={(inputBackground) => onAppearanceChange({ inputBackground })}
-                        error={validationErrors?.inputBackground}
-                        label="Input background color"
-                        // TODO: update version once https://github.com/PostHog/posthog-js/pull/2677 is released
-                        info="Requires at least version 1.300.0 of posthog-js"
-                    />
-                    <SurveyAppearanceInput
-                        value={appearance.inputTextColor}
-                        onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
-                        error={validationErrors?.inputTextColor}
-                        label="Input text color"
-                        // TODO: update version once https://github.com/PostHog/posthog-js/pull/2677 is released
-                        info="Requires at least version 1.300.0 of posthog-js"
-                    />
                     <SurveyAppearanceInput
                         value={appearance.placeholder}
                         onChange={(placeholder) => onAppearanceChange({ placeholder })}
