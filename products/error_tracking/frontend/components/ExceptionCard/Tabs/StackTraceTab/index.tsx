@@ -23,14 +23,14 @@ export interface StackTraceTabProps extends Omit<TabsPrimitiveContentProps, 'chi
 
 export function StackTraceTab({ className, renderActions, ...props }: StackTraceTabProps): JSX.Element {
     const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes } = useValues(errorPropertiesLogic)
+    const { exceptionAttributes, release } = useValues(errorPropertiesLogic)
 
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    <ReleasePreviewPill />
+                    {release && <ReleasePreviewPill release={release} />}
                 </div>
                 {renderActions?.()}
             </SubHeader>

@@ -34,7 +34,7 @@ export function FrameDropDownMenu({
             <DropdownMenuTrigger asChild>
                 <ButtonPrimitive className={className}>{children}</ButtonPrimitive>
             </DropdownMenuTrigger>
-            <DropdownMenuContent loop align="start" className="p-1">
+            <DropdownMenuContent loop align="end" side="bottom" className="p-1">
                 {frame.resolved_name && <CopyItem value={frame.resolved_name} description="function name" />}
                 {frame.source && <CopyItem value={frame.source} description="file path" />}
                 {sourceData && <DropdownMenuSeparator />}
