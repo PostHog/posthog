@@ -1,15 +1,16 @@
 import { useActions, useValues } from 'kea'
 
 import { IconFilter, IconGlobe, IconPhone } from '@posthog/icons'
-import { LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect'
-import { IconMonitor } from 'lib/lemon-ui/icons/icons'
+import { IconLink, IconMonitor } from 'lib/lemon-ui/icons/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
@@ -18,7 +19,6 @@ import { PropertyMathType } from '~/types'
 
 import { PathCleaningToggle } from './PathCleaningToggle'
 import { TableSortingIndicator } from './TableSortingIndicator'
-import { WebAnalyticsLiveUserCount } from './WebAnalyticsLiveUserCount'
 import { WebConversionGoal } from './WebConversionGoal'
 import { WebPropertyFilters } from './WebPropertyFilters'
 import { ProductTab } from './common'
@@ -43,15 +43,11 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
 
                     <WebAnalyticsDomainSelector />
                     <WebAnalyticsDeviceToggle />
-
-                    <div className="hidden ml-2 md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
-                        <WebAnalyticsLiveUserCount />
-                    </div>
                 </>
             }
             right={
                 <>
+                    <ShareButton />
                     <WebAnalyticsCompareFilter />
 
                     {(!preAggregatedEnabled || featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]) && (
@@ -238,4 +234,22 @@ export const WebAnalyticsCompareFilter = (): JSX.Element | null => {
     }
 
     return <CompareFilter compareFilter={compareFilter} updateCompareFilter={setCompareFilter} />
+}
+
+const ShareButton = (): JSX.Element => {
+    const handleShare = (): void => {
+        void copyToClipboard(window.location.href, 'link')
+    }
+
+    return (
+        <LemonButton
+            type="secondary"
+            size="small"
+            icon={<IconLink />}
+            tooltip="Share"
+            tooltipPlacement="top"
+            onClick={handleShare}
+            data-attr="web-analytics-share-button"
+        />
+    )
 }
