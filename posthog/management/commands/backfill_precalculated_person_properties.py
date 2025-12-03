@@ -1,6 +1,5 @@
 import time
 import asyncio
-import logging
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -17,7 +16,6 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_coordin
 )
 
 logger = structlog.get_logger(__name__)
-logger.setLevel(logging.INFO)
 
 
 def extract_person_property_filters(cohort: Cohort) -> list[PersonPropertyFilter]:
@@ -174,17 +172,6 @@ class Command(BaseCommand):
             for f in filters:
                 self.stdout.write(f"  - conditionHash: {f.condition_hash}")
 
-            logger.info(
-                "Starting person properties backfill coordinator",
-                cohort_id=cohort.id,
-                team_id=team_id,
-                filter_count=len(filters),
-                parallelism=parallelism,
-                batch_size=batch_size,
-                workflows_per_batch=workflows_per_batch,
-                batch_delay_minutes=batch_delay_minutes,
-            )
-
             workflow_id = self.run_temporal_workflow(
                 cohort=cohort,
                 filters=filters,
@@ -207,8 +194,6 @@ class Command(BaseCommand):
         self.stdout.write(
             "\nChild workflows are running in the background. Check Temporal UI for progress and results."
         )
-        if workflow_ids:
-            self.stdout.write(f"Temporal UI: http://localhost:8233/namespaces/default/workflows")
 
     def run_temporal_workflow(
         self,
@@ -239,8 +224,6 @@ class Command(BaseCommand):
             # Generate unique workflow ID
             workflow_id = f"backfill-precalculated-person-properties-{cohort.id}-{cohort.team_id}-{int(time.time())}"
 
-            logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
-
             try:
                 # Start the coordinator workflow (fire-and-forget)
                 await client.start_workflow(
@@ -251,7 +234,6 @@ class Command(BaseCommand):
                     task_queue=settings.MESSAGING_TASK_QUEUE,
                 )
 
-                logger.info(f"Workflow {workflow_id} started successfully")
                 return workflow_id
 
             except Exception as e:
