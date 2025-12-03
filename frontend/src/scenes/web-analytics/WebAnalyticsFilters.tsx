@@ -138,9 +138,12 @@ const DomainSettingsLink = (): JSX.Element => (
 const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const shouldGlow = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING] && authorizedDomains.length === 0
 
     return (
-        <div className={clsx(authorizedDomains.length === 0 && 'animate-pulse-glow rounded')}>
+        <div className={clsx(shouldGlow && 'animate-pulse-glow rounded')}>
             <LemonSelect
                 className="grow md:grow-0"
                 size="small"
