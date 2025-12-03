@@ -8,7 +8,12 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 
-import { LogRow, LogRowHeader, getMinRowWidth } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+import {
+    LOG_ROW_HEADER_HEIGHT,
+    LogRow,
+    LogRowHeader,
+    getMinRowWidth,
+} from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -169,7 +174,7 @@ export function VirtualizedLogsList({
 
     // Fixed height mode for pinned logs
     if (fixedHeight !== undefined) {
-        const listHeight = fixedHeight - 32 // Subtract header height
+        const listHeight = fixedHeight - LOG_ROW_HEADER_HEIGHT
         return (
             <div style={{ height: fixedHeight }} className="flex flex-col">
                 <AutoSizer disableHeight>
@@ -211,7 +216,7 @@ export function VirtualizedLogsList({
                             <List
                                 ref={listRef}
                                 width={rowWidth}
-                                height={height - 32} // Subtract header height
+                                height={height - LOG_ROW_HEADER_HEIGHT}
                                 rowCount={dataSource.length}
                                 rowHeight={cache.rowHeight}
                                 deferredMeasurementCache={cache}

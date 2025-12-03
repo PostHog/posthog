@@ -43,6 +43,8 @@ export const getMinRowWidth = (): number => {
     return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
 }
 
+export const LOG_ROW_HEADER_HEIGHT = 32
+
 // Get cell style based on column config and available flex width
 const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSProperties => {
     return column.flex
