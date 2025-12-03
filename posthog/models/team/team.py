@@ -412,6 +412,12 @@ class Team(UUIDTClassicModel):
         default=False,
         help_text="Whether to automatically apply default evaluation environments to new feature flags",
     )
+    require_evaluation_environment_tags = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to require at least one evaluation environment tag when creating new feature flags",
+    )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
     is_demo = models.BooleanField(default=False)
