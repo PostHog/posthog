@@ -652,6 +652,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
     default_evaluation_environments_enabled: boolean
+    require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
@@ -857,6 +858,7 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    WorkflowVariable = 'workflow_variable',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1974,6 +1976,19 @@ export interface BillingType {
         email?: string
         name?: string
     }
+}
+
+export interface ClaimedCouponInfo {
+    code: string
+    campaign_name: string
+    campaign_slug: string | null
+    claimed_at: string
+    expires_at: string | null
+    status: 'claimed' | 'expired'
+}
+
+export interface CouponsOverview {
+    claimed_coupons: ClaimedCouponInfo[]
 }
 
 export interface BillingPeriod {
@@ -3788,6 +3803,7 @@ export enum PropertyDefinitionType {
     Resource = 'resource',
     Log = 'log',
     FlagValue = 'flag_value',
+    WorkflowVariable = 'workflow_variable',
 }
 
 export interface PropertyDefinition {

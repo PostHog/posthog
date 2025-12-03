@@ -172,6 +172,44 @@ def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
         logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
 
 
+def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
+    """
+    Serialize a Team object to metadata dictionary.
+
+    Args:
+        team: Team object with organization and project already loaded
+
+    Returns:
+        Dictionary containing full team metadata
+    """
+    metadata = {}
+    for field in TEAM_METADATA_FIELDS:
+        value = getattr(team, field, None)
+        metadata[field] = _serialize_team_field(field, value)
+
+    metadata["organization_name"] = team.organization.name if team.organization else None
+    metadata["project_name"] = team.project.name if team.project else None
+
+    return metadata
+
+
+def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
+    """
+    Load metadata for multiple teams efficiently.
+
+    Used by warm_caches() to avoid N+1 queries when warming the cache.
+    Teams are already loaded with select_related("organization", "project")
+    by the warming framework, so this just serializes them.
+
+    Args:
+        teams: List of Team objects with organization/project pre-loaded
+
+    Returns:
+        Dict mapping team_id -> metadata dict
+    """
+    return {team.id: _serialize_team_to_metadata(team) for team in teams}
+
+
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
     """
     Load full team metadata from the database.
@@ -189,17 +227,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             if isinstance(team, Team) and (not Team.organization.is_cached(team) or not Team.project.is_cached(team)):
                 team = Team.objects.select_related("organization", "project").get(id=team.id)
 
-            metadata = {}
-            for field in TEAM_METADATA_FIELDS:
-                value = getattr(team, field, None)
-                metadata[field] = _serialize_team_field(field, value)
-
-            metadata["organization_name"] = (
-                team.organization.name if hasattr(team, "organization") and team.organization else None
-            )
-            metadata["project_name"] = team.project.name if hasattr(team, "project") and team.project else None
-
-            return metadata
+            return _serialize_team_to_metadata(team)
 
     except Team.DoesNotExist:
         logger.debug("Team not found for cache lookup")
@@ -223,6 +251,7 @@ team_metadata_hypercache = HyperCache(
     value="full_metadata.json",
     token_based=True,
     load_fn=_load_team_metadata,
+    batch_load_fn=_batch_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
