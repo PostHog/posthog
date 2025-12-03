@@ -1,18 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <module type="PYTHON_MODULE" version="4">
-  <component name="FacetManager">
-    <facet type="django" name="Django">
-      <configuration>
-        <option name="rootFolder" value="$MODULE_DIR$" />
-        <option name="settingsModule" value="posthog/settings" />
-        <option name="manageScript" value="manage.py" />
-        <option name="environment" value="&lt;map/&gt;" />
-        <option name="doNotUseTestRunner" value="true" />
-        <option name="trackFilePattern" value="migrations" />
-      </configuration>
-    </facet>
-  </component>
-  <component name="NewModuleRootManager">
+  <component name="AdditionalModuleElements">
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/.flox/cache/venv/lib/python3.11/site-packages/loginas/tests" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/.flox/cache/venv" />
@@ -49,8 +37,6 @@
       <excludeFolder url="file://$MODULE_DIR$/staticfiles/transformations" />
       <excludePattern pattern="*node_modules*" />
     </content>
-    <orderEntry type="jdk" jdkName="Python 3.12 virtualenv at ~/github/posthog/.flox/cache/venv" jdkType="Python SDK" />
-    <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="PyDocumentationSettings">
     <option name="format" value="PLAIN" />

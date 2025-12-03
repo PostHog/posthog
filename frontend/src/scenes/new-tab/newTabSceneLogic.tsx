@@ -16,7 +16,7 @@ import {
     IconToolbar,
 } from '@posthog/icons'
 
-import api from 'lib/api'
+import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -409,13 +409,19 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     await breakpoint(200)
 
                     const responses = await Promise.all(
-                        groupTypesList.map((groupType) =>
-                            api.groups.list({
-                                group_type_index: groupType.group_type_index,
-                                search: trimmed,
-                                limit: GROUP_SEARCH_LIMIT,
-                            })
-                        )
+                        groupTypesList.map((groupType) => {
+                            try {
+                                return api.groups.list({
+                                    group_type_index: groupType.group_type_index,
+                                    search: trimmed,
+                                    limit: GROUP_SEARCH_LIMIT,
+                                })
+                            } catch (e) {
+                                console.error(e)
+                                // ignore these errors for now
+                                return { results: [], count: 0 } as CountedPaginatedResponse<Group>
+                            }
+                        })
                     )
 
                     breakpoint()
