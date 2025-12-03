@@ -39,6 +39,9 @@ export function PinnedFolder(): JSX.Element {
 
     const showDefaultHeader = !['products://', 'data://', 'custom-products://'].includes(pinnedFolder)
 
+    const isCustomProductsSidebarEnabled = featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] === 'test'
+    const CustomProductsIcon = isCustomProductsSidebarEnabled ? IconGear : IconPencil
+
     const configMenu = (
         <>
             {pinnedFolder === 'shortcuts://' ? (
@@ -60,11 +63,11 @@ export function PinnedFolder(): JSX.Element {
                     onClick={openEditCustomProductsModal}
                     size="xs"
                 >
-                    <IconPencil className="size-3 text-secondary" />
+                    <CustomProductsIcon className="size-3 text-secondary" />
                 </ButtonPrimitive>
             ) : null}
 
-            {featureFlags[FEATURE_FLAGS.CUSTOM_PRODUCTS_SIDEBAR] !== 'test' && (
+            {!isCustomProductsSidebarEnabled && (
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <ButtonPrimitive

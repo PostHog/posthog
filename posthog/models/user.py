@@ -147,6 +147,12 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
+class ShortcutPosition(models.TextChoices):
+    ABOVE = "above", "Above"
+    BELOW = "below", "Below"
+    HIDDEN = "hidden", "Hidden"
+
+
 class User(AbstractUser, UUIDTClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
@@ -185,6 +191,9 @@ class User(AbstractUser, UUIDTClassicModel):
     toolbar_mode = models.CharField(max_length=200, null=True, blank=True, choices=TOOLBAR_CHOICES, default=TOOLBAR)
     hedgehog_config = models.JSONField(null=True, blank=True)
     allow_sidebar_suggestions = models.BooleanField(default=True, null=True, blank=True)
+    shortcut_position = models.CharField(
+        max_length=20, null=True, blank=True, choices=ShortcutPosition.choices, default=ShortcutPosition.ABOVE
+    )
 
     # DEPRECATED
     events_column_config = models.JSONField(default=events_column_config_default)

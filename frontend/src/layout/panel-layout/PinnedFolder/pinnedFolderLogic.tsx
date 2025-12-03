@@ -9,7 +9,7 @@ import { splitProtocolPath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import type { pinnedFolderLogicType } from './pinnedFolderLogicType'
 
-const LOCAL_STORAGE_PINNED_FOLDER_KEY = 'layout.panel-layout.PinnedFolder.pinnedFolderLogic.lazyLoaders.pinnedFolder'
+const LOCAL_STORAGE_PINNED_FOLDER_KEY = 'layout.panel-layout.PinnedFolder.pinnedFolderLogic.lazyLoaders.pinnedFolder.v2'
 
 export const pinnedFolderLogic = kea<pinnedFolderLogicType>([
     path(['layout', 'panel-layout', 'PinnedFolder', 'pinnedFolderLogic']),
