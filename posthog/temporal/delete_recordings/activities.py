@@ -80,7 +80,6 @@ async def load_recording_blocks(input: Recording) -> list[RecordingBlock]:
         "team_id": input.team_id,
         "session_id": input.session_id,
         "python_now": datetime.now(pytz.timezone("UTC")),
-        "ttl_days": 365,
     }
 
     ch_query_id = str(uuid4())
@@ -233,7 +232,6 @@ async def load_recordings_with_person(input: RecordingsWithPersonInput) -> list[
         "team_id": input.team_id,
         "distinct_ids": input.distinct_ids,
         "python_now": datetime.now(pytz.timezone("UTC")),
-        "ttl_days": 365,
     }
 
     ch_query_id = str(uuid4())
@@ -258,7 +256,6 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[s
     parameters = {
         "team_id": input.team_id,
         "python_now": datetime.now(pytz.timezone("UTC")),
-        "ttl_days": 365,
     }
 
     ch_query_id = str(uuid4())
