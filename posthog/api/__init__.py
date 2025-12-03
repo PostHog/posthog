@@ -105,6 +105,7 @@ from . import (
     search,
     sharing,
     survey,
+    survey_recommendation,
     tagged_item,
     team,
     uploaded_media,
@@ -247,6 +248,12 @@ project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs"
 projects_router.register(r"llm_gateway", llm_gateway.http.LLMGatewayViewSet, "project_llm_gateway", ["team_id"])
 
 projects_router.register(r"surveys", survey.SurveyViewSet, "project_surveys", ["project_id"])
+projects_router.register(
+    r"survey_recommendations",
+    survey_recommendation.SurveyRecommendationViewSet,
+    "project_survey_recommendations",
+    ["project_id"],
+)
 projects_router.register(
     r"dashboard_templates",
     dashboard_templates.DashboardTemplateViewSet,
