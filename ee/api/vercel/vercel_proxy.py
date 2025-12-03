@@ -149,7 +149,7 @@ class VercelProxyViewSet(viewsets.ViewSet):
         try:
             return _extract_access_token(integration)
         except ValueError as e:
-            capture_exception(e)
+            capture_exception(e, {"organization_id": organization_id, "config_id": integration.integration_id})
             logger.exception(
                 "Failed to extract Vercel access token",
                 organization_id=organization_id,
@@ -159,7 +159,7 @@ class VercelProxyViewSet(viewsets.ViewSet):
 
     def _call_vercel(self, config_id: str | None, access_token: str, path: str, method: str, body: dict) -> Response:
         if not config_id:
-            capture_exception(ValueError("Vercel integration has no config_id"))
+            capture_exception(ValueError("Vercel integration has no config_id"), {"path": path, "method": method})
             logger.error("Vercel integration missing config_id")
             return Response(
                 {"error": "Invalid Vercel integration configuration"},
@@ -177,7 +177,7 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 body=body,
             )
         except requests.RequestException as e:
-            capture_exception(e)
+            capture_exception(e, {"config_id": config_id, "path": path, "method": method})
             logger.exception("Vercel API proxy request failed", config_id=config_id, path=path)
             return Response(
                 {"error": "Failed to reach Vercel API"},
