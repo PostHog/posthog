@@ -1,8 +1,13 @@
 import uuid
+import datetime as dt
 
 import pytest
 
 from django.test import override_settings
+
+import temporalio.worker
+from temporalio import activity as temporal_activity
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.temporal.data_modeling import ducklake_copy_workflow as ducklake_module
 from posthog.temporal.data_modeling.ducklake_copy_workflow import (
@@ -126,3 +131,139 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     assert "read_parquet('s3://source/table/**/*.parquet')" in table_calls[0]
     assert any("ATTACH" in statement for statement in fake_conn.sql_statements), "Expected DuckLake catalog attach"
     assert fake_conn.closed is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypatch, ateam):
+    call_counts = {"metadata": 0, "copy": 0}
+
+    @temporal_activity.defn
+    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs):
+        call_counts["metadata"] += 1
+        return [
+            DuckLakeCopyModelMetadata(
+                model_label="model",
+                saved_query_id=str(uuid.uuid4()),
+                saved_query_name="model",
+                normalized_name="model",
+                source_glob_uri="s3://source/table/**/*.parquet",
+                schema_name="data_modeling_team_1",
+                table_name="model",
+            )
+        ]
+
+    @temporal_activity.defn
+    async def copy_stub(inputs: DuckLakeCopyActivityInputs):
+        call_counts["copy"] += 1
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_modeling.ducklake_copy_workflow.posthoganalytics.feature_enabled",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)
+    monkeypatch.setattr(ducklake_module, "copy_data_modeling_model_to_ducklake_activity", copy_stub)
+
+    inputs = DataModelingDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id="job",
+        models=[
+            DuckLakeCopyModelInput(
+                model_label="model",
+                saved_query_id=str(uuid.uuid4()),
+                table_uri="s3://source/table",
+                file_uris=["s3://source/table/part-0.parquet"],
+            )
+        ],
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with temporalio.worker.Worker(
+            env.client,
+            task_queue="ducklake-test",
+            workflows=[ducklake_module.DuckLakeCopyDataModelingWorkflow],
+            activities=[
+                ducklake_module.ducklake_copy_workflow_gate_activity,
+                ducklake_module.prepare_data_modeling_ducklake_metadata_activity,
+                ducklake_module.copy_data_modeling_model_to_ducklake_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                ducklake_module.DuckLakeCopyDataModelingWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue="ducklake-test",
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert call_counts["metadata"] == 0
+    assert call_counts["copy"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch, ateam):
+    call_counts = {"metadata": 0, "copy": 0}
+
+    @temporal_activity.defn
+    async def metadata_stub(inputs: DataModelingDuckLakeCopyInputs):
+        call_counts["metadata"] += 1
+        return [
+            DuckLakeCopyModelMetadata(
+                model_label="model",
+                saved_query_id=str(uuid.uuid4()),
+                saved_query_name="model",
+                normalized_name="model",
+                source_glob_uri="s3://source/table/**/*.parquet",
+                schema_name="data_modeling_team_1",
+                table_name="model",
+            )
+        ]
+
+    @temporal_activity.defn
+    async def copy_stub(inputs: DuckLakeCopyActivityInputs):
+        call_counts["copy"] += 1
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_modeling.ducklake_copy_workflow.posthoganalytics.feature_enabled",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)
+    monkeypatch.setattr(ducklake_module, "copy_data_modeling_model_to_ducklake_activity", copy_stub)
+
+    inputs = DataModelingDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id="job",
+        models=[
+            DuckLakeCopyModelInput(
+                model_label="model",
+                saved_query_id=str(uuid.uuid4()),
+                table_uri="s3://source/table",
+                file_uris=["s3://source/table/part-0.parquet"],
+            )
+        ],
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with temporalio.worker.Worker(
+            env.client,
+            task_queue="ducklake-test",
+            workflows=[ducklake_module.DuckLakeCopyDataModelingWorkflow],
+            activities=[
+                ducklake_module.ducklake_copy_workflow_gate_activity,
+                ducklake_module.prepare_data_modeling_ducklake_metadata_activity,
+                ducklake_module.copy_data_modeling_model_to_ducklake_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                ducklake_module.DuckLakeCopyDataModelingWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue="ducklake-test",
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert call_counts["metadata"] == 1
+    assert call_counts["copy"] == 1
