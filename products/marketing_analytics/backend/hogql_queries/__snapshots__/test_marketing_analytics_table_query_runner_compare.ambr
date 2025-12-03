@@ -11,7 +11,8 @@
       round(campaign_costs.total_impressions, 0) AS Impressions,
       round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
       round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-      round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`
+      round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+      round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`
   
   FROM
       (
@@ -23,11 +24,13 @@
           sum(cost) AS total_cost,
           sum(clicks) AS total_clicks,
           sum(impressions) AS total_impressions,
-          sum(reported_conversion) AS total_reported_conversions
+          sum(reported_conversion) AS total_reported_conversions,
+          sum(reported_conversion_value) AS total_reported_conversion_value
       
   FROM
           (
   SELECT
+              toString(campaign1) AS match_key,
               toString(campaign1) AS campaign,
               toString(campaign1) AS id,
               toString(source1) AS source,
@@ -35,7 +38,7 @@
               toFloat(coalesce(clicks1, 0)) AS clicks,
               toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
               toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-              toString(campaign1) AS match_key
+              toFloat(coalesce(0, 0)) AS reported_conversion_value
           
   FROM
               `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -65,6 +68,7 @@
       tuple(current_period.CPC, previous_period.CPC) AS CPC,
       tuple(current_period.CTR, previous_period.CTR) AS CTR,
       tuple(current_period.`Reported Conversion`, previous_period.`Reported Conversion`) AS `Reported Conversion`,
+      tuple(current_period.`Reported Conversion Value`, previous_period.`Reported Conversion Value`) AS `Reported Conversion Value`,
       tuple(current_period.`Sign Up Conversions`, previous_period.`Sign Up Conversions`) AS `Sign Up Conversions`,
       tuple(current_period.`Cost per Sign Up Conversions`, previous_period.`Cost per Sign Up Conversions`) AS `Cost per Sign Up Conversions`
   
@@ -80,6 +84,7 @@
           round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+          round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -93,11 +98,13 @@
               sum(cost) AS total_cost,
               sum(clicks) AS total_clicks,
               sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions
+              sum(reported_conversion) AS total_reported_conversions,
+              sum(reported_conversion_value) AS total_reported_conversion_value
           
   FROM
               (
   SELECT
+                  toString(campaign1) AS match_key,
                   toString(campaign1) AS campaign,
                   toString(campaign1) AS id,
                   toString(source1) AS source,
@@ -105,7 +112,7 @@
                   toFloat(coalesce(clicks1, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                   toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                  toString(campaign1) AS match_key
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
               
   FROM
                   `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -199,6 +206,7 @@
           round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+          round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -212,11 +220,13 @@
               sum(cost) AS total_cost,
               sum(clicks) AS total_clicks,
               sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions
+              sum(reported_conversion) AS total_reported_conversions,
+              sum(reported_conversion_value) AS total_reported_conversion_value
           
   FROM
               (
   SELECT
+                  toString(campaign1) AS match_key,
                   toString(campaign1) AS campaign,
                   toString(campaign1) AS id,
                   toString(source1) AS source,
@@ -224,7 +234,7 @@
                   toFloat(coalesce(clicks1, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                   toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                  toString(campaign1) AS match_key
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
               
   FROM
                   `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -327,6 +337,7 @@
       tuple(current_period.CPC, previous_period.CPC) AS CPC,
       tuple(current_period.CTR, previous_period.CTR) AS CTR,
       tuple(current_period.`Reported Conversion`, previous_period.`Reported Conversion`) AS `Reported Conversion`,
+      tuple(current_period.`Reported Conversion Value`, previous_period.`Reported Conversion Value`) AS `Reported Conversion Value`,
       tuple(current_period.`Sign Up Conversions`, previous_period.`Sign Up Conversions`) AS `Sign Up Conversions`,
       tuple(current_period.`Cost per Sign Up Conversions`, previous_period.`Cost per Sign Up Conversions`) AS `Cost per Sign Up Conversions`
   
@@ -342,6 +353,7 @@
           round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+          round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -355,11 +367,13 @@
               sum(cost) AS total_cost,
               sum(clicks) AS total_clicks,
               sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions
+              sum(reported_conversion) AS total_reported_conversions,
+              sum(reported_conversion_value) AS total_reported_conversion_value
           
   FROM
               (
   SELECT
+                  toString(campaign1) AS match_key,
                   toString(campaign1) AS campaign,
                   toString(campaign1) AS id,
                   toString(source1) AS source,
@@ -367,7 +381,7 @@
                   toFloat(coalesce(clicks1, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                   toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                  toString(campaign1) AS match_key
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
               
   FROM
                   `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -461,6 +475,7 @@
           round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
           round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
           round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+          round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`,
           ucg.conversion_0 AS `Sign Up Conversions`,
           round(divide(campaign_costs.total_cost, nullif(ucg.conversion_0, 0)), 2) AS `Cost per Sign Up Conversions`
       
@@ -474,11 +489,13 @@
               sum(cost) AS total_cost,
               sum(clicks) AS total_clicks,
               sum(impressions) AS total_impressions,
-              sum(reported_conversion) AS total_reported_conversions
+              sum(reported_conversion) AS total_reported_conversions,
+              sum(reported_conversion_value) AS total_reported_conversion_value
           
   FROM
               (
   SELECT
+                  toString(campaign1) AS match_key,
                   toString(campaign1) AS campaign,
                   toString(campaign1) AS id,
                   toString(source1) AS source,
@@ -486,7 +503,7 @@
                   toFloat(coalesce(clicks1, 0)) AS clicks,
                   toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                   toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                  toString(campaign1) AS match_key
+                  toFloat(coalesce(0, 0)) AS reported_conversion_value
               
   FROM
                   `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -589,7 +606,8 @@
           tuple(current_period.Impressions, previous_period.Impressions) AS Impressions,
           tuple(current_period.CPC, previous_period.CPC) AS CPC,
           tuple(current_period.CTR, previous_period.CTR) AS CTR,
-          tuple(current_period.`Reported Conversion`, previous_period.`Reported Conversion`) AS `Reported Conversion`
+          tuple(current_period.`Reported Conversion`, previous_period.`Reported Conversion`) AS `Reported Conversion`,
+          tuple(current_period.`Reported Conversion Value`, previous_period.`Reported Conversion Value`) AS `Reported Conversion Value`
       
       FROM
           (
@@ -602,7 +620,8 @@
               round(campaign_costs.total_impressions, 0) AS Impressions,
               round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
               round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-              round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`
+              round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+              round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`
           
       FROM
               (
@@ -614,11 +633,13 @@
                   sum(cost) AS total_cost,
                   sum(clicks) AS total_clicks,
                   sum(impressions) AS total_impressions,
-                  sum(reported_conversion) AS total_reported_conversions
+                  sum(reported_conversion) AS total_reported_conversions,
+                  sum(reported_conversion_value) AS total_reported_conversion_value
               
       FROM
                   (
       SELECT
+                      toString(campaign1) AS match_key,
                       toString(campaign1) AS campaign,
                       toString(campaign1) AS id,
                       toString(source1) AS source,
@@ -626,7 +647,7 @@
                       toFloat(coalesce(clicks1, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                       toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                      toString(campaign1) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -636,6 +657,7 @@
                   UNION ALL
                   
       SELECT
+                      toString(campaign2) AS match_key,
                       toString(campaign2) AS campaign,
                       toString(campaign2) AS id,
                       toString(source2) AS source,
@@ -643,7 +665,7 @@
                       toFloat(coalesce(clicks2, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost,
                       toFloat(coalesce(0, 0)) AS reported_conversion,
-                      toString(campaign2) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
@@ -653,6 +675,7 @@
                   UNION ALL
                   
       SELECT
+                      toString(campaign3) AS match_key,
                       toString(campaign3) AS campaign,
                       toString(campaign3) AS id,
                       toString(source3) AS source,
@@ -660,7 +683,7 @@
                       toFloat(coalesce(clicks3, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost,
                       toFloat(coalesce(0, 0)) AS reported_conversion,
-                      toString(campaign3) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
@@ -682,7 +705,8 @@
               round(campaign_costs.total_impressions, 0) AS Impressions,
               round(divide(campaign_costs.total_cost, nullif(campaign_costs.total_clicks, 0)), 2) AS CPC,
               round(multiply(divide(campaign_costs.total_clicks, nullif(campaign_costs.total_impressions, 0)), 100), 2) AS CTR,
-              round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`
+              round(campaign_costs.total_reported_conversions, 2) AS `Reported Conversion`,
+              round(campaign_costs.total_reported_conversion_value, 2) AS `Reported Conversion Value`
           
       FROM
               (
@@ -694,11 +718,13 @@
                   sum(cost) AS total_cost,
                   sum(clicks) AS total_clicks,
                   sum(impressions) AS total_impressions,
-                  sum(reported_conversion) AS total_reported_conversions
+                  sum(reported_conversion) AS total_reported_conversions,
+                  sum(reported_conversion_value) AS total_reported_conversion_value
               
       FROM
                   (
       SELECT
+                      toString(campaign1) AS match_key,
                       toString(campaign1) AS campaign,
                       toString(campaign1) AS id,
                       toString(source1) AS source,
@@ -706,7 +732,7 @@
                       toFloat(coalesce(clicks1, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend1, 0)))) AS cost,
                       toFloat(coalesce(conversions1, 0)) AS reported_conversion,
-                      toString(campaign1) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_facebook_ads_table` AS posthog_test_facebook_ads_table
@@ -716,6 +742,7 @@
                   UNION ALL
                   
       SELECT
+                      toString(campaign2) AS match_key,
                       toString(campaign2) AS campaign,
                       toString(campaign2) AS id,
                       toString(source2) AS source,
@@ -723,7 +750,7 @@
                       toFloat(coalesce(clicks2, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend2, 0)))) AS cost,
                       toFloat(coalesce(0, 0)) AS reported_conversion,
-                      toString(campaign2) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_tiktok_ads_table` AS posthog_test_tiktok_ads_table
@@ -733,6 +760,7 @@
                   UNION ALL
                   
       SELECT
+                      toString(campaign3) AS match_key,
                       toString(campaign3) AS campaign,
                       toString(campaign3) AS id,
                       toString(source3) AS source,
@@ -740,7 +768,7 @@
                       toFloat(coalesce(clicks3, 0)) AS clicks,
                       toFloat(convertCurrency('USD', 'USD', toFloat(coalesce(spend3, 0)))) AS cost,
                       toFloat(coalesce(0, 0)) AS reported_conversion,
-                      toString(campaign3) AS match_key
+                      toFloat(coalesce(0, 0)) AS reported_conversion_value
                   
       FROM
                       `bigquery.posthog_test.posthog_test_linkedin_ads_table` AS posthog_test_linkedin_ads_table
@@ -769,6 +797,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.4),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=36.42),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Competitors-AMER'),
@@ -780,6 +809,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=38.92),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=2.08),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024', value='TechFlow-Prospecting-AMER-Traffic-Technical-Static-Analytics-Aug-2024'),
@@ -791,6 +821,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=31.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=6.1, value=7.98),
         MarketingAnalyticsItem(changeFromPreviousPct=67.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=0.15, value=0.25),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Analytics-Aug-2024'),
@@ -802,6 +833,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=5.78),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.34),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-ProductDev-Static-Comparison-Oct-2024'),
@@ -813,6 +845,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=4.5),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.71),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-AMER-Traffic-Leadership-Static-Analytics-Aug-2024'),
@@ -824,6 +857,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=5.12),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.32),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Experimentation-AMER'),
@@ -835,6 +869,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=7.43),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=9.09),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-EMEA-Analytics-Tools', value='TestCorp-Search-EMEA-Analytics-Tools'),
@@ -846,6 +881,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=73.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=1.32, value=2.29),
         MarketingAnalyticsItem(changeFromPreviousPct=47.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=1.22, value=1.79),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-AB-Testing-AMER', value='Test-AB-Testing-AMER'),
@@ -857,6 +893,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=-28.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=4.34, value=3.14),
         MarketingAnalyticsItem(changeFromPreviousPct=-63.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=7.14, value=2.63),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Engineering-Static-Dec-2024'),
@@ -868,6 +905,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=4.13),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.32),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='test_brand_campaign'),
@@ -879,6 +917,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=1.72),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.27),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='TestCorp-Search-AMER-Analytics-Tools', value='TestCorp-Search-AMER-Analytics-Tools'),
@@ -890,6 +929,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=34.0, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=1.1, value=1.47),
         MarketingAnalyticsItem(changeFromPreviousPct=-49.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=1.89, value=0.97),
         MarketingAnalyticsItem(changeFromPreviousPct=-100.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=10.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-EMEA-Traffic-Technical-Static-Analytics-Aug-2024'),
@@ -901,6 +941,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.64),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.84),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-EMEA'),
@@ -912,6 +953,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.58),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.34),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=10.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='Test-Experimentation-EMEA', value='Test-Experimentation-EMEA'),
@@ -923,6 +965,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=0.0, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=0.0, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=0.0, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Product-Analytics-AMER'),
@@ -934,6 +977,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TechFlow-Prospecting-GroupB-Traffic-Leadership-Static-Dec-2024'),
@@ -945,6 +989,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='TestCorp-Search-EMEA-Mobile-Platform'),
@@ -956,6 +1001,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
       list([
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='ID', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous='', value='Test-Session-Recording-AMER'),
@@ -967,6 +1013,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=True, isIncreaseBad=False, key='Reported Conversion Value', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
       ]),
     ]),
   })
