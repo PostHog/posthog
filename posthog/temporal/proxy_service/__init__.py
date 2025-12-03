@@ -4,14 +4,18 @@ from posthog.temporal.proxy_service.common import activity_capture_event, activi
 from posthog.temporal.proxy_service.create import (
     CreateManagedProxyInputs,
     CreateManagedProxyWorkflow,
+    create_cloudflare_custom_hostname,
+    create_cloudflare_worker_route,
     create_managed_proxy,
     schedule_monitor_job,
     wait_for_certificate,
+    wait_for_cloudflare_certificate,
     wait_for_dns_records,
 )
 from posthog.temporal.proxy_service.delete import (
     DeleteManagedProxyInputs,
     DeleteManagedProxyWorkflow,
+    delete_cloudflare_proxy,
     delete_managed_proxy,
     delete_proxy_record,
 )
@@ -39,4 +43,9 @@ ACTIVITIES = [
     activity_capture_event,
     schedule_monitor_job,
     cleanup_monitor_job,
+    # Cloudflare for SaaS activities
+    create_cloudflare_custom_hostname,
+    create_cloudflare_worker_route,
+    wait_for_cloudflare_certificate,
+    delete_cloudflare_proxy,
 ]
