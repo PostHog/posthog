@@ -375,15 +375,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 metric_name: 'triggered',
                 count: 1,
             })
-
-            // TODO(workflows): Re-add hogflow billable_invocation metric when we have per-step pricing finalized
-            // triggeredInvocationsMetrics.push({
-            //     team_id: item.teamId,
-            //     app_source_id: item.functionId,
-            //     metric_kind: 'billing',
-            //     metric_name: 'billable_invocation',
-            //     count: 1,
-            // })
         })
 
         this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
