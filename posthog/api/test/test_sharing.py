@@ -1136,10 +1136,11 @@ class TestExportCacheKeyFlow(APIBaseTest):
             enabled=True,
         )
 
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("posthog.api.insight.fetch_cached_response_by_key")
     @mock_exporter_template
-    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached):
-        """Test that cache_keys param causes InsightSerializer to use direct cache lookup."""
+    def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_fetch_cached, mock_calculate):
+        """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
         cached_response = {
             "results": [{"count": 42}],
             "cache_key": "expected_cache_key_abc123",
@@ -1155,6 +1156,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
 
         assert response.status_code == 200
         mock_fetch_cached.assert_called_once_with("expected_cache_key_abc123")
+        mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
     @patch("posthog.api.insight.fetch_cached_response_by_key")
