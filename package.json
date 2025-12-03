@@ -51,7 +51,7 @@
         "nuke:docker": "docker-compose -f docker-compose.dev.yml down -v ",
         "nuke:js": "rm -rf **/node_modules",
         "nuke:python": "uv pip freeze -q | cut -d'=' -f1 | cut -d'@' -f1 | xargs -r uv pip uninstall",
-        "nuke:rust": "cd rust && cargo clean && rm **/index.node"
+        "nuke:rust": "cd rust && cargo clean && rm -f **/index.node"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
