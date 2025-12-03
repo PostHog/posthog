@@ -18,7 +18,7 @@ import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
-import { CdpEventsConsumer } from './cdp-cyclotron-producer-batch.producerd'
+import { CdpEventsConsumer } from './cdp-cyclotron-producer-batch.producer'
 import { CdpInternalEventsConsumer } from './cdp-internal-event.consumer'
 
 jest.setTimeout(1000)
