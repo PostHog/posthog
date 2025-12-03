@@ -148,16 +148,30 @@ class HyperCacheManagementConfig:
         return self.cache_name.replace("_", " ")
 
     @property
+    def _django_key_prefix(self) -> str:
+        """Get Django cache key prefix (e.g., 'posthog:1:')."""
+        # Django redis cache uses KEY_PREFIX + VERSION to build the full prefix
+        # Default version is 1, resulting in "posthog:1:" prefix
+        cache_client = self.hypercache.cache_client
+        key_prefix = getattr(cache_client, "key_prefix", "")
+        version = getattr(cache_client, "version", 1)
+        if key_prefix:
+            return f"{key_prefix}:{version}:"
+        return ""
+
+    @property
     def redis_pattern(self) -> str:
         """Redis key pattern for scanning all cache entries."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/*"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/*"
 
     @property
     def redis_stats_pattern(self) -> str:
         """Specific Redis pattern for stats (includes value file)."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
 
     @property
     def expiry_sorted_set_key(self) -> str:
@@ -211,7 +225,7 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
         Number of cache keys deleted
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         deleted = 0
         for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
@@ -417,7 +431,7 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         Dictionary with cache statistics including size information
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         total_keys = 0
         ttl_buckets = {

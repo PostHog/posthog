@@ -11,6 +11,7 @@ import statistics
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
 from posthog.models.team import Team
+from posthog.storage.hypercache_manager import get_cache_stats
 from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG, _load_team_metadata
 
 
@@ -168,3 +169,6 @@ class Command(BaseHyperCacheCommand):
                 "\nS3 storage will be similar to compressed sizes shown above."
             )
         )
+
+        # Update cache metrics
+        get_cache_stats(self.get_hypercache_config())
