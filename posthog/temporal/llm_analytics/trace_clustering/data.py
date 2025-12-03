@@ -35,6 +35,7 @@ def fetch_trace_embeddings_for_clustering(
         WHERE team_id = %(team_id)s
             AND timestamp >= %(start_dt)s
             AND timestamp < %(end_dt)s
+            AND product = %(product)s
             AND document_type = %(document_type)s
             AND rendering = %(rendering)s
             AND length(embedding) > 0
@@ -43,6 +44,7 @@ def fetch_trace_embeddings_for_clustering(
         "team_id": team_id,
         "start_dt": window_start,
         "end_dt": window_end,
+        "product": constants.LLMA_TRACE_PRODUCT,
         "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
         "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
     }

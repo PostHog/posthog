@@ -58,6 +58,9 @@ LLMA_TRACE_DETAILED_RENDERING = "llma_trace_detailed"
 # Document type for LLM trace summaries
 LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary"
 
+# Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
+LLMA_TRACE_PRODUCT = "llm-analytics"
+
 # Team allowlist (empty list = all teams allowed)
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
