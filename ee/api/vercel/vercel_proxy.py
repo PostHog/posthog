@@ -130,13 +130,17 @@ class VercelProxyViewSet(viewsets.ViewSet):
                 kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
             )
             if not integration.integration_id:
-                capture_exception(ValueError(f"Vercel integration missing integration_id for org {organization_id}"))
+                capture_exception(
+                    ValueError("Vercel integration missing integration_id"),
+                    {"organization_id": organization_id},
+                )
                 logger.error("Vercel integration missing integration_id", organization_id=organization_id)
                 return None
             return integration
         except OrganizationIntegration.DoesNotExist:
             capture_exception(
-                ValueError(f"Vercel integration not found for org {organization_id}"),
+                ValueError("Vercel integration not found"),
+                {"organization_id": organization_id},
             )
             logger.warning("Vercel integration not found", organization_id=organization_id)
             return None
@@ -199,7 +203,8 @@ class VercelProxyViewSet(viewsets.ViewSet):
             )
         else:
             capture_exception(
-                ValueError(f"Vercel API returned {response.status_code} for {path}"),
+                ValueError("Vercel API request failed"),
+                {"config_id": config_id, "path": path, "status_code": response.status_code},
             )
             logger.error(
                 "Vercel API proxy request failed",
