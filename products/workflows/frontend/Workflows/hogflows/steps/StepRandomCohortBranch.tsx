@@ -12,6 +12,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { updateItemWithOptionalName } from './utils'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -34,20 +35,7 @@ export function StepRandomCohortBranchConfiguration({
 
     // Debounced function to update cohort names
     const debouncedUpdateCohortName = useDebouncedCallback((index: number, value: string | undefined) => {
-        setCohorts(
-            cohorts.map((c, i) => {
-                if (i !== index) {
-                    return c
-                }
-                const updated = { ...c }
-                if (value) {
-                    updated.name = value
-                } else {
-                    delete updated.name
-                }
-                return updated
-            })
-        )
+        setCohorts(updateItemWithOptionalName(cohorts, index, value))
     }, 300)
 
     const nodeEdges = edgesByActionId[action.id] ?? []

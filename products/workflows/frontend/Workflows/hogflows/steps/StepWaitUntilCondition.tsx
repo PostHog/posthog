@@ -12,6 +12,7 @@ import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { updateOptionalName } from './utils'
 
 export function StepWaitUntilConditionConfiguration({
     node,
@@ -33,13 +34,7 @@ export function StepWaitUntilConditionConfiguration({
 
     // Debounced function to update condition name
     const debouncedUpdateConditionName = useDebouncedCallback((value: string | undefined) => {
-        const updated = { ...condition }
-        if (value) {
-            updated.name = value
-        } else {
-            delete updated.name
-        }
-        partialSetWorkflowActionConfig(action.id, { condition: updated })
+        partialSetWorkflowActionConfig(action.id, { condition: updateOptionalName(condition, value) })
     }, 300)
 
     return (

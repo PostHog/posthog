@@ -13,6 +13,7 @@ import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { updateItemWithOptionalName } from './utils'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -37,20 +38,7 @@ export function StepConditionalBranchConfiguration({
 
     // Debounced function to update condition names
     const debouncedUpdateConditionName = useDebouncedCallback((index: number, value: string | undefined) => {
-        setConditions(
-            conditions.map((c, i) => {
-                if (i !== index) {
-                    return c
-                }
-                const updated = { ...c }
-                if (value) {
-                    updated.name = value
-                } else {
-                    delete updated.name
-                }
-                return updated
-            })
-        )
+        setConditions(updateItemWithOptionalName(conditions, index, value))
     }, 300)
 
     const nodeEdges = edgesByActionId[action.id] ?? []
