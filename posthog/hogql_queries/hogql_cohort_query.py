@@ -785,9 +785,6 @@ class HogQLRealtimeCohortQuery(HogQLCohortQuery):
         """
         Query precalculated_person_properties using conditionHash for realtime person property matching.
         Table for precalculated person properties evaluations populated by CdpRealtimeCohortsConsumer and backfill workflows.
-
-        Uses argMax(matches, _timestamp) to get the latest evaluation result without relying on
-        ReplacingMergeTree compaction. Only returns persons where latest evaluation matches=1.
         """
         condition_hash = getattr(prop, "conditionHash", None)
         if not condition_hash:
