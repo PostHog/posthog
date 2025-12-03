@@ -76,6 +76,8 @@ class WorkerRouteInfo:
 
 def _get_headers() -> dict[str, str]:
     """Get headers for Cloudflare API requests."""
+    if not settings.CLOUDFLARE_API_TOKEN or not settings.CLOUDFLARE_ZONE_ID:
+        raise ValueError("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ZONE_ID must be configured when using Cloudflare proxy")
     return {
         "Authorization": f"Bearer {settings.CLOUDFLARE_API_TOKEN}",
         "Content-Type": "application/json",
@@ -84,7 +86,10 @@ def _get_headers() -> dict[str, str]:
 
 def _handle_response(response: requests.Response) -> dict:
     """Handle Cloudflare API response and raise errors if needed."""
-    data = response.json()
+    try:
+        data = response.json()
+    except requests.exceptions.JSONDecodeError:
+        raise CloudflareAPIError(f"Invalid JSON response (status {response.status_code}): {response.text[:200]}")
 
     if not data.get("success", False):
         errors = data.get("errors", [])
@@ -248,6 +253,9 @@ def create_worker_route(domain: str) -> WorkerRouteInfo:
     Raises:
         CloudflareAPIError: If the API request fails
     """
+    if not settings.CLOUDFLARE_WORKER_NAME:
+        raise ValueError("CLOUDFLARE_WORKER_NAME must be configured when creating worker routes")
+
     url = f"{CLOUDFLARE_API_BASE}/zones/{settings.CLOUDFLARE_ZONE_ID}/workers/routes"
 
     pattern = f"{domain}/*"

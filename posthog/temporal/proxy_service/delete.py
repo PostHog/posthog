@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import asyncio
 import datetime as dt
 from dataclasses import dataclass
 
@@ -139,9 +140,9 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
 
     # Delete Worker Route first
     try:
-        route = get_worker_route_by_pattern(inputs.domain)
+        route = await asyncio.to_thread(get_worker_route_by_pattern, inputs.domain)
         if route:
-            delete_worker_route(route.id)
+            await asyncio.to_thread(delete_worker_route, route.id)
             logger.info("Deleted Cloudflare Worker Route %s for domain %s", route.id, inputs.domain)
         else:
             logger.info("No Cloudflare Worker Route found for domain %s", inputs.domain)
@@ -151,9 +152,9 @@ async def delete_cloudflare_proxy(inputs: DeleteManagedProxyInputs):
 
     # Delete Custom Hostname (attempt even if Worker Route deletion failed)
     try:
-        hostname = get_custom_hostname_by_domain(inputs.domain)
+        hostname = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
         if hostname:
-            delete_custom_hostname(hostname.id)
+            await asyncio.to_thread(delete_custom_hostname, hostname.id)
             logger.info("Deleted Cloudflare Custom Hostname %s for domain %s", hostname.id, inputs.domain)
         else:
             logger.info("No Cloudflare Custom Hostname found for domain %s", inputs.domain)

@@ -1,6 +1,7 @@
 import json
 import uuid
 import typing as t
+import asyncio
 import datetime as dt
 import ipaddress
 from dataclasses import dataclass
@@ -159,7 +160,7 @@ async def check_certificate_status(inputs: CheckActivityInput) -> CheckActivityO
 async def _check_cloudflare_certificate_status(proxy_record, logger) -> CheckActivityOutput:
     """Check certificate status via Cloudflare API."""
     try:
-        hostname_info = get_custom_hostname_by_domain(proxy_record.domain)
+        hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, proxy_record.domain)
 
         if hostname_info is None:
             return CheckActivityOutput(

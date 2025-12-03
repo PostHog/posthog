@@ -3,6 +3,7 @@ import math
 import uuid
 import random
 import typing as t
+import asyncio
 import datetime as dt
 import ipaddress
 from dataclasses import asdict, dataclass
@@ -266,7 +267,7 @@ async def create_cloudflare_custom_hostname(inputs: CreateCloudflareProxyInputs)
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Custom Hostname")
 
     try:
-        result = create_custom_hostname(inputs.domain)
+        result = await asyncio.to_thread(create_custom_hostname, inputs.domain)
         logger.info(
             "Created Cloudflare Custom Hostname %s for domain %s with status %s",
             result.id,
@@ -294,7 +295,7 @@ async def create_cloudflare_worker_route(inputs: CreateCloudflareProxyInputs):
         raise RecordDeletedException("proxy record was deleted while creating Cloudflare Worker Route")
 
     try:
-        result = create_worker_route(inputs.domain)
+        result = await asyncio.to_thread(create_worker_route, inputs.domain)
         logger.info(
             "Created Cloudflare Worker Route %s with pattern %s",
             result.id,
@@ -321,7 +322,7 @@ async def wait_for_cloudflare_certificate(inputs: CreateCloudflareProxyInputs):
         raise RecordDeletedException("proxy record was deleted while waiting for Cloudflare certificate")
 
     try:
-        hostname_info = get_custom_hostname_by_domain(inputs.domain)
+        hostname_info = await asyncio.to_thread(get_custom_hostname_by_domain, inputs.domain)
 
         if hostname_info is None:
             raise NonRetriableException(f"Custom Hostname not found for domain {inputs.domain}")
