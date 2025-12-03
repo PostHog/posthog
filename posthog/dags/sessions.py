@@ -115,7 +115,7 @@ ONE_HOUR_IN_SECONDS = 60 * 60
 ONE_GB_IN_BYTES = 1024 * 1024 * 1024
 
 clickhouse_settings = {
-    # see this run which took around 2hrs 10min for 1 day https://posthog.dags.ter.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
+    # see this run which took around 2hrs 10min for 1 day https://posthog.dagster.plus/prod-us/runs/0ba8afaa-f3cc-4845-97c5-96731ec8231d?focusedTime=1762898705269&selection=sessions_v3_backfill&logs=step%3Asessions_v3_backfill
     # so to give some margin, allow 4 hours per partition
     "max_execution_time": MAX_PARTITIONS_PER_RUN * 4 * ONE_HOUR_IN_SECONDS,
     "max_memory_usage": 100 * ONE_GB_IN_BYTES,
