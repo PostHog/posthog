@@ -3,8 +3,8 @@ from typing import Any, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
-from drf_spectacular.utils import extend_schema
 import structlog
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
