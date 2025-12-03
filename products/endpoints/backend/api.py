@@ -547,7 +547,6 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
-            tag_queries(workload=Workload.ENDPOINTS)
             insight_query_override = data.query_override or {}
             for query_field, value in insight_query_override.items():
                 query[query_field] = value
