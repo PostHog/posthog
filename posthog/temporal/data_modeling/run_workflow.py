@@ -880,7 +880,7 @@ async def hogql_table(query: str, team: Team, logger: FilteringBoundLogger):
 
                 # Trigger garbage collection every 10 batches to prevent memory fragmentation
                 if batch_count % 10 == 0:
-                    await logger.debug("Running garbage collection on batches")
+                    await logger.adebug("Running garbage collection on batches")
                     gc.collect()
 
         # Yield any left over batches
