@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { ActionsNode, DataWarehouseNode, EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'
@@ -23,7 +23,7 @@ export function SessionLevelAggregationFilter({
     const isUsingSessionProperty =
         querySource?.kind === NodeKind.TrendsQuery &&
         querySource?.series?.some(
-            (series: any) => 'math_property_type' in series && series.math_property_type === 'session_properties'
+            (series: EventsNode | ActionsNode | DataWarehouseNode) => series.math_property_type === 'session_properties'
         )
 
     if (!isUsingSessionProperty) {

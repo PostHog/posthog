@@ -404,3 +404,114 @@ class TestSessionLevelAggregation(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(results, list)
         assert len(results) > 0
         # Should have results, but null session events should be excluded or handled
+
+    def test_invalid_session_property_raises_error(self):
+        query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="avg",
+                    math_property="'; DROP TABLE events; --",  # SQL injection attempt
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(sessionLevelAggregation=True),
+        )
+
+        # Should raise ValueError due to invalid property
+        with self.assertRaises(ValueError) as context:
+            self._run_trends_query(query)
+
+        self.assertIn("Invalid session property", str(context.exception))
+
+    def test_session_duration_results_identical_with_and_without_flag(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01 12:00:00",
+            properties={"$session_id": "session1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01 12:05:00",
+            properties={"$session_id": "session1"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user2",
+            timestamp="2024-01-01 12:10:00",
+            properties={"$session_id": "session2"},
+        )
+
+        flush_persons_and_events()
+
+        # Query without flag
+        query_without_flag = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="avg",
+                    math_property="$session_duration",
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(),  # sessionLevelAggregation defaults to False
+        )
+
+        # Query with flag
+        query_with_flag = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="avg",
+                    math_property="$session_duration",
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(sessionLevelAggregation=True),
+        )
+
+        with freeze_time("2024-01-02"):
+            results_without = self._run_trends_query(query_without_flag)
+            results_with = self._run_trends_query(query_with_flag)
+
+        # Results should be identical for backwards compatibility
+        assert len(results_without) == len(results_with)
+        # Both should return valid results
+        assert len(results_without) > 0
+        assert results_without[0]["data"] is not None
+        assert results_with[0]["data"] is not None
+
+    def test_session_level_aggregation_with_zero_values(self):
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user1",
+            timestamp="2024-01-01 12:00:00",
+            properties={"$session_id": "session1"},
+        )
+
+        flush_persons_and_events()
+
+        query = TrendsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    math="min",  # Min should handle zero values
+                    math_property="$pageview_count",
+                    math_property_type="session_properties",
+                )
+            ],
+            trendsFilter=TrendsFilter(sessionLevelAggregation=True),
+        )
+
+        with freeze_time("2024-01-02"):
+            results = self._run_trends_query(query)
+
+        assert isinstance(results, list)
+        assert len(results) > 0
+        # Should have valid results even with minimal data

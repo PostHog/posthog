@@ -553,8 +553,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         Helper method to build the select expression for session property aggregation.
         Returns the appropriate alias based on the math_property.
         """
-        if self.series.math_property == "$session_duration":
+        validated_property = self._aggregation_operation._validate_session_property()
+
+        if validated_property == "$session_duration":
             # For $session_duration, use special alias for backwards compatibility
+            # Using any() to get a representative value from the session since we're grouping by session_id
             return [
                 ast.Alias(
                     alias="session_duration",
@@ -563,10 +566,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             ]
         else:
             # For other session properties, select from session table
+            # Using any() to get a representative value from the session since we're grouping by session_id
             return [
                 ast.Alias(
                     alias="session_property",
-                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", self.series.math_property])]),
+                    expr=ast.Call(name="any", args=[ast.Field(chain=["session", validated_property])]),
                 )
             ]
 

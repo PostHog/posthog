@@ -18,6 +18,17 @@ from posthog.models.team.team import Team
 DEFAULT_CURRENCY_VALUE = "USD"
 DEFAULT_REVENUE_PROPERTY = "$revenue"
 
+ALLOWED_SESSION_MATH_PROPERTIES = frozenset(
+    [
+        "$session_duration",
+        "$pageview_count",
+        "$screen_count",
+        "$autocapture_count",
+        "$num_uniq_urls",
+        "$is_bounce",
+    ]
+)
+
 
 def create_placeholder(name: str) -> ast.Placeholder:
     return ast.Placeholder(expr=ast.Field(chain=[name]))
@@ -130,17 +141,50 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
         """Helper to check if math_property is $session_duration"""
         return self.series.math_property == "$session_duration"
 
+    def _validate_session_property(self) -> str:
+        if not self.series.math_property:
+            raise ValueError("No math_property specified for session-level aggregation")
+
+        if self.series.math_property not in ALLOWED_SESSION_MATH_PROPERTIES:
+            raise ValueError(
+                f"Invalid session property: {self.series.math_property}. "
+                f"Allowed properties are: {', '.join(sorted(ALLOWED_SESSION_MATH_PROPERTIES))}"
+            )
+
+        return self.series.math_property
+
     def aggregating_on_session_property(self) -> bool:
         """
-        Check if we need session-level aggregation.
+        Check if we need session-level aggregation for the query.
+
+        Session-level aggregation groups events by session_id before applying math operations,
+        ensuring each session contributes exactly once to the aggregation. This is essential
+        for accurate session-based metrics like bounce rate and average pageviews per session.
+
+        Without session-level aggregation, math operations would aggregate across all events,
+        which would produce incorrect results. For example, avg($is_bounce) without session-level
+        aggregation would average the bounce flag across all events, not sessions.
+
         Returns True if:
-        1. Using $session_duration (backwards compatibility - always uses session-level aggregation)
+        1. Using $session_duration (backwards compatibility - always uses session-level aggregation
+           to maintain existing behavior for queries created before this feature was added)
         2. Using a session property as math_property AND sessionLevelAggregation flag is enabled
+           (opt-in for other session properties to prevent breaking existing queries)
+
+        The two-step aggregation process:
+        1. GROUP BY $session_id to get one row per session with the session property value
+        2. Apply the math operation (avg, sum, etc.) across sessions
+
+        Returns:
+            bool: True if session-level aggregation should be used
         """
         if self._is_session_duration_property():
+            # $session_duration always uses session-level aggregation for backwards compatibility
+            # This ensures queries created before the sessionLevelAggregation flag was introduced
+            # continue to work as expected
             return True
 
-        # Check if opt-in flag is enabled AND using session property
+        # For other session properties, check if opt-in flag is enabled
         if self.series.math_property_type == "session_properties":
             return (
                 self.query is not None
@@ -152,8 +196,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
 
     def aggregating_on_session_duration(self) -> bool:
         """
-        Deprecated: Use aggregating_on_session_property() instead.
-        Kept for backwards compatibility during migration.
+        @deprecated: Use aggregating_on_session_property() instead.
         """
         return self.aggregating_on_session_property()
 
