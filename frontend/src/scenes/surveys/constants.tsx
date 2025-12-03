@@ -635,6 +635,7 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
+    CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
 }
 
 export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
