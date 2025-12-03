@@ -30,6 +30,7 @@ class TraceClusteringCoordinatorInputs:
     min_k: int = constants.DEFAULT_MIN_K
     max_k: int = constants.DEFAULT_MAX_K
     min_embeddings: int = constants.MIN_TRACES_FOR_CLUSTERING
+    max_concurrent_teams: int = constants.DEFAULT_MAX_CONCURRENT_TEAMS
 
 
 @dataclasses.dataclass
@@ -124,6 +125,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             min_k=int(inputs[2]) if len(inputs) > 2 else constants.DEFAULT_MIN_K,
             max_k=int(inputs[3]) if len(inputs) > 3 else constants.DEFAULT_MAX_K,
             min_embeddings=int(inputs[4]) if len(inputs) > 4 else constants.MIN_TRACES_FOR_CLUSTERING,
+            max_concurrent_teams=int(inputs[5]) if len(inputs) > 5 else constants.DEFAULT_MAX_CONCURRENT_TEAMS,
         )
 
     @temporalio.workflow.run
@@ -151,14 +153,23 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                 "total_clusters": 0,
             }
 
-        # Step 2: Spawn child workflows for each team
+        # Step 2: Spawn child workflows for each team with concurrency limit
         total_clusters = 0
         total_traces = 0
-        failed_teams = []
+        failed_teams: list[int] = []
+        successful_teams: list[int] = []
 
-        for team_id in result.team_ids:
-            try:
-                workflow_result = await temporalio.workflow.execute_child_workflow(
+        # Process teams in batches for controlled parallelism
+        max_concurrent = inputs.max_concurrent_teams
+        team_ids = result.team_ids
+
+        for batch_start in range(0, len(team_ids), max_concurrent):
+            batch = team_ids[batch_start : batch_start + max_concurrent]
+
+            # Start all workflows in batch concurrently
+            workflow_handles = []
+            for team_id in batch:
+                handle = await temporalio.workflow.start_child_workflow(
                     DailyTraceClusteringWorkflow.run,
                     ClusteringWorkflowInputs(
                         team_id=team_id,
@@ -171,25 +182,31 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
                     execution_timeout=constants.WORKFLOW_EXECUTION_TIMEOUT,
                     retry_policy=constants.COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY,
                 )
+                workflow_handles.append((team_id, handle))
 
-                total_clusters += workflow_result.metrics.num_clusters
-                total_traces += workflow_result.metrics.total_traces_analyzed
+            # Wait for all workflows in batch to complete
+            for team_id, handle in workflow_handles:
+                try:
+                    workflow_result = await handle.result()
+                    total_clusters += workflow_result.metrics.num_clusters
+                    total_traces += workflow_result.metrics.total_traces_analyzed
+                    successful_teams.append(team_id)
 
-                logger.info(
-                    "Completed clustering for team",
-                    team_id=team_id,
-                    traces=workflow_result.metrics.total_traces_analyzed,
-                    clusters=workflow_result.metrics.num_clusters,
-                )
+                    logger.info(
+                        "Completed clustering for team",
+                        team_id=team_id,
+                        traces=workflow_result.metrics.total_traces_analyzed,
+                        clusters=workflow_result.metrics.num_clusters,
+                    )
 
-            except Exception as e:
-                logger.exception("Failed to cluster team", team_id=team_id, error=str(e))
-                failed_teams.append(team_id)
-                # Continue with other teams
+                except Exception:
+                    logger.exception("Failed to cluster team", team_id=team_id)
+                    failed_teams.append(team_id)
 
         logger.info(
             "Trace clustering coordinator completed",
             teams_processed=len(result.team_ids),
+            teams_succeeded=len(successful_teams),
             teams_failed=len(failed_teams),
             total_traces=total_traces,
             total_clusters=total_clusters,
@@ -197,6 +214,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         return {
             "teams_processed": len(result.team_ids),
+            "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": failed_teams,
             "total_traces": total_traces,
