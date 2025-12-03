@@ -1,14 +1,17 @@
 use common_database::{Client, CustomDatabaseError};
-use common_metrics::inc;
+use common_metrics::{gauge, inc};
 use sqlx::{pool::PoolConnection, Postgres};
 use std::sync::Arc;
 
-use crate::metrics::consts::{FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_DB_CONNECTION_TIME};
+use crate::metrics::consts::{
+    FLAG_ACQUIRE_TIMEOUT_COUNTER, FLAG_DB_CONNECTION_TIME, FLAG_POOL_UTILIZATION_GAUGE,
+};
 
 /// Acquires a database connection while tracking acquisition time and timeout metrics.
 ///
 /// This helper wraps the standard `get_connection()` call and:
 /// - Records acquisition time to `flags_db_connection_time`
+/// - Emits pool utilization ratio to `flags_pool_utilization_ratio`
 /// - Increments `flags_acquire_timeout_total` when pool acquisition times out
 ///
 /// Works with any database client (reader or writer pools) since PostgresReader and
@@ -42,6 +45,19 @@ pub async fn get_connection_with_metrics(
     let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
 
     let result = client.get_connection().await;
+
+    if let Some(stats) = client.as_ref().get_pool_stats() {
+        let utilization = if stats.size > 0 {
+            (stats.size - stats.num_idle as u32) as f64 / stats.size as f64
+        } else {
+            0.0
+        };
+        gauge(
+            FLAG_POOL_UTILIZATION_GAUGE,
+            &[("pool".to_string(), pool_name.to_string())],
+            utilization,
+        );
+    }
 
     // Track pool acquisition timeouts specifically
     if let Err(e) = &result {

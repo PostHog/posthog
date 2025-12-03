@@ -29,7 +29,7 @@ use crate::{
         FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
         FLAG_DATABASE_ERROR_COUNTER, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
         FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
+        FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -1081,17 +1081,6 @@ async fn try_should_write_hash_key_override(
                 "High pool utilization before should_write_hash_key_override"
             );
         }
-
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "persons_reader".to_string())],
-            pr_utilization,
-        );
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "non_persons_reader".to_string())],
-            npr_utilization,
-        );
     }
 
     // Step 1: Get person data and existing overrides (scoped connection)
