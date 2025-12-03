@@ -40,7 +40,7 @@ export function StepConditionalBranchConfiguration({
         setConditions(conditions.map((c, i) => (i === index ? { ...c, name: value || undefined } : c)))
     }, 300)
 
-    const nodeEdges = edgesByActionId[action.id]
+    const nodeEdges = edgesByActionId[action.id] ?? []
 
     const [branchEdges, nonBranchEdges] = useMemo(() => {
         const branchEdges: HogFlow['edges'] = []
