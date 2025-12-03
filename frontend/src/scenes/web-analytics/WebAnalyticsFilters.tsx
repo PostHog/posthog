@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
 import { IconFilter, IconGlobe, IconPhone } from '@posthog/icons'
@@ -138,51 +137,46 @@ const DomainSettingsLink = (): JSX.Element => (
 const WebAnalyticsDomainSelector = (): JSX.Element => {
     const { domainFilter, hasHostFilter, authorizedDomains } = useValues(webAnalyticsLogic)
     const { setDomainFilter } = useActions(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const shouldGlow = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING] && authorizedDomains.length === 0
 
     return (
-        <div className={clsx(shouldGlow && 'animate-pulse-glow rounded')}>
-            <LemonSelect
-                className="grow md:grow-0"
-                size="small"
-                value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
-                icon={<IconGlobe />}
-                onChange={(value) => setDomainFilter(value)}
-                disabledReason={
-                    authorizedDomains.length === 0 ? (
-                        <span>
-                            No authorized domains, authorize them on <DomainSettingsLink />
+        <LemonSelect
+            className="grow md:grow-0"
+            size="small"
+            value={hasHostFilter ? 'host' : (domainFilter ?? 'all')}
+            icon={<IconGlobe />}
+            onChange={(value) => setDomainFilter(value)}
+            disabledReason={
+                authorizedDomains.length === 0 ? (
+                    <span>
+                        No authorized domains, authorize them on <DomainSettingsLink />
+                    </span>
+                ) : undefined
+            }
+            options={[
+                {
+                    options: [
+                        {
+                            label: 'All domains',
+                            value: 'all',
+                        },
+                        ...(hasHostFilter
+                            ? [
+                                  {
+                                      label: 'All domains (host filter active)',
+                                      value: 'host',
+                                  },
+                              ]
+                            : []),
+                        ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
+                    ],
+                    footer: (
+                        <span className="text-xs px-2">
+                            Have more domains? Go to <DomainSettingsLink />
                         </span>
-                    ) : undefined
-                }
-                options={[
-                    {
-                        options: [
-                            {
-                                label: 'All domains',
-                                value: 'all',
-                            },
-                            ...(hasHostFilter
-                                ? [
-                                      {
-                                          label: 'All domains (host filter active)',
-                                          value: 'host',
-                                      },
-                                  ]
-                                : []),
-                            ...authorizedDomains.map((domain) => ({ label: domain, value: domain })),
-                        ],
-                        footer: (
-                            <span className="text-xs px-2">
-                                Have more domains? Go to <DomainSettingsLink />
-                            </span>
-                        ),
-                    },
-                ]}
-            />
-        </div>
+                    ),
+                },
+            ]}
+        />
     )
 }
 
