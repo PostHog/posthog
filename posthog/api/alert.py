@@ -114,6 +114,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "subscribed_users",
             "threshold",
             "condition",
+            "detectors",
             "state",
             "enabled",
             "last_notified_at",
@@ -220,6 +221,10 @@ class AlertSerializer(serializers.ModelSerializer):
                 AlertSubscription.objects.get_or_create(
                     user=user, alert_configuration=instance, defaults={"created_by": self.context["request"].user}
                 )
+
+        # Check if detectors changed
+        if "detectors" in validated_data and validated_data["detectors"] != instance.detectors:
+            conditions_or_threshold_changed = True
 
         if conditions_or_threshold_changed:
             # If anything changed we set to NOT_FIRING, so it's firing and notifying with the new settings

@@ -684,7 +684,7 @@ class ConditionalFormattingRule(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list
+    bytecode: list[Any]
     color: str
     colorMode: ColorMode | None = None
     columnName: str
@@ -1059,6 +1059,18 @@ class DefaultChannelTypes(StrEnum):
     UNKNOWN = "Unknown"
 
 
+class DetectorDirection(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+    BOTH = "both"
+
+
+class DetectorType(StrEnum):
+    THRESHOLD = "threshold"
+    ZSCORE = "zscore"
+    KMEANS = "kmeans"
+
+
 class DistanceFunc(StrEnum):
     L1_DISTANCE = "L1Distance"
     L2_DISTANCE = "L2Distance"
@@ -1285,7 +1297,7 @@ class EventDefinition(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    elements: list
+    elements: list[Any]
     event: str
     properties: dict[str, Any]
 
@@ -1754,8 +1766,8 @@ class HogCompileResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list
-    locals: list
+    bytecode: list[Any]
+    locals: list[Any]
 
 
 class HogLanguage(StrEnum):
@@ -1837,8 +1849,8 @@ class HogQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list | None = None
-    coloredBytecode: list | None = None
+    bytecode: list[Any] | None = None
+    coloredBytecode: list[Any] | None = None
     results: Any
     stdout: str | None = None
 
@@ -1928,6 +1940,23 @@ class IntervalType(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+
+
+class KMeansAnomalyMethod(StrEnum):
+    SMALLEST = "smallest"
+    FURTHEST = "furthest"
+
+
+class KMeansFeature(StrEnum):
+    DIFF_1 = "diff_1"
+    LAG_1 = "lag_1"
+    LAG_2 = "lag_2"
+    LAG_3 = "lag_3"
+    LAG_4 = "lag_4"
+    LAG_5 = "lag_5"
+    SMOOTHED_3 = "smoothed_3"
+    SMOOTHED_5 = "smoothed_5"
+    SMOOTHED_7 = "smoothed_7"
 
 
 class LLMTraceEvent(BaseModel):
@@ -2739,8 +2768,8 @@ class QueryResponseAlternative7(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    bytecode: list | None = None
-    coloredBytecode: list | None = None
+    bytecode: list[Any] | None = None
+    coloredBytecode: list[Any] | None = None
     results: Any
     stdout: str | None = None
 
@@ -3018,7 +3047,7 @@ class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    events: list[list] = Field(
+    events: list[list[Any]] = Field(
         ...,
         description="List of events for this session, each event is a list of field values matching the query columns",
     )
@@ -3359,6 +3388,15 @@ class TestSetupResponse(BaseModel):
     result: Any | None = None
     success: bool
     test_name: str
+
+
+class ThresholdDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bounds: InsightsThresholdBounds
+    threshold_type: InsightThresholdType
+    type: Literal["threshold"] = "threshold"
 
 
 class TikTokAdsDefaultSources(StrEnum):
@@ -4794,6 +4832,16 @@ class InsightThreshold(BaseModel):
     type: InsightThresholdType
 
 
+class KMeansDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    anomaly_method: KMeansAnomalyMethod
+    features: list[KMeansFeature]
+    n_clusters: int
+    type: Literal["kmeans"] = "kmeans"
+
+
 class LLMTrace(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5221,7 +5269,7 @@ class RevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5330,7 +5378,7 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5350,14 +5398,14 @@ class RevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class RevenueExampleEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5377,7 +5425,7 @@ class RevenueExampleEventsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class SavedInsightNode(BaseModel):
@@ -5463,7 +5511,7 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5483,14 +5531,14 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class SessionBatchEventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5506,7 +5554,7 @@ class SessionBatchEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     session_events: list[SessionEventsItem] | None = Field(
         default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
     )
@@ -5567,7 +5615,7 @@ class SessionsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -5583,7 +5631,7 @@ class SessionsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5830,7 +5878,7 @@ class TestBasicQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -5861,7 +5909,7 @@ class TestCachedBasicQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6082,7 +6130,7 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6098,19 +6146,19 @@ class WebExternalClicksTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class WebGoalsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6126,12 +6174,12 @@ class WebGoalsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class WebOverviewQueryResponse(BaseModel):
@@ -6188,7 +6236,7 @@ class WebStatsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6204,12 +6252,12 @@ class WebStatsTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -6228,6 +6276,16 @@ class WebVitalsPathBreakdownResult(BaseModel):
     good: list[WebVitalsPathBreakdownResultItem]
     needs_improvements: list[WebVitalsPathBreakdownResultItem]
     poor: list[WebVitalsPathBreakdownResultItem]
+
+
+class ZScoreDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    direction: DetectorDirection
+    lookback_periods: int
+    type: Literal["zscore"] = "zscore"
+    z_threshold: float
 
 
 class ActorsPropertyTaxonomyQueryResponse(BaseModel):
@@ -6256,7 +6314,7 @@ class ActorsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6273,7 +6331,7 @@ class ActorsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6783,7 +6841,7 @@ class CachedActorsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -6804,7 +6862,7 @@ class CachedActorsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -6988,7 +7046,7 @@ class CachedEventsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7008,7 +7066,7 @@ class CachedEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7048,7 +7106,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7073,7 +7131,7 @@ class CachedFunnelCorrelationResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedFunnelsQueryResponse(BaseModel):
@@ -7118,7 +7176,7 @@ class CachedGroupsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7139,7 +7197,7 @@ class CachedGroupsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7257,7 +7315,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7283,7 +7341,7 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -7344,7 +7402,7 @@ class CachedRevenueAnalyticsGrossRevenueQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7491,7 +7549,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7516,7 +7574,7 @@ class CachedRevenueExampleDataWarehouseTablesQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedRevenueExampleEventsQueryResponse(BaseModel):
@@ -7528,7 +7586,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7553,7 +7611,7 @@ class CachedRevenueExampleEventsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedSessionAttributionExplorerQueryResponse(BaseModel):
@@ -7565,7 +7623,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7590,7 +7648,7 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedSessionBatchEventsQueryResponse(BaseModel):
@@ -7602,7 +7660,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7622,7 +7680,7 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     session_events: list[SessionEventsItem] | None = Field(
         default=None, description="Events grouped by session ID. Only populated when group_by_session=True."
     )
@@ -7645,7 +7703,7 @@ class CachedSessionsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7665,7 +7723,7 @@ class CachedSessionsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -7968,7 +8026,7 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -7988,13 +8046,13 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedWebGoalsQueryResponse(BaseModel):
@@ -8006,7 +8064,7 @@ class CachedWebGoalsQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8026,13 +8084,13 @@ class CachedWebGoalsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class CachedWebOverviewQueryResponse(BaseModel):
@@ -8114,7 +8172,7 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     calculation_trigger: str | None = Field(
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8134,13 +8192,13 @@ class CachedWebStatsTableQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -8489,7 +8547,7 @@ class Response(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8505,7 +8563,7 @@ class Response(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8516,7 +8574,7 @@ class Response1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8533,7 +8591,7 @@ class Response1(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8544,7 +8602,7 @@ class Response2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8561,7 +8619,7 @@ class Response2(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8598,7 +8656,7 @@ class Response5(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8614,12 +8672,12 @@ class Response5(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -8627,7 +8685,7 @@ class Response6(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8643,12 +8701,12 @@ class Response6(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response8(BaseModel):
@@ -8677,7 +8735,7 @@ class Response9(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8697,14 +8755,14 @@ class Response9(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response10(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8720,7 +8778,7 @@ class Response10(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8744,7 +8802,7 @@ class Response11(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -8845,7 +8903,7 @@ class Response16(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8865,14 +8923,14 @@ class Response16(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -8893,7 +8951,7 @@ class Response18(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class Response19(BaseModel):
@@ -9053,6 +9111,14 @@ class DatabaseSchemaDataWarehouseTable(BaseModel):
     source: DatabaseSchemaSource | None = None
     type: Literal["data_warehouse"] = "data_warehouse"
     url_pattern: str
+
+
+class DetectorGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    detectors: list[DetectorGroup | ThresholdDetectorConfig | ZScoreDetectorConfig | KMeansDetectorConfig]
+    type: FilterLogicalOperator
 
 
 class DocumentArtifactContent(BaseModel):
@@ -9467,7 +9533,7 @@ class EventsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -9483,7 +9549,7 @@ class EventsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -9659,7 +9725,7 @@ class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -9679,7 +9745,7 @@ class FunnelCorrelationResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class FunnelExclusionActionsNode(BaseModel):
@@ -9889,7 +9955,7 @@ class GroupsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -9906,7 +9972,7 @@ class GroupsQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -9967,7 +10033,7 @@ class HogQLQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -9986,11 +10052,11 @@ class HogQLQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class InsightActorsQueryBase(BaseModel):
@@ -10093,7 +10159,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10114,7 +10180,7 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class MaxBillingContext(BaseModel):
@@ -10294,7 +10360,7 @@ class QueryResponseAlternative1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10310,7 +10376,7 @@ class QueryResponseAlternative1(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10321,7 +10387,7 @@ class QueryResponseAlternative3(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10338,7 +10404,7 @@ class QueryResponseAlternative3(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10349,7 +10415,7 @@ class QueryResponseAlternative4(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10366,7 +10432,7 @@ class QueryResponseAlternative4(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10414,7 +10480,7 @@ class QueryResponseAlternative8(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10433,18 +10499,18 @@ class QueryResponseAlternative8(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class QueryResponseAlternative11(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10464,7 +10530,7 @@ class QueryResponseAlternative11(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative14(BaseModel):
@@ -10595,7 +10661,7 @@ class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10611,12 +10677,12 @@ class QueryResponseAlternative24(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -10624,7 +10690,7 @@ class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10640,12 +10706,12 @@ class QueryResponseAlternative25(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative27(BaseModel):
@@ -10711,7 +10777,7 @@ class QueryResponseAlternative30(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10812,7 +10878,7 @@ class QueryResponseAlternative35(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10833,7 +10899,7 @@ class QueryResponseAlternative35(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative36(BaseModel):
@@ -10863,7 +10929,7 @@ class QueryResponseAlternative37(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10879,7 +10945,7 @@ class QueryResponseAlternative37(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10890,7 +10956,7 @@ class QueryResponseAlternative38(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10907,7 +10973,7 @@ class QueryResponseAlternative38(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10918,7 +10984,7 @@ class QueryResponseAlternative39(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10935,7 +11001,7 @@ class QueryResponseAlternative39(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -10947,7 +11013,7 @@ class QueryResponseAlternative40(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -10966,11 +11032,11 @@ class QueryResponseAlternative40(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class QueryResponseAlternative41(BaseModel):
@@ -11003,7 +11069,7 @@ class QueryResponseAlternative42(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11019,12 +11085,12 @@ class QueryResponseAlternative42(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
     usedPreAggregatedTables: bool | None = None
 
 
@@ -11032,7 +11098,7 @@ class QueryResponseAlternative43(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11048,12 +11114,12 @@ class QueryResponseAlternative43(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     samplingRate: SamplingRate | None = None
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative45(BaseModel):
@@ -11082,7 +11148,7 @@ class QueryResponseAlternative46(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11102,14 +11168,14 @@ class QueryResponseAlternative46(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative47(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list
+    columns: list[Any]
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11125,7 +11191,7 @@ class QueryResponseAlternative47(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[list]
+    results: list[list[Any]]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -11149,7 +11215,7 @@ class QueryResponseAlternative48(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -11250,7 +11316,7 @@ class QueryResponseAlternative53(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11270,14 +11336,14 @@ class QueryResponseAlternative53(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative55(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11298,7 +11364,7 @@ class QueryResponseAlternative55(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative56(BaseModel):
@@ -11470,7 +11536,7 @@ class QueryResponseAlternative68(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    columns: list | None = None
+    columns: list[Any] | None = None
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -11490,7 +11556,7 @@ class QueryResponseAlternative68(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = None
+    types: list[Any] | None = None
 
 
 class QueryResponseAlternative70(BaseModel):
@@ -12379,7 +12445,7 @@ class WebTrendsQueryResponse(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -12403,7 +12469,7 @@ class WebTrendsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12553,6 +12619,14 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class AlertDetectorsConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    groups: list[DetectorGroup | ThresholdDetectorConfig | ZScoreDetectorConfig | KMeansDetectorConfig]
+    type: FilterLogicalOperator
+
+
 class AnyResponseType(
     RootModel[
         dict[str, Any]
@@ -12645,7 +12719,7 @@ class CachedHogQLQueryResponse(BaseModel):
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -12668,12 +12742,12 @@ class CachedHogQLQueryResponse(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class CachedInsightActorsQueryOptionsResponse(BaseModel):
@@ -12768,7 +12842,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
         default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -12797,7 +12871,7 @@ class CachedWebTrendsQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
     usedPreAggregatedTables: bool | None = None
 
 
@@ -12849,7 +12923,7 @@ class Response3(BaseModel):
         extra="forbid",
     )
     clickhouse: str | None = Field(default=None, description="Executed ClickHouse query")
-    columns: list | None = Field(default=None, description="Returned columns")
+    columns: list[Any] | None = Field(default=None, description="Returned columns")
     error: str | None = Field(
         default=None,
         description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
@@ -12868,11 +12942,11 @@ class Response3(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list
+    results: list[Any]
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-    types: list | None = Field(default=None, description="Types of returned columns")
+    types: list[Any] | None = Field(default=None, description="Types of returned columns")
 
 
 class Response20(BaseModel):
@@ -16691,6 +16765,7 @@ class SourceFieldSwitchGroupConfig(BaseModel):
 
 
 ProsemirrorJSONContent.model_rebuild()
+DetectorGroup.model_rebuild()
 PropertyGroupFilterValue.model_rebuild()
 HumanMessage.model_rebuild()
 MaxDashboardContext.model_rebuild()

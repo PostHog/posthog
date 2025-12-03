@@ -1202,6 +1202,8 @@ export type TrendsFilter = {
     showLegend?: TrendsFilterLegacy['show_legend']
     /** @default false */
     showAlertThresholdLines?: boolean
+    /** @default false */
+    showAlertBreachPoints?: boolean
     breakdown_histogram_bin_count?: TrendsFilterLegacy['breakdown_histogram_bin_count'] // TODO: fully move into BreakdownFilter
     /** @default numeric */
     aggregationAxisFormat?: TrendsFilterLegacy['aggregation_axis_format']
@@ -3618,6 +3620,77 @@ export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
     series_index: integer
     check_ongoing_interval?: boolean
+}
+
+// Alert Detector Types
+export enum DetectorType {
+    THRESHOLD = 'threshold',
+    ZSCORE = 'zscore',
+    KMEANS = 'kmeans',
+}
+
+// Direction for anomaly detection
+export enum DetectorDirection {
+    ABOVE = 'above',
+    BELOW = 'below',
+    BOTH = 'both',
+}
+
+// Threshold detector - existing behavior wrapped in new structure
+export interface ThresholdDetectorConfig {
+    type: DetectorType.THRESHOLD
+    bounds: InsightsThresholdBounds
+    threshold_type: InsightThresholdType
+}
+
+// Z-Score detector - statistical anomaly detection
+export interface ZScoreDetectorConfig {
+    type: DetectorType.ZSCORE
+    lookback_periods: integer // Number of periods to calculate mean/std from (default: 30)
+    z_threshold: number // Number of standard deviations to trigger (default: 2.0)
+    direction: DetectorDirection // Which direction(s) to detect anomalies
+}
+
+// Feature types for KMeans feature vector construction
+export enum KMeansFeature {
+    DIFF_1 = 'diff_1', // First difference (current - previous)
+    LAG_1 = 'lag_1', // Value at t-1
+    LAG_2 = 'lag_2', // Value at t-2
+    LAG_3 = 'lag_3', // Value at t-3
+    LAG_4 = 'lag_4', // Value at t-4
+    LAG_5 = 'lag_5', // Value at t-5
+    SMOOTHED_3 = 'smoothed_3', // 3-period moving average
+    SMOOTHED_5 = 'smoothed_5', // 5-period moving average
+    SMOOTHED_7 = 'smoothed_7', // 7-period moving average
+}
+
+// How to identify anomaly clusters
+export enum KMeansAnomalyMethod {
+    SMALLEST = 'smallest', // Smallest cluster is anomalous
+    FURTHEST = 'furthest', // Cluster furthest from centroid mean
+}
+
+// KMeans detector - clustering-based anomaly detection
+export interface KMeansDetectorConfig {
+    type: DetectorType.KMEANS
+    n_clusters: integer // Number of clusters (default: 3)
+    features: KMeansFeature[] // Features to include in the vector
+    anomaly_method: KMeansAnomalyMethod // How to identify anomaly cluster
+}
+
+// Union type for all detector configurations
+export type DetectorConfigType = ThresholdDetectorConfig | ZScoreDetectorConfig | KMeansDetectorConfig
+
+// Recursive group structure for AND/OR combinations (similar to PropertyGroupFilter)
+export interface DetectorGroup {
+    type: FilterLogicalOperator // AND or OR
+    detectors: (DetectorConfigType | DetectorGroup)[]
+}
+
+// Top-level alert detectors configuration
+export interface AlertDetectorsConfig {
+    type: FilterLogicalOperator // AND or OR at the top level
+    groups: (DetectorConfigType | DetectorGroup)[]
 }
 
 export interface HogCompileResponse {

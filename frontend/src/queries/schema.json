@@ -387,6 +387,29 @@
             "enum": ["absolute_value", "relative_increase", "relative_decrease"],
             "type": "string"
         },
+        "AlertDetectorsConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "groups": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DetectorConfigType"
+                            },
+                            {
+                                "$ref": "#/definitions/DetectorGroup"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                }
+            },
+            "required": ["type", "groups"],
+            "type": "object"
+        },
         "AlertState": {
             "enum": ["Firing", "Not firing", "Errored", "Snoozed"],
             "type": "string"
@@ -10842,6 +10865,50 @@
             ],
             "type": "string"
         },
+        "DetectorConfigType": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KMeansDetectorConfig"
+                }
+            ]
+        },
+        "DetectorDirection": {
+            "enum": ["above", "below", "both"],
+            "type": "string"
+        },
+        "DetectorGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "detectors": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DetectorConfigType"
+                            },
+                            {
+                                "$ref": "#/definitions/DetectorGroup"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                }
+            },
+            "required": ["type", "detectors"],
+            "type": "object"
+        },
+        "DetectorType": {
+            "enum": ["threshold", "zscore", "kmeans"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -17240,6 +17307,37 @@
         },
         "IntervalType": {
             "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "KMeansAnomalyMethod": {
+            "enum": ["smallest", "furthest"],
+            "type": "string"
+        },
+        "KMeansDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "anomaly_method": {
+                    "$ref": "#/definitions/KMeansAnomalyMethod"
+                },
+                "features": {
+                    "items": {
+                        "$ref": "#/definitions/KMeansFeature"
+                    },
+                    "type": "array"
+                },
+                "n_clusters": {
+                    "$ref": "#/definitions/integer"
+                },
+                "type": {
+                    "const": "kmeans",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "n_clusters", "features", "anomaly_method"],
+            "type": "object"
+        },
+        "KMeansFeature": {
+            "enum": ["diff_1", "lag_1", "lag_2", "lag_3", "lag_4", "lag_5", "smoothed_3", "smoothed_5", "smoothed_7"],
             "type": "string"
         },
         "LLMTrace": {
@@ -29071,6 +29169,23 @@
             "required": ["success", "test_name"],
             "type": "object"
         },
+        "ThresholdDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "bounds": {
+                    "$ref": "#/definitions/InsightsThresholdBounds"
+                },
+                "threshold_type": {
+                    "$ref": "#/definitions/InsightThresholdType"
+                },
+                "type": {
+                    "const": "threshold",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "bounds", "threshold_type"],
+            "type": "object"
+        },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
             "type": "string"
@@ -31787,6 +31902,26 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "direction": {
+                    "$ref": "#/definitions/DetectorDirection"
+                },
+                "lookback_periods": {
+                    "$ref": "#/definitions/integer"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "z_threshold": {
+                    "type": "number"
+                }
+            },
+            "required": ["type", "lookback_periods", "z_threshold", "direction"],
             "type": "object"
         },
         "integer": {

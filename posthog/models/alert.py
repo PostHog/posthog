@@ -99,8 +99,13 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     )
 
     # The threshold to evaluate the alert against. If null, the alert must have other conditions to trigger.
+    # DEPRECATED: Use detectors field for new alerts
     threshold = models.ForeignKey(Threshold, on_delete=models.CASCADE, null=True, blank=True)
     condition = models.JSONField(default=dict)
+
+    # New detector-based alert configuration with AND/OR logic
+    # When set, this takes precedence over threshold/condition
+    detectors = models.JSONField(null=True, blank=True, default=None)
 
     state = models.CharField(max_length=10, choices=ALERT_STATE_CHOICES, default=AlertState.NOT_FIRING)
     enabled = models.BooleanField(default=True)

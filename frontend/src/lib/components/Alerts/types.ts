@@ -1,6 +1,7 @@
 import {
     AlertCalculationInterval,
     AlertCondition,
+    AlertDetectorsConfig,
     AlertState,
     InsightThreshold,
     TrendsAlertConfig,
@@ -13,6 +14,7 @@ export interface AlertTypeBase {
     name: string
     condition: AlertCondition
     threshold: { configuration: InsightThreshold }
+    detectors?: AlertDetectorsConfig | null
     enabled: boolean
     insight: QueryBasedInsightModel
     config: AlertConfig
