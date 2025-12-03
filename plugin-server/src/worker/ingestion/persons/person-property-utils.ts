@@ -169,6 +169,15 @@ export const FILTERED_PERSON_UPDATE_PROPERTIES = new Set([
     '$viewport_height',
     '$viewport_width',
 
+    // Browser/device properties - change less frequently but still filtered
+    '$browser',
+    '$browser_version',
+    '$device_type',
+    '$raw_user_agent',
+    '$os',
+    '$os_name',
+    '$os_version',
+
     // GeoIP properties - filtered because they change frequently
     '$geoip_postal_code',
     '$geoip_time_zone',
