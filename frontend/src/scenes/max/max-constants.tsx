@@ -1,4 +1,13 @@
-import { IconAtSign, IconBook, IconCreditCard, IconGlobe, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
+import {
+    IconAtSign,
+    IconBook,
+    IconCreditCard,
+    IconDocument,
+    IconGlobe,
+    IconMemory,
+    IconSearch,
+    IconShuffle,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
@@ -197,6 +206,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'> | 'we
                         return 'Read data warehouse schema'
                     }
                     return 'Reading data warehouse schema...'
+                },
+            },
+            artifacts: {
+                name: 'Read conversation artifacts',
+                description: 'Read conversation artifacts created by the agent',
+                icon: <IconDocument />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read conversation artifacts'
+                    }
+                    return 'Reading conversation artifacts...'
                 },
             },
         },
@@ -543,6 +563,11 @@ export const AI_GENERALLY_CANNOT: string[] = [
     'Guarantee correctness',
     'Order tungsten cubes',
 ]
+
+export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
+    const identifier = toolCall.args.kind ?? toolCall.name
+    return getToolDefinition(identifier as string)
+}
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {

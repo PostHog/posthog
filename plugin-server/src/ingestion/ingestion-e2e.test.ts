@@ -784,6 +784,84 @@ describe('Event Pipeline E2E tests', () => {
         }
     )
 
+    testWithTeamIngester(
+        'allowed geoip properties ($geoip_country_name, $geoip_city_name) trigger person updates alongside blocked geoip properties',
+        {},
+        async (ingester, hub, team) => {
+            const distinctId = new UUIDT().toString()
+            const timestamp = DateTime.now().toMillis()
+
+            // When $geoip_country_name or $geoip_city_name changes, all geoip properties in the batch
+            // should be updated, even the normally-blocked ones like $geoip_latitude
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    // Event 1: Create person with initial geoip properties
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: {
+                                $geoip_country_name: 'Canada',
+                                $geoip_city_name: 'Toronto',
+                                $geoip_latitude: 43.6532,
+                                $geoip_longitude: -79.3832,
+                            },
+                        })
+                        .withTimestamp(timestamp)
+                        .build(),
+                    // Event 2: Update geoip properties including allowed ones (country/city)
+                    // Since $geoip_country_name changes, all geoip properties should be updated
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$pageview')
+                        .withProperties({
+                            $set: {
+                                $geoip_country_name: 'United States',
+                                $geoip_city_name: 'San Francisco',
+                                $geoip_latitude: 37.7749,
+                                $geoip_longitude: -122.4194,
+                            },
+                        })
+                        .withTimestamp(timestamp + 1)
+                        .build(),
+                ])
+            )
+
+            await waitForExpect(async () => {
+                const events = await fetchEvents(hub, team.id)
+                expect(events.length).toEqual(2)
+
+                // Event 0 (first pageview): Should have initial geoip properties
+                expect(events[0].person_properties).toEqual({
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_country_name: 'Canada',
+                    $geoip_city_name: 'Toronto',
+                    $geoip_latitude: 43.6532,
+                    $geoip_longitude: -79.3832,
+                })
+
+                // Event 1 (second pageview): Should have UPDATED geoip properties
+                // Because $geoip_country_name is an allowed property, all geoip properties get updated
+                expect(events[1].person_properties).toEqual({
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_country_name: 'United States',
+                    $geoip_city_name: 'San Francisco',
+                    $geoip_latitude: 37.7749,
+                    $geoip_longitude: -122.4194,
+                })
+
+                // Verify the final state of the person in the database reflects the updates
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.properties).toEqual({
+                    $creator_event_uuid: events[0].uuid,
+                    $geoip_country_name: 'United States',
+                    $geoip_city_name: 'San Francisco',
+                    $geoip_latitude: 37.7749,
+                    $geoip_longitude: -122.4194,
+                })
+            })
+        }
+    )
+
     testWithTeamIngester('can handle events with $process_person_profile=false', {}, async (ingester, hub, team) => {
         const distinctId = new UUIDT().toString()
         const timestamp = DateTime.now().toMillis()
