@@ -333,6 +333,7 @@ export class IngestionConsumer {
                                             createEmitEventStep({
                                                 kafkaProducer: this.kafkaProducer!,
                                                 clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                groupId: this.groupId,
                                             })
                                         ),
                                 {

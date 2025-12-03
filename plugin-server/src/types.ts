@@ -1385,6 +1385,7 @@ export interface EventHeaders {
     timestamp?: string
     event?: string
     uuid?: string
+    now?: Date
     force_disable_person_processing: boolean
 }
 

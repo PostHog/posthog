@@ -914,6 +914,11 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.uuid = value
             } else if (key === 'force_disable_person_processing') {
                 result.force_disable_person_processing = value === 'true'
+            } else if (key === 'now') {
+                const parsed = new Date(value)
+                if (!isNaN(parsed.getTime())) {
+                    result.now = parsed
+                }
             }
         })
     })
