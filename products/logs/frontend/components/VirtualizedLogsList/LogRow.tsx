@@ -18,6 +18,27 @@ const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
     fatal: 'bg-danger-dark',
 }
 
+// Column configuration - shared between header and rows
+export interface LogColumnConfig {
+    key: string
+    label?: string
+    width?: number
+    minWidth?: number
+    flex?: number
+}
+
+export const LOG_COLUMNS: LogColumnConfig[] = [
+    { key: 'severity', width: 8 },
+    { key: 'timestamp', label: 'Timestamp', width: 180 },
+    { key: 'message', label: 'Message', minWidth: 300, flex: 1 },
+    { key: 'actions', width: 80 },
+]
+
+// Calculate total minimum width for horizontal scrolling
+export const getMinRowWidth = (): number => {
+    return LOG_COLUMNS.reduce((sum, col) => sum + (col.width || col.minWidth || 100), 0)
+}
+
 export interface LogRowProps {
     log: ParsedLogMessage
     isHighlighted: boolean
@@ -28,6 +49,8 @@ export interface LogRowProps {
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
     onTogglePin: (uuid: string) => void
     onSetHighlighted: (uuid: string | null) => void
+    /** Width of the row container, used for flex column calculations */
+    rowWidth?: number
 }
 
 export function LogRow({
@@ -40,56 +63,123 @@ export function LogRow({
     tzLabelFormat,
     onTogglePin,
     onSetHighlighted,
+    rowWidth,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
 
+    // Calculate flex column width
+    const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
+    const flexWidth = rowWidth ? rowWidth - fixedColumnsWidth : undefined
+
+    const renderCell = (column: LogColumnConfig): JSX.Element => {
+        const cellStyle: React.CSSProperties = column.flex
+            ? {
+                  flexGrow: column.flex,
+                  flexShrink: 1,
+                  flexBasis: flexWidth ? Math.max(flexWidth, column.minWidth || 0) : column.minWidth,
+                  minWidth: column.minWidth,
+              }
+            : { width: column.width, flexShrink: 0 }
+
+        switch (column.key) {
+            case 'severity': {
+                const severityColor = SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
+                return (
+                    <Tooltip key={column.key} title={log.severity_text.toUpperCase()}>
+                        <div className="flex items-stretch self-stretch w-2" style={{ flexShrink: 0 }}>
+                            <div className={cn('w-1 rounded-full', severityColor)} />
+                        </div>
+                    </Tooltip>
+                )
+            }
+            case 'timestamp':
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
+                        <span className="text-xs text-muted font-mono">
+                            <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                        </span>
+                    </div>
+                )
+            case 'message':
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
+                        <span
+                            className={cn(
+                                'font-mono text-xs break-all',
+                                wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
+                            )}
+                        >
+                            {log.parsedBody && prettifyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody}
+                        </span>
+                    </div>
+                )
+            case 'actions':
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={pinned ? <IconPinFilled /> : <IconPin />}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onTogglePin(log.uuid)
+                            }}
+                            tooltip={pinned ? 'Unpin log' : 'Pin log'}
+                            className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
+                        />
+                        <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
+                            <LogsTableRowActions log={log} />
+                        </div>
+                    </div>
+                )
+            default:
+                return <div key={column.key} style={cellStyle} />
+        }
+    }
+
     return (
         <div
-            key={isNew ? `new-${log.uuid}` : log.uuid}
             className={cn(
-                'flex items-center gap-3 border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
+                'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
                 isHighlighted && 'bg-primary-highlight',
                 pinned && 'bg-warning-highlight',
                 pinned && showPinnedWithOpacity && 'opacity-50',
                 isNew && 'VirtualizedLogsList__row--new'
             )}
+            style={rowWidth ? { width: rowWidth } : undefined}
             onClick={() => onSetHighlighted(isHighlighted ? null : log.uuid)}
         >
-            <Tooltip title={log.severity_text.toUpperCase()}>
-                <div
-                    className={cn(
-                        'w-1 self-stretch rounded-full shrink-0',
-                        SEVERITY_BAR_COLORS[log.severity_text] ?? 'bg-muted-3000'
-                    )}
-                />
-            </Tooltip>
-            <span className="w-[180px] text-xs text-muted shrink-0 font-mono">
-                <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
-            </span>
-            <span
-                className={cn(
-                    'flex-1 font-mono text-xs break-all py-1.5',
-                    wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
-                )}
-            >
-                {log.parsedBody && prettifyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody}
-            </span>
-            <div className="flex items-center gap-1 shrink-0">
-                <LemonButton
-                    size="xsmall"
-                    noPadding
-                    icon={pinned ? <IconPinFilled /> : <IconPin />}
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onTogglePin(log.uuid)
-                    }}
-                    tooltip={pinned ? 'Unpin log' : 'Pin log'}
-                    className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
-                />
-                <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                    <LogsTableRowActions log={log} />
-                </div>
-            </div>
+            {LOG_COLUMNS.map(renderCell)}
+        </div>
+    )
+}
+
+// Header component for the logs table
+export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
+    const fixedColumnsWidth = LOG_COLUMNS.reduce((sum, c) => sum + (c.width || 0), 0)
+    const flexWidth = rowWidth - fixedColumnsWidth
+
+    return (
+        <div
+            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted sticky top-0 z-10"
+            style={{ width: rowWidth }}
+        >
+            {LOG_COLUMNS.map((column) => {
+                const cellStyle: React.CSSProperties = column.flex
+                    ? {
+                          flexGrow: column.flex,
+                          flexShrink: 1,
+                          flexBasis: Math.max(flexWidth, column.minWidth || 0),
+                          minWidth: column.minWidth,
+                      }
+                    : { width: column.width, flexShrink: 0 }
+
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-center px-1">
+                        {column.label || ''}
+                    </div>
+                )
+            })}
         </div>
     )
 }

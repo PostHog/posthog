@@ -8,7 +8,7 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 
-import { LogRow } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
+import { LogRow, LogRowHeader, getMinRowWidth } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
 import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
@@ -42,11 +42,22 @@ export function VirtualizedLogsList({
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
     const prevDataLengthRef = useRef<number>(0)
+    const prevWidthRef = useRef<number>(0)
+
+    const minRowWidth = useMemo(() => getMinRowWidth(), [])
+
+    // Clear cache when container width changes (affects message column width and thus row heights)
+    const handleWidthChange = (width: number): void => {
+        if (prevWidthRef.current !== 0 && prevWidthRef.current !== width) {
+            cache.clearAll()
+            listRef.current?.recomputeRowHeights()
+        }
+        prevWidthRef.current = width
+    }
 
     // Preserve scroll position when new data is appended
     useEffect(() => {
         if (dataSource.length > prevDataLengthRef.current && prevDataLengthRef.current > 0) {
-            // Data was appended, restore scroll position
             requestAnimationFrame(() => {
                 listRef.current?.scrollToPosition(scrollTopRef.current)
             })
@@ -64,7 +75,7 @@ export function VirtualizedLogsList({
         []
     )
 
-    // Clear cache when display options change or when a fresh query starts (loading + empty data)
+    // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
         if (logsLoading && dataSource.length === 0) {
             cache.clearAll()
@@ -78,9 +89,8 @@ export function VirtualizedLogsList({
 
     const prevHighlightedLogIdRef = useRef<string | null>(null)
 
-    // Only scroll to highlighted log when it changes, not on every data update
     useEffect(() => {
-        if (highlightedLogId && highlightedLogId !== prevHighlightedLogIdRef.current && listRef.current) {
+        if (highlightedLogId && highlightedLogId !== prevHighlightedLogIdRef.current) {
             requestAnimationFrame(() => {
                 const index = dataSource.findIndex((log) => log.uuid === highlightedLogId)
                 if (index !== -1) {
@@ -91,32 +101,6 @@ export function VirtualizedLogsList({
         prevHighlightedLogIdRef.current = highlightedLogId
     }, [highlightedLogId, dataSource])
 
-    const rowRenderer = ({ index, key, style, parent }: ListRowProps): JSX.Element => {
-        const log = dataSource[index]
-        const isHighlighted = log.uuid === highlightedLogId
-        const pinned = isPinned(log.uuid)
-
-        return (
-            <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
-                {({ registerChild }) => (
-                    <div ref={registerChild as React.LegacyRef<HTMLDivElement>} style={style} data-row-key={log.uuid}>
-                        <LogRow
-                            log={log}
-                            isHighlighted={isHighlighted}
-                            pinned={pinned}
-                            showPinnedWithOpacity={showPinnedWithOpacity}
-                            wrapBody={wrapBody}
-                            prettifyJson={prettifyJson}
-                            tzLabelFormat={tzLabelFormat}
-                            onTogglePin={togglePinLog}
-                            onSetHighlighted={setHighlightedLogId}
-                        />
-                    </div>
-                )}
-            </CellMeasurer>
-        )
-    }
-
     const handleRowsRendered = ({ stopIndex }: { stopIndex: number }): void => {
         if (disableInfiniteScroll) {
             return
@@ -126,55 +110,103 @@ export function VirtualizedLogsList({
         }
     }
 
+    const createRowRenderer = (rowWidth?: number) => {
+        return ({ index, key, style, parent }: ListRowProps): JSX.Element => {
+            const log = dataSource[index]
+            const isHighlighted = log.uuid === highlightedLogId
+            const pinned = isPinned(log.uuid)
+
+            return (
+                <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
+                    {({ registerChild }) => (
+                        <div
+                            ref={registerChild as React.LegacyRef<HTMLDivElement>}
+                            style={style}
+                            data-row-key={log.uuid}
+                        >
+                            <LogRow
+                                log={log}
+                                isHighlighted={isHighlighted}
+                                pinned={pinned}
+                                showPinnedWithOpacity={showPinnedWithOpacity}
+                                wrapBody={wrapBody}
+                                prettifyJson={prettifyJson}
+                                tzLabelFormat={tzLabelFormat}
+                                onTogglePin={togglePinLog}
+                                onSetHighlighted={setHighlightedLogId}
+                                rowWidth={rowWidth}
+                            />
+                        </div>
+                    )}
+                </CellMeasurer>
+            )
+        }
+    }
+
     if (dataSource.length === 0 && !loading) {
         return <div className="p-4 text-muted text-center">No logs to display</div>
     }
 
     // Fixed height mode for pinned logs
     if (fixedHeight !== undefined) {
+        const listHeight = fixedHeight - 32 // Subtract header height
         return (
-            <div style={{ height: fixedHeight }}>
+            <div style={{ height: fixedHeight }} className="flex flex-col">
                 <AutoSizer disableHeight>
-                    {({ width }) => (
-                        <List
-                            ref={listRef}
-                            width={width}
-                            height={fixedHeight}
-                            rowCount={dataSource.length}
-                            rowHeight={cache.rowHeight}
-                            deferredMeasurementCache={cache}
-                            rowRenderer={rowRenderer}
-                            overscanRowCount={5}
-                            tabIndex={null}
-                            style={{ outline: 'none' }}
-                        />
-                    )}
+                    {({ width }) => {
+                        handleWidthChange(width)
+                        return (
+                            <>
+                                <LogRowHeader rowWidth={width} />
+                                <List
+                                    ref={listRef}
+                                    width={width}
+                                    height={listHeight}
+                                    rowCount={dataSource.length}
+                                    rowHeight={cache.rowHeight}
+                                    deferredMeasurementCache={cache}
+                                    rowRenderer={createRowRenderer()}
+                                    overscanRowCount={5}
+                                    tabIndex={null}
+                                    style={{ outline: 'none' }}
+                                />
+                            </>
+                        )
+                    }}
                 </AutoSizer>
             </div>
         )
     }
 
     return (
-        <div className="h-full flex-1">
+        <div className="h-full flex-1 flex flex-col">
             <AutoSizer>
-                {({ width, height }) => (
-                    <List
-                        ref={listRef}
-                        width={width}
-                        height={height}
-                        rowCount={dataSource.length}
-                        rowHeight={cache.rowHeight}
-                        deferredMeasurementCache={cache}
-                        rowRenderer={rowRenderer}
-                        overscanRowCount={10}
-                        onRowsRendered={handleRowsRendered}
-                        onScroll={({ scrollTop }) => {
-                            scrollTopRef.current = scrollTop
-                        }}
-                        tabIndex={null}
-                        style={{ outline: 'none' }}
-                    />
-                )}
+                {({ width, height }) => {
+                    handleWidthChange(width)
+                    const rowWidth = Math.max(width, minRowWidth)
+
+                    return (
+                        <div className="overflow-x-auto" style={{ width, height }}>
+                            <LogRowHeader rowWidth={rowWidth} />
+                            <List
+                                ref={listRef}
+                                width={rowWidth}
+                                height={height - 32} // Subtract header height
+                                rowCount={dataSource.length}
+                                rowHeight={cache.rowHeight}
+                                deferredMeasurementCache={cache}
+                                rowRenderer={createRowRenderer(rowWidth)}
+                                onRowsRendered={handleRowsRendered}
+                                onScroll={({ scrollTop }) => {
+                                    scrollTopRef.current = scrollTop
+                                }}
+                                overscanRowCount={10}
+                                tabIndex={null}
+                                style={{ outline: 'none', overflowX: 'hidden' }}
+                            />
+                        </div>
+                    )
+                }}
             </AutoSizer>
         </div>
     )
