@@ -255,7 +255,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                 resourceType={{ type: 'chat' }}
                 actions={
                     <>
-                        {tabId ? (
+                        {tabId && conversationId ? (
                             <LemonButton
                                 size="small"
                                 type="secondary"
