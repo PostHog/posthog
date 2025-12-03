@@ -1,7 +1,6 @@
 from collections import defaultdict
 from collections.abc import Sequence
-from enum import Enum, auto
-from typing import Optional, TypeGuard, Union, cast
+from typing import Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
@@ -23,80 +22,20 @@ from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.insights.funnels.funnel_aggregation_operations import FirstTimeForUserAggregationQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import get_breakdown_expr
+from posthog.hogql_queries.insights.funnels.utils import (
+    SourceTableKind,
+    alias_columns_in_select,
+    entity_source_mismatch,
+    entity_source_or_table_mismatch,
+    get_breakdown_expr,
+    get_table_name,
+    is_data_warehouse_source,
+)
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
-
-
-class SourceTableKind(Enum):
-    EVENTS = auto()
-    DATA_WAREHOUSE = auto()
-
-
-def is_events_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.EVENTS
-
-
-def is_data_warehouse_source(source_kind: SourceTableKind) -> bool:
-    return source_kind is SourceTableKind.DATA_WAREHOUSE
-
-
-def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
-    return (
-        isinstance(entity, EventsNode)
-        or isinstance(entity, FunnelExclusionEventsNode)
-        or isinstance(entity, ActionsNode)
-        or isinstance(entity, FunnelExclusionActionsNode)
-    )
-
-
-def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
-    return isinstance(entity, DataWarehouseNode)
-
-
-def entity_source_mismatch(entity: EntityNode, source_kind: SourceTableKind) -> bool:
-    if source_kind is SourceTableKind.EVENTS:
-        return not is_events_entity(entity)
-    if source_kind is SourceTableKind.DATA_WAREHOUSE:
-        return not is_data_warehouse_entity(entity)
-    raise ValueError(f"Unknown SourceTableKind: {source_kind}")
-
-
-def entity_source_or_table_mismatch(entity: EntityNode, source_kind: SourceTableKind, table_name: str) -> bool:
-    if entity_source_mismatch(entity, source_kind):
-        return True
-    if is_events_entity(entity) and table_name != "events":
-        return True
-    if is_data_warehouse_entity(entity) and table_name != entity.table_name:
-        return True
-    return False
-
-
-def get_table_name(entity: EntityNode):
-    if is_data_warehouse_entity(entity):
-        return entity.table_name
-    else:
-        return "events"
-
-
-# collect all field and alias names from a select expression list, to return a list of aliases
-def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[ast.Expr]:
-    result: list[ast.Expr] = []
-    for col in columns:
-        if isinstance(col, ast.Alias):
-            result.append(ast.Alias(alias=col.alias, expr=ast.Field(chain=[table_alias, col.alias])))
-        elif isinstance(col, ast.Field):
-            # assumes the last chain part is the column name
-            column_name = col.chain[-1]
-            if not isinstance(column_name, str):
-                raise ValueError(f"Cannot alias field with chain {col.chain!r}")
-            result.append(ast.Alias(alias=column_name, expr=ast.Field(chain=[table_alias, col.alias])))
-        else:
-            raise ValueError(f"Unexpected select expression {col!r}")
-    return result
 
 
 class FunnelEventQuery:
@@ -244,10 +183,12 @@ class FunnelEventQuery:
         if len(queries) == 1:
             return queries[0]
 
+        # Take the field and alias names from the first query. UNION enforces identical column sets
+        # across all selects, which makes this reliable.
+        aliased_fields = alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS)
+
         return ast.SelectQuery(
-            # Take the field and alias names from the first query. UNION enforces identical column sets
-            # across all selects, which makes this reliable.
-            select=alias_columns_in_select(queries[0].select, self.EVENT_TABLE_ALIAS),
+            select=aliased_fields,
             select_from=ast.JoinExpr(
                 table=ast.SelectSetQuery.create_from_queries(queries, "UNION ALL"),
                 alias=self.EVENT_TABLE_ALIAS,

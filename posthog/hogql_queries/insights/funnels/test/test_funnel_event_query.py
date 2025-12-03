@@ -1,6 +1,8 @@
+import re
 from textwrap import dedent
 
 from freezegun import freeze_time
+import regex
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 import sqlparse
@@ -104,6 +106,22 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         context = FunnelQueryContext(query=query, team=self.team)
 
         funnel_event_query = FunnelEventQuery(context=context).to_query()
+
+        select = format_query(funnel_event_query)
+        select = regex.sub(
+            r"\((?:[^()]+|(?R))*\)", "(...)", select, count=1
+        )  # replace everything in the first parenthesis to get the outer query
+        expected = dedent("""
+            SELECT e.timestamp AS timestamp,
+                   e.aggregation_target AS aggregation_target,
+                   e.step_0 AS step_0,
+                   e.step_1 AS step_1,
+                   e.step_2 AS step_2,
+                   e.step_3 AS step_3
+            FROM
+              (...) AS e
+        """).strip()
+        self.assertEqual(select, expected)
 
         select_1 = format_query(funnel_event_query.select_from.table.initial_select_query)  # type: ignore
         expected_1 = dedent("""
