@@ -6,7 +6,6 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
-import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
@@ -31,7 +30,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
-    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
+    ) => string
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -79,11 +78,6 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     suggestions?: string[]
     /** The callback function that will be executed with the LLM's tool call output */
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
-}
-
-export interface RecordingsWidgetDef {
-    widget: 'recordings'
-    args: RecordingUniversalFilters
 }
 
 /** Static mode definition for display purposes. */
@@ -239,24 +233,6 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Searched recordings'
             }
             return 'Searching recordings...'
-        },
-    },
-    filter_session_recordings: {
-        name: 'Filter recordings',
-        description: 'Filter recordings to find the most relevant ones',
-        product: Scene.Replay,
-        icon: iconForType('session_replay'),
-        displayFormatter: (toolCall) => {
-            const widgetDef = toolCall.args?.recordings_filters
-                ? ({
-                      widget: 'recordings',
-                      args: toolCall.args.recordings_filters as RecordingUniversalFilters,
-                  } as const)
-                : null
-            if (toolCall.status === 'completed') {
-                return ['Filtered recordings', widgetDef]
-            }
-            return ['Filtering recordings...', widgetDef]
         },
     },
     generate_hogql_query: {

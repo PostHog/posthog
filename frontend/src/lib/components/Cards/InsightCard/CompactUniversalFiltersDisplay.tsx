@@ -9,7 +9,6 @@ import {
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { allOperatorsMapping, capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -18,7 +17,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionFilter,
-    AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterBaseValue,
     PropertyGroupFilter,
@@ -26,13 +24,8 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-function isActionFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter & { type: 'actions' } {
-    return (filter as ActionFilter).type === 'actions' && 'id' in filter
-}
-
-function isEventFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter & { type: 'events' } {
-    // Yeah, it's a legacy mess, ActionFilter actually means a few different things
-    return (filter as ActionFilter).type === 'events' && 'id' in filter
+function isActionFilter(filter: UniversalFiltersGroupValue): filter is ActionFilter {
+    return (filter as ActionFilter).type !== undefined && 'id' in filter
 }
 
 function isUniversalFiltersGroup(value: UniversalFiltersGroupValue): value is UniversalFiltersGroup {
@@ -49,14 +42,13 @@ export function CompactUniversalFiltersDisplay({
     const { cohortsById } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    if (!groupFilter || !groupFilter.values?.length) {
+    if (!groupFilter || !groupFilter.values.length) {
         return <i>None</i>
     }
 
     return (
         <>
             {groupFilter.values.map((filterOrGroup, index) => {
-                const isFirstFilterOverall = index === 0
                 if (isUniversalFiltersGroup(filterOrGroup)) {
                     // Nested group
                     return (
@@ -71,40 +63,28 @@ export function CompactUniversalFiltersDisplay({
                     )
                 }
 
-                if (isActionFilter(filterOrGroup) || isEventFilter(filterOrGroup)) {
+                if (isActionFilter(filterOrGroup)) {
                     return (
                         <div key={index} className="SeriesDisplay__condition">
                             <span>
                                 {embedded && index === 0 ? 'where ' : null}
                                 {index > 0 ? (groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and ') : null}
-                                {isActionFilter(filterOrGroup) ? (
-                                    <>
-                                        {isFirstFilterOverall ? 'P' : 'p'}erformed action
-                                        <Link
-                                            to={urls.action(filterOrGroup.id as number)}
-                                            className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action"
-                                        >
-                                            {filterOrGroup.name || filterOrGroup.id}
-                                        </Link>
-                                    </>
-                                ) : (
-                                    <>
-                                        {isFirstFilterOverall ? 'H' : 'h'}ad event
-                                        <span className="SeriesDisplay__raw-name SeriesDisplay__raw-name--event">
-                                            <PropertyKeyInfo
-                                                value={filterOrGroup.id as string}
-                                                type={TaxonomicFilterGroupType.Events}
-                                            />
-                                        </span>
-                                    </>
-                                )}
+                                Performed action
+                                <Link
+                                    to={urls.action(filterOrGroup.id as number)}
+                                    className="SeriesDisplay__raw-name SeriesDisplay__raw-name--action mx-1"
+                                    title="Action"
+                                >
+                                    {filterOrGroup.name || `Action ${filterOrGroup.id}`}
+                                </Link>
                             </span>
                         </div>
                     )
                 }
-                const propertyFilter = filterOrGroup as AnyPropertyFilter
 
                 // Property filter
+                const isFirstFilterOverall = index === 0
+
                 return (
                     <div key={index} className="SeriesDisplay__condition">
                         <span>
@@ -112,31 +92,31 @@ export function CompactUniversalFiltersDisplay({
                             {index > 0 ? (
                                 <strong>{groupFilter.type === FilterLogicalOperator.Or ? 'or ' : 'and '}</strong>
                             ) : null}
-                            {isCohortPropertyFilter(propertyFilter) ? (
+                            {isCohortPropertyFilter(filterOrGroup) ? (
                                 <>
                                     {isFirstFilterOverall && !embedded ? 'Person' : 'person'} belongs to cohort
                                     <span className="SeriesDisplay__raw-name">
                                         {formatPropertyLabel(
-                                            propertyFilter,
+                                            filterOrGroup,
                                             cohortsById,
                                             (s) =>
-                                                formatPropertyValueForDisplay(propertyFilter.key, s)?.toString() || '?'
+                                                formatPropertyValueForDisplay(filterOrGroup.key, s)?.toString() || '?'
                                         )}
                                     </span>
                                 </>
                             ) : (
                                 <>
                                     {isFirstFilterOverall && !embedded
-                                        ? capitalizeFirstLetter(propertyFilter.type || 'event')
-                                        : propertyFilter.type || 'event'}
+                                        ? capitalizeFirstLetter(filterOrGroup.type || 'event')
+                                        : filterOrGroup.type || 'event'}
                                     's
                                     <span className="SeriesDisplay__raw-name">
-                                        {isAnyPropertyfilter(propertyFilter) && propertyFilter.key && (
+                                        {isAnyPropertyfilter(filterOrGroup) && filterOrGroup.key && (
                                             <PropertyKeyInfo
-                                                value={propertyFilter.key}
+                                                value={filterOrGroup.key}
                                                 type={
                                                     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[
-                                                        propertyFilter.type
+                                                        filterOrGroup.type
                                                     ]
                                                 }
                                             />
@@ -145,24 +125,24 @@ export function CompactUniversalFiltersDisplay({
                                     <em>
                                         {
                                             allOperatorsMapping[
-                                                (isPropertyFilterWithOperator(propertyFilter) &&
-                                                    propertyFilter.operator) ||
+                                                (isPropertyFilterWithOperator(filterOrGroup) &&
+                                                    filterOrGroup.operator) ||
                                                     'exact'
                                             ]
                                         }
                                     </em>{' '}
-                                    {isAnyPropertyfilter(propertyFilter) &&
-                                        (Array.isArray(propertyFilter.value) ? (
-                                            propertyFilter.value.map((subValue, index) => (
+                                    {isAnyPropertyfilter(filterOrGroup) &&
+                                        (Array.isArray(filterOrGroup.value) ? (
+                                            filterOrGroup.value.map((subValue, index) => (
                                                 <React.Fragment key={index}>
                                                     <code className="SeriesDisplay__value">{subValue}</code>
                                                     {index <
-                                                        (propertyFilter.value as PropertyFilterBaseValue[]).length -
-                                                            1 && ' or '}
+                                                        (filterOrGroup.value as PropertyFilterBaseValue[]).length - 1 &&
+                                                        ' or '}
                                                 </React.Fragment>
                                             ))
-                                        ) : propertyFilter.value != undefined ? (
-                                            <code className="SeriesDisplay__value">{propertyFilter.value}</code>
+                                        ) : filterOrGroup.value != undefined ? (
+                                            <code className="SeriesDisplay__value">{filterOrGroup.value}</code>
                                         ) : null)}
                                 </>
                             )}
