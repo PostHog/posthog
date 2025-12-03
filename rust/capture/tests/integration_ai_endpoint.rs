@@ -2332,9 +2332,7 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
 // ----------------------------------------------------------------------------
 
 // Helper to setup test router with custom TokenDropper and CapturingSink
-fn setup_ai_test_router_with_token_dropper(
-    token_dropper: TokenDropper,
-) -> (Router, CapturingSink) {
+fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Router, CapturingSink) {
     let liveness = HealthRegistry::new("ai_endpoint_tests");
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -2532,10 +2530,13 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
     };
 
     // Set up mock Redis to return this token as limited for LLM events
-    let llm_key = format!("{}{}", QUOTA_LIMITER_CACHE_KEY, QuotaResource::LLMEvents.as_str());
-    let redis = Arc::new(
-        MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]),
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
     );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
 
     let mut cfg = DEFAULT_CONFIG.clone();
     cfg.capture_mode = CaptureMode::Events;

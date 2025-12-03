@@ -243,7 +243,10 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
 /// Retrieve event metadata from the first multipart part for early checks.
 /// This parses only the 'event' part to extract event_name and distinct_id
 /// before processing the rest of the multipart body.
-async fn retrieve_event_metadata(body: Bytes, boundary: &str) -> Result<EventMetadata, CaptureError> {
+async fn retrieve_event_metadata(
+    body: Bytes,
+    boundary: &str,
+) -> Result<EventMetadata, CaptureError> {
     // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
     let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
 
@@ -259,7 +262,9 @@ async fn retrieve_event_metadata(body: Bytes, boundary: &str) -> Result<EventMet
             CaptureError::RequestDecodingError(format!("Multipart parsing failed: {e}"))
         })?
         .ok_or_else(|| {
-            CaptureError::RequestParsingError("Missing required 'event' part in multipart data".to_string())
+            CaptureError::RequestParsingError(
+                "Missing required 'event' part in multipart data".to_string(),
+            )
         })?;
 
     let field_name = field.name().unwrap_or("unknown").to_string();
@@ -284,7 +289,8 @@ async fn retrieve_event_metadata(body: Bytes, boundary: &str) -> Result<EventMet
     })?;
 
     // Process the event part
-    let (event_json, event_part_info) = process_event_part(field_data, content_type, content_encoding)?;
+    let (event_json, event_part_info) =
+        process_event_part(field_data, content_type, content_encoding)?;
 
     // Extract event_name and distinct_id
     let event_obj = event_json.as_object().ok_or_else(|| {
@@ -294,13 +300,17 @@ async fn retrieve_event_metadata(body: Bytes, boundary: &str) -> Result<EventMet
     let event_name = event_obj
         .get("event")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestParsingError("Event missing 'event' field".to_string()))?
+        .ok_or_else(|| {
+            CaptureError::RequestParsingError("Event missing 'event' field".to_string())
+        })?
         .to_string();
 
     let distinct_id = event_obj
         .get("distinct_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string()))?
+        .ok_or_else(|| {
+            CaptureError::RequestParsingError("Event missing 'distinct_id' field".to_string())
+        })?
         .to_string();
 
     Ok(EventMetadata {

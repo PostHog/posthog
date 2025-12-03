@@ -229,10 +229,7 @@ async fn test_llm_predicate() {
         "ai_generation",
     ];
     for name in should_reject_names {
-        assert!(
-            !is_llm_event(name),
-            "event {name} should not be accepted"
-        );
+        assert!(!is_llm_event(name), "event {name} should not be accepted");
     }
 }
 
