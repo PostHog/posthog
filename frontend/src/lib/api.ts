@@ -4486,6 +4486,19 @@ const api = {
         ): Promise<HogflowTestResult> {
             return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations').create({ data })
         },
+        async createFullTestInvocation(
+            hogFlowId: HogFlow['id'],
+            data: {
+                configuration: Record<string, any>
+                mock_async_functions: boolean
+                globals?: any
+                variables?: any
+                clickhouse_event?: any
+                invocation_id?: string
+            }
+        ): Promise<HogflowTestResult> {
+            return await new ApiRequest().hogFlow(hogFlowId).withAction('invocations/full').create({ data })
+        },
     },
 
     queryURL: (): string => {

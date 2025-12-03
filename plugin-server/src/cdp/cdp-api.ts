@@ -30,7 +30,7 @@ import { HogWatcherService, HogWatcherState } from './services/monitoring/hog-wa
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { HOG_FUNCTION_TEMPLATES } from './templates'
-import { HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType, MinimalLogEntry } from './types'
 import { convertToHogFunctionInvocationGlobals, isNativeHogFunction, isSegmentPluginHogFunction } from './utils'
 import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering'
 
@@ -116,6 +116,7 @@ export class CdpApi {
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations/full', asyncHandler(this.postHogflowFullInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))
@@ -374,6 +375,220 @@ export class CdpApi {
         } finally {
             await this.hogFunctionMonitoringService.flush()
         }
+    }
+
+    private postHogflowFullInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            const { id, team_id } = req.params
+            const { clickhouse_event, configuration, invocation_id, mock_async_functions, variables } = req.body
+
+            logger.info('⚡️', 'Received full hogflow invocation', { id, team_id, body: req.body })
+
+            const invocationID = invocation_id ?? new UUIDT().toString()
+
+            // Check the invocationId is a valid UUID
+            if (!UUID.validateString(invocationID)) {
+                res.status(400).json({ error: 'Invalid invocation ID' })
+                return
+            }
+
+            const isNewHogFlow = req.params.id === 'new'
+            const hogFlow = isNewHogFlow ? null : await this.hogFlowManager.getHogFlow(req.params.id)
+
+            const team = await this.hub.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            // NOTE: We allow the hog flow to be null if it is a "new" hog flow
+            // The real security happens at the django layer so this is more of a sanity check
+            if (!isNewHogFlow && (!hogFlow || hogFlow.team_id !== team.id)) {
+                return res.status(404).json({ error: 'Hog flow not found' })
+            }
+
+            const globals: HogFunctionInvocationGlobals | null = clickhouse_event
+                ? convertToHogFunctionInvocationGlobals(
+                      clickhouse_event,
+                      team,
+                      this.hub.SITE_URL ?? 'http://localhost:8000'
+                  )
+                : req.body.globals
+
+            if (!globals || !globals.event) {
+                return res.status(400).json({ error: 'Missing event' })
+            }
+
+            // Add any provided variables to globals
+            if (variables) {
+                globals.variables = { ...globals.variables, ...variables }
+            }
+
+            // We use the provided config if given, otherwise the flow's config
+            const compoundConfiguration = {
+                ...hogFlow,
+                ...configuration,
+                team_id: team.id,
+            }
+
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                ...globals,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.hub.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+            }
+
+            const filterGlobals = convertToHogFunctionFilterGlobal({
+                event: globals.event,
+                person: globals.person,
+                groups: globals.groups,
+            })
+
+            const invocation = createHogFlowInvocation(triggerGlobals, compoundConfiguration, filterGlobals)
+            invocation.id = invocationID
+
+            const logs: MinimalLogEntry[] = []
+            const options: HogExecutorExecuteAsyncOptions = buildHogExecutorAsyncOptions(mock_async_functions, logs)
+            
+            // Execute the whole flow step by step for testing
+            const result = await this.executeHogFlowForTesting(invocation, options, logs)
+
+            // Collect all action results
+            const actionResults: any[] = []
+            if (result.invocation.state.variables) {
+                // Extract action results from variables
+                for (const [key, value] of Object.entries(result.invocation.state.variables)) {
+                    if (key.startsWith('$action/')) {
+                        actionResults.push({
+                            actionId: key.replace('$action/', ''),
+                            result: value,
+                        })
+                    }
+                }
+            }
+
+            res.json({
+                finished: result.finished,
+                status: result.error ? 'error' : 'success',
+                errors: result.error ? [result.error] : [],
+                logs: result.logs, // Logs are already sorted and combined in executeHogFlowForTesting
+                metrics: result.metrics,
+                variables: result.invocation.state.variables,
+                actionResults,
+                currentAction: result.invocation.state.currentAction,
+                actionStepCount: result.invocation.state.actionStepCount,
+            })
+        } catch (e) {
+            console.error(e)
+            res.status(500).json({ error: [e.message] })
+        }
+    }
+
+    /**
+     * Execute a HogFlow for testing purposes, skipping delays and wait actions
+     */
+    private async executeHogFlowForTesting(
+        invocation: CyclotronJobInvocationHogFlow,
+        options: HogExecutorExecuteAsyncOptions,
+        mockFunctionLogs: MinimalLogEntry[]
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>> {
+        let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
+        const MAX_TEST_STEPS = 20 // Prevent infinite loops in testing
+        const allLogs: MinimalLogEntry[] = []
+        const allMetrics: any[] = []
+        const allCapturedEvents: any[] = []
+
+        allLogs.push({
+            level: 'info',
+            message: `Starting test workflow execution`,
+            timestamp: DateTime.now(),
+        })
+
+        let stepCount = 0
+        while ((!result || !result.finished) && stepCount < MAX_TEST_STEPS) {
+            const nextInvocation: CyclotronJobInvocationHogFlow = result?.invocation ?? invocation
+            
+            // Execute current action with mocked async functions
+            result = await this.hogFlowExecutor.executeCurrentAction(nextInvocation, { 
+                hogExecutorOptions: options 
+            })
+
+            // Collect logs from this execution step and replace action IDs with names
+            if (result.logs && result.logs.length > 0) {
+                const enhancedLogs = result.logs.map(log => {
+                    let message = log.message
+                    // Replace [Action:id] with action name for better readability
+                    const actionIdPattern = /\[Action:([^\]]+)\]/g
+                    message = message.replace(actionIdPattern, (match, actionId) => {
+                        const action = invocation.hogFlow.actions.find(a => a.id === actionId)
+                        if (action) {
+                            const name = action.name || action.type || actionId
+                            return `"${name}"`
+                        }
+                        return match
+                    })
+                    return { ...log, message }
+                })
+                allLogs.push(...enhancedLogs)
+            }
+            if (result.metrics && result.metrics.length > 0) {
+                allMetrics.push(...result.metrics)
+            }
+            if (result.capturedPostHogEvents && result.capturedPostHogEvents.length > 0) {
+                allCapturedEvents.push(...result.capturedPostHogEvents)
+            }
+
+            // For testing, if a delay or wait action is scheduled, skip it and continue immediately
+            if (result.invocation.queueScheduledAt) {
+                allLogs.push({
+                    level: 'info',
+                    message: `Test mode: Skipping scheduled delay/wait, continuing immediately`,
+                    timestamp: DateTime.now(),
+                })
+                // Clear the scheduled time to continue execution
+                result.invocation.queueScheduledAt = undefined
+                result.finished = false
+            }
+
+            stepCount++
+        }
+
+        if (stepCount >= MAX_TEST_STEPS) {
+            if (result) {
+                result.error = 'Maximum test steps reached'
+                result.finished = true
+            }
+            allLogs.push({
+                level: 'error',
+                message: `Test execution stopped after ${MAX_TEST_STEPS} steps to prevent infinite loop`,
+                timestamp: DateTime.now(),
+            })
+        }
+
+        if (!result) {
+            throw new Error('Failed to execute HogFlow test')
+        }
+
+        // Combine and sort all logs chronologically
+        // Add a small offset to mock function logs to ensure they appear in the right order
+        const adjustedMockLogs = mockFunctionLogs.map((log, index) => ({
+            ...log,
+            // Add a microsecond offset to ensure proper ordering
+            timestamp: DateTime.fromMillis(log.timestamp.toMillis() + index * 0.001)
+        }))
+        
+        const sortedLogs = [...allLogs, ...adjustedMockLogs].sort((a, b) => {
+            return a.timestamp.toMillis() - b.timestamp.toMillis()
+        })
+
+        // Update the result with all collected data
+        result.logs = sortedLogs
+        result.metrics = allMetrics
+        result.capturedPostHogEvents = allCapturedEvents
+
+        return result
     }
 
     private postHogflowInvocation = async (req: ModifiedRequest, res: express.Response): Promise<any> => {

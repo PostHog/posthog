@@ -1,11 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
+import { IconFlask } from '@posthog/icons'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
+import { TestWorkflowModal } from './testing/TestWorkflowModal'
+import { testWorkflowLogic } from './testing/testWorkflowLogic'
 import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 
@@ -13,6 +16,10 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
     const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue } = useActions(logic)
+    
+    const testLogic = testWorkflowLogic(props)
+    const { testModalOpen } = useValues(testLogic)
+    const { setTestModalOpen } = useActions(testLogic)
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isManualWorkflow = workflow?.trigger?.type === 'manual' || workflow?.trigger?.type === 'schedule'
@@ -51,6 +58,15 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 actions={
                     <>
                         {isManualWorkflow && <HogFlowManualTriggerButton {...props} />}
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setTestModalOpen(true)}
+                            size="small"
+                            icon={<IconFlask />}
+                            tooltip="Test the full workflow with example data"
+                        >
+                            Test workflow
+                        </LemonButton>
                         {isSavedWorkflow && (
                             <>
                                 <LemonButton
@@ -105,6 +121,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                     </>
                 }
             />
+            {testModalOpen && <TestWorkflowModal {...props} />}
         </>
     )
 }

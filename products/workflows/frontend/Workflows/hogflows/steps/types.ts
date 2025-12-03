@@ -258,6 +258,12 @@ export const isTriggerFunction = (
 export interface HogflowTestResult {
     status: 'success' | 'error' | 'skipped'
     logs?: LogEntry[]
-    nextActionId: string | null
+    nextActionId?: string | null
     errors?: string[]
+    finished?: boolean
+    metrics?: any[]
+    variables?: Record<string, any>
+    actionResults?: Array<{ actionId: string; result: any }>
+    currentAction?: any
+    actionStepCount?: number
 }

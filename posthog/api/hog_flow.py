@@ -27,7 +27,7 @@ from posthog.cdp.validation import (
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
+from posthog.plugins.plugin_server_api import create_hog_flow_full_invocation_test, create_hog_flow_invocation_test
 
 logger = structlog.get_logger(__name__)
 
@@ -235,6 +235,14 @@ class HogFlowInvocationSerializer(serializers.Serializer):
     current_action_id = serializers.CharField(write_only=True, required=False)
 
 
+class HogFlowFullInvocationSerializer(serializers.Serializer):
+    configuration = HogFlowSerializer(write_only=True, required=False)
+    globals = serializers.DictField(write_only=True, required=False)
+    variables = serializers.DictField(write_only=True, required=False)
+    mock_async_functions = serializers.BooleanField(default=True, write_only=True)
+    invocation_id = serializers.CharField(write_only=True, required=False)
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -377,6 +385,30 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             return Response(serializer.errors, status=400)
 
         res = create_hog_flow_invocation_test(
+            team_id=self.team_id,
+            hog_flow_id=str(hog_flow.id) if hog_flow else "new",
+            payload=serializer.validated_data,
+        )
+
+        if res.status_code != 200:
+            return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
+
+        return Response(res.json())
+
+    @action(detail=True, methods=["POST"], url_path="invocations/full")
+    def invocations_full(self, request: Request, *args, **kwargs):
+        try:
+            hog_flow = self.get_object()
+        except Exception:
+            hog_flow = None
+
+        serializer = HogFlowFullInvocationSerializer(
+            data=request.data, context={**self.get_serializer_context(), "instance": hog_flow}
+        )
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
+
+        res = create_hog_flow_full_invocation_test(
             team_id=self.team_id,
             hog_flow_id=str(hog_flow.id) if hog_flow else "new",
             payload=serializer.validated_data,

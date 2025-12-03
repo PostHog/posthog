@@ -103,3 +103,9 @@ export async function shouldSkipAction(
 export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string => {
     return `[Action:${action.id}]`
 }
+
+// Format action with name for better readability in test logs
+export const actionNameForLogging = (action: Pick<HogFlowAction, 'id' | 'name'>): string => {
+    const name = action.name || action.id
+    return `"${name}"`
+}
