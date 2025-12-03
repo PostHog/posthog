@@ -65,7 +65,7 @@ class PostHogSCIMUser(SCIMUser):
         return scim_user.username if scim_user else self.obj.email
 
     @property
-    def identity_provider(self) -> SCIMProvisionedUser.IdentityProvider:
+    def identity_provider(self) -> str:
         scim_user = SCIMProvisionedUser.objects.filter(
             user=self.obj, organization_domain=self._organization_domain
         ).first()
