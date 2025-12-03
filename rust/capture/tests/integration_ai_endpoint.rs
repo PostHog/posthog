@@ -2326,3 +2326,190 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
         "With valid sent_at, clock skew correction should be applied"
     );
 }
+
+// ----------------------------------------------------------------------------
+// Token Dropper Tests
+// ----------------------------------------------------------------------------
+
+// Helper to setup test router with custom TokenDropper and CapturingSink
+fn setup_ai_test_router_with_token_dropper(
+    token_dropper: TokenDropper,
+) -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        quota_limiter,
+        token_dropper,
+        false,
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(10),
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_drops_matching_token() {
+    // Configure token dropper to drop all events for a specific token
+    let token_dropper = TokenDropper::new("phc_dropped_token");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use the dropped token
+    let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
+
+    // Should return 200 OK (silently dropped)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify no event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        0,
+        "Event should be dropped when token matches dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_allows_non_matching_token() {
+    // Configure token dropper to drop a different token
+    let token_dropper = TokenDropper::new("phc_other_token");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use a different token that is NOT in the dropper
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published when token does not match dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_drops_matching_token_and_distinct_id() {
+    // Configure token dropper to drop events for specific token:distinct_id combination
+    let token_dropper = TokenDropper::new("phc_specific_token:blocked_user");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    // Create event with matching distinct_id
+    let form = create_ai_event_form("$ai_generation", "blocked_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_specific_token")).await;
+
+    // Should return 200 OK (silently dropped)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify no event was published
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        0,
+        "Event should be dropped when token:distinct_id matches dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_allows_different_distinct_id() {
+    // Configure token dropper to drop events for specific token:distinct_id combination
+    let token_dropper = TokenDropper::new("phc_specific_token:blocked_user");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    // Create event with DIFFERENT distinct_id
+    let form = create_ai_event_form("$ai_generation", "allowed_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_specific_token")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published (different distinct_id)
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published when distinct_id does not match dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_returns_accepted_parts_on_drop() {
+    // Configure token dropper to drop all events for a specific token
+    let token_dropper = TokenDropper::new("phc_dropped_token");
+    let (router, _sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify response still contains accepted_parts (for the event part that was parsed)
+    let response_json: serde_json::Value = response.json::<serde_json::Value>().await;
+    assert!(response_json["accepted_parts"].is_array());
+    let accepted_parts = response_json["accepted_parts"].as_array().unwrap();
+    // Should have 1 part (event) since we dropped early before processing blobs
+    assert_eq!(accepted_parts.len(), 1);
+    assert_eq!(accepted_parts[0]["name"], "event");
+}
