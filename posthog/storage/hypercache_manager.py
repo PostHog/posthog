@@ -225,7 +225,7 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
         Number of cache keys deleted
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         deleted = 0
         for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
