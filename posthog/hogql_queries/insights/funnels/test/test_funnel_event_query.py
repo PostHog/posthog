@@ -1,10 +1,9 @@
-import re
 from textwrap import dedent
 
 from freezegun import freeze_time
-import regex
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+import regex
 import sqlparse
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, EventPropertyFilter, EventsNode, FunnelsQuery
