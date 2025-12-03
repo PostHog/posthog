@@ -142,8 +142,12 @@ pub async fn ai_handler(
     let token = &auth_header[7..]; // Remove "Bearer " prefix
     validate_token(token)?;
 
+    // Capture body size for logging (before we move the Bytes)
+    let body_size = decompressed_body.len();
+
     // Step 1: Retrieve event metadata (parses only the first 'event' part)
-    let event_metadata = retrieve_event_metadata(&decompressed_body, &boundary).await?;
+    // Bytes::clone() is cheap (ref-counted), no actual data copy
+    let event_metadata = retrieve_event_metadata(decompressed_body.clone(), &boundary).await?;
 
     // Step 2: Check token dropper early - before parsing remaining parts
     if state
@@ -159,7 +163,7 @@ pub async fn ai_handler(
 
     // Step 3: Retrieve and validate remaining multipart parts
     let parts = retrieve_multipart_parts(
-        &decompressed_body,
+        decompressed_body,
         &boundary,
         state.ai_max_sum_of_parts_bytes,
         event_metadata,
@@ -184,7 +188,7 @@ pub async fn ai_handler(
 
     // Log request details for debugging
     debug!("AI endpoint request validated and sent to Kafka successfully");
-    debug!("Body size: {} bytes", decompressed_body.len());
+    debug!("Body size: {} bytes", body_size);
     debug!("Content-Type: {}", content_type);
     debug!("Boundary: {}", boundary);
     debug!("Token: {}...", &token[..std::cmp::min(8, token.len())]);
@@ -223,10 +227,9 @@ fn decompress_gzip(compressed: &Bytes) -> Result<Bytes, CaptureError> {
 /// Retrieve event metadata from the first multipart part for early checks.
 /// This parses only the 'event' part to extract event_name and distinct_id
 /// before processing the rest of the multipart body.
-async fn retrieve_event_metadata(body: &[u8], boundary: &str) -> Result<EventMetadata, CaptureError> {
-    // Create a stream from the body data
-    let body_owned = body.to_vec();
-    let body_stream = stream::once(async move { Ok::<Vec<u8>, std::io::Error>(body_owned) });
+async fn retrieve_event_metadata(body: Bytes, boundary: &str) -> Result<EventMetadata, CaptureError> {
+    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
+    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
 
     // Create multipart parser
     let mut multipart = Multipart::new(body_stream, boundary);
@@ -507,7 +510,7 @@ fn process_blob_part(
 /// Retrieve and validate multipart parts from the request body.
 /// The event metadata (first part) has already been parsed by retrieve_event_metadata.
 async fn retrieve_multipart_parts(
-    body: &[u8],
+    body: Bytes,
     boundary: &str,
     max_sum_of_parts_bytes: usize,
     event_metadata: EventMetadata,
@@ -515,9 +518,8 @@ async fn retrieve_multipart_parts(
     // Size limits
     const MAX_COMBINED_SIZE: usize = 1024 * 1024 - 64 * 1024; // 1MB - 64KB = 960KB
 
-    // Create a stream from the body data - need to own the data
-    let body_owned = body.to_vec();
-    let body_stream = stream::once(async move { Ok::<Vec<u8>, std::io::Error>(body_owned) });
+    // Create a stream from the body data - Bytes::clone() is cheap (ref-counted)
+    let body_stream = stream::once(async move { Ok::<Bytes, std::io::Error>(body) });
 
     // Create multipart parser
     let mut multipart = Multipart::new(body_stream, boundary);
