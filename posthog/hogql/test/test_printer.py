@@ -3071,12 +3071,12 @@ class TestMaterializedColumnOptimization(BaseTest):
         expected_optimized_query: str | None,
         expected_context_values: Mapping[str, Any] | None = None,
     ) -> None:
-        def build_context(optimisation_mode: MaterializedColumnsOptimizationMode | None) -> HogQLContext:
+        def build_context(optimization_mode: MaterializedColumnsOptimizationMode | None) -> HogQLContext:
             return HogQLContext(
                 team_id=self.team.pk,
                 modifiers=HogQLQueryModifiers(
                     materializationMode=MaterializationMode.AUTO,
-                    materializedColumnsOptimizationMode=optimisation_mode,
+                    materializedColumnsOptimizationMode=optimization_mode,
                 ),
             )
 
