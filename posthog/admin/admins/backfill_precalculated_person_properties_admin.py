@@ -8,15 +8,15 @@ from django.shortcuts import redirect, render
 
 
 class BackfillPrecalculatedPersonPropertiesForm(forms.Form):
-    cohort_id = forms.IntegerField(
-        min_value=1,
-        help_text="Cohort ID to backfill person properties for",
-        label="Cohort ID",
-    )
     team_id = forms.IntegerField(
         min_value=1,
         help_text="Team ID for the cohort",
         label="Team ID",
+    )
+    cohort_id = forms.IntegerField(
+        required=False,
+        help_text="Optional: Specific cohort ID to backfill. If not provided, backfills all realtime cohorts for the team",
+        label="Cohort ID",
     )
     parallelism = forms.IntegerField(
         initial=5,
@@ -60,8 +60,12 @@ def backfill_precalculated_person_properties_view(request):
         form = BackfillPrecalculatedPersonPropertiesForm(request.POST)
         if form.is_valid():
             command_args = []
-            command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
             command_args.extend(["--team-id", str(form.cleaned_data["team_id"])])
+
+            # Only add cohort_id if provided
+            if form.cleaned_data.get("cohort_id"):
+                command_args.extend(["--cohort-id", str(form.cleaned_data["cohort_id"])])
+
             command_args.extend(["--parallelism", str(form.cleaned_data["parallelism"])])
             command_args.extend(["--batch-size", str(form.cleaned_data["batch_size"])])
             command_args.extend(["--workflows-per-batch", str(form.cleaned_data["workflows_per_batch"])])
@@ -73,9 +77,15 @@ def backfill_precalculated_person_properties_view(request):
                 total_batches = math.ceil(form.cleaned_data["parallelism"] / form.cleaned_data["workflows_per_batch"])
                 total_time_minutes = (total_batches - 1) * form.cleaned_data["batch_delay_minutes"]
 
+                cohort_info = (
+                    f"cohort {form.cleaned_data['cohort_id']}"
+                    if form.cleaned_data.get("cohort_id")
+                    else "all realtime cohorts"
+                )
                 messages.success(
                     request,
-                    f"Backfill started successfully for cohort {form.cleaned_data['cohort_id']} "
+                    f"Backfill started successfully for {cohort_info} "
+                    f"(team {form.cleaned_data['team_id']}) "
                     f"with {form.cleaned_data['parallelism']} workflows "
                     f"in {total_batches} batches ({form.cleaned_data['workflows_per_batch']} per batch, "
                     f"{form.cleaned_data['batch_delay_minutes']}min delays). "
