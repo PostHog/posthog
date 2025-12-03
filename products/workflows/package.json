@@ -8,6 +8,9 @@
         "kea-subscriptions": "^3.0.1",
         "posthog-js": "1.297.0"
     },
+    "devDependencies": {
+        "kea-test-utils": "*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
