@@ -75,19 +75,19 @@ describe('DateFilter with allowTimePrecision', () => {
         const dateFilter = screen.getByTestId('date-filter')
         userEvent.click(dateFilter)
 
-        expect(screen.getByText('Custom fixed date range with time…')).toBeInTheDocument()
-        expect(screen.getByText('Custom fixed date range…')).toBeInTheDocument()
+        expect(screen.getByText(/custom fixed date range with time/i)).toBeInTheDocument()
+        expect(screen.getByText(/custom fixed date range…$/i)).toBeInTheDocument()
     })
 
     it('opens the time range picker when clicking custom fixed date range with time', async () => {
         const dateFilter = screen.getByTestId('date-filter')
         userEvent.click(dateFilter)
 
-        const timeRangeOption = screen.getByText('Custom fixed date range with time…')
+        const timeRangeOption = screen.getByText(/custom fixed date range with time/i)
         userEvent.click(timeRangeOption)
 
         await waitFor(() => {
-            expect(screen.getByText('Select a date and time range')).toBeInTheDocument()
+            expect(screen.getByText(/select a date and time range/i)).toBeInTheDocument()
         })
     })
 })
