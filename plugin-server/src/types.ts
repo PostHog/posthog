@@ -560,7 +560,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerDelay?: boolean
-    cdpRealtimeCohorts?: boolean // Now handles both behavioral + person property filters
+    cdpRealtimeCohorts?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
