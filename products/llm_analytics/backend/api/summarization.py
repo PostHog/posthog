@@ -348,7 +348,6 @@ The response includes the summary text and optional metadata.
             summary = async_to_sync(summarize)(
                 text_repr=text_repr,
                 team_id=self.team_id,
-                trace_id=entity_id,
                 mode=mode,
             )
 
