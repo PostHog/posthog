@@ -371,6 +371,7 @@ export interface HogQLQueryModifiers {
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2' | 'v3'
     sessionsV2JoinMode?: 'string' | 'uuid'
+    materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -1629,6 +1630,7 @@ export type LifecycleFilter = {
     stacked?: boolean
 }
 
+// See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
 export type RefreshType =
     | 'async'
     | 'async_except_on_cache_miss'
@@ -1980,9 +1982,19 @@ interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<
     conversionGoal?: WebAnalyticsConversionGoal | null
     compareFilter?: CompareFilter
     doPathCleaning?: boolean
+    /** @deprecated Use samplingFactor instead */
     sampling?: WebAnalyticsSampling
+    /** Sampling rate */
+    samplingFactor?: number | null
     filterTestAccounts?: boolean
+    /** @deprecated ignored, always treated as disabled */
     includeRevenue?: boolean
+    /** For Product Analytics UI compatibility only - not used in Web Analytics query execution */
+    interval?: IntervalType
+    /** Groups aggregation - not used in Web Analytics but required for type compatibility */
+    aggregation_group_type_index?: integer | null
+    /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
+    dataColorTheme?: number | null
     orderBy?: WebAnalyticsOrderBy
     /** @deprecated ignored, always treated as enabled **/
     useSessionsTable?: boolean
@@ -2406,6 +2418,13 @@ export interface ErrorTrackingIssueCohort {
     name: string
 }
 
+export type QuickFilterType = 'manual-options' | 'auto-discovery'
+
+export enum QuickFilterContext {
+    ErrorTrackingIssueFilters = 'error-tracking-issue-filters',
+    LogsFilters = 'logs-filters',
+}
+
 export interface ErrorTrackingRelationalIssue {
     id: string
     name: string | null
@@ -2567,6 +2586,9 @@ export interface LogMessage {
     resource_attributes: any
     instrumentation_scope: string
     event_name: string
+    /**  @format date-time */
+    live_logs_checkpoint?: string
+    new?: boolean
 }
 
 export interface LogsQuery extends DataNode<LogsQueryResponse> {
@@ -2579,6 +2601,7 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     severityLevels: LogSeverityLevel[]
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
+    liveLogsCheckpoint?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2741,6 +2764,10 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     sceneKeys?: string[]
     /** Product key(s) that generate interest in this item when intent is triggered */
     intents?: ProductKey[]
+    /** Reason for custom product suggestion (from UserProductList) */
+    reason?: UserProductListReason
+    /** Custom reason text for custom product suggestion (from UserProductList) */
+    reasonText?: string | null
 }
 
 export interface FileSystemViewLogEntry {
@@ -2767,6 +2794,10 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | WebStatsTableQuery
+    | WebOverviewQuery
+
+export type ProductAnalyticsInsightQueryNode = Exclude<InsightQueryNode, WebStatsTableQuery | WebOverviewQuery>
 
 export interface ExperimentVariantTrendsBaseStats {
     key: string
@@ -3174,6 +3205,7 @@ export type InsightFilterProperty =
     | 'stickinessFilter'
     | 'calendarHeatmapFilter'
     | 'lifecycleFilter'
+    | 'properties'
 
 export type InsightFilter =
     | TrendsFilter
@@ -3183,6 +3215,7 @@ export type InsightFilter =
     | StickinessFilter
     | LifecycleFilter
     | CalendarHeatmapFilter
+    | WebAnalyticsPropertyFilters
 
 export type Day = integer
 
@@ -3739,7 +3772,15 @@ export enum DefaultChannelTypes {
 // IMPORTANT: Changes to AIEventType values impact usage reporting and billing
 // These values are used in SQL queries to compute usage and exclude AI events from standard event counts
 // Any changes here will be reflected in the Python schema and affect billing calculations
-export type AIEventType = '$ai_generation' | '$ai_embedding' | '$ai_span' | '$ai_trace' | '$ai_metric' | '$ai_feedback'
+export type AIEventType =
+    | '$ai_generation'
+    | '$ai_embedding'
+    | '$ai_span'
+    | '$ai_trace'
+    | '$ai_metric'
+    | '$ai_feedback'
+    | '$ai_evaluation'
+    | '$ai_trace_summary'
 
 export interface LLMTraceEvent {
     id: string
@@ -3795,6 +3836,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
+    randomOrder?: boolean
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4278,6 +4321,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Impressions = 'impressions',
     Source = 'source',
     ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -4306,6 +4350,11 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         required: false,
         isCurrency: false,
     },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: true,
+    },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -4323,8 +4372,13 @@ export enum AttributionMode {
     LastTouch = 'last_touch',
 }
 
+export enum MatchField {
+    CAMPAIGN_NAME = 'campaign_name',
+    CAMPAIGN_ID = 'campaign_id',
+}
+
 export interface CampaignFieldPreference {
-    match_field: 'campaign_name' | 'campaign_id'
+    match_field: MatchField
 }
 
 export interface MarketingAnalyticsConfig {
@@ -4347,6 +4401,7 @@ export enum MarketingAnalyticsBaseColumns {
     CPC = 'CPC',
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
+    ReportedConversionValue = 'Reported Conversion Value',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -4455,6 +4510,8 @@ export interface SourceConfig {
 }
 
 export const externalDataSources = [
+    'Ashby',
+    'Supabase',
     'CustomerIO',
     'Github',
     'Stripe',
@@ -4489,6 +4546,167 @@ export const externalDataSources = [
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
+
+export const VALID_NATIVE_MARKETING_SOURCES = [
+    'GoogleAds',
+    'LinkedinAds',
+    'MetaAds',
+    'TikTokAds',
+    'RedditAds',
+    'BingAds',
+] as const
+
+export type NativeMarketingSource = (typeof VALID_NATIVE_MARKETING_SOURCES)[number]
+
+export const MARKETING_INTEGRATION_CONFIGS = {
+    GoogleAds: {
+        sourceType: 'GoogleAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'campaign',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaign'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: [
+            'google',
+            'adwords',
+            'youtube',
+            'display',
+            'gmail',
+            'google_maps',
+            'google_play',
+            'google_discover',
+            'admob',
+            'waze',
+        ] as const,
+        primarySource: 'google',
+    },
+    LinkedinAds: {
+        sourceType: 'LinkedinAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: ['linkedin', 'li'] as const,
+        primarySource: 'linkedin',
+    },
+    MetaAds: {
+        sourceType: 'MetaAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_stats',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['stats'] as const,
+        defaultSources: [
+            'meta',
+            'facebook',
+            'instagram',
+            'messenger',
+            'fb',
+            'whatsapp',
+            'audience_network',
+            'facebook_marketplace',
+            'threads',
+        ] as const,
+        primarySource: 'meta',
+    },
+    TikTokAds: {
+        sourceType: 'TikTokAds' as const,
+        nameField: 'campaign_name',
+        idField: 'campaign_id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['report'] as const,
+        defaultSources: ['tiktok'] as const,
+        primarySource: 'tiktok',
+    },
+    RedditAds: {
+        sourceType: 'RedditAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['report'] as const,
+        defaultSources: ['reddit'] as const,
+        primarySource: 'reddit',
+    },
+    BingAds: {
+        sourceType: 'BingAds' as const,
+        nameField: 'name',
+        idField: 'id',
+        campaignTableName: 'campaigns',
+        statsTableName: 'campaign_performance_report',
+        tableKeywords: ['campaigns'] as const,
+        tableExclusions: ['performance'] as const,
+        defaultSources: ['bing', 'microsoft'] as const,
+        primarySource: 'bing',
+    },
+} as const
+
+export type MarketingIntegrationConfig = (typeof MARKETING_INTEGRATION_CONFIGS)[NativeMarketingSource]
+
+export type GoogleAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['defaultSources'][number]
+export type LinkedinAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['defaultSources'][number]
+export type MetaAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['defaultSources'][number]
+export type TikTokAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['defaultSources'][number]
+export type RedditAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['defaultSources'][number]
+export type BingAdsDefaultSources = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['defaultSources'][number]
+
+export type GoogleAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableKeywords'][number]
+export type LinkedinAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableKeywords'][number]
+export type MetaAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableKeywords'][number]
+export type TikTokAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableKeywords'][number]
+export type RedditAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableKeywords'][number]
+export type BingAdsTableKeywords = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableKeywords'][number]
+
+export type GoogleAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['GoogleAds']['tableExclusions'][number]
+export type LinkedinAdsTableExclusions =
+    (typeof MARKETING_INTEGRATION_CONFIGS)['LinkedinAds']['tableExclusions'][number]
+export type MetaAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['MetaAds']['tableExclusions'][number]
+export type TikTokAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['TikTokAds']['tableExclusions'][number]
+export type RedditAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['RedditAds']['tableExclusions'][number]
+export type BingAdsTableExclusions = (typeof MARKETING_INTEGRATION_CONFIGS)['BingAds']['tableExclusions'][number]
+
+export const MARKETING_INTEGRATION_FIELD_MAP = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        {
+            nameField: MARKETING_INTEGRATION_CONFIGS[source].nameField,
+            idField: MARKETING_INTEGRATION_CONFIGS[source].idField,
+        },
+    ])
+) as unknown as Record<NativeMarketingSource, { nameField: string; idField: string }>
+
+export const MARKETING_CAMPAIGN_TABLE_PATTERNS = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        {
+            keywords: [...MARKETING_INTEGRATION_CONFIGS[source].tableKeywords],
+            exclusions: [...MARKETING_INTEGRATION_CONFIGS[source].tableExclusions],
+        },
+    ])
+) as unknown as Record<NativeMarketingSource, { keywords: string[]; exclusions: string[] }>
+
+export const MARKETING_DEFAULT_SOURCE_MAPPINGS = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [source, [...MARKETING_INTEGRATION_CONFIGS[source].defaultSources]])
+) as unknown as Record<NativeMarketingSource, string[]>
+
+export interface MarketingIntegrationConfigType {
+    sourceType: NativeMarketingSource
+    nameField: string
+    idField: string
+    campaignTableName: string
+    statsTableName: string
+    tableKeywords: string[]
+    tableExclusions: string[]
+    defaultSources: string[]
+    primarySource: string
+}
 
 export enum InfinityValue {
     INFINITY_VALUE = 999999,
@@ -4707,7 +4925,7 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
+    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',

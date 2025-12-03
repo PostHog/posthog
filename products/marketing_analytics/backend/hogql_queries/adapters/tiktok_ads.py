@@ -1,7 +1,10 @@
 # TikTok Ads Marketing Source Adapter
 
+from posthog.schema import NativeMarketingSource
+
 from posthog.hogql import ast
 
+from ..constants import INTEGRATION_DEFAULT_SOURCES, INTEGRATION_FIELD_NAMES, INTEGRATION_PRIMARY_SOURCE
 from .base import MarketingSourceAdapter, TikTokAdsConfig, ValidationResult
 
 
@@ -13,10 +16,14 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
     - stats_table: DataWarehouse table with campaign stats
     """
 
+    _source_type = NativeMarketingSource.TIK_TOK_ADS
+
     @classmethod
     def get_source_identifier_mapping(cls) -> dict[str, list[str]]:
         """TikTok Ads campaigns typically use 'tiktok' as the UTM source"""
-        return {"tiktok": ["tiktok"]}
+        primary = INTEGRATION_PRIMARY_SOURCE[cls._source_type]
+        sources = INTEGRATION_DEFAULT_SOURCES[cls._source_type]
+        return {primary: list(sources)}
 
     def get_source_type(self) -> str:
         return "TikTokAds"
@@ -44,11 +51,13 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
 
     def _get_campaign_name_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, "campaign_name"])])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["name_field"]
+        return ast.Call(name="toString", args=[ast.Field(chain=[campaign_table_name, field_name])])
 
     def _get_campaign_id_field(self) -> ast.Expr:
         campaign_table_name = self.config.campaign_table.name
-        field_expr = ast.Field(chain=[campaign_table_name, "campaign_id"])
+        field_name = INTEGRATION_FIELD_NAMES[self._source_type]["id_field"]
+        field_expr = ast.Field(chain=[campaign_table_name, field_name])
         return ast.Call(name="toString", args=[field_expr])
 
     def _get_source_name_field(self) -> ast.Expr:
@@ -104,6 +113,28 @@ class TikTokAdsAdapter(MarketingSourceAdapter[TikTokAdsConfig]):
             name="SUM", args=[ast.Call(name="toFloatOrZero", args=[ast.Field(chain=[stats_table_name, "conversion"])])]
         )
         return ast.Call(name="toFloat", args=[sum])
+
+    def _get_reported_conversion_value_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+
+        # Check if total_complete_payment_value column exists
+        try:
+            columns = getattr(self.config.stats_table, "columns", None)
+            if columns and hasattr(columns, "__contains__") and "total_complete_payment_value" in columns:
+                sum = ast.Call(
+                    name="SUM",
+                    args=[
+                        ast.Call(
+                            name="toFloatOrZero",
+                            args=[ast.Field(chain=[stats_table_name, "total_complete_payment_value"])],
+                        )
+                    ],
+                )
+                return ast.Call(name="toFloat", args=[sum])
+        except (TypeError, AttributeError, KeyError):
+            pass
+        # Column doesn't exist or can't be checked, return 0
+        return ast.Constant(value=0)
 
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""

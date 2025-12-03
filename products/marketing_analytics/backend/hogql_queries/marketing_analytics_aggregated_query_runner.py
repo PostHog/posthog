@@ -42,13 +42,15 @@ class MarketingAnalyticsAggregatedQueryRunner(
                 constraint=ast.JoinConstraint(
                     expr=ast.And(
                         exprs=[
+                            # Join on match_key - adapters output campaign_name or campaign_id based on team prefs
+                            # Conversion goals always use utm_campaign as match_key
                             ast.CompareOperation(
                                 left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
                                 ),
                                 op=ast.CompareOperationOp.Eq,
                                 right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
                                 ),
                             ),
                             ast.CompareOperation(

@@ -852,6 +852,7 @@ def _get_all_llm_analytics_reports(
     # Get team to organization mapping
     teams = Team.objects.filter(id__in=all_teams_with_ai).select_related("organization")
     team_to_org: dict[int, str] = {team.id: str(team.organization_id) for team in teams}
+    org_id_to_name: dict[str, str] = {str(team.organization_id): team.organization.name for team in teams}
 
     # Aggregate by organization
     org_reports: dict[str, dict[str, Any]] = {}
@@ -860,6 +861,7 @@ def _get_all_llm_analytics_reports(
         if org_id not in org_reports:
             org_reports[org_id] = {
                 "organization_id": org_id,
+                "organization_name": org_id_to_name.get(org_id, ""),
                 "period_start": period_start.isoformat(),
                 "period_end": period_end.isoformat(),
                 "ai_generation_count": 0,
@@ -1052,12 +1054,14 @@ def send_llm_analytics_usage_reports(
 
     logger.info("Sending LLM Analytics usage reports")
 
+    at_date_str = at_date.isoformat() if at_date else None
+
     for org_id, report in org_reports.items():
         try:
             capture_llm_analytics_report.delay(
                 organization_id=org_id,
                 report_dict=report,
-                at_date=period_end.isoformat(),
+                at_date=at_date_str,
             )
             total_orgs_sent += 1
 
