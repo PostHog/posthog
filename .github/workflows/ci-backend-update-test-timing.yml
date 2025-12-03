@@ -74,6 +74,9 @@ jobs:
                   # Merge all timing files - later values override earlier for same keys
                   jq -s 'reduce .[] as $item ({}; . * $item)' timing_artifacts/*/.test_durations > .test_durations
 
+                  # Clean up downloaded artifacts - we only want to commit the merged file
+                  rm -rf timing_artifacts
+
                   echo "Merged timing data:"
                   echo "  Total tests: $(jq 'keys | length' .test_durations)"
                   echo "  Total time: $(jq 'to_entries | map(.value) | add | . / 3600 | floor' .test_durations) hours"
