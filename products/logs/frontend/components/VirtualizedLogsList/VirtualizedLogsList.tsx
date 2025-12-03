@@ -167,7 +167,6 @@ export function VirtualizedLogsList({
 
     // Fixed height mode for pinned logs
     if (fixedHeight !== undefined) {
-        const listHeight = fixedHeight - LOG_ROW_HEADER_HEIGHT
         return (
             <div style={{ height: fixedHeight }} className="flex flex-col">
                 <AutoSizer disableHeight>
@@ -176,22 +175,23 @@ export function VirtualizedLogsList({
                             autosizerWidthRef.current = width
                             requestAnimationFrame(() => setContainerWidth(width))
                         }
+                        const rowWidth = Math.max(width, minRowWidth)
                         return (
-                            <>
-                                <LogRowHeader rowWidth={width} />
+                            <div className="overflow-x-auto" style={{ width, height: fixedHeight }}>
+                                <LogRowHeader rowWidth={rowWidth} />
                                 <List
                                     ref={listRef}
-                                    width={width}
-                                    height={listHeight}
+                                    width={rowWidth}
+                                    height={fixedHeight - LOG_ROW_HEADER_HEIGHT}
                                     rowCount={dataSource.length}
                                     rowHeight={cache.rowHeight}
                                     deferredMeasurementCache={cache}
-                                    rowRenderer={createRowRenderer(width)}
+                                    rowRenderer={createRowRenderer(rowWidth)}
                                     overscanRowCount={5}
                                     tabIndex={null}
-                                    style={{ outline: 'none' }}
+                                    style={{ outline: 'none', overflowX: 'hidden' }}
                                 />
-                            </>
+                            </div>
                         )
                     }}
                 </AutoSizer>
