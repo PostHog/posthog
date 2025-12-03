@@ -6,25 +6,14 @@ import React from 'react'
 import { IconExternal, IconOpenSidebar, IconSend } from '@posthog/icons'
 
 import { ButtonPrimitiveProps, buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
-import {
-    ContextMenu,
-    ContextMenuContent,
-    ContextMenuGroup,
-    ContextMenuItem,
-    ContextMenuSeparator,
-    ContextMenuTrigger,
-} from 'lib/ui/ContextMenu/ContextMenu'
 import { isExternalLink } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { useNotebookDrag } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
-import { urlToResource } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
-import { ResourceMenuItems } from '~/layout/panel-layout/ProjectTree/menus/ResourceMenuItems'
 import { SidePanelTab } from '~/types'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
@@ -79,9 +68,6 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
     tooltipCloseDelayMs?: TooltipProps['closeDelayMs']
-
-    /** Skip the context menu */
-    skipContext?: boolean
 }
 
 const shouldForcePageLoad = (input: any): boolean => {
@@ -139,7 +125,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
             tooltipCloseDelayMs,
             role,
             tabIndex,
-            skipContext,
             ...props
         },
         ref
@@ -214,8 +199,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 : '#'
             : undefined
 
-        const resource = href && href.startsWith('/') ? urlToResource(removeProjectIdIfPresent(href)) : null
-
         const elementClasses = buttonProps
             ? buttonPrimitiveVariants(buttonProps)
             : `Link ${subtle ? 'Link--subtle' : ''}`
@@ -234,7 +217,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                 tabIndex={tabIndex}
                 {...props}
                 {...draggableProps}
-                {...(resource ? { 'data-resource-type': resource.type, 'data-resource-ref': resource.ref } : undefined)}
             >
                 {children}
                 {targetBlankIcon &&
@@ -247,32 +229,6 @@ export const Link: React.FC<LinkProps & React.RefAttributes<HTMLElement>> = Reac
                     ) : null)}
             </a>
         )
-
-        if (href && !externalLink && !skipContext) {
-            element = (
-                <ContextMenu key={props.key}>
-                    <ContextMenuTrigger asChild>{element}</ContextMenuTrigger>
-                    <ContextMenuContent className="max-w-[300px]">
-                        {resource ? (
-                            <>
-                                <ContextMenuGroup>
-                                    <ResourceMenuItems
-                                        MenuItem={ContextMenuItem}
-                                        MenuSeparator={ContextMenuSeparator}
-                                        resource={resource}
-                                        resetPanelLayout={() => {}}
-                                    />
-                                </ContextMenuGroup>
-                                <ContextMenuSeparator />
-                            </>
-                        ) : null}
-                        <ContextMenuGroup>
-                            <BrowserLikeMenuItems MenuItem={ContextMenuItem} href={href} resetPanelLayout={() => {}} />
-                        </ContextMenuGroup>
-                    </ContextMenuContent>
-                </ContextMenu>
-            )
-        }
 
         if ((tooltip && to) || tooltipDocLink) {
             element = (
