@@ -224,7 +224,7 @@ async fn handle_event_payload(
     debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
     events = state
         .quota_limiter
-        .check_and_filter(&context, events)
+        .check_and_filter(&context.token, events)
         .await?;
 
     debug!(context=?context,

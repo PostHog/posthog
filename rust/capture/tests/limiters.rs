@@ -206,13 +206,8 @@ fn gen_stub_events(names: &[&str]) -> Vec<RawEvent> {
 #[tokio::test]
 async fn test_exception_predicate() {
     let should_accept_names = vec!["$exception"];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_exception_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        assert!(is_exception_event(name), "event {} should be accepted", name);
     }
 
     let should_reject_names = vec![
@@ -224,12 +219,11 @@ async fn test_exception_predicate() {
         "exceptional_event",
         "$exceptable",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
+    for name in should_reject_names {
         assert!(
-            !is_exception_event(&event),
+            !is_exception_event(name),
             "event {} should not be accepted",
-            event.event
+            name
         );
     }
 }
@@ -245,13 +239,8 @@ async fn test_llm_predicate() {
         "$ai_metric",
         "$ai_feedback",
     ];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_llm_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        assert!(is_llm_event(name), "event {} should be accepted", name);
     }
 
     let should_reject_names = vec![
@@ -263,12 +252,11 @@ async fn test_llm_predicate() {
         "ai_span",
         "ai_generation",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
+    for name in should_reject_names {
         assert!(
-            !is_llm_event(&event),
+            !is_llm_event(name),
             "event {} should not be accepted",
-            event.event
+            name
         );
     }
 }
@@ -276,13 +264,8 @@ async fn test_llm_predicate() {
 #[tokio::test]
 async fn test_survey_predicate() {
     let should_accept_names = vec!["survey sent", "survey shown", "survey dismissed"];
-    let should_accept_events = gen_stub_events(&should_accept_names);
-    for event in should_accept_events {
-        assert!(
-            is_survey_event(&event),
-            "event {} should be accepted",
-            event.event
-        );
+    for name in should_accept_names {
+        assert!(is_survey_event(name), "event {} should be accepted", name);
     }
 
     let should_reject_names = vec![
@@ -297,12 +280,11 @@ async fn test_survey_predicate() {
         "survey_shown",
         "survey_dismissed",
     ];
-    let should_reject_events = gen_stub_events(&should_reject_names);
-    for event in should_reject_events {
+    for name in should_reject_names {
         assert!(
-            !is_survey_event(&event),
+            !is_survey_event(name),
             "event {} should not be accepted",
-            event.event
+            name
         );
     }
 }

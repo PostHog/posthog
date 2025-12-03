@@ -9,6 +9,11 @@ use serde_json::Value;
 use time::{format_description::well_known::Rfc3339, OffsetDateTime};
 use uuid::Uuid;
 
+/// Trait for types that have an event name, used by quota limiting
+pub trait HasEventName {
+    fn event_name(&self) -> &str;
+}
+
 /// Information about the library/SDK that sent an event
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LibraryInfo {
@@ -293,6 +298,12 @@ impl ClickHouseEvent {
     ) -> Result<(), serde_json::Error> {
         self.properties = Some(serde_json::to_string(&properties)?);
         Ok(())
+    }
+}
+
+impl HasEventName for RawEvent {
+    fn event_name(&self) -> &str {
+        &self.event
     }
 }
 
