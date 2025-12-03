@@ -88,6 +88,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - .test_durations # Used for pytest-split sharding
                         - frontend/src/queries/schema.json # Used for generating schema.py
                         - common/plugin_transpiler/src # Used for transpiling plugins
                         # Make sure we run if someone is explicitly changing the workflow
