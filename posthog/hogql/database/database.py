@@ -160,7 +160,7 @@ logger = structlog.get_logger(__name__)
 # READ BEFORE EDITING:
 # --------------------
 # Do NOT add any new table to this, add them to the `posthog` table node.
-# This is so that we don't pollute the global namespace any further then it already is
+# This is so that we don't pollute the global namespace any further than it already is
 ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "events": TableNode(name="events", table=EventsTable()),
     "groups": TableNode(name="groups", table=GroupsTable()),
