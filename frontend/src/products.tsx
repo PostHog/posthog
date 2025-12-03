@@ -134,6 +134,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/llm-analytics/evaluations/templates': ['LLMAnalyticsEvaluationTemplates', 'llmAnalyticsEvaluationTemplates'],
     '/llm-analytics/evaluations/:id': ['LLMAnalyticsEvaluation', 'llmAnalyticsEvaluation'],
     '/llm-analytics/settings': ['LLMAnalytics', 'llmAnalyticsSettings'],
+    '/llm-analytics/clusters': ['LLMAnalytics', 'llmAnalyticsClusters'],
+    '/llm-analytics/clusters/:runId': ['LLMAnalytics', 'llmAnalyticsClusters'],
     '/logs': ['Logs', 'logs'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
@@ -519,6 +521,8 @@ export const productUrls = {
     llmAnalyticsEvaluationTemplates: (): string => '/llm-analytics/evaluations/templates',
     llmAnalyticsEvaluation: (id: string): string => `/llm-analytics/evaluations/${id}`,
     llmAnalyticsSettings: (): string => '/llm-analytics/settings',
+    llmAnalyticsClusters: (runId?: string): string =>
+        runId ? `/llm-analytics/clusters/${runId}` : '/llm-analytics/clusters',
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
