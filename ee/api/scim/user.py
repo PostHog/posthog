@@ -230,8 +230,14 @@ class PostHogSCIMUser(SCIMUser):
                 },
             )
 
-            # Deactivate user if active is false
-            if not is_active:
+            if is_active:
+                # Adding org membership to reactivate the user
+                OrganizationMembership.objects.get_or_create(
+                    user=self.obj,
+                    organization=self._organization_domain.organization,
+                    defaults={"level": OrganizationMembership.Level.MEMBER},
+                )
+            else:
                 self.deactivate()
 
     def deactivate(self) -> None:
@@ -277,6 +283,12 @@ class PostHogSCIMUser(SCIMUser):
                     self.deactivate()
                     return
                 else:
+                    OrganizationMembership.objects.get_or_create(
+                        user=self.obj,
+                        organization=self._organization_domain.organization,
+                        defaults={"level": OrganizationMembership.Level.MEMBER},
+                    )
+
                     SCIMProvisionedUser.objects.update_or_create(
                         user=self.obj,
                         organization_domain=self._organization_domain,
