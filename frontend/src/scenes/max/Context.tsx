@@ -332,8 +332,9 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             groupType={mainTaxonomicGroupType}
                             groupTypes={taxonomicGroupTypes}
                             onChange={handleTaxonomicFilterChange}
-                            icon={<IconAtSign />}
+                            icon={<IconAtSign className="text-secondary" />}
                             placeholder={!hasData && !hasToolContext ? 'Add context' : null}
+                            placeholderClass="text-secondary"
                             maxContextOptions={contextOptions}
                             width={450}
                         />
