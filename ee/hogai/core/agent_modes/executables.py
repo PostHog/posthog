@@ -186,7 +186,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         message = await model.ainvoke(system_prompts + langchain_messages, config)
         assistant_message = self._process_output_message(message)
 
-        new_messages: list[AssistantMessageUnion] = [assistant_message]
+        new_messages: list[AssistantMessageUnion] | ReplaceMessages[AssistantMessageUnion] = [assistant_message]
         # Replace the messages with the new message window
         if messages_to_replace:
             new_messages = ReplaceMessages([*messages_to_replace, assistant_message])

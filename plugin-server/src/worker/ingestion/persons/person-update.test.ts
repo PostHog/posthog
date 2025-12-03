@@ -154,7 +154,49 @@ describe('person-update', () => {
                 }
             )
 
-            it('should accept $geoip_* property updates at event level (filtering happens at batch level)', () => {
+            it('should accept blocked $geoip_* property updates at event level (filtering happens at batch level)', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $geoip_latitude: 37.7749 },
+                    },
+                } as any
+
+                const personProperties = { $geoip_latitude: 40.7128 }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $geoip_latitude: 37.7749 })
+                expect(result.shouldForceUpdate).toBe(false)
+                // At event level, blocked geoip properties would be marked as ignored
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: '$geoip_latitude',
+                })
+            })
+
+            it('should trigger update when $geoip_country_name changes (allowed geoip property)', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: { $geoip_country_name: 'United States' },
+                    },
+                } as any
+
+                const personProperties = { $geoip_country_name: 'Canada' }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({ $geoip_country_name: 'United States' })
+                expect(result.shouldForceUpdate).toBe(false)
+                // $geoip_country_name is allowed so should be marked as changed
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should trigger update when $geoip_city_name changes (allowed geoip property)', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -169,11 +211,43 @@ describe('person-update', () => {
                 expect(result.hasChanges).toBe(true)
                 expect(result.toSet).toEqual({ $geoip_city_name: 'San Francisco' })
                 expect(result.shouldForceUpdate).toBe(false)
-                // At event level, geoip properties would be marked as ignored
-                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: '$geoip_city_name',
+                // $geoip_city_name is allowed so should be marked as changed
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
+            })
+
+            it('should update all geoip properties when allowed property ($geoip_country_name) changes alongside blocked ones', () => {
+                const event: PluginEvent = {
+                    event: 'pageview',
+                    properties: {
+                        $set: {
+                            $geoip_country_name: 'United States',
+                            $geoip_latitude: 37.7749,
+                            $geoip_longitude: -122.4194,
+                            $geoip_postal_code: '94102',
+                        },
+                    },
+                } as any
+
+                const personProperties = {
+                    $geoip_country_name: 'Canada',
+                    $geoip_latitude: 43.6532,
+                    $geoip_longitude: -79.3832,
+                    $geoip_postal_code: 'M5V',
+                }
+
+                const result = computeEventPropertyUpdates(event, personProperties)
+
+                expect(result.hasChanges).toBe(true)
+                expect(result.toSet).toEqual({
+                    $geoip_country_name: 'United States',
+                    $geoip_latitude: 37.7749,
+                    $geoip_longitude: -122.4194,
+                    $geoip_postal_code: '94102',
                 })
+                expect(result.shouldForceUpdate).toBe(false)
+                // Since $geoip_country_name is allowed, the update is marked as changed (not ignored)
+                expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
             it('should accept eventToPersonProperties even when mixed with unchanged custom properties', () => {

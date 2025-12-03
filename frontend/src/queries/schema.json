@@ -9,7 +9,8 @@
                 "$ai_trace",
                 "$ai_metric",
                 "$ai_feedback",
-                "$ai_evaluation"
+                "$ai_evaluation",
+                "$ai_trace_summary"
             ],
             "type": "string"
         },
@@ -762,6 +763,56 @@
                     "$ref": "#/definitions/LogsQueryResponse"
                 }
             ]
+        },
+        "ArtifactContent": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/VisualizationArtifactContent"
+                },
+                {
+                    "$ref": "#/definitions/NotebookArtifactContent"
+                }
+            ]
+        },
+        "ArtifactContentType": {
+            "description": "Type of artifact content",
+            "enum": ["visualization", "notebook"],
+            "type": "string"
+        },
+        "ArtifactMessage": {
+            "additionalProperties": false,
+            "description": "Frontend artifact message containing enriched content field. Do not use in the backend.",
+            "properties": {
+                "artifact_id": {
+                    "description": "The ID of the artifact (short_id for both drafts and saved insights)",
+                    "type": "string"
+                },
+                "content": {
+                    "$ref": "#/definitions/ArtifactContent",
+                    "description": "Content of artifact"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "parent_tool_call_id": {
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/ArtifactSource",
+                    "description": "Source of artifact - determines which model to fetch from"
+                },
+                "type": {
+                    "const": "ai/artifact",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "artifact_id", "source", "content"],
+            "type": "object"
+        },
+        "ArtifactSource": {
+            "description": "Source of artifact - determines which model to fetch from",
+            "enum": ["artifact", "insight", "state"],
+            "type": "string"
         },
         "AssistantArrayPropertyFilter": {
             "additionalProperties": false,
@@ -1577,6 +1628,7 @@
                 "ai/reasoning",
                 "ai/viz",
                 "ai/multi_viz",
+                "ai/artifact",
                 "ai/failure",
                 "ai/notebook",
                 "ai/planning",
@@ -16088,6 +16140,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializedColumnsOptimizationMode": {
+                    "enum": ["disabled", "optimized"],
+                    "type": "string"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -17929,7 +17985,18 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": [
+                "ID",
+                "Campaign",
+                "Source",
+                "Cost",
+                "Clicks",
+                "Impressions",
+                "CPC",
+                "CTR",
+                "Reported Conversion",
+                "Reported Conversion Value"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -17942,7 +18009,8 @@
                 "date",
                 "impressions",
                 "source",
-                "reported_conversion"
+                "reported_conversion",
+                "reported_conversion_value"
             ],
             "type": "string"
         },
@@ -19818,6 +19886,18 @@
             ],
             "type": "string"
         },
+        "NotebookArtifactContent": {
+            "additionalProperties": false,
+            "properties": {
+                "content_type": {
+                    "const": "notebook",
+                    "description": "Notebook",
+                    "type": "string"
+                }
+            },
+            "required": ["content_type"],
+            "type": "object"
+        },
         "NotebookInfo": {
             "$ref": "#/definitions/DeepResearchNotebook"
         },
@@ -20600,7 +20680,8 @@
                 "error_tracking_issue",
                 "revenue_analytics",
                 "flag",
-                "log"
+                "log",
+                "workflow_variable"
             ],
             "type": "string"
         },
@@ -26651,6 +26732,9 @@
                     "$ref": "#/definitions/MultiVisualizationMessage"
                 },
                 {
+                    "$ref": "#/definitions/ArtifactMessage"
+                },
+                {
                     "$ref": "#/definitions/ReasoningMessage"
                 },
                 {
@@ -27947,6 +28031,9 @@
                 "reported_conversion": {
                     "type": "string"
                 },
+                "reported_conversion_value": {
+                    "type": "string"
+                },
                 "source": {
                     "type": "string"
                 }
@@ -28775,7 +28862,8 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
-                "max_ai_context"
+                "max_ai_context",
+                "workflow_variables"
             ],
             "type": "string"
         },
@@ -29208,6 +29296,10 @@
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
                     "type": "array"
+                },
+                "randomOrder": {
+                    "description": "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias.",
+                    "type": "boolean"
                 },
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
@@ -29961,6 +30053,11 @@
         "VisualizationArtifactContent": {
             "additionalProperties": false,
             "properties": {
+                "content_type": {
+                    "const": "visualization",
+                    "description": "Visualization artifact (chart, graph, etc.)",
+                    "type": "string"
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -29970,21 +30067,15 @@
                 "query": {
                     "anyOf": [
                         {
-                            "$ref": "#/definitions/AssistantTrendsQuery"
+                            "$ref": "#/definitions/AnyAssistantGeneratedQuery"
                         },
                         {
-                            "$ref": "#/definitions/AssistantFunnelsQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantRetentionQuery"
-                        },
-                        {
-                            "$ref": "#/definitions/AssistantHogQLQuery"
+                            "$ref": "#/definitions/AnyAssistantSupportedQuery"
                         }
                     ]
                 }
             },
-            "required": ["query"],
+            "required": ["content_type", "query"],
             "type": "object"
         },
         "VisualizationBlock": {
