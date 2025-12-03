@@ -3,7 +3,7 @@ from typing import Literal, NotRequired, TypedDict
 
 from products.data_warehouse.backend.types import IncrementalFieldType
 
-FLOAT_FIELDS = {"costInUsd"}
+FLOAT_FIELDS = {"costInUsd", "conversionValueInLocalCurrency"}
 
 # There are in the results from the API. The value is in the URN format.
 URN_COLUMNS = ["campaignGroup", "account", "campaign", "creative"]
@@ -125,6 +125,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "pivotValues",
             "costInUsd",
             "externalWebsiteConversions",
+            "conversionValueInLocalCurrency",
             "landingPageClicks",
             "totalEngagements",
             "videoViews",
@@ -151,6 +152,7 @@ RESOURCE_SCHEMAS: dict[LinkedinAdsResource, ResourceSchema] = {
             "pivotValues",
             "costInUsd",
             "externalWebsiteConversions",
+            "conversionValueInLocalCurrency",
             "landingPageClicks",
             "totalEngagements",
             "videoViews",

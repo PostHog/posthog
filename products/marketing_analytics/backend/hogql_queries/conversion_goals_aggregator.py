@@ -44,12 +44,12 @@ class ConversionGoalsAggregator:
 
             # Transform the query to include a column for this specific conversion goal
             # and zero columns for all other conversion goals
-            # Note: base_query schema is: [0]=campaign, [1]=id, [2]=source, [3]=match_key, [4]=conversion
+            # Note: base_query schema is: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
             enhanced_select = [
-                # Keep campaign, id, and source
-                base_query.select[0],  # campaign
-                base_query.select[1],  # id
-                base_query.select[2],  # source
+                # Keep campaign, id, and source (skip match_key at [0])
+                base_query.select[1],  # campaign
+                base_query.select[2],  # id
+                base_query.select[3],  # source
             ]
 
             # Add columns for all conversion goals (this one gets the actual value, others get 0)
@@ -57,7 +57,7 @@ class ConversionGoalsAggregator:
                 if p.index == processor.index:
                     # This is the current processor - use the actual conversion value
                     # Extract the expression from the alias to avoid double aliasing
-                    # Position [4] is the conversion value (after campaign, id, source, match_key)
+                    # Position [4] is the conversion value (after match_key, campaign, id, source)
                     conversion_expr = base_query.select[4]
                     if isinstance(conversion_expr, ast.Alias):
                         conversion_expr = conversion_expr.expr
