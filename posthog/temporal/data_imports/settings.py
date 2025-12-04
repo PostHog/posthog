@@ -1,3 +1,4 @@
+from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import ducklake_copy_data_imports_gate_activity
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     calculate_table_size_activity,
@@ -21,4 +22,5 @@ ACTIVITIES = [
     sync_new_schemas_activity,
     calculate_table_size_activity,
     trigger_schedule_buffer_one_activity,
+    ducklake_copy_data_imports_gate_activity,
 ]
