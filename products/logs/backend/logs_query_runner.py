@@ -116,6 +116,7 @@ def _generate_resource_attribute_filters(
                     time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
                     AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
                     AND {{resource_attribute_filters}} AND {{existing_filters}}
+                    AND attribute_type = 'resource'
                     GROUP BY ops
             )
         )
