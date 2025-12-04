@@ -1,9 +1,9 @@
 terraform {
-  required_version = local.terraform_version
+  required_version = ">= 1.13.0"
   required_providers {
     posthog = {
       source  = "PostHog/posthog"
-      version = local.posthog_provider_version
+      version = "0.0.1-alpha.4"
     }
   }
 }

@@ -1,3 +1,14 @@
+include "root" {
+  path   = find_in_parent_folders("root.hcl")
+  expose = true
+}
+
+include "region" {
+  path   = "../terragrunt.hcl"
+  expose = true
+}
+
 include "project" {
-  path = find_in_parent_folders()
+  path   = "./terragrunt.hcl"
+  expose = true
 }

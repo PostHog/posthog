@@ -1,10 +1,13 @@
-generate "locals_root.tf" {
-  path      = "locals_root.tf"
-  if_exists = "overwrite"
-  contents  = file("locals_root.tf.tpl")
+terraform {
+  source = "."
+
+  extra_arguments "init" {
+    commands = ["init"]
+    arguments = ["-input=false"]
+  }
 }
 
-generate "providers.tf" {
+generate "providers_root.tf" {
   path      = "providers_root.tf"
   if_exists = "overwrite"
   contents  = file("providers_root.tf.tpl")

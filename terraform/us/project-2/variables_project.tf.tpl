@@ -1,5 +1,5 @@
 variable "posthog_project_id" {
   type        = string
-  default     = local.posthog_project_id
+  default     = "2"
   description = "PostHog project ID"
 }

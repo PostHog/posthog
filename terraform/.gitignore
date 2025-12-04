@@ -6,3 +6,10 @@
 
 # Plan files
 *.tfplan
+
+# Terraform state (should be in S3, not local)
+*.tfstate
+*.tfstate.backup
+
+# Terraform lock file
+.terraform.lock.hcl
