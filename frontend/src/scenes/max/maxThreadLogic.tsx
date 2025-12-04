@@ -46,7 +46,7 @@ import {
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { maxBillingContextLogic } from './maxBillingContextLogic'
-import { STATIC_TOOLS, maxGlobalLogic } from './maxGlobalLogic'
+import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
 import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
@@ -111,7 +111,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
             ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
@@ -966,7 +966,7 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
-                if (STATIC_TOOLS.some((tool) => tool.identifier === toolName)) {
+                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                     continue // Static tools (mode-level) don't operate via ui_payload
                 }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
@@ -986,7 +986,7 @@ async function onEventImplementation(
 
             if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
                 for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
-                    if (!STATIC_TOOLS.some((tool) => tool.identifier === toolName)) {
+                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
                         continue // Non-static tools (contextual) operate via ui_payload instead
                     }
                     await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)

@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { ok, redirect } from '../pipelines/results'
@@ -26,11 +27,10 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('returns success when not forcing overflow', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(false)
@@ -38,7 +38,11 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('valid-token-123', 'user-456')
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            undefined
+        )
         // shouldSkipPerson should not be called if not forcing overflow
         expect(eventIngestionRestrictionManager.shouldSkipPerson).not.toHaveBeenCalled()
     })
@@ -46,11 +50,10 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('redirects with preserved partition locality when not skipping person', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-xyz',
                 distinct_id: 'd-1',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -61,18 +64,17 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
         expect(result).toEqual(
             redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
         )
-        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('t-xyz', 'd-1')
-        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('t-xyz', 'd-1')
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('t-xyz', 'd-1', undefined)
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('t-xyz', 'd-1', undefined)
     })
 
     it('redirects without preserving partition locality when skipping person', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-abc',
                 distinct_id: 'd-2',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -88,8 +90,8 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
                 false
             )
         )
-        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('t-abc', 'd-2')
-        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('t-abc', 'd-2')
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('t-abc', 'd-2', undefined)
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('t-abc', 'd-2', undefined)
     })
 
     it('handles undefined headers', async () => {
@@ -102,22 +104,80 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(undefined, undefined)
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            undefined
+        )
     })
 
     it('handles empty headers', async () => {
         const input = {
             message: {} as any,
-            headers: {
-                force_disable_person_processing: false,
-            },
+            headers: createTestEventHeaders(),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(false)
 
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(undefined, undefined)
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            undefined,
+            undefined,
+            undefined
+        )
+    })
+
+    it('passes session_id to restriction checks when present', async () => {
+        const input = {
+            message: {} as any,
+            headers: createTestEventHeaders({
+                token: 't-xyz',
+                distinct_id: 'd-1',
+                session_id: 's-123',
+            }),
+        }
+
+        jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(
+            redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
+        )
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith('t-xyz', 'd-1', 's-123')
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('t-xyz', 'd-1', 's-123')
+    })
+
+    it('overflows event when session_id is restricted', async () => {
+        const input = {
+            message: {} as any,
+            headers: createTestEventHeaders({
+                token: 't-abc',
+                distinct_id: 'd-2',
+                session_id: 'blocked-session',
+            }),
+        }
+
+        jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+        jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(
+            redirect('Event redirected to overflow due to force overflow restrictions', 'overflow-topic', true, false)
+        )
+        expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            'blocked-session'
+        )
+        expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
+            't-abc',
+            'd-2',
+            'blocked-session'
+        )
     })
 
     it('returns success when overflow is disabled', async () => {
@@ -132,11 +192,10 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
 
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'test-token',
                 distinct_id: 'test-user',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         const result = await disabledStep(input)

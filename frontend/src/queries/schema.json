@@ -17996,7 +17996,8 @@
                 "CPC",
                 "CTR",
                 "Reported Conversion",
-                "Reported Conversion Value"
+                "Reported Conversion Value",
+                "Reported ROAS"
             ],
             "type": "string"
         },
@@ -19536,10 +19537,6 @@
             "properties": {
                 "id": {
                     "description": "Name of the event.",
-                    "type": "string"
-                },
-                "name": {
-                    "description": "Optional display name for this event.",
                     "type": "string"
                 },
                 "properties": {

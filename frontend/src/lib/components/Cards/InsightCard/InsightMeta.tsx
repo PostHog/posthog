@@ -29,6 +29,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
 import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
+import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -160,7 +161,9 @@ export function InsightMeta({
         ) : null
 
     const surveyOpportunityButton =
-        surveyOpportunity && featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] ? (
+        surveyOpportunity &&
+        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
+        isSurveyableFunnelInsight(insight) ? (
             <div className="flex">
                 <SurveyOpportunityButton insight={insight} disableAutoPromptSubmit={true} />
             </div>

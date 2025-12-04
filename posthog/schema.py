@@ -2010,6 +2010,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
     REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -4971,7 +4972,6 @@ class MaxRecordingEventFilter(BaseModel):
         extra="forbid",
     )
     id: str = Field(..., description="Name of the event.")
-    name: str | None = Field(default=None, description="Optional display name for this event.")
     properties: (
         list[
             AssistantGenericPropertyFilter1

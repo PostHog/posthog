@@ -1,4 +1,7 @@
-import { SURVEY_CREATED_SOURCE } from '../constants'
+import { EventsNode } from '~/queries/schema/schema-general'
+
+import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
+import { toSurveyEvent } from '../utils/opportunityDetection'
 import { QuickSurveyFormLogicProps } from './quickSurveyFormLogic'
 import { QuickSurveyContext, QuickSurveyType } from './types'
 
@@ -19,6 +22,30 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                         actions: null,
                         events: { values: [] },
                         ...(context.initialVariantKey ? { linkedFlagVariant: context.initialVariantKey } : {}),
+                    },
+                },
+            }
+
+        case QuickSurveyType.FUNNEL:
+            return {
+                key: `funnel-${context.funnel.insightName}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.INSIGHT_CROSS_SELL,
+                defaults: {
+                    name: `${context.funnel.insightName} - Quick feedback ${randomId}`,
+                    question: `We noticed you started but didn't complete this action. What stopped you?`,
+                    conditions: {
+                        actions: null,
+                        events: {
+                            values: [toSurveyEvent(context.funnel.steps[0] as EventsNode)],
+                        },
+                        cancelEvents: {
+                            values: [toSurveyEvent(context.funnel.steps[1] as EventsNode)],
+                        },
+                    },
+                    appearance: {
+                        ...defaultSurveyAppearance,
+                        surveyPopupDelaySeconds: 15,
                     },
                 },
             }
