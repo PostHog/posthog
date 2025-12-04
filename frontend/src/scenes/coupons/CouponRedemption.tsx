@@ -57,7 +57,6 @@ export function CouponRedemption({
 }: CouponRedemptionProps): JSX.Element {
     const config = campaignConfigs[campaign]
 
-    // Hooks must be called unconditionally (Rules of Hooks)
     const logic = couponLogic({ campaign })
     const {
         claimed,
