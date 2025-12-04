@@ -2,10 +2,10 @@ include "region" {
   path = find_in_parent_folders()
 }
 
-generate "locals.tf" {
-  path      = "locals.tf"
+generate "locals_project.tf" {
+  path      = "locals_project.tf"
   if_exists = "overwrite"
-  contents  = file("locals.tf.tpl")
+  contents  = file("locals_project.tf.tpl")
 }
 
 generate "variables.tf" {

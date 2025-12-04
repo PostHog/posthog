@@ -1,7 +1,7 @@
-generate "locals.tf" {
-  path      = "locals.tf"
+generate "locals_root.tf" {
+  path      = "locals_root.tf"
   if_exists = "overwrite"
-  contents  = file("locals.tf.tpl")
+  contents  = file("locals_root.tf.tpl")
 }
 
 generate "providers.tf" {
