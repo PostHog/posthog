@@ -49,10 +49,6 @@ async function fetchExamplesMarkdown(context: Context): Promise<Unzipped> {
         return cachedExamplesMarkdown
     }
 
-    if (localUrl) {
-    } else {
-    }
-
     const response = await fetch(url, {
         // Disable HTTP caching for local development
         cache: localUrl ? 'no-store' : 'default',
