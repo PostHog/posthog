@@ -1067,7 +1067,11 @@ class ExperimentQueryBuilder:
         # Data warehouse sources use different table and predicate logic
         timestamp_field_chain: list[str | int]
         if isinstance(source, ExperimentDataWarehouseNode):
-            timestamp_field_chain = [table_alias, source.timestamp_field]
+            # For DW tables, don't prefix with table name since:
+            # 1. We're in a single-table CTE context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
+            timestamp_field_chain = [source.timestamp_field]
             metric_event_filter = data_warehouse_node_to_filter(self.team, source)
         else:
             timestamp_field_chain = [table_alias, "timestamp"]
