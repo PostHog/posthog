@@ -232,7 +232,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
