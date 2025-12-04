@@ -36,7 +36,8 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { getMetricKey, isFilteredPersonPropertyKey } from './person-update'
+import { isFilteredPersonUpdateProperty } from './person-property-utils'
+import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
@@ -206,7 +207,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 return true
             }
 
-            const isFiltered = isFilteredPersonPropertyKey(key)
+            const isFiltered = isFilteredPersonUpdateProperty(key)
             if (isFiltered) {
                 ignoredProperties.push(key)
                 return false

@@ -1557,15 +1557,16 @@ describe('BatchWritingPersonStore', () => {
             typeof personPropertyKeyUpdateCounter
         >
 
-        it('should skip database write when only eventToPersonProperties are updated', async () => {
+        it('should skip database write when only filtered properties are updated', async () => {
             const mockRepo = createMockRepository()
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             // Update person with only filtered properties (existing properties being updated)
+            // Using $current_url and $pathname which are in FILTERED_PERSON_UPDATE_PROPERTIES
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                { ...person, properties: { $browser: 'Firefox', $app_build: '100' } },
-                { $browser: 'Chrome', $app_build: '200' },
+                { ...person, properties: { $current_url: 'https://old.com', $pathname: '/old' } },
+                { $current_url: 'https://new.com', $pathname: '/new' },
                 [],
                 {},
                 'test'
@@ -1585,10 +1586,10 @@ describe('BatchWritingPersonStore', () => {
             )
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$browser',
+                property: '$current_url',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$app_build',
+                property: '$pathname',
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
@@ -1744,9 +1745,10 @@ describe('BatchWritingPersonStore', () => {
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
             // Update person with only filtered properties but with force_update=true (simulating $identify/$set events)
+            // Using $current_url and $pathname which are in FILTERED_PERSON_UPDATE_PROPERTIES
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
-                { ...person, properties: { $browser: 'Firefox', $app_build: '100' } },
-                { $browser: 'Chrome', $app_build: '200' },
+                { ...person, properties: { $current_url: 'https://old.com', $pathname: '/old' } },
+                { $current_url: 'https://new.com', $pathname: '/new' },
                 [],
                 {},
                 'test',
@@ -1768,8 +1770,8 @@ describe('BatchWritingPersonStore', () => {
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             // personPropertyKeyUpdateCounter should be called for the updated properties
             expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledTimes(2)
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$browser' })
-            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$app_build' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$current_url' })
+            expect(mockPersonPropertyKeyUpdateCounter.labels).toHaveBeenCalledWith({ key: '$pathname' })
         })
 
         it('integration: multiple events with only filtered properties should not trigger database write', async () => {
@@ -1777,28 +1779,29 @@ describe('BatchWritingPersonStore', () => {
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
+            // Using properties that are in FILTERED_PERSON_UPDATE_PROPERTIES
             const personWithFiltered = {
                 ...person,
                 properties: {
-                    $browser: 'Firefox',
-                    $app_build: '100',
+                    $current_url: 'https://old.com',
+                    $pathname: '/old',
                     $geoip_latitude: 40.7128,
                 },
             }
 
-            // Event 1: Update browser
+            // Event 1: Update current_url (filtered)
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { $browser: 'Chrome' },
+                { $current_url: 'https://new.com' },
                 [],
                 {},
                 'test'
             )
 
-            // Event 2: Update app build
+            // Event 2: Update pathname (filtered)
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { $app_build: '200' },
+                { $pathname: '/new' },
                 [],
                 {},
                 'test'
@@ -1827,10 +1830,10 @@ describe('BatchWritingPersonStore', () => {
             )
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(3)
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$browser',
+                property: '$current_url',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$app_build',
+                property: '$pathname',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
                 property: '$geoip_latitude',
@@ -2098,18 +2101,19 @@ describe('BatchWritingPersonStore', () => {
             const testPersonStore = new BatchWritingPersonsStore(mockRepo, db.kafkaProducer)
             const personStoreForBatch = testPersonStore.forBatch() as BatchWritingPersonsStoreForBatch
 
+            // Using properties that are in FILTERED_PERSON_UPDATE_PROPERTIES
             const personWithFiltered = {
                 ...person,
                 properties: {
-                    $browser: 'Firefox',
-                    $app_build: '100',
+                    $current_url: 'https://old.com',
+                    $pathname: '/old',
                 },
             }
 
             // Event 1: Normal event with filtered properties
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { $browser: 'Chrome' },
+                { $current_url: 'https://new.com' },
                 [],
                 {},
                 'test'
@@ -2119,7 +2123,7 @@ describe('BatchWritingPersonStore', () => {
             // Event 2: Another normal event with filtered properties
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { $app_build: '200' },
+                { $pathname: '/new' },
                 [],
                 {},
                 'test'
@@ -2129,7 +2133,7 @@ describe('BatchWritingPersonStore', () => {
             // Event 3: Yet another normal event with filtered properties
             await personStoreForBatch.updatePersonWithPropertiesDiffForUpdate(
                 personWithFiltered,
-                { $browser: 'Safari' },
+                { $current_url: 'https://another.com' },
                 [],
                 {},
                 'test'
@@ -2151,10 +2155,10 @@ describe('BatchWritingPersonStore', () => {
             // Properties should be marked as ignored
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledTimes(2)
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$browser',
+                property: '$current_url',
             })
             expect(mockPersonProfileBatchIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                property: '$app_build',
+                property: '$pathname',
             })
             // personPropertyKeyUpdateCounter should NOT be called for 'ignored' outcomes
             expect(mockPersonPropertyKeyUpdateCounter.labels).not.toHaveBeenCalled()
