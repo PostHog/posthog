@@ -100,15 +100,15 @@ jobs:
                   enable-terraform-change-pr-commenter: true
                   terragrunt-working-directory: ${{ matrix.working_dir }}
                   commands: |
-                      if terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m; then
+                      exit_code=0
+                      terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m || exit_code=$?
+                      if [ $exit_code == 0 ]; then
                         # Succeeded, diff is empty (no changes)
                         rm terraform.tfplan || true # delete the plan so we don't comment
-                      else
-                        if [ $? == 1 ]; then
-                          exit 1  # actual error, fail
-                        fi
-                        # Succeeded, there is a diff
+                      elif [ $exit_code == 1 ]; then
+                        exit 1  # actual error, fail
                       fi
+                      # exit_code == 2: Succeeded, there is a diff
 
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/main'
