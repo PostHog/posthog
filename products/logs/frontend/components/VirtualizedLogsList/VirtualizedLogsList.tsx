@@ -8,6 +8,7 @@ import { List, ListRowProps } from 'react-virtualized/dist/es/List'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
 
+import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import {
     LOG_ROW_HEADER_HEIGHT,
     LogRow,
@@ -15,34 +16,35 @@ import {
     getMinRowWidth,
 } from 'products/logs/frontend/components/VirtualizedLogsList/LogRow'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { logsLogic } from 'products/logs/frontend/logsLogic'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 interface VirtualizedLogsListProps {
     dataSource: ParsedLogMessage[]
     loading: boolean
-    isPinned: (uuid: string) => boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
     showPinnedWithOpacity?: boolean
     fixedHeight?: number
     disableInfiniteScroll?: boolean
+    hasMoreLogsToLoad?: boolean
+    onLoadMore?: () => void
 }
 
 export function VirtualizedLogsList({
     dataSource,
     loading,
-    isPinned,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     showPinnedWithOpacity = false,
     fixedHeight,
     disableInfiniteScroll = false,
+    hasMoreLogsToLoad = false,
+    onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { togglePinLog, setHighlightedLogId, fetchNextLogsPage } = useActions(logsLogic)
-    const { highlightedLogId, hasMoreLogsToLoad, logsLoading } = useValues(logsLogic)
+    const { togglePinLog, setCursorIndex } = useActions(logsViewerLogic)
+    const { pinnedLogs, cursorIndex } = useValues(logsViewerLogic)
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
     const { setContainerWidth } = useActions(virtualizedLogsListLogic)
     const listRef = useRef<List>(null)
@@ -82,36 +84,28 @@ export function VirtualizedLogsList({
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
-        if (logsLoading && dataSource.length === 0) {
+        if (loading && dataSource.length === 0) {
             cache.clearAll()
         }
-    }, [logsLoading, dataSource.length, cache])
+    }, [loading, dataSource.length, cache])
 
     useEffect(() => {
         cache.clearAll()
         listRef.current?.recomputeRowHeights()
     }, [wrapBody, prettifyJson, cache])
 
-    const prevHighlightedLogIdRef = useRef<string | null>(null)
-
     useEffect(() => {
-        if (highlightedLogId && highlightedLogId !== prevHighlightedLogIdRef.current) {
-            requestAnimationFrame(() => {
-                const index = dataSource.findIndex((log) => log.uuid === highlightedLogId)
-                if (index !== -1) {
-                    listRef.current?.scrollToRow(index)
-                }
-            })
+        if (cursorIndex !== null) {
+            listRef.current?.scrollToRow(cursorIndex)
         }
-        prevHighlightedLogIdRef.current = highlightedLogId
-    }, [highlightedLogId, dataSource])
+    }, [cursorIndex])
 
     const handleRowsRendered = ({ stopIndex }: { stopIndex: number }): void => {
         if (disableInfiniteScroll) {
             return
         }
-        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, logsLoading)) {
-            fetchNextLogsPage(250)
+        if (shouldLoadMore(stopIndex, dataSource.length, hasMoreLogsToLoad, loading)) {
+            onLoadMore?.()
         }
     }
 
@@ -119,8 +113,6 @@ export function VirtualizedLogsList({
         (rowWidth?: number) =>
             ({ index, key, style, parent }: ListRowProps): JSX.Element => {
                 const log = dataSource[index]
-                const isHighlighted = log.uuid === highlightedLogId
-                const pinned = isPinned(log.uuid)
 
                 return (
                     <CellMeasurer cache={cache} columnIndex={0} key={key} parent={parent} rowIndex={index}>
@@ -132,14 +124,14 @@ export function VirtualizedLogsList({
                             >
                                 <LogRow
                                     log={log}
-                                    isHighlighted={isHighlighted}
-                                    pinned={pinned}
+                                    isAtCursor={index === cursorIndex}
+                                    pinned={!!pinnedLogs[log.uuid]}
                                     showPinnedWithOpacity={showPinnedWithOpacity}
                                     wrapBody={wrapBody}
                                     prettifyJson={prettifyJson}
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
-                                    onSetHighlighted={setHighlightedLogId}
+                                    onSetCursor={() => setCursorIndex(index)}
                                     rowWidth={rowWidth}
                                 />
                             </div>
@@ -149,15 +141,15 @@ export function VirtualizedLogsList({
             },
         [
             dataSource,
-            highlightedLogId,
-            isPinned,
+            cursorIndex,
+            pinnedLogs,
             cache,
             showPinnedWithOpacity,
             wrapBody,
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
-            setHighlightedLogId,
+            setCursorIndex,
         ]
     )
 

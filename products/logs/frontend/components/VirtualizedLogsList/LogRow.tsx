@@ -59,27 +59,27 @@ const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSPro
 
 export interface LogRowProps {
     log: ParsedLogMessage
-    isHighlighted: boolean
+    isAtCursor: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
-    onTogglePin: (uuid: string) => void
-    onSetHighlighted: (uuid: string | null) => void
+    onTogglePin: (log: ParsedLogMessage) => void
+    onSetCursor: () => void
     rowWidth?: number
 }
 
 export function LogRow({
     log,
-    isHighlighted,
+    isAtCursor,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onSetHighlighted,
+    onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
@@ -140,7 +140,7 @@ export function LogRow({
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onTogglePin(log.uuid)
+                                onTogglePin(log)
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
@@ -159,13 +159,13 @@ export function LogRow({
         <div
             className={cn(
                 'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isHighlighted && 'bg-primary-highlight',
+                isAtCursor && 'bg-primary-highlight',
                 pinned && 'bg-warning-highlight',
                 pinned && showPinnedWithOpacity && 'opacity-50',
                 isNew && 'VirtualizedLogsList__row--new'
             )}
             style={rowWidth ? { width: rowWidth } : undefined}
-            onClick={() => onSetHighlighted(isHighlighted ? null : log.uuid)}
+            onClick={onSetCursor}
         >
             {LOG_COLUMNS.map(renderCell)}
         </div>

@@ -223,7 +223,7 @@ export const logsLogic = kea<logsLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: LogsOrderBy) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
