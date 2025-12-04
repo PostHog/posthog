@@ -11,42 +11,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { OrganizationBasicType } from '~/types'
 
-export function useMoveProjectDisabledReasons({
-    otherOrganizations,
-    targetOrganization,
-}: {
-    otherOrganizations: Array<OrganizationBasicType>
-    targetOrganization: OrganizationBasicType | null
-}): {
-    restrictedReason: string | null
-    disabledReason: string | null
-} {
-    const restrictedReason = useRestrictedArea({
-        minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        scope: RestrictionScope.Project,
-    })
-
-    if (restrictedReason) {
-        return {
-            restrictedReason,
-            disabledReason: null,
-        }
-    }
-
-    if (otherOrganizations.length === 0) {
-        return {
-            restrictedReason: 'You must be a member of another organization',
-            disabledReason: null,
-        }
-    }
-
-    if (targetOrganization === null) {
-        return { restrictedReason: null, disabledReason: 'Please select the target organization' }
-    }
-
-    return { restrictedReason: null, disabledReason: null }
-}
-
 export function MoveProjectModal({
     isOpen,
     setIsOpen,
@@ -114,10 +78,11 @@ export function ProjectMove(): JSX.Element {
 
     const [targetOrganization, setTargetOrganization] = useState<OrganizationBasicType | null>(null)
 
-    const { disabledReason, restrictedReason } = useMoveProjectDisabledReasons({
-        otherOrganizations,
-        targetOrganization,
+    const restrictedReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Project,
     })
+    const { moveProjectDisabledReason } = useValues(projectLogic)
 
     return (
         <>
@@ -137,7 +102,7 @@ export function ProjectMove(): JSX.Element {
                         setTargetOrganization(organization || null)
                     }}
                     value={targetOrganization?.id}
-                    disabledReason={restrictedReason}
+                    disabledReason={restrictedReason ?? moveProjectDisabledReason}
                 />
 
                 <LemonButton
@@ -146,7 +111,11 @@ export function ProjectMove(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="move-project-button"
                     icon={<IconArrowRight />}
-                    disabledReason={restrictedReason ?? disabledReason}
+                    disabledReason={
+                        restrictedReason ??
+                        moveProjectDisabledReason ??
+                        (targetOrganization === null && 'Please select the target organization')
+                    }
                 >
                     Move {currentProject?.name || 'the current project'}
                 </LemonButton>
