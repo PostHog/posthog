@@ -1946,7 +1946,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "task"
+                "task",
+                "create_notebook"
             ],
             "type": "string"
         },

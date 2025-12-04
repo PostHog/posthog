@@ -239,7 +239,8 @@ class BaseAgentRunner(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if isinstance(message, get_args(AssistantStreamedMessageUnion)):
+                            is_streamable = isinstance(message, get_args(AssistantStreamedMessageUnion))
+                            if is_streamable:
                                 message = cast(AssistantStreamedMessageUnion, message)
                                 yield AssistantEventType.MESSAGE, message
 

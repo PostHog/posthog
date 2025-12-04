@@ -17,6 +17,7 @@ from posthog.schema import (
 from posthog.models import Team, User
 
 from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.chat_agent.notebook_streaming import NotebookStreamingMixin
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.utils.helpers import normalize_ai_message, should_output_assistant_message
 from ee.hogai.utils.state import is_message_update, is_state_update, merge_message_chunk
@@ -48,12 +49,9 @@ def find_subgraph(node_path: tuple[NodePath, ...]) -> bool:
 MESSAGE_TYPE_TUPLE = get_args(AssistantStreamedMessageUnion)
 
 
-class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
+class BaseStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateType]):
     """
-    Reduces streamed actions to client-facing messages.
-
-    The stream processor maintains state about message chains and delegates to specialized
-    handlers based on action type and message characteristics.
+    Base stream processor that reduces streamed actions to client-facing messages.
     """
 
     _verbose_nodes: set[MaxNodeName]
@@ -114,8 +112,8 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
                 del self._chunks[event.node_run_id]
             return await self._handle_node_end(event, action)
 
-        if isinstance(action, MessageChunkAction) and (result := self._handle_message_stream(event, action.message)):
-            return [result]
+        if isinstance(action, MessageChunkAction) and (results := self._handle_message_stream(event, action.message)):
+            return results
 
         if isinstance(action, MessageAction):
             message = action.message
@@ -177,10 +175,12 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
         # Messages with existing IDs must be deduplicated.
         # Messages WITHOUT IDs must be streamed because they're progressive.
-        if isinstance(produced_message, MESSAGE_TYPE_TUPLE) and produced_message.id is not None:
-            if produced_message.id in self._streamed_update_ids:
-                return None
-            self._streamed_update_ids.add(produced_message.id)
+        if produced_message is not None and isinstance(produced_message, MESSAGE_TYPE_TUPLE):
+            message_id = getattr(produced_message, "id", None)
+            if message_id is not None:
+                if message_id in self._streamed_update_ids:
+                    return None
+                self._streamed_update_ids.add(message_id)
 
         return produced_message
 
@@ -244,12 +244,14 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
 
     def _handle_message_stream(
         self, event: AssistantDispatcherEvent, message: AIMessageChunk
-    ) -> AssistantStreamedMessageUnion | None:
+    ) -> list[AssistantResultUnion] | None:
         """
         Process LLM chunks from "messages" stream mode.
 
         With dispatch pattern, complete messages are dispatched by nodes.
         This handles AIMessageChunk for ephemeral streaming (responsiveness).
+
+        Subclasses can override _get_additional_streaming_results to add extra results.
         """
         node_name = cast(MaxNodeName, event.node_name)
         run_id = event.node_run_id
@@ -263,7 +265,24 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
         self._chunks[run_id] = merge_message_chunk(self._chunks[run_id], message)
 
         # Stream ephemeral message (no ID = not persisted)
-        return normalize_ai_message(self._chunks[run_id])
+        assistant_message = normalize_ai_message(self._chunks[run_id])
+        results: list[AssistantResultUnion] = [assistant_message]
+
+        # Allow subclasses/mixins to add additional streaming results
+        additional_results = self._get_additional_streaming_results(self._chunks[run_id])
+        if additional_results:
+            results.extend(additional_results)
+
+        return results
+
+    def _get_additional_streaming_results(self, chunk: AIMessageChunk) -> list[AssistantResultUnion] | None:
+        """
+        Hook for subclasses/mixins to add additional streaming results.
+
+        Override this method to add custom streaming behavior (e.g., notebook streaming).
+        Returns a list of additional results to append, or None.
+        """
+        return None
 
     async def _handle_node_end(
         self, event: AssistantDispatcherEvent, action: NodeEndAction
@@ -283,3 +302,21 @@ class ChatAgentStreamProcessor(AssistantStreamProcessorProtocol, Generic[StateTy
             ):
                 results.extend(new_event)
         return results
+
+
+class ChatAgentStreamProcessor(NotebookStreamingMixin, BaseStreamProcessor[StateType]):
+    """
+    Stream processor for chat agents with notebook streaming support.
+
+    This class combines the base stream processor with notebook streaming capabilities.
+    Use BaseStreamProcessor directly if you don't need notebook streaming.
+    """
+
+    def _get_additional_streaming_results(self, chunk: AIMessageChunk) -> list[AssistantResultUnion] | None:
+        """
+        Add notebook artifact streaming to the base streaming results.
+        """
+        notebook_artifact = self._check_for_notebook_streaming(chunk)
+        if notebook_artifact:
+            return [notebook_artifact]
+        return None
