@@ -94,12 +94,7 @@ pub async fn get_connection_with_metrics(
         ("operation".to_string(), operation.to_string()),
     ];
 
-    // Time connection acquisition (guard records on drop)
-    let result = {
-        let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
-        client.get_connection().await
-    };
-
+    // Record pool utilization before acquisition to capture state at request time
     if let Some(stats) = client.as_ref().get_pool_stats() {
         let utilization = if stats.size > 0 {
             (stats.size - stats.num_idle as u32) as f64 / stats.size as f64
@@ -108,6 +103,12 @@ pub async fn get_connection_with_metrics(
         };
         gauge(FLAG_POOL_UTILIZATION_GAUGE, &labels[..1], utilization);
     }
+
+    // Time connection acquisition (guard records on drop)
+    let result = {
+        let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+        client.get_connection().await
+    };
 
     // Track pool acquisition timeouts specifically
     if let Err(e) = &result {
