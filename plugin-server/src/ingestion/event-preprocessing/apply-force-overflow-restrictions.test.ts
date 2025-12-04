@@ -229,12 +229,12 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('passes event name to restriction checks when present', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 event: '$pageview',
                 force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -264,12 +264,12 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('passes uuid to restriction checks when present', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 uuid: 'event-uuid-123',
                 force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -299,12 +299,12 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('overflows event when event_name is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-abc',
                 distinct_id: 'd-2',
                 event: '$blocked_event',
                 force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -334,12 +334,12 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('overflows event when uuid is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-abc',
                 distinct_id: 'd-2',
                 uuid: 'blocked-uuid-789',
                 force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
