@@ -1,0 +1,8 @@
+# Terraform provider/module cache
+**/.terraform/
+
+# Terragrunt cache
+**/.terragrunt-cache/
+
+# Plan files
+*.tfplan
