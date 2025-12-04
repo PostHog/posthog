@@ -12,12 +12,6 @@ from posthog.schema import (
 from posthog.constants import UNIQUE_GROUPS
 
 
-def series_event_name(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
-    if isinstance(series, EventsNode):
-        return series.event
-    return None
-
-
 def get_properties_chain(
     breakdown_type: BreakdownType | MultipleBreakdownType | None,
     breakdown_field: str,

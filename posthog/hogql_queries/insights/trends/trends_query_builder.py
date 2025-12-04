@@ -9,6 +9,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DataWarehousePropertyFilter,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsQuery,
 )
@@ -27,7 +28,7 @@ from posthog.hogql_queries.insights.trends.breakdown import (
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import is_groups_math, series_event_name
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
@@ -38,7 +39,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
     query: TrendsQuery
     team: Team
     query_date_range: QueryDateRange
-    series: EventsNode | ActionsNode | DataWarehouseNode
+    series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode
     timings: HogQLTimings
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
@@ -48,7 +49,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         trends_query: TrendsQuery,
         team: Team,
         query_date_range: QueryDateRange,
-        series: EventsNode | ActionsNode | DataWarehouseNode,
+        series: EventsNode | ActionsNode | DataWarehouseNode | GroupNode,
         timings: HogQLTimings,
         modifiers: HogQLQueryModifiers,
         limit_context: LimitContext = LimitContext.QUERY,
@@ -860,21 +861,51 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return ast.And(exprs=filters)
 
     def _event_or_action_where_expr(self) -> ast.Expr | None:
-        # Event name
-        if series_event_name(self.series) is not None:
-            return parse_expr(
-                "event = {event}",
-                placeholders={"event": ast.Constant(value=series_event_name(self.series))},
-            )
+        if isinstance(self.series, EventsNode):
+            return self._get_event_expr(self.series)
 
-        # Actions
         if isinstance(self.series, ActionsNode):
-            try:
-                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
-                return action_to_expr(action)
-            except Action.DoesNotExist:
-                # If an action doesn't exist, we want to return no events
-                return parse_expr("1 = 2")
+            return self._get_action_expr(self.series)
+
+        if isinstance(self.series, GroupNode):
+            return self._get_group_expr(self.series)
+
+        return None
+
+    def _get_event_expr(self, series: EventsNode) -> ast.Expr | None:
+        return parse_expr(
+            "event = {event}",
+            placeholders={"event": ast.Constant(value=series.event)},
+        )
+
+    def _get_action_expr(self, series: ActionsNode) -> ast.Expr | None:
+        try:
+            action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
+            return action_to_expr(action)
+        except Action.DoesNotExist:
+            # If an action doesn't exist, we want to return no events
+            return parse_expr("1 = 2")
+
+    def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
+        group_filters = []
+        for value in series.values:
+            if isinstance(value, EventsNode):
+                group_filters.append(self._get_event_expr(value))
+
+            if isinstance(value, ActionsNode):
+                group_filters.append(self._get_action_expr(value))
+
+        if len(group_filters) == 0:
+            return None
+
+        if len(group_filters) == 1:
+            return group_filters[0]
+
+        if series.operator == "OR":
+            return ast.Or(exprs=group_filters)
+
+        if series.operator == "AND":
+            return ast.And(exprs=group_filters)
 
         return None
 
