@@ -45,6 +45,7 @@ class AssistantConversationRunnerWorkflowInputs:
     mode: AssistantMode = AssistantMode.ASSISTANT
     billing_context: Optional[MaxBillingContext] = None
     agent_mode: AgentMode | None = None
+    is_workflow_billable: bool = True
 
 
 @workflow.defn(name="conversation-processing")
@@ -85,6 +86,7 @@ class AssistantConversationRunnerWorkflow(AgentBaseWorkflow):
             is_new_conversation=inputs.is_new_conversation,
             billing_context=inputs.billing_context,
             agent_mode=inputs.agent_mode,
+            is_agent_billable=is_agent_billable,
         )
 
         await workflow.execute_child_workflow(

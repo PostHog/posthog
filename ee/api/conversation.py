@@ -9,6 +9,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from loginas.utils import is_impersonated_session
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -215,6 +216,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
+        # Skip billing for impersonated sessions (support agents)
+        is_workflow_billable = not is_impersonated_session(request)
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model
@@ -228,6 +231,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             billing_context=serializer.validated_data.get("billing_context"),
             agent_mode=serializer.validated_data.get("agent_mode"),
             use_checkpointer=True,
+            is_workflow_billable=is_workflow_billable,
         )
         workflow_class = ChatAgentWorkflow
 

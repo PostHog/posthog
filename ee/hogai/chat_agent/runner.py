@@ -68,6 +68,7 @@ class ChatAgentRunner(BaseAgentRunner):
         agent_mode: AgentMode | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
         use_checkpointer: bool = True,
+        is_workflow_billable: bool = True,
     ):
         super().__init__(
             team,
@@ -85,6 +86,7 @@ class ChatAgentRunner(BaseAgentRunner):
             initial_state=initial_state,
             billing_context=billing_context,
             use_checkpointer=use_checkpointer,
+            is_workflow_billable=is_workflow_billable,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
