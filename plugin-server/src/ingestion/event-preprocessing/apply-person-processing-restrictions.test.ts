@@ -37,6 +37,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         token: 'default-token',
         distinct_id: 'default-distinct-id',
         force_disable_person_processing: false,
+        historical_migration: false,
         ...overrides,
     })
 

@@ -147,12 +147,12 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should pass event name when present in headers', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 event: '$pageview',
                 force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -171,12 +171,12 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should pass uuid when present in headers', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 uuid: 'event-uuid-123',
                 force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -195,12 +195,12 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should drop event when event_name is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 event: '$blocked_event',
                 force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
@@ -219,12 +219,12 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should drop event when uuid is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 uuid: 'blocked-uuid-789',
                 force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 
