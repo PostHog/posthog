@@ -23,7 +23,7 @@ import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, Un
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
-import { ParsedLogMessage } from './types'
+import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
