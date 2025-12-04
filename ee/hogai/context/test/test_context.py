@@ -28,6 +28,7 @@ from posthog.schema import (
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
+    ModeContext,
     RetentionEntity,
     RetentionFilter,
     RetentionQuery,
@@ -388,19 +389,20 @@ Query results: 42 events
         )
 
         # Test deduplication - should filter out matching content
-        context_prompts = [
-            "New context message",
-            "Existing context 1",  # This should be filtered out
-            "Another new message",
-            "Existing context 2",  # This should be filtered out
+        context_messages = [
+            ContextMessage(content="New context message", id="new1"),
+            ContextMessage(content="Existing context 1", id="dup1"),  # This should be filtered out
+            ContextMessage(content="Another new message", id="new2"),
+            ContextMessage(content="Existing context 2", id="dup2"),  # This should be filtered out
         ]
 
-        result = self.context_manager._deduplicate_context_messages(state, context_prompts)
+        result = self.context_manager._deduplicate_context_messages(state, context_messages)
 
-        expected = ["New context message", "Another new message"]
-        self.assertEqual(result, expected)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0].content, "New context message")
+        self.assertEqual(result[1].content, "Another new message")
 
-    async def test_get_context_prompts_with_ui_and_contextual_tools(self):
+    async def test_get_context_messages_with_ui_and_contextual_tools(self):
         """Test that context prompts are returned for both UI context and contextual tools"""
         with (
             patch.object(AssistantContextManager, "_get_contextual_tools_prompt") as mock_contextual_tools,
@@ -412,22 +414,25 @@ Query results: 42 events
             mock_contextual_tools.return_value = "Contextual tools prompt"
             mock_format_ui.return_value = "UI context prompt"
             mock_get_ui.return_value = MaxUIContext()
-            mock_dedupe.return_value = ["Contextual tools prompt", "UI context prompt"]
+            ctx_tools_msg = ContextMessage(content="Contextual tools prompt", id="1")
+            ui_context_msg = ContextMessage(content="UI context prompt", id="2")
+            mock_dedupe.return_value = [ctx_tools_msg, ui_context_msg]
 
             state = AssistantState(messages=[HumanMessage(content="Test")])
 
-            result = await self.context_manager._get_context_prompts(state)
+            result = await self.context_manager._get_context_messages(state)
 
             # Verify both prompts are included
-            self.assertEqual(result, ["Contextual tools prompt", "UI context prompt"])
+            self.assertEqual(len(result), 2)
+            self.assertEqual(result[0].content, "Contextual tools prompt")
+            self.assertEqual(result[1].content, "UI context prompt")
 
             # Verify methods were called
             mock_contextual_tools.assert_called_once_with()
             mock_get_ui.assert_called_once_with(state)
             mock_format_ui.assert_called_once_with(MaxUIContext())
-            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt", "UI context prompt"])
 
-    async def test_get_context_prompts_with_only_contextual_tools(self):
+    async def test_get_context_messages_with_only_contextual_tools(self):
         """Test that context prompts work when only contextual tools are present"""
         with (
             patch.object(AssistantContextManager, "_get_contextual_tools_prompt") as mock_contextual_tools,
@@ -439,15 +444,16 @@ Query results: 42 events
             mock_contextual_tools.return_value = "Contextual tools prompt"
             mock_format_ui.return_value = None  # No UI context
             mock_get_ui.return_value = MaxUIContext()
-            mock_dedupe.return_value = ["Contextual tools prompt"]
+            ctx_tools_msg = ContextMessage(content="Contextual tools prompt", id="1")
+            mock_dedupe.return_value = [ctx_tools_msg]
 
             state = AssistantState(messages=[HumanMessage(content="Test")])
 
-            result = await self.context_manager._get_context_prompts(state)
+            result = await self.context_manager._get_context_messages(state)
 
             # Should only include contextual tools prompt
-            self.assertEqual(result, ["Contextual tools prompt"])
-            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt"])
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0].content, "Contextual tools prompt")
 
     def test_get_contextual_tools(self):
         """Test extraction of contextual tools from config"""
@@ -537,9 +543,12 @@ Query results: 42 events
             start_id="3",  # Start from the last message
         )
 
-        context_prompts = ["Context 1", "Context 2"]
+        context_messages = [
+            ContextMessage(content="Context 1", id="ctx1"),
+            ContextMessage(content="Context 2", id="ctx2"),
+        ]
 
-        result = self.context_manager._inject_context_messages(state, context_prompts)
+        result = self.context_manager._inject_context_messages(state, context_messages)
 
         # Context messages should be inserted right before the start message (id="3")
         # Original order: [HumanMessage(id=1), AssistantMessage(id=2), HumanMessage(id=3)]
@@ -562,10 +571,11 @@ Query results: 42 events
     async def test_get_state_messages_with_context(self):
         """Test that context messages are properly added to state"""
         with (
-            patch.object(AssistantContextManager, "_get_context_prompts") as mock_get_prompts,
+            patch.object(AssistantContextManager, "_get_context_messages") as mock_get_prompts,
             patch.object(AssistantContextManager, "_inject_context_messages") as mock_inject,
         ):
-            mock_get_prompts.return_value = ["Context prompt"]
+            ctx_msg = ContextMessage(content="Context prompt", id="ctx1")
+            mock_get_prompts.return_value = [ctx_msg]
             mock_inject.return_value = [
                 ContextMessage(content="Context prompt"),
                 HumanMessage(content="Test"),
@@ -576,13 +586,13 @@ Query results: 42 events
             result = await self.context_manager.get_state_messages_with_context(state)
 
             mock_get_prompts.assert_called_once_with(state)
-            mock_inject.assert_called_once_with(state, ["Context prompt"])
+            mock_inject.assert_called_once_with(state, [ctx_msg])
             assert result is not None
             self.assertEqual(len(result), 2)
 
     async def test_get_state_messages_with_context_no_prompts(self):
         """Test that original messages are returned when no context prompts"""
-        with patch.object(AssistantContextManager, "_get_context_prompts") as mock_get_prompts:
+        with patch.object(AssistantContextManager, "_get_context_messages") as mock_get_prompts:
             mock_get_prompts.return_value = []
 
             messages = [HumanMessage(content="Test")]
@@ -645,7 +655,7 @@ Query results: 42 events
         context_manager = AssistantContextManager(self.team, self.user, RunnableConfig(configurable={}))
         self.assertIsNone(context_manager.get_billing_context())
 
-    async def test_get_context_prompts_with_agent_mode_at_start(self):
+    async def test_get_context_messages_with_agent_mode_at_start(self):
         """Test that mode prompt is added when feature flag is enabled and message is at start"""
         with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
             state = AssistantState(
@@ -661,15 +671,20 @@ Query results: 42 events
             assert isinstance(result[0], ContextMessage)
             self.assertIn("Your initial mode is", result[0].content)
             self.assertIn("product_analytics", result[0].content)
+            # Verify metadata is set correctly
+            assert isinstance(result[0].meta, ModeContext)
+            self.assertEqual(result[0].meta.mode, AgentMode.PRODUCT_ANALYTICS)
             self.assertIsInstance(result[1], HumanMessage)
 
-    async def test_get_context_prompts_with_agent_mode_switch(self):
+    async def test_get_context_messages_with_agent_mode_switch(self):
         """Test that mode switch prompt is added when mode changes mid-conversation"""
         with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
             state = AssistantState(
                 messages=[
                     ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                        id="0",
+                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
                     ),
                     HumanMessage(content="First message", id="1"),
                     AssistantMessage(content="Response", id="2"),
@@ -687,14 +702,19 @@ Query results: 42 events
             assert isinstance(result[3], ContextMessage)
             self.assertIn("Your mode has been switched to", result[3].content)
             self.assertIn("sql", result[3].content)
+            # Verify metadata is set correctly
+            assert isinstance(result[3].meta, ModeContext)
+            self.assertEqual(result[3].meta.mode, AgentMode.SQL)
 
-    async def test_get_context_prompts_no_mode_switch_when_same_mode(self):
+    async def test_get_context_messages_no_mode_switch_when_same_mode(self):
         """Test that no mode prompt is added when mode hasn't changed"""
         with patch("ee.hogai.context.context.has_agent_modes_feature_flag", return_value=True):
             state = AssistantState(
                 messages=[
                     ContextMessage(
-                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+                        content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                        id="0",
+                        meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
                     ),
                     HumanMessage(content="First message", id="1"),
                     AssistantMessage(content="Response", id="2"),
@@ -710,9 +730,13 @@ Query results: 42 events
             self.assertIsNone(result)
 
     def test_get_previous_mode_from_messages_initial(self):
-        """Test extraction of initial mode from context messages"""
+        """Test extraction of initial mode from context messages via metadata"""
         messages: list[AssistantMessageUnion] = [
-            ContextMessage(content="<system_reminder>Your initial mode is sql.</system_reminder>", id="0"),
+            ContextMessage(
+                content="<system_reminder>Your initial mode is sql.</system_reminder>",
+                id="0",
+                meta=ModeContext(mode=AgentMode.SQL),
+            ),
             HumanMessage(content="Test", id="1"),
         ]
 
@@ -721,13 +745,19 @@ Query results: 42 events
         self.assertEqual(result, AgentMode.SQL)
 
     def test_get_previous_mode_from_messages_switched(self):
-        """Test extraction of switched mode from context messages"""
+        """Test extraction of switched mode from context messages via metadata"""
         messages: list[AssistantMessageUnion] = [
             ContextMessage(
-                content="<system_reminder>Your initial mode is product_analytics.</system_reminder>", id="0"
+                content="<system_reminder>Your initial mode is product_analytics.</system_reminder>",
+                id="0",
+                meta=ModeContext(mode=AgentMode.PRODUCT_ANALYTICS),
             ),
             HumanMessage(content="First message", id="1"),
-            ContextMessage(content="<system_reminder>Your mode has been switched to sql.</system_reminder>", id="2"),
+            ContextMessage(
+                content="<system_reminder>Your mode has been switched to sql.</system_reminder>",
+                id="2",
+                meta=ModeContext(mode=AgentMode.SQL),
+            ),
             HumanMessage(content="Second message", id="3"),
         ]
 
@@ -767,16 +797,22 @@ Query results: 42 events
 
         self.assertIsNone(result)
 
-    def test_format_mode_prompt_initial(self):
-        """Test formatting of initial mode prompt"""
-        result = self.context_manager._format_mode_prompt(AgentMode.PRODUCT_ANALYTICS, is_initial=True)
+    def test_create_mode_context_message_initial(self):
+        """Test creation of initial mode context message"""
+        result = self.context_manager._create_mode_context_message(AgentMode.PRODUCT_ANALYTICS, is_initial=True)
 
-        self.assertIn("Your initial mode is", result)
-        self.assertIn("product_analytics", result)
+        self.assertIsInstance(result, ContextMessage)
+        self.assertIn("Your initial mode is", result.content)
+        self.assertIn("product_analytics", result.content)
+        assert isinstance(result.meta, ModeContext)
+        self.assertEqual(result.meta.mode, AgentMode.PRODUCT_ANALYTICS)
 
-    def test_format_mode_prompt_switch(self):
-        """Test formatting of mode switch prompt"""
-        result = self.context_manager._format_mode_prompt(AgentMode.SQL, is_initial=False)
+    def test_create_mode_context_message_switch(self):
+        """Test creation of mode switch context message"""
+        result = self.context_manager._create_mode_context_message(AgentMode.SQL, is_initial=False)
 
-        self.assertIn("Your mode has been switched to", result)
-        self.assertIn("sql", result)
+        self.assertIsInstance(result, ContextMessage)
+        self.assertIn("Your mode has been switched to", result.content)
+        self.assertIn("sql", result.content)
+        assert isinstance(result.meta, ModeContext)
+        self.assertEqual(result.meta.mode, AgentMode.SQL)
