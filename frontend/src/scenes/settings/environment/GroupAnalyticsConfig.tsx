@@ -131,7 +131,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                 displayed throughout the app.
             </p>
 
-            {groupsAccessStatus !== GroupsAccessStatus.HasGroupTypes && (
+            {groupsAccessStatus !== GroupsAccessStatus.AlreadyUsing && (
                 <LemonBanner type="info" className="mb-4">
                     Group types will show up here after you send your first event associated with a group. Take a look
                     at{' '}
