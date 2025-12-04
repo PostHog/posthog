@@ -3,6 +3,8 @@ from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
@@ -23,7 +25,7 @@ class QueryTabStateSerializer(serializers.ModelSerializer):
         return query_tab_state
 
 
-@extend_schema(tags=["data_warehouse"])
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class QueryTabStateViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Query Tab State.

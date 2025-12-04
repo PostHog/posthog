@@ -2,6 +2,8 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import ColumnConfiguration
 
@@ -13,7 +15,7 @@ class ColumnConfigurationSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["product_analytics"])
+@extend_schema(tags=[ProductKey.PRODUCT_ANALYTICS])
 class ColumnConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ColumnConfiguration.objects.all()

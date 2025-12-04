@@ -22,6 +22,7 @@ from posthog.schema import (
     HogQLQuery,
     HogQLQueryModifiers,
     HogQLVariable,
+    ProductKey,
     QueryRequest,
     QueryStatus,
     QueryStatusResponse,
@@ -67,7 +68,7 @@ MIN_CACHE_AGE_SECONDS = 300
 MAX_CACHE_AGE_SECONDS = 86400
 
 
-@extend_schema(tags=["endpoints"])
+@extend_schema(tags=[ProductKey.ENDPOINTS])
 class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "endpoint"

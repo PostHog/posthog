@@ -3,6 +3,8 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
@@ -31,7 +33,7 @@ class DataModelingJobPagination(pagination.CursorPagination):
     page_size_query_param = "limit"
 
 
-@extend_schema(tags=["data_warehouse"])
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
     """
     List data modeling jobs which are "runs" for our saved queries.

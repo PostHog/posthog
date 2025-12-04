@@ -29,6 +29,8 @@ from rest_framework import exceptions, filters, request, serializers, status, vi
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.action import ActionSerializer, ActionStepJSONSerializer
 from posthog.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
@@ -861,7 +863,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                 return feature_flag_serializer.save()
 
 
-@extend_schema(tags=["surveys"])
+@extend_schema(tags=[ProductKey.SURVEYS])
 class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(

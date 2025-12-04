@@ -18,7 +18,7 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from temporalio.client import ScheduleActionExecutionStartWorkflow
 
-from posthog.schema import DataWarehouseManagedViewsetKind
+from posthog.schema import DataWarehouseManagedViewsetKind, ProductKey
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, SerializedField, serialize_fields
@@ -393,7 +393,7 @@ class DataWarehouseSavedQueryPagination(PageNumberPagination):
     page_size = 1000
 
 
-@extend_schema(tags=["data_warehouse"])
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete Warehouse Tables.

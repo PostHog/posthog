@@ -13,6 +13,8 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.hogql.database.database import Database
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -308,7 +310,7 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
 
 
-@extend_schema(tags=["data_warehouse"])
+@extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
 class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     Create, Read, Update and Delete External data Sources.

@@ -9,6 +9,8 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
+from posthog.schema import ProductKey
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import TemporaryTokenAuthentication
@@ -156,7 +158,7 @@ class ActionSerializer(
         return instance
 
 
-@extend_schema(tags=["actions"])
+@extend_schema(tags=[ProductKey.ACTIONS])
 class ActionViewSet(
     TeamAndOrgViewSetMixin,
     AccessControlViewSetMixin,

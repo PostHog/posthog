@@ -10,6 +10,8 @@ from rest_framework import serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.schema import ProductKey
+
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -274,7 +276,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
         return feature
 
 
-@extend_schema(tags=["early_access_features"])
+@extend_schema(tags=[ProductKey.EARLY_ACCESS_FEATURES])
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
     queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
