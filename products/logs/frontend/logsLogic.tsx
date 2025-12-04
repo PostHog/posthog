@@ -40,6 +40,7 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
 export enum SparklineTimezone {
     UTC = 'utc',
+    Project = 'project',
     Device = 'device',
 }
 

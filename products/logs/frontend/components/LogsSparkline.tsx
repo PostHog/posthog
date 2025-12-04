@@ -1,21 +1,52 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { LemonSegmentedButton, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { shortTimeZone } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { SparklineTimezone, logsLogic } from '../logsLogic'
 
 export function LogsSparkline(): JSX.Element {
     const { sparklineData, sparklineLoading, sparklineTimezone } = useValues(logsLogic)
     const { setDateRangeFromSparkline, setSparklineTimezone } = useActions(logsLogic)
+    const { timezone: projectTimezone } = useValues(teamLogic)
 
-    const isUTC = sparklineTimezone === SparklineTimezone.UTC
     const deviceTimezone = shortTimeZone()
-    const showTimezoneToggle = deviceTimezone !== null && deviceTimezone !== 'UTC'
+
+    // Determine which timezone string to use for formatting
+    const activeTimezone = useMemo(() => {
+        switch (sparklineTimezone) {
+            case SparklineTimezone.UTC:
+                return 'UTC'
+            case SparklineTimezone.Project:
+                return projectTimezone
+            case SparklineTimezone.Device:
+            default:
+                return undefined // undefined means local
+        }
+    }, [sparklineTimezone, projectTimezone])
+
+    // Build timezone options, deduplicating if any match
+    const timezoneOptions = useMemo(() => {
+        const options: { value: SparklineTimezone; label: string }[] = [{ value: SparklineTimezone.UTC, label: 'UTC' }]
+
+        const projectTzLabel = shortTimeZone(projectTimezone) ?? projectTimezone
+        if (projectTimezone !== 'UTC') {
+            options.push({ value: SparklineTimezone.Project, label: `Project (${projectTzLabel})` })
+        }
+
+        if (deviceTimezone && deviceTimezone !== 'UTC' && deviceTimezone !== projectTzLabel) {
+            options.push({ value: SparklineTimezone.Device, label: `Device (${deviceTimezone})` })
+        }
+
+        return options
+    }, [projectTimezone, deviceTimezone])
+
+    const showTimezoneSelector = timezoneOptions.length > 1
 
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
@@ -49,7 +80,7 @@ export function LogsSparkline(): JSX.Element {
                         lineHeight: 1,
                     },
                     callback: function (value: string | number) {
-                        const d = isUTC ? dayjs(value).utc() : dayjs(value)
+                        const d = activeTimezone ? dayjs(value).tz(activeTimezone) : dayjs(value)
                         return d.format(tickFormat)
                     },
                 },
@@ -58,16 +89,16 @@ export function LogsSparkline(): JSX.Element {
                 },
             } as AnyScaleOptions
         },
-        [timeUnit, tickFormat, isUTC]
+        [timeUnit, tickFormat, activeTimezone]
     )
 
     const renderLabel = useCallback(
         (label: string): string => {
-            const d = isUTC ? dayjs(label).utc() : dayjs(label)
-            const tz = isUTC ? 'UTC' : (shortTimeZone(undefined, d.toDate()) ?? 'Local')
+            const d = activeTimezone ? dayjs(label).tz(activeTimezone) : dayjs(label)
+            const tz = activeTimezone === 'UTC' ? 'UTC' : (shortTimeZone(activeTimezone, d.toDate()) ?? 'Local')
             return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
         },
-        [isUTC]
+        [activeTimezone]
     )
 
     const sparklineLabels = useMemo(() => {
@@ -83,16 +114,13 @@ export function LogsSparkline(): JSX.Element {
 
     return (
         <div className="relative h-40 flex flex-col">
-            {showTimezoneToggle && (
+            {showTimezoneSelector && (
                 <div className="absolute top-1 right-1 z-10">
-                    <LemonSegmentedButton
+                    <LemonSelect
                         size="xsmall"
                         value={sparklineTimezone}
-                        onChange={(value) => setSparklineTimezone(value)}
-                        options={[
-                            { value: SparklineTimezone.UTC, label: 'UTC' },
-                            { value: SparklineTimezone.Device, label: deviceTimezone ?? 'Device' },
-                        ]}
+                        onChange={(value) => value && setSparklineTimezone(value)}
+                        options={timezoneOptions}
                     />
                 </div>
             )}
