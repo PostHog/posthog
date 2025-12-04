@@ -83,6 +83,7 @@ import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
+import { getIsTicketPromptNeeded, getTicketSummaryData, isTicketConfirmationMessage } from './ticketUtils'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -104,91 +105,15 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
     const { threadGrouped, streamingActive } = useValues(maxThreadLogic)
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
-    // Detect if /ticket was sent as first message and needs input form
-    const isTicketPromptNeeded = useMemo(() => {
-        if (threadGrouped.length < 2 || streamingActive) {
-            return false
-        }
-        const firstMessage = threadGrouped[0]
-        const lastMessage = threadGrouped[threadGrouped.length - 1]
-        // Check if first message is /ticket and last message is the prompt response
-        const isInitialTicketPrompt =
-            firstMessage?.type === 'human' &&
-            'content' in firstMessage &&
-            firstMessage.content === '/ticket' &&
-            lastMessage?.type === 'ai' &&
-            'content' in lastMessage &&
-            lastMessage.content.includes("I'll help you create a support ticket")
+    const isTicketPromptNeeded = useMemo(
+        () => getIsTicketPromptNeeded(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
 
-        // If a ticket confirmation already exists, don't show the form
-        if (isInitialTicketPrompt) {
-            const hasConfirmationMessage = threadGrouped.some(
-                (msg) =>
-                    msg?.type === 'ai' &&
-                    'content' in msg &&
-                    msg.content?.includes("I've created a support ticket for you")
-            )
-            return !hasConfirmationMessage
-        }
-
-        return false
-    }, [threadGrouped, streamingActive])
-
-    // Detect if /ticket was sent with an existing conversation (summary response)
-    // Find the /ticket human message and check if it was NOT the first message
-    const ticketSummaryData = useMemo(() => {
-        if (threadGrouped.length < 3 || streamingActive) {
-            return null
-        }
-
-        // Find the last /ticket command
-        let ticketCommandIndex = -1
-        for (let i = threadGrouped.length - 1; i >= 0; i--) {
-            const msg = threadGrouped[i]
-            if (msg?.type === 'human' && 'content' in msg && msg.content === '/ticket') {
-                ticketCommandIndex = i
-                break
-            }
-        }
-
-        // If /ticket is NOT the first human message, and there's an AI response after it
-        if (ticketCommandIndex > 0 && ticketCommandIndex < threadGrouped.length - 1) {
-            const responseMessage = threadGrouped[ticketCommandIndex + 1]
-            if (
-                responseMessage?.type === 'ai' &&
-                'content' in responseMessage &&
-                responseMessage.content &&
-                !responseMessage.content.includes("I'll help you create a support ticket")
-            ) {
-                // Check if user continued the conversation (sent another message after the summary)
-                // or if a ticket was already created
-                const messagesAfterSummary = threadGrouped.slice(ticketCommandIndex + 2)
-                const userContinuedConversation = messagesAfterSummary.some((msg) => msg?.type === 'human')
-                const hasConfirmationMessage = messagesAfterSummary.some(
-                    (msg) =>
-                        msg?.type === 'ai' &&
-                        'content' in msg &&
-                        msg.content?.includes("I've created a support ticket for you")
-                )
-
-                if (hasConfirmationMessage) {
-                    return null
-                }
-                if (userContinuedConversation) {
-                    return {
-                        discarded: true,
-                        messageIndex: ticketCommandIndex + 1,
-                    }
-                }
-                return {
-                    summary: responseMessage.content,
-                    messageIndex: ticketCommandIndex + 1,
-                }
-            }
-        }
-
-        return null
-    }, [threadGrouped, streamingActive])
+    const ticketSummaryData = useMemo(
+        () => getTicketSummaryData(threadGrouped, streamingActive),
+        [threadGrouped, streamingActive]
+    )
 
     return (
         <div
@@ -224,11 +149,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 prevMessage.content.startsWith(SlashCommandName.SlashTicket))
 
                         // Also hide for ticket confirmation messages
-                        const isTicketConfirmationMessage =
-                            message.type !== 'human' &&
-                            'content' in message &&
-                            typeof message.content === 'string' &&
-                            message.content.includes("I've created a support ticket for you")
+                        const isTicketConfirmation = isTicketConfirmationMessage(message)
 
                         // Check if this message is a ticket summary that needs the ticket creation button
                         const isTicketSummaryMessage = ticketSummaryData && ticketSummaryData.messageIndex === index
@@ -240,7 +161,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                     nextMessage={nextMessage}
                                     isLastInGroup={isLastInGroup}
                                     isFinal={index === threadGrouped.length - 1}
-                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmationMessage}
+                                    isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                 />
                                 {conversationId &&
                                     isTicketSummaryMessage &&
