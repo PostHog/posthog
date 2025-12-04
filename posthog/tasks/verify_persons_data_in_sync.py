@@ -89,7 +89,7 @@ def _team_integrity_statistics(person_data: list[Any]) -> Counter:
     # :TRICKY: To speed up processing, we fetch all models in batch at once and store results in dictionary indexed by person uuid
     pg_persons = _index_by(
         list(
-            Person.objects.filter(id__in=person_ids).prefetch_related(
+            Person.objects.filter(id__in=person_ids, team_id__in=team_ids).prefetch_related(
                 Prefetch(
                     "persondistinctid_set",
                     queryset=PersonDistinctId.objects.filter(team_id__in=team_ids).order_by("id"),
