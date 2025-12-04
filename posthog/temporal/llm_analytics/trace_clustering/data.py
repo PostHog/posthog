@@ -65,8 +65,14 @@ def fetch_trace_embeddings_for_clustering(
         )
 
     rows = result.results or []
-    trace_ids = [row[0] for row in rows]
-    embeddings_map = {row[0]: row[1] for row in rows}
+
+    # Build both in single loop to ensure trace_ids and embeddings_map are in same order
+    trace_ids: list[TraceId] = []
+    embeddings_map: TraceEmbeddings = {}
+    for row in rows:
+        trace_id = row[0]
+        trace_ids.append(trace_id)
+        embeddings_map[trace_id] = row[1]
 
     return trace_ids, embeddings_map
 
