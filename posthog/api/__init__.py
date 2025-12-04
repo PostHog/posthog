@@ -88,6 +88,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    materialized_column_slot,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -281,6 +282,13 @@ projects_router.register(
     DataManagementViewSet,
     "project_data_management",
     ["project_id"],
+)
+
+environments_router.register(
+    r"materialized_column_slots",
+    materialized_column_slot.MaterializedColumnSlotViewSet,
+    "environment_materialized_column_slots",
+    ["team_id"],
 )
 
 projects_router.register(
