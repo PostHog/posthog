@@ -99,6 +99,8 @@ class HogFlowActionSerializer(serializers.Serializer):
         conditions = data.get("config", {}).get("conditions", [])
 
         single_condition = data.get("config", {}).get("condition", None)
+        if conditions and single_condition:
+            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
         if single_condition:
             conditions = [single_condition]
 
