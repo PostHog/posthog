@@ -329,16 +329,14 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         mock_list_objects.side_effect = list_objects_func
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
         assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
         assert response_data == {
             "sources": [
                 {
-                    "source": "blob_v2",
+                    "source": "blob_v2_lts",
                     "blob_key": "the_lts_path/the_session_uuid",
                     # it's ok for these to be None, since we don't use the data anyway
                     # and this key is the whole session
@@ -397,7 +395,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true&source=blob_v2&blob_key=/the_lts_path/the_session_uuid"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?source=blob_v2_lts&blob_key=/the_lts_path/the_session_uuid"
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert (

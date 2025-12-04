@@ -107,16 +107,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 = true
-                    const blob_v2_lts = true
-                    const response = await api.recordings.listSnapshotSources(
-                        props.sessionRecordingId,
-                        {
-                            blob_v2,
-                            blob_v2_lts,
-                        },
-                        headers
-                    )
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, {}, headers)
 
                     if (!response || !response.sources) {
                         return []

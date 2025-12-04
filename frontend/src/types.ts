@@ -1063,9 +1063,8 @@ export type EncodedRecordingSnapshot = {
 // this way if we want to reference one of the valid string values for SnapshotSourceType
 // we have a strongly typed way to do it
 export const SnapshotSourceType = {
-    blob: 'blob',
-    file: 'file',
     blob_v2: 'blob_v2',
+    blob_v2_lts: 'blob_v2_lts',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
@@ -1079,11 +1078,7 @@ export interface SessionRecordingSnapshotSource {
 
 export type SessionRecordingSnapshotParams = (
     | {
-          source: 'blob'
-          blob_key?: string
-      }
-    | {
-          source: 'blob_v2'
+          source: 'blob_v2_lts'
           blob_key?: string
       }
     | {
@@ -1096,9 +1091,6 @@ export type SessionRecordingSnapshotParams = (
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
-    // v1 loaded each source separately
-    source?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'> | 'processed'
-    // with v2 we can load multiple sources at once
     sources?: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[]
     snapshots?: RecordingSnapshot[]
     // we process snapshots to make them rrweb vanilla playable
