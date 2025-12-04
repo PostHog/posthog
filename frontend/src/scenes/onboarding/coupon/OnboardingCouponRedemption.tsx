@@ -8,6 +8,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CouponRedemption } from 'scenes/coupons/CouponRedemption'
 import { campaignConfigs } from 'scenes/coupons/campaigns'
+import { parseCouponCampaign } from 'scenes/coupons/utils'
 import { getOnboardingEntryUrl } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -18,9 +19,7 @@ export const scene: SceneExport = {
 export function OnboardingCouponRedemption(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // Get campaign from URL path (handles optional /project/:id/ prefix)
-    const match = router.values.currentLocation.pathname.match(/\/onboarding\/coupons\/([^/?]+)/)
-    const campaign = match?.[1] || ''
+    const campaign = parseCouponCampaign(router.values.currentLocation.pathname) || ''
     const config = campaignConfigs[campaign]
 
     const continueToOnboarding = (): void => {

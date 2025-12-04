@@ -45,6 +45,7 @@ import { AccessControlLevel, OnboardingStepKey } from '~/types'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
+import { parseCouponCampaign } from './coupons/utils'
 import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
@@ -1173,9 +1174,8 @@ export const sceneLogic = kea<sceneLogicType>([
                                     removeProjectIdIfPresent(location.pathname)
 
                                 // Check if user is coming from a coupon campaign link
-                                const couponCampaignMatch = nextUrl?.match(/^\/coupons\/([^/?]+)/)
-                                if (couponCampaignMatch) {
-                                    const campaign = couponCampaignMatch[1]
+                                const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                                if (campaign) {
                                     router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
                                     return
                                 }
