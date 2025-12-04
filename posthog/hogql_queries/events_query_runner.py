@@ -335,7 +335,7 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                     persons = persons.prefetch_related(
                         Prefetch(
                             "persondistinctid_set",
-                            queryset=PersonDistinctId.objects.filter(team_id=self.team.pk),
+                            queryset=PersonDistinctId.objects.filter(team_id=self.team.pk).order_by("id"),
                             to_attr="distinct_ids_cache",
                         )
                     )

@@ -273,7 +273,7 @@ class EventViewSet(
         persons = persons.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team.pk),
+                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
                 to_attr="distinct_ids_cache",
             )
         )

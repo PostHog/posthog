@@ -539,7 +539,7 @@ def get_persons_for_sessions_from_distinct_ids(
         persons = persons.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team_id),
+                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
                 to_attr="distinct_ids_cache",
             )
         )

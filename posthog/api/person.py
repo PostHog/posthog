@@ -235,7 +235,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = queryset.prefetch_related(
             Prefetch(
                 "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id),
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
                 to_attr="distinct_ids_cache",
             )
         )
