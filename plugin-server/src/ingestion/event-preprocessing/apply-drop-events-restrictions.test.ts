@@ -85,12 +85,11 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should pass session_id when present in headers', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 session_id: 'session-789',
-                force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
 
@@ -107,12 +106,11 @@ describe('createApplyDropRestrictionsStep', () => {
     it('should drop event when session_id is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 session_id: 'blocked-session-789',
-                force_disable_person_processing: false,
-            },
+            }),
         }
         jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
 

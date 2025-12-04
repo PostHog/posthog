@@ -131,12 +131,11 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('passes session_id to restriction checks when present', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 session_id: 's-123',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
@@ -154,12 +153,11 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
     it('overflows event when session_id is restricted', async () => {
         const input = {
             message: {} as any,
-            headers: {
+            headers: createTestEventHeaders({
                 token: 't-abc',
                 distinct_id: 'd-2',
                 session_id: 'blocked-session',
-                force_disable_person_processing: false,
-            },
+            }),
         }
 
         jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
