@@ -27,7 +27,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
 
     connect((props: QuickFiltersSectionLogicProps) => ({
         values: [quickFiltersLogic({ context: props.context }), ['quickFilters']],
-        actions: [quickFiltersLogic({ context: props.context }), ['deleteFilter']],
+        actions: [quickFiltersLogic({ context: props.context }), ['deleteFilter', 'filterUpdated']],
     })),
 
     actions({
@@ -65,6 +65,19 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             const deletedFilter = values.quickFilters.find((f) => f.id === id)
             if (deletedFilter) {
                 actions.clearQuickFilter(deletedFilter.property_name)
+            }
+        },
+        filterUpdated: ({ filter }) => {
+            const currentSelection = values.selectedQuickFilters[filter.property_name]
+            if (!currentSelection) {
+                return
+            }
+
+            const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
+            if (updatedOption) {
+                actions.setQuickFilterValue(filter.property_name, updatedOption)
+            } else {
+                actions.clearQuickFilter(filter.property_name)
             }
         },
         setQuickFilterValue: ({ propertyName, option }) => {

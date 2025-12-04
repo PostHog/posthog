@@ -330,9 +330,6 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 )
                 self.context["activity_log"] = latest_activity_log
 
-            if sync_frequency and sync_frequency != "never":
-                view.setup_model_paths()
-
         if was_sync_frequency_updated:
             view.schedule_materialization(
                 unpause=before_update is not None and before_update.sync_frequency_interval is None
