@@ -223,8 +223,8 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px))]">
-            <div className="sticky top-0 z-20 pb-2">
+        <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px)]">
+            <div className="sticky top-0 z-20 py-2">
                 <VirtualizedLogsListDisplayOptions />
             </div>
             {pinnedParsedLogs.length > 0 && (
@@ -237,7 +237,7 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
                         prettifyJson={prettifyJson}
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
-                        fixedHeight={100}
+                        fixedHeight={250}
                         disableInfiniteScroll
                     />
                 </div>

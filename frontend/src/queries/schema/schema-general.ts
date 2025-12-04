@@ -4321,6 +4321,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Impressions = 'impressions',
     Source = 'source',
     ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -4348,6 +4349,11 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         type: ['integer', 'number', 'float'],
         required: false,
         isCurrency: false,
+    },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: true,
     },
 }
 
@@ -4395,6 +4401,8 @@ export enum MarketingAnalyticsBaseColumns {
     CPC = 'CPC',
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
+    ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
