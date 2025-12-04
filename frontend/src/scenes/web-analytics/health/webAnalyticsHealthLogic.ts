@@ -149,8 +149,8 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         action: rawStatusData.isSendingPageLeavesScroll
                             ? undefined
                             : {
-                                  label: 'Enable scroll depth',
-                                  to: 'https://posthog.com/docs/libraries/js#config',
+                                  label: 'View installation guide',
+                                  to: 'https://posthog.com/docs/libraries/js',
                               },
                         docsUrl: 'https://posthog.com/docs/web-analytics/scroll-depth',
                     },
