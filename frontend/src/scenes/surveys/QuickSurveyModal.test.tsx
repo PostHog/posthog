@@ -8,6 +8,7 @@ import { FeatureFlagType } from '~/types'
 
 import { QuickSurveyForm } from './QuickSurveyModal'
 import { QuickSurveyType } from './quick-create/types'
+import { FunnelContext } from './utils/opportunityDetection'
 
 jest.mock('scenes/surveys/SurveyAppearancePreview', () => ({
     SurveyAppearancePreview: () => <div data-testid="preview">Preview</div>,
@@ -21,6 +22,15 @@ const mockFlag = {
     name: 'Test Flag',
     filters: { groups: [], multivariate: null, payloads: {} },
 } as unknown as FeatureFlagType
+
+const mockFunnel: FunnelContext = {
+    insightName: 'Test Funnel',
+    conversionRate: 0.3,
+    steps: [
+        { kind: 'EventsNode', name: 'step_one', properties: [{ key: 'url', value: ['/checkout'], operator: 'exact' }] },
+        { kind: 'EventsNode', name: 'step_two' },
+    ] as FunnelContext['steps'],
+}
 
 describe('QuickSurveyForm API payloads', () => {
     beforeEach(() => {
@@ -65,6 +75,31 @@ describe('QuickSurveyForm API payloads', () => {
                 "You're trying our latest new feature. What do you think?"
             )
             expect(capturedRequest.start_date).not.toBeUndefined()
+        })
+    })
+
+    it('sends correct payload for funnel survey', async () => {
+        let capturedRequest: any
+        useMocks({
+            post: {
+                '/api/projects/:team_id/surveys': async (req) => {
+                    capturedRequest = await req.json()
+                    return [200, { id: 'new-survey' }]
+                },
+            },
+        })
+
+        render(<QuickSurveyForm context={{ type: QuickSurveyType.FUNNEL, funnel: mockFunnel }} />)
+
+        await userEvent.click(screen.getByRole('button', { name: /create & launch/i }))
+
+        await waitFor(() => {
+            expect(capturedRequest).not.toBeUndefined()
+            expect(capturedRequest.linked_flag_id).toBeUndefined()
+            expect(capturedRequest.conditions.events.values).toEqual([
+                { name: 'step_one', propertyFilters: { url: { values: ['/checkout'], operator: 'exact' } } },
+            ])
+            expect(capturedRequest.appearance.surveyPopupDelaySeconds).toBe(15)
         })
     })
 })
