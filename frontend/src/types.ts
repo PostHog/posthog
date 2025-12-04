@@ -863,6 +863,8 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     WorkflowVariable = 'workflow_variable',
 }
 
@@ -3805,6 +3807,8 @@ export enum PropertyDefinitionType {
     Meta = 'meta',
     Resource = 'resource',
     Log = 'log',
+    LogAttribute = 'log_attribute',
+    LogResourceAttribute = 'log_resource_attribute',
     FlagValue = 'flag_value',
     WorkflowVariable = 'workflow_variable',
 }

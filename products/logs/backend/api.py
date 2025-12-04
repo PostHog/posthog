@@ -202,9 +202,10 @@ FROM (
     SELECT
         attribute_key,
         sum(attribute_count)
-    FROM log_attributes
+    FROM posthog.log_attributes2
     WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
     AND team_id = %(team_id)s
+    AND attribute_type = 'log'
     AND attribute_key LIKE %(search)s
     GROUP BY team_id, attribute_key
     ORDER BY sum(attribute_count) desc, attribute_key asc
@@ -223,7 +224,46 @@ FROM (
             for result in results[0][0]:
                 entry = {
                     "name": result,
-                    "propertyFilterType": "log",
+                    "propertyFilterType": "log_attribute",
+                }
+                r.append(entry)
+        return Response(r, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
+    def resource_attributes(self, request: Request, *args, **kwargs) -> Response:
+        search = request.GET.get("search", "")
+
+        results = sync_execute(
+            """
+SELECT
+    groupArray(attribute_key) as keys
+FROM (
+    SELECT
+        attribute_key,
+        sum(attribute_count)
+    FROM posthog.log_attributes2
+    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
+    AND team_id = %(team_id)s
+    AND attribute_type = 'resource'
+    AND attribute_key LIKE %(search)s
+    GROUP BY team_id, attribute_key
+    ORDER BY sum(attribute_count) desc, attribute_key asc
+    LIMIT 50
+)
+""",
+            args={"search": f"%{search}%", "team_id": self.team.id},
+            workload=Workload.LOGS,
+            team_id=self.team.id,
+        )
+
+        r = []
+        if type(results) is not list:
+            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if len(results) > 0 and len(results[0]) > 0:
+            for result in results[0][0]:
+                entry = {
+                    "name": result,
+                    "propertyFilterType": "log_resource_attribute",
                 }
                 r.append(entry)
         return Response(r, status=status.HTTP_200_OK)
@@ -241,7 +281,7 @@ FROM (
     SELECT
         attribute_value,
         sum(attribute_count)
-    FROM log_attributes
+    FROM posthog.log_attributes2
     WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
     AND team_id = %(team_id)s
     AND attribute_key = %(key)s

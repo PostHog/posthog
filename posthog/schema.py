@@ -4895,6 +4895,12 @@ class LogMessage(BaseModel):
     uuid: str
 
 
+class LogPropertyFilterType(StrEnum):
+    LOG = "log"
+    ATTRIBUTE = "log_attribute"
+    RESOURCE_ATTRIBUTE = "log_resource_attribute"
+
+
 class LogPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4902,7 +4908,7 @@ class LogPropertyFilter(BaseModel):
     key: str
     label: str | None = None
     operator: PropertyOperator
-    type: Literal["log"] = "log"
+    type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
 
 
