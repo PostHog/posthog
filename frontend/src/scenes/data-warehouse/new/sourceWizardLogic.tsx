@@ -586,56 +586,33 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         {/* Incremental - Good */}
                         <div className="font-bold text-success">Incremental</div>
                         <div>
-                            {incrementalTables.length > 0 ? (
-                                <span className="text-success">
-                                    {incrementalTables.length} table{incrementalTables.length !== 1 ? 's' : ''}
-                                    {incrementalTables.length === 69 && ' (nice)'}
-                                </span>
-                            ) : (
-                                <span className="text-muted">None</span>
-                            )}{' '}
-                            — Ideal. Syncs only changed rows using a field like{' '}
+                            <span className="text-muted">{tableCountFormatter(incrementalTables.length)}</span> — Ideal.
+                            Syncs only changed rows using a field like{' '}
                             <span className="font-mono text-xs">updated_at</span>.
                         </div>
 
                         {/* Append-only - Caution */}
                         <div className="font-bold text-warning">Append-only</div>
                         <div>
-                            {appendOnlyTables.length > 0 ? (
-                                <span className="text-warning">
-                                    {appendOnlyTables.length} table{appendOnlyTables.length !== 1 ? 's' : ''}
-                                </span>
-                            ) : (
-                                <span className="text-muted">None</span>
-                            )}{' '}
-                            — Use a field that doesn't change on updates, like{' '}
+                            <span className="text-muted">{tableCountFormatter(appendOnlyTables.length)}</span> — Use a
+                            field that doesn't change on updates, like{' '}
                             <span className="font-mono text-xs">created_at</span>.
                         </div>
 
                         {/* Full refresh - Danger */}
                         <div className="font-bold text-danger">Full refresh</div>
                         <div>
-                            {fullRefreshTables.length > 0 ? (
-                                <span className="text-danger">
-                                    {fullRefreshTables.length} table{fullRefreshTables.length !== 1 ? 's' : ''}
-                                </span>
-                            ) : (
-                                <span className="text-success">None ✓</span>
-                            )}{' '}
+                            <span className="text-muted">
+                                {tableCountFormatter(fullRefreshTables.length, { none: 'None ✓' })}
+                            </span>{' '}
                             — Re-syncs all rows every time. Can significantly increase costs.
                         </div>
 
                         {/* Ignored - Muted */}
                         <div className="font-bold text-muted">Ignored</div>
                         <div>
-                            {ignoredTables.length > 0 ? (
-                                <span className="text-muted">
-                                    {ignoredTables.length} table{ignoredTables.length !== 1 ? 's' : ''}
-                                </span>
-                            ) : (
-                                <span className="text-muted">None</span>
-                            )}{' '}
-                            — Tables without sync configured will be skipped.
+                            <span className="text-muted">{tableCountFormatter(ignoredTables.length)}</span> — Tables
+                            without sync configured will be skipped.
                         </div>
                     </div>
                 )
@@ -975,4 +952,19 @@ export const getErrorsForFields = (
     }
 
     return errors
+}
+
+const tableCountFormatter = (
+    count: number,
+    { none = 'None', one = '1 table', many = 'tables' }: { none?: string; one?: string; many?: string } = {}
+): string => {
+    if (count === 0) {
+        return none
+    }
+
+    if (count === 1) {
+        return one
+    }
+
+    return `${count} ${many}`
 }
