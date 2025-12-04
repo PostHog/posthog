@@ -67,7 +67,7 @@ export function SurveyOpportunityButton({
             conversionRate: funnelContext.conversionRate,
             source: creationSource,
         })
-    }, [insight.id, funnelContext])
+    }, [insight.id, funnelContext, creationSource])
 
     const { openMax } = useMaxTool({
         identifier: 'create_survey',
