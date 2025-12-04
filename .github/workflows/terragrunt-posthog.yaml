@@ -84,8 +84,6 @@ jobs:
         steps:
             - name: Checkout
               uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
-              with:
-                  fetch-depth: 0
 
             - name: Configure AWS Credentials
               uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708
