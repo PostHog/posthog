@@ -20,7 +20,7 @@ describe('useMoveProjectDisabledReasons', () => {
             targetOrganization: null,
         })
 
-        expect(disabledReason).toEqual('not allowed')
+        expect(disabledReason).toEqual(null)
         expect(restrictedReason).toEqual('not allowed')
     })
 
@@ -30,7 +30,7 @@ describe('useMoveProjectDisabledReasons', () => {
             targetOrganization: null,
         })
 
-        expect(disabledReason).toEqual('You must be a member of another organization')
+        expect(disabledReason).toEqual(null)
         expect(restrictedReason).toEqual('You must be a member of another organization')
     })
 

@@ -21,22 +21,30 @@ export function useMoveProjectDisabledReasons({
     restrictedReason: string | null
     disabledReason: string | null
 } {
-    let restrictedReason = useRestrictedArea({
+    const restrictedReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Project,
     })
-    let disabledReason = restrictedReason
 
-    if (!restrictedReason && otherOrganizations.length === 0) {
-        restrictedReason = 'You must be a member of another organization'
-        disabledReason = restrictedReason
+    if (restrictedReason) {
+        return {
+            restrictedReason,
+            disabledReason: null,
+        }
     }
 
-    if (!disabledReason && targetOrganization === null) {
-        disabledReason = 'Please select the target organization'
+    if (otherOrganizations.length === 0) {
+        return {
+            restrictedReason: 'You must be a member of another organization',
+            disabledReason: null,
+        }
     }
 
-    return { restrictedReason, disabledReason }
+    if (targetOrganization === null) {
+        return { restrictedReason: null, disabledReason: 'Please select the target organization' }
+    }
+
+    return { restrictedReason: null, disabledReason: null }
 }
 
 export function MoveProjectModal({
@@ -138,7 +146,7 @@ export function ProjectMove(): JSX.Element {
                     onClick={() => setIsModalVisible(true)}
                     data-attr="move-project-button"
                     icon={<IconArrowRight />}
-                    disabledReason={disabledReason}
+                    disabledReason={restrictedReason ?? disabledReason}
                 >
                     Move {currentProject?.name || 'the current project'}
                 </LemonButton>
