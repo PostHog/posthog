@@ -332,12 +332,11 @@ async def handle_model_ready(
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            _, delta_table, _ = await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
             ducklake_model = DuckLakeCopyModelInput(
                 model_label=model.label,
                 saved_query_id=str(saved_query.id),
                 table_uri=_build_model_table_uri(team.pk, model.label, saved_query.normalized_name),
-                file_uris=delta_table.file_uris(),
             )
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
@@ -1565,11 +1564,7 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if (
-            settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED
-            and self.ducklake_copy_inputs
-            and self.ducklake_copy_inputs.models
-        ):
+        if self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
             temporalio.workflow.logger.info(
                 "Triggering DuckLake copy child workflow",
                 job_id=job_id,
