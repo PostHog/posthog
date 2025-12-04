@@ -8,7 +8,7 @@ import type { stepWaitUntilTimeWindowLogicType } from './stepWaitUntilTimeWindow
 type DayConfig = 'any' | 'weekday' | 'weekend' | WeekdayType[]
 type TimeConfig = 'any' | [string, string]
 
-type WaitUntilTimeWindowConfig = {
+export type WaitUntilTimeWindowConfig = {
     timezone?: string | null
     day?: DayConfig
     time?: TimeConfig
