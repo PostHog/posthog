@@ -123,7 +123,17 @@ function LogsViewerContent({
                 disabled: !isFocused,
             },
         },
-        [isFocused, logs.length, cursorLogId, toggleExpandLog, onRefresh, loading, resetCursor]
+        [
+            isFocused,
+            logs.length,
+            cursorLogId,
+            toggleExpandLog,
+            onRefresh,
+            loading,
+            resetCursor,
+            moveCursorDown,
+            moveCursorUp,
+        ]
     )
 
     return (
