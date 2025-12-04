@@ -315,6 +315,7 @@ class AssistantTool(StrEnum):
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
     AGENT = "agent"
+    CREATE_NOTEBOOK = "create_notebook"
 
 
 class AssistantToolCall(BaseModel):

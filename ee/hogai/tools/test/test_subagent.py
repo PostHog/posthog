@@ -250,7 +250,7 @@ class TestSubagentTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
         async def mock_astream_error(*args, **kwargs):
             if False:
-                yield  # Make this an async generator
+                yield  # type: ignore[unreachable]  # Make this an async generator
             raise Exception("Stream error")
 
         mock_dispatcher = MagicMock()
