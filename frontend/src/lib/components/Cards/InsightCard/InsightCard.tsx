@@ -10,6 +10,7 @@ import { useInView } from 'react-intersection-observer'
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
@@ -141,8 +142,10 @@ function InsightCardInternal(
 
     /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
      * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
+     *
+     * We add an extra check to make sure all insights are visible in Storybook.
      */
-    const isVisible = inView && isPageVisible
+    const isVisible = (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
