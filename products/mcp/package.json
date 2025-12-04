@@ -4,6 +4,7 @@
     "private": true,
     "scripts": {
         "dev": "cd typescript && pnpm dev",
+        "dev:local-resources": "cd typescript && pnpm dev:local-resources",
         "build": "cd typescript && pnpm build",
         "inspector": "cd typescript && pnpm inspector",
         "schema:build:json": "tsx typescript/scripts/generate-tool-schema.ts",
