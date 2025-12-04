@@ -180,8 +180,8 @@ The user is a product engineer and will primarily request you perform product ma
 </doing_tasks>
 """.strip()
 
-# NOTE: We specifically want web_search to be used standalone, because as the only server tool, it requires
-# special handling of output - it's easier to reason about when not combined with regular tool calls
+# NOTE: We specifically want web_search to be used standalone, because as the only server tool, it requires special
+# frontend handling - it's easier to reason about when not combined with regular tool calls
 TOOL_USAGE_POLICY_PROMPT = """
 <tool_usage_policy>
 - You can invoke multiple tools within a single response. When a request involves several independent pieces of information, batch your tool calls together for optimal performance
