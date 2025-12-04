@@ -5,17 +5,18 @@ import { compressedEventWithTime } from 'posthog-js/lib/src/extensions/replay/ex
 import { IncrementalSource } from '@posthog/rrweb-types'
 import { EventType } from '@posthog/rrweb-types'
 
+import { type StringInterner, internedReviver } from './string-interning'
 import { throttleCapture } from './throttle-capturing'
 
 function isCompressedEvent(ev: unknown): ev is compressedEventWithTime {
     return typeof ev === 'object' && ev !== null && 'cv' in ev
 }
 
-function unzip(compressedStr: string | undefined): any {
+function unzip(compressedStr: string | undefined, reviver?: (key: string, value: unknown) => unknown): any {
     if (!compressedStr) {
         return undefined
     }
-    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))))
+    return JSON.parse(strFromU8(gunzipSync(strToU8(compressedStr, true))), reviver)
 }
 
 /**
@@ -30,14 +31,15 @@ function unzip(compressedStr: string | undefined): any {
  *
  * KLUDGE: we shouldn't need so many type assertions on ev.data but TS is not smart enough to figure it out
  */
-export function decompressEvent(ev: unknown, sessionRecordingId: string): unknown {
+export function decompressEvent(ev: unknown, sessionRecordingId: string, stringInterner?: StringInterner): unknown {
+    const reviver = stringInterner ? internedReviver(stringInterner) : undefined
     try {
         if (isCompressedEvent(ev)) {
             if (ev.cv === '2024-10') {
                 if (ev.type === EventType.FullSnapshot && typeof ev.data === 'string') {
                     return {
                         ...ev,
-                        data: unzip(ev.data),
+                        data: unzip(ev.data, reviver),
                     }
                 } else if (
                     ev.type === EventType.IncrementalSnapshot &&
@@ -50,8 +52,8 @@ export function decompressEvent(ev: unknown, sessionRecordingId: string): unknow
                             data: {
                                 ...ev.data,
                                 source: IncrementalSource.StyleSheetRule,
-                                adds: unzip(ev.data.adds),
-                                removes: unzip(ev.data.removes),
+                                adds: unzip(ev.data.adds, reviver),
+                                removes: unzip(ev.data.removes, reviver),
                             },
                         }
                     } else if (ev.data.source === IncrementalSource.Mutation && 'texts' in ev.data) {
@@ -60,10 +62,10 @@ export function decompressEvent(ev: unknown, sessionRecordingId: string): unknow
                             data: {
                                 ...ev.data,
                                 source: IncrementalSource.Mutation,
-                                adds: unzip(ev.data.adds),
-                                removes: unzip(ev.data.removes),
-                                texts: unzip(ev.data.texts),
-                                attributes: unzip(ev.data.attributes),
+                                adds: unzip(ev.data.adds, reviver),
+                                removes: unzip(ev.data.removes, reviver),
+                                texts: unzip(ev.data.texts, reviver),
+                                attributes: unzip(ev.data.attributes, reviver),
                             },
                         }
                     }

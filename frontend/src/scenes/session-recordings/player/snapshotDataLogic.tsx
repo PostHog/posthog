@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { createStringInterner } from 'scenes/session-recordings/player/snapshot-processing/string-interning'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
 import '~/queries/utils'
@@ -195,6 +196,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         return index
                     }
 
+                    // Create string interner lazily for memory optimization
+                    const stringInterningEnabled = values.featureFlags[FEATURE_FLAGS.REPLAY_STRING_INTERNING]
+                    if (stringInterningEnabled && !cache.stringInterner) {
+                        cache.stringInterner = createStringInterner()
+                    }
+
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (
                         await parseEncodedSnapshots(
@@ -202,7 +209,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             props.sessionRecordingId,
                             decompressionMode,
                             posthog,
-                            registerWindowIdCallback
+                            registerWindowIdCallback,
+                            stringInterningEnabled ? cache.stringInterner : undefined
                         )
                     ).sort((a, b) => a.timestamp - b.timestamp)
 
@@ -426,6 +434,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     }),
     beforeUnmount(({ cache }) => {
         cache.snapshotsBySource = undefined
+        cache.stringInterner = undefined
         cache.previousSourceKeys = undefined
         cache.lastSourcesChangeTime = undefined
     }),

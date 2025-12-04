@@ -19,6 +19,10 @@ import {
     extractDimensionsFromMobileSnapshot,
 } from 'scenes/session-recordings/player/snapshot-processing/patch-meta-event'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import {
+    type StringInterner,
+    internedReviver,
+} from 'scenes/session-recordings/player/snapshot-processing/string-interning'
 import { throttleCapture } from 'scenes/session-recordings/player/snapshot-processing/throttle-capturing'
 import { yieldToMain } from 'scenes/session-recordings/player/snapshot-processing/yield-scheduler'
 
@@ -521,9 +525,9 @@ function hashSnapshot(snapshot: RecordingSnapshot): number {
  *
  * If it can't be case as eventWithTime by this point, then it's probably not a valid event anyway
  */
-function coerceToEventWithTime(d: unknown, sessionRecordingId: string): eventWithTime {
+function coerceToEventWithTime(d: unknown, sessionRecordingId: string, stringInterner?: StringInterner): eventWithTime {
     // we decompress first so that we could support partial compression on mobile in the future
-    const currentEvent = decompressEvent(d, sessionRecordingId)
+    const currentEvent = decompressEvent(d, sessionRecordingId, stringInterner)
     return transformEventToWeb(currentEvent) ?? (currentEvent as eventWithTime)
 }
 
@@ -636,7 +640,8 @@ export const parseEncodedSnapshots = async (
     sessionId: string,
     decompressionMode?: DecompressionMode,
     posthogInstance?: PostHog,
-    registerWindowId?: RegisterWindowIdCallback
+    registerWindowId?: RegisterWindowIdCallback,
+    stringInterner?: StringInterner
 ): Promise<RecordingSnapshot[]> => {
     const startTime = performance.now()
     const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
@@ -656,7 +661,8 @@ export const parseEncodedSnapshots = async (
                     sessionId,
                     decompressionMode,
                     posthogInstance,
-                    registerFn
+                    registerFn,
+                    stringInterner
                 )
                 const parseDuration = performance.now() - startTime
                 reportParseStats(
@@ -686,7 +692,8 @@ export const parseEncodedSnapshots = async (
                 sessionId,
                 decompressionMode,
                 posthogInstance,
-                registerFn
+                registerFn,
+                stringInterner
             )
             const parseDuration = performance.now() - startTime
             reportParseStats(posthogInstance, snapshots.length, parseDuration, lines.length, 'raw_snappy')
@@ -697,7 +704,14 @@ export const parseEncodedSnapshots = async (
                 const combinedText = textDecoder.decode(uint8Data)
 
                 const lines = combinedText.split('\n').filter((line) => line.trim().length > 0)
-                return parseEncodedSnapshots(lines, sessionId, decompressionMode, posthogInstance, registerFn)
+                return parseEncodedSnapshots(
+                    lines,
+                    sessionId,
+                    decompressionMode,
+                    posthogInstance,
+                    registerFn,
+                    stringInterner
+                )
             } catch (decodeError) {
                 console.error('Failed to decompress or decode binary data:', error, decodeError)
                 posthog.captureException(new Error('Failed to process snapshot data'), {
@@ -717,6 +731,8 @@ export const parseEncodedSnapshots = async (
     const parsedLines: RecordingSnapshot[] = []
     const PARSE_BATCH_SIZE = 100
 
+    const reviver = stringInterner ? internedReviver(stringInterner) : undefined
+
     for (let i = 0; i < items.length; i++) {
         const l = items[i]
         if (!l) {
@@ -731,7 +747,7 @@ export const parseEncodedSnapshots = async (
                 | RecordingSnapshot
             if (typeof l === 'string') {
                 // is loaded from blob v1 storage
-                snapshotLine = JSON.parse(l) as EncodedRecordingSnapshot
+                snapshotLine = JSON.parse(l, reviver) as EncodedRecordingSnapshot
 
                 if (Array.isArray(snapshotLine)) {
                     snapshotLine = {
@@ -747,7 +763,7 @@ export const parseEncodedSnapshots = async (
             // Check if this is already a parsed snapshot with numeric windowId
             if (isRecordingSnapshot(snapshotLine)) {
                 // is loaded from file export - already processed
-                const snap = coerceToEventWithTime(snapshotLine, sessionId)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, stringInterner)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId: snapshotLine.windowId,
                     ...snap,
@@ -763,7 +779,7 @@ export const parseEncodedSnapshots = async (
                 // The whole object is the event, not data as an array
                 const rawWindowId: string = snapshotLine['windowId']
                 const windowId = registerFn(rawWindowId)
-                const snap = coerceToEventWithTime(snapshotLine, sessionId)
+                const snap = coerceToEventWithTime(snapshotLine, sessionId, stringInterner)
                 const baseSnapshot: RecordingSnapshot = {
                     windowId,
                     ...snap,
@@ -777,7 +793,7 @@ export const parseEncodedSnapshots = async (
                 const windowId = registerFn(rawWindowId)
 
                 for (const d of snapshotData) {
-                    const snap = coerceToEventWithTime(d, sessionId)
+                    const snap = coerceToEventWithTime(d, sessionId, stringInterner)
 
                     const baseSnapshot: RecordingSnapshot = {
                         windowId,
