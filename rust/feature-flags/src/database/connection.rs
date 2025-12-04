@@ -97,7 +97,7 @@ pub async fn get_connection_with_metrics(
     // Record pool utilization before acquisition to capture state at request time
     if let Some(stats) = client.as_ref().get_pool_stats() {
         let utilization = if stats.size > 0 {
-            (stats.size - stats.num_idle as u32) as f64 / stats.size as f64
+            stats.size.saturating_sub(stats.num_idle as u32) as f64 / stats.size as f64
         } else {
             0.0
         };
