@@ -38,7 +38,7 @@ describe('sessionRecordingPlayerLogic', () => {
             snapshotSources: [BLOB_SOURCE_V2],
         })
         featureFlagLogic.mount()
-        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
+        logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test', blobV2PollingDisabled: true })
         logic.mount()
     })
 
@@ -210,7 +210,11 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('on a single recording page', async () => {
             silenceKeaLoadersErrors()
-            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '3',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
             logic.mount()
             jest.spyOn(api, 'delete')
             router.actions.push(urls.replaySingle('3'))
@@ -232,7 +236,11 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('on a single recording modal', async () => {
             silenceKeaLoadersErrors()
-            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '3',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
             logic.mount()
             jest.spyOn(api, 'delete')
 
