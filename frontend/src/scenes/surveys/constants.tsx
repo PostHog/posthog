@@ -186,6 +186,8 @@ export interface NewSurvey
         | 'schedule'
         | 'enable_partial_responses'
         | 'user_access_level'
+        | 'headline_summary'
+        | 'headline_response_count'
     > {
     id: 'new'
     linked_flag_id: number | null
