@@ -19,9 +19,8 @@ from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_
 from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
-    DEFAULT_NUMERIC_PRECISION,
-    DEFAULT_NUMERIC_SCALE,
     DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES,
+    DEFAULT_PYARROW_DECIMAL_TYPE,
     QueryTimeoutException,
     TemporaryFileSizeExceedsLimitException,
     build_pyarrow_decimal_type,
@@ -588,8 +587,8 @@ def _get_table(
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in cursor:
         if data_type in numeric_data_types:
-            numeric_precision = numeric_precision_candidate or DEFAULT_NUMERIC_PRECISION
-            numeric_scale = numeric_scale_candidate or DEFAULT_NUMERIC_SCALE
+            numeric_precision = numeric_precision_candidate or DEFAULT_PYARROW_DECIMAL_TYPE.precision
+            numeric_scale = numeric_scale_candidate or DEFAULT_PYARROW_DECIMAL_TYPE.scale
         else:
             numeric_precision = None
             numeric_scale = None

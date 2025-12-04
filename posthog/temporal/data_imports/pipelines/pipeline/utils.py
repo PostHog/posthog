@@ -6,7 +6,7 @@ import hashlib
 import datetime
 from collections.abc import Iterator, Sequence
 from ipaddress import IPv4Address, IPv6Address
-from typing import TYPE_CHECKING, Any, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import orjson
@@ -26,6 +26,9 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFo
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models import ExternalDataSchema
 
+# deltalake maximum precision and scale
+DEFAULT_PYARROW_DECIMAL_TYPE = pa.decimal128(38, 32)
+DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 DLT_TO_PA_TYPE_MAP = {
     "text": pa.string(),
     "bigint": pa.int64(),
@@ -37,13 +40,19 @@ DLT_TO_PA_TYPE_MAP = {
     "time": pa.timestamp("us"),
     "decimal": pa.float64(),
 }
-
-# deltalake maximum precision and scale
-DEFAULT_PA_DECIMAL_TYPE = pa.decimal128(38, 32)
-DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
+DATE_FORMAT_BY_PARTITION_FORMAT = {
+    "hour": "%Y-%m-%dT%H",
+    "day": "%Y-%m-%d",
+    "week": "%G-w%V",
+    "month": "%Y-%m",
+}
 
 
 class BillingLimitsWillBeReachedException(Exception):
+    pass
+
+
+class DecimalPrecisionExceededException(Exception):
     pass
 
 
@@ -67,18 +76,13 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
     try:
         if date_str is None:
             return None
-
         if isinstance(date_str, pa.StringScalar):
             scalar = date_str.as_py()
-
             if scalar is None:
                 return None
-
             return parser.parse(scalar)
-
         if isinstance(date_str, pa.TimestampScalar):
             return date_str
-
         return parser.parse(date_str)
     except (ValueError, OverflowError, TypeError):
         return None
@@ -86,44 +90,34 @@ def safe_parse_datetime(date_str) -> None | pa.TimestampScalar | datetime.dateti
 
 def _get_primary_keys(resource: DltResource) -> list[str] | None:
     primary_keys = resource._hints.get("primary_key")
-
     if primary_keys is None:
         return None
-
     if isinstance(primary_keys, str):
         return [normalize_column_name(primary_keys)]
-
     if isinstance(primary_keys, list | Sequence):
         return [normalize_column_name(pk) for pk in primary_keys]
-
     raise Exception(f"primary_keys of type {primary_keys.__class__.__name__} are not supported")
 
 
 def _get_column_hints(resource: DltResource) -> dict[str, TDataType | None] | None:
     columns = resource._hints.get("columns")
-
     if columns is None:
         return None
-
     return {key: value.get("data_type") for key, value in columns.items()}  # type: ignore
 
 
 def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
     column_hints = source.column_hints
-
     if column_hints is None:
         return table
-
     for field_name, data_type in column_hints.items():
         if data_type is None:
             continue
-
         normalized_field_name = normalize_column_name(field_name)
         # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
         if normalized_field_name not in table.schema.names:
             new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
             table = table.append_column(normalized_field_name, new_column)
-
     return table
 
 
@@ -263,18 +257,15 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
 def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.Table:
     debug_info = f'{{"load_id": {load_id}}}'
-
     column = pa.array([debug_info] * table.num_rows, type=pa.string())
     return table.append_column("_ph_debug", column)
 
 
 def normalize_table_column_names(table: pa.Table) -> pa.Table:
     used_names = set()
-
     for column_name in table.column_names:
         normalized_column_name = normalize_column_name(column_name)
         temp_name = normalized_column_name
-
         if temp_name != column_name:
             while temp_name in used_names or temp_name in table.column_names:
                 temp_name = "_" + temp_name
@@ -285,7 +276,6 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
                 table.column(column_name),  # type: ignore
             )
             used_names.add(temp_name)
-
     return table
 
 
@@ -304,17 +294,14 @@ def setup_partitioning(
     partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
     partition_format = schema.partition_format or resource.partition_format
     partition_mode = schema.partition_mode or resource.partition_mode
-
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
         return pa_table
-
     if existing_delta_table:
         delta_schema = existing_delta_table.schema().to_pyarrow()
         if PARTITION_KEY not in delta_schema.names:
             logger.debug("Delta table already exists without partitioning, skipping partitioning")
             return pa_table
-
     partition_result = append_partition_key_to_table(
         table=pa_table,
         partition_count=partition_count,
@@ -324,10 +311,8 @@ def setup_partitioning(
         partition_format=partition_format,
         logger=logger,
     )
-
     if partition_result is not None:
         pa_table, partition_mode, partition_format, updated_partition_keys = partition_result
-
         if (
             not schema.partitioning_enabled
             or schema.partition_mode != partition_mode
@@ -340,14 +325,13 @@ def setup_partitioning(
             schema.set_partitioning_enabled(
                 updated_partition_keys, partition_count, partition_size, partition_mode, partition_format
             )
-
     return pa_table
 
 
 def append_partition_key_to_table(
     table: pa.Table,
-    partition_count: Optional[int],
-    partition_size: Optional[int],
+    partition_count: int | None,
+    partition_size: int | None,
     partition_keys: list[str],
     partition_mode: PartitionMode | None,
     partition_format: PartitionFormat | None,
@@ -359,15 +343,12 @@ def append_partition_key_to_table(
     - datetime: Uses a stable timestamp, such as a created_at field, to partition the rows
     - numerical: Uses a numerical primary key to bucket the rows by count
     """
-
     normalized_partition_keys = [normalize_column_name(key) for key in partition_keys]
     mode: PartitionMode | None = partition_mode
-
     if mode is None:
         # If the source returns a partition count, then we can bucket by md5
         if partition_count is not None:
             mode = "md5"
-
         # If there is only one primary key and it's a numerical ID, then bucket by the ID itself instead of hashing it
         is_partition_key_int = pa.types.is_integer(table.field(normalized_partition_keys[0]).type)
         are_incrementing_ints = False
@@ -380,7 +361,6 @@ def append_partition_key_to_table(
                 if _min is not None and _max is not None:
                     range_size = _max - _min + 1
                     are_incrementing_ints = table.num_rows / range_size >= 0.2
-
         if (
             partition_size is not None
             and len(normalized_partition_keys) == 1
@@ -398,70 +378,47 @@ def append_partition_key_to_table(
                 ):
                     mode = "datetime"
                     normalized_partition_keys = [column_name]
-
         if mode is None:
             logger.debug("append_partition_key_to_table: partitioning skipped, no supported partition mode available")
             return None
         else:
             logger.debug(f"append_partition_key_to_table: partitioning mode {mode} selected")
-
     partition_array: list[str] = []
-
     for batch in table.to_batches():
         for row in batch.to_pylist():
             if mode == "md5":
                 assert partition_count is not None, "append_partition_key_to_table: partition_count is None"
-
                 primary_key_values = [str(row[key]) for key in normalized_partition_keys]
                 delimited_primary_key_value = "|".join(primary_key_values)
-
                 # this hash has no security impact
                 # nosemgrep: python.lang.security.insecure-hash-algorithms-md5.insecure-hash-algorithm-md5
                 hash_value = int(hashlib.md5(delimited_primary_key_value.encode()).hexdigest(), 16)
                 partition = hash_value % partition_count
-
                 partition_array.append(str(partition))
             elif mode == "numerical":
                 assert partition_size is not None, "append_partition_key_to_table: partition_size is None"
-
                 key = normalized_partition_keys[0]
                 partition = row[key] // partition_size
-
                 partition_array.append(str(partition))
             elif mode == "datetime":
                 key = normalized_partition_keys[0]
                 date = row[key]
-
                 if partition_format is None:
                     partition_format = "week"
-
-                if partition_format == "hour":
-                    date_format = "%Y-%m-%dT%H"
-                elif partition_format == "day":
-                    date_format = "%Y-%m-%d"
-                elif partition_format == "week":
-                    date_format = "%G-w%V"
-                elif partition_format == "month":
-                    date_format = "%Y-%m"
-
+                date_format = DATE_FORMAT_BY_PARTITION_FORMAT.get(
+                    partition_format, DATE_FORMAT_BY_PARTITION_FORMAT["week"]
+                )
                 if isinstance(date, int):
-                    date = datetime.datetime.fromtimestamp(date)
-                    partition_array.append(date.strftime(date_format))
-                elif isinstance(date, datetime.datetime):
-                    partition_array.append(date.strftime(date_format))
-                elif isinstance(date, datetime.date):
-                    partition_array.append(date.strftime(date_format))
+                    date = datetime.datetime.fromtimestamp(date).strftime(date_format)
+                elif isinstance(date, datetime.datetime | datetime.date):
+                    date = date.strftime(date_format)
                 elif isinstance(date, str):
-                    date = parser.parse(date)
-                    partition_array.append(date.strftime(date_format))
+                    date = parser.parse(date).strftime(date_format)
                 else:
-                    partition_array.append("1970-01")
-            else:
-                raise ValueError(f"Partition mode '{mode}' not supported")
-
+                    date = "1970-w01"
+                partition_array.append(date)
     new_column = pa.array(partition_array, type=pa.string())
     logger.debug(f"append_partition_key_to_table: Partition key added with mode={mode}")
-
     return table.append_column(PARTITION_KEY, new_column), mode, partition_format, normalized_partition_keys
 
 
@@ -479,26 +436,20 @@ def _json_dumps(obj: Any) -> str:
             return str(obj)
 
 
-def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_iterator(data_iterator: Iterator[dict], schema: pa.Schema | None = None) -> pa.Table:
     batch = list(data_iterator)
     if not batch:
         return pa.Table.from_pylist([])
-
     processed_batch = _process_batch(list(batch), schema)
-
     return processed_batch
 
 
-def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None) -> pa.Table:
+def table_from_py_list(table_data: list[Any], schema: pa.Schema | None = None) -> pa.Table:
     """
     Convert a list of Python dictionaries to a PyArrow Table.
     This is a wrapper around table_from_iterator for backward compatibility.
     """
     return table_from_iterator(iter(table_data), schema=schema)
-
-
-class DecimalPrecisionExceededException(Exception):
-    pass
 
 
 def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type:
@@ -520,12 +471,10 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type:
     """
     max_precision = 1
     max_scale = 0
-
     for value in values:
         _, digits, exponent = value.as_tuple()
         if not isinstance(exponent, int):
             continue
-
         # This implementation accounts for leading zeroes being excluded from digits
         # It is based on Arrow, see:
         # https://github.com/apache/arrow/blob/main/python/pyarrow/src/arrow/python/decimal.cc#L75
@@ -535,21 +484,18 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type:
         else:
             precision = len(digits) + exponent
             scale = 0
-
         max_precision = max(precision, max_precision)
         max_scale = max(scale, max_scale)
-
     # Deltalake doesn't like writing decimals with scale of 0 - it auto appends `.0`
     if max_scale == 0:
         max_scale = 1
         max_precision += 1
-
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
 def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
     try:
-        return pa.array(values, type=DEFAULT_PA_DECIMAL_TYPE)
+        return pa.array(values, type=DEFAULT_PYARROW_DECIMAL_TYPE)
     except pa.ArrowInvalid as e:
         raise DecimalPrecisionExceededException(f"Decimal value exceeds maximum supported precision of 38: {e}") from e
 
@@ -563,40 +509,31 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
         bytes: pa.binary(),
         type(None): pa.null(),
     }
-
     if type_ in python_to_pa:
         return python_to_pa[type_]
-
     if issubclass(type_, dict) and isinstance(value, dict):
         return pa.struct([pa.field(str(k), _python_type_to_pyarrow_type(type(v), v)) for k, v in value.items()])
-
     if issubclass(type_, list) and isinstance(value, list):
         if len(value) == 0:
             return pa.list_(pa.null())
-
         return pa.list_(_python_type_to_pyarrow_type(type(value[0]), value[0]))
-
     if issubclass(type_, decimal.Decimal) and isinstance(value, decimal.Decimal):
         sign, digits, exponent = value.as_tuple()
         if isinstance(exponent, int):
             precision = len(digits)
             scale = -exponent if exponent < 0 else 0
-
             return build_pyarrow_decimal_type(precision, scale)
-
-        return DEFAULT_PA_DECIMAL_TYPE
-
+        return DEFAULT_PYARROW_DECIMAL_TYPE
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
 
 def _to_list_array(column_data: pa.Array | pa.ChunkedArray | np.ndarray[Any, np.dtype[Any]]):
     if isinstance(column_data, pa.ChunkedArray):
         return column_data.combine_chunks().tolist()
-
     return column_data.tolist()
 
 
-def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -> pa.Table:
+def _process_batch(table_data: list[dict], schema: pa.Schema | None = None) -> pa.Table:
     # Support both given schemas and inferred schemas
     if schema is None or len(schema.names) == 0:
         try:
@@ -615,13 +552,11 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
 
     column_names = set(table_data[0].keys())
     columnar_table_data: dict[str, pa.Array | np.ndarray[Any, np.dtype[Any]]] = {}
-
     for col in column_names:
         values = [
             None if isinstance(row.get(col, None), float) and np.isnan(row.get(col, None)) else row.get(col, None)
             for row in table_data
         ]
-
         try:
             # We want to use pyarrow arrays where possible to optimise on memory usage
             columnar_table_data[col] = pa.array(values)
@@ -772,13 +707,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
-                if len(e.args):
-                    message = e.args[0]
-                    if "does not fit into precision" in message or "would cause data loss" in message:
-                        raise DecimalPrecisionExceededException(
-                            f"Decimal value exceeds maximum supported precision of 38"
-                        ) from e
-                raise
+                message = e.args[0] if len(e.args) else None
+                if message and "does not fit into precision" in message or "would cause data loss" in message:
+                    # Upscale to the default decimal type if the schema type is too small
+                    new_field_type = DEFAULT_PYARROW_DECIMAL_TYPE
+                    number_arr = pa.array(all_values, type=new_field_type)
+                else:
+                    raise
 
             columnar_table_data[field_name] = number_arr
             if arrow_schema:
