@@ -486,6 +486,7 @@ export const productUrls = {
             timestamp?: string
             exception_ts?: string
             search?: string
+            tab?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
@@ -969,7 +970,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
@@ -1072,12 +1073,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Tools',
+        category: 'Behavior',
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
     },
@@ -1253,7 +1254,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {

@@ -22,15 +22,11 @@ describe('personInitialAndUTMProperties()', () => {
             $app_name: 'my app',
             $app_namespace: 'com.posthog.myapp',
             $app_version: '1.2.3',
-            $set: {
-                $browser_version: 'manually $set value wins',
-            },
-            $set_once: {
-                $initial_os_version: 'manually $set_once value wins',
-            },
+            $set: { $browser_version: 'manually $set value wins' },
+            $set_once: { $initial_os_version: 'manually $set_once value wins' },
         }
-
-        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(`
+        expect(personInitialAndUTMProperties(properties)).toMatchInlineSnapshot(
+            `
             {
               "$app_build": 2,
               "$app_name": "my app",
@@ -69,9 +65,6 @@ describe('personInitialAndUTMProperties()', () => {
                 "$os_version": "10.15.7",
                 "$referrer": "https://google.com/?q=posthog",
                 "$referring_domain": "https://google.com",
-                "gclid": "GOOGLE ADS ID",
-                "msclkid": "BING ADS ID",
-                "utm_medium": "twitter",
               },
               "$set_once": {
                 "$initial_app_build": 2,
@@ -81,50 +74,37 @@ describe('personInitialAndUTMProperties()', () => {
                 "$initial_browser": "Chrome",
                 "$initial_browser_version": "95",
                 "$initial_current_url": "https://test.com",
-                "$initial_gclid": "GOOGLE ADS ID",
-                "$initial_msclkid": "BING ADS ID",
                 "$initial_os": "Mac OS X",
                 "$initial_os_version": "manually $set_once value wins",
                 "$initial_referrer": "https://google.com/?q=posthog",
                 "$initial_referring_domain": "https://google.com",
-                "$initial_utm_medium": "twitter",
               },
               "distinct_id": 2,
               "gclid": "GOOGLE ADS ID",
               "msclkid": "BING ADS ID",
               "utm_medium": "twitter",
             }
-        `)
+        `
+        )
     })
-
     it('initial current domain regression test', () => {
-        const properties = {
-            $current_url: 'https://test.com',
-        }
-
+        const properties = { $current_url: 'https://test.com' }
         expect(personInitialAndUTMProperties(properties)).toEqual({
             $current_url: 'https://test.com',
             $set_once: { $initial_current_url: 'https://test.com' },
             $set: { $current_url: 'https://test.com' },
         })
     })
-
     it('treats $os_name as fallback for $os', () => {
-        const propertiesOsNameOnly = {
-            $os_name: 'Android',
-        }
+        const propertiesOsNameOnly = { $os_name: 'Android' }
         expect(personInitialAndUTMProperties(propertiesOsNameOnly)).toEqual({
             $os: 'Android',
             $os_name: 'Android',
             $set_once: { $initial_os: 'Android' },
             $set: { $os: 'Android' },
         })
-
-        // Also test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
-        const propertiesBothOsKeys = {
-            $os: 'Windows',
-            $os_name: 'Android',
-        }
+        // Test that $os takes precedence, with $os_name preserved (although this should not happen in the wild)
+        const propertiesBothOsKeys = { $os: 'Windows', $os_name: 'Android' }
         expect(personInitialAndUTMProperties(propertiesBothOsKeys)).toEqual({
             $os: 'Windows',
             $os_name: 'Android',

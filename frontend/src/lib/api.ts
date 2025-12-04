@@ -33,6 +33,8 @@ import {
     FileSystemCount,
     FileSystemEntry,
     FileSystemViewLogEntry,
+    GroupsQuery,
+    GroupsQueryResponse,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
@@ -1979,6 +1981,9 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
+        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
+            return await new ApiRequest().userProductList().withAction('seed').create()
+        },
         async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
@@ -2057,19 +2062,11 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
-                include_organization_scoped?: '1'
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
-            }
-
-            const scopesWithOrgScopedRecords = [ActivityScope.PERSONAL_API_KEY]
-            for (const scope of scopesWithOrgScopedRecords) {
-                if (filters.scope === scope || filters.scopes?.includes(scope)) {
-                    filters.include_organization_scoped = '1'
-                }
             }
 
             return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
@@ -2540,7 +2537,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
@@ -2783,6 +2780,14 @@ const api = {
     groups: {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+            const groupsQuery: GroupsQuery = {
+                kind: NodeKind.GroupsQuery,
+                ...params,
+            }
+
+            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -3324,10 +3329,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
-        },
-
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
@@ -3795,8 +3796,11 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
-        async getResponsesCount(): Promise<{ [key: string]: number }> {
-            return await new ApiRequest().surveysResponsesCount().get()
+        async getResponsesCount(surveyIds?: string): Promise<{ [key: string]: number }> {
+            return await new ApiRequest()
+                .surveysResponsesCount()
+                .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
+                .get()
         },
         async summarize_responses(
             surveyId: Survey['id'],

@@ -9,6 +9,7 @@ import stringWithWBR from 'lib/utils/stringWithWBR'
 import { QuickSurveyForm } from 'scenes/surveys/QuickSurveyModal'
 import { SurveyResult } from 'scenes/surveys/SurveyView'
 import { SurveyStatusTag } from 'scenes/surveys/components/SurveyStatusTag'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { SurveysTabs, surveysLogic } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
@@ -16,13 +17,8 @@ import { urls } from 'scenes/urls'
 import { FeatureFlagType, Survey } from '~/types'
 
 export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {
-    const {
-        data: { surveys },
-        dataLoading,
-        surveysResponsesCountLoading,
-        surveysResponsesCount,
-    } = useValues(surveysLogic)
-    const surveysForFlag = surveys.filter((survey) => survey.linked_flag_id === featureFlag.id)
+    const { surveysResponsesCountLoading, surveysResponsesCount } = useValues(surveysLogic)
+    const surveysForFlag = featureFlag.surveys || []
 
     if (surveysForFlag.length === 0) {
         return (
@@ -32,7 +28,12 @@ export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): 
                         Gather valuable insights by automatically displaying a survey to users in this feature flag
                     </LemonBanner>
                     <div className="border rounded p-6 bg-bg-light">
-                        <QuickSurveyForm flag={featureFlag} />
+                        <QuickSurveyForm
+                            context={{
+                                type: QuickSurveyType.FEATURE_FLAG,
+                                flag: featureFlag,
+                            }}
+                        />
                     </div>
                 </div>
             </div>
@@ -73,7 +74,6 @@ export function FeedbackTab({ featureFlag }: { featureFlag: FeatureFlagType }): 
                 rowKey="name"
                 nouns={['survey', 'surveys']}
                 data-attr="surveys-table"
-                loading={dataLoading}
                 columns={[
                     {
                         dataIndex: 'name',
