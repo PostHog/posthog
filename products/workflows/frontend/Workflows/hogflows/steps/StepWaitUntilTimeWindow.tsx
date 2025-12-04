@@ -106,7 +106,7 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
     const { timezone, day, time } = action.config
 
     const { logicProps } = useValues(workflowLogic)
-    const { setWaitUntilTimeWindowConfig } = useActions(
+    const { partialSetWaitUntilTimeWindowConfig } = useActions(
         stepWaitUntilTimeWindowLogic({ workflowLogicProps: logicProps })
     )
     const { preflight } = useValues(preflightLogic)
@@ -124,7 +124,7 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
         if (!preflight?.available_timezones) {
             throw new Error('No timezones are available')
         }
-        setWaitUntilTimeWindowConfig(action.id, { timezone: newTimezone[0] })
+        partialSetWaitUntilTimeWindowConfig(action.id, { timezone: newTimezone[0] })
     }
 
     return (
@@ -137,10 +137,10 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomDate={isCustomDate}
                         onDayChange={(value) => {
                             const config = getUpdatedDayConfig(value)
-                            setWaitUntilTimeWindowConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onCustomDaysChange={(newDays) =>
-                            setWaitUntilTimeWindowConfig(action.id, { day: [...newDays] as WeekdayType[] })
+                            partialSetWaitUntilTimeWindowConfig(action.id, { day: [...newDays] as WeekdayType[] })
                         }
                     />
 
@@ -151,12 +151,12 @@ export function StepWaitUntilTimeWindowConfiguration({ node }: { node: Node<Wait
                         isCustomTime={isCustomTimeRange}
                         onTimeChange={(value) => {
                             const config = getUpdatedTimeConfig(value)
-                            setWaitUntilTimeWindowConfig(action.id, config)
+                            partialSetWaitUntilTimeWindowConfig(action.id, config)
                         }}
                         onTimeRangeChange={(newTime, index) => {
                             if (isCustomTimeRange) {
                                 const config = getUpdatedTimeRangeConfig(newTime, index, time)
-                                setWaitUntilTimeWindowConfig(action.id, config)
+                                partialSetWaitUntilTimeWindowConfig(action.id, config)
                             }
                         }}
                     />

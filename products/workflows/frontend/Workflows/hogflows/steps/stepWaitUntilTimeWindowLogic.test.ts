@@ -55,7 +55,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
         const action = await setupInitialAction(initialDesc)
 
         await expectLogic(logic, () => {
-            logic.actions.setWaitUntilTimeWindowConfig(action.id, { day: 'weekend' })
+            logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { day: 'weekend' })
         })
             .toDispatchActions(['partialSetWorkflowActionConfig'])
             .toFinishListeners()
@@ -76,7 +76,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
         const action = await setupInitialAction(initialDesc)
 
         await expectLogic(logic, () => {
-            logic.actions.setWaitUntilTimeWindowConfig(action.id, { time: ['10:00', '18:00'] })
+            logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { time: ['10:00', '18:00'] })
         })
             .toDispatchActions(['partialSetWorkflowActionConfig'])
             .toFinishListeners()
@@ -97,7 +97,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
         const action = await setupInitialAction(initialDesc)
 
         await expectLogic(logic, () => {
-            logic.actions.setWaitUntilTimeWindowConfig(action.id, { timezone: 'America/New_York' })
+            logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { timezone: 'America/New_York' })
         })
             .toDispatchActions(['partialSetWorkflowActionConfig'])
             .toFinishListeners()
@@ -118,7 +118,7 @@ describe('stepWaitUntilTimeWindowLogic', () => {
         const action = await setupInitialAction(customDescription)
 
         await expectLogic(logic, () => {
-            logic.actions.setWaitUntilTimeWindowConfig(action.id, { day: 'weekend' })
+            logic.actions.partialSetWaitUntilTimeWindowConfig(action.id, { day: 'weekend' })
         })
             .toDispatchActions(['partialSetWorkflowActionConfig'])
             .toFinishListeners()

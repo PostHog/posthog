@@ -87,10 +87,13 @@ export const stepWaitUntilTimeWindowLogic = kea<stepWaitUntilTimeWindowLogicType
         actions: [workflowLogic(workflowLogicProps), ['partialSetWorkflowActionConfig', 'setWorkflowAction']],
     })),
     actions({
-        setWaitUntilTimeWindowConfig: (actionId: string, config: WaitUntilTimeWindowConfig) => ({ actionId, config }),
+        partialSetWaitUntilTimeWindowConfig: (actionId: string, config: WaitUntilTimeWindowConfig) => ({
+            actionId,
+            config,
+        }),
     }),
     listeners(({ values, actions }) => ({
-        setWaitUntilTimeWindowConfig: ({ actionId, config }) => {
+        partialSetWaitUntilTimeWindowConfig: ({ actionId, config }) => {
             actions.partialSetWorkflowActionConfig(actionId, config)
 
             const action = values.workflow.actions.find((a) => a.id === actionId)
