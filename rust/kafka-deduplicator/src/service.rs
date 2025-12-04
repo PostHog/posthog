@@ -12,14 +12,15 @@ use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::deduplication_batch_processor::BatchDeduplicationProcessor;
+use crate::deduplication_batch_processor::{
+    BatchDeduplicationProcessor, DeduplicationConfig, DuplicateEventProducerWrapper,
+};
 use crate::{
     checkpoint::config::CheckpointConfig,
     checkpoint::export::CheckpointExporter,
     checkpoint::s3_uploader::S3Uploader,
     checkpoint_manager::CheckpointManager,
     config::Config,
-    deduplication_processor::{DeduplicationConfig, DuplicateEventProducerWrapper},
     kafka::{batch_consumer::BatchConsumer, ConsumerConfigBuilder},
     processor_rebalance_handler::ProcessorRebalanceHandler,
     store::DeduplicationStoreConfig,
