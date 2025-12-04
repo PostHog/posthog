@@ -1382,6 +1382,7 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 export interface EventHeaders {
     token?: string
     distinct_id?: string
+    session_id?: string
     timestamp?: string
     event?: string
     uuid?: string
