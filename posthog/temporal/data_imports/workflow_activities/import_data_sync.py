@@ -294,11 +294,11 @@ def _handle_non_retryable_error(
         attempts = redis_client.incr(retry_key)
 
         if attempts <= 3:
-            redis_client.expire(retry_key, 600)  # Expire after 10 minutes
+            redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             logger.debug(f"Non-retryable error attempt {attempts}/3, retrying. error={error_msg}")
             raise
 
-    logger.debug(f"Non-retryable error after {attempts-1} attempts, giving up. error={error_msg}")
+    logger.debug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
     raise NonRetryableException() from error
 
 
