@@ -94,7 +94,7 @@ export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptP
             target_area: 'max-ai',
             severity_level: 'low',
             message: messageContent,
-            tags: ['posthog_ai'],
+            tags: ['raised_from_posthog_ai_chat'],
         })
         setIsSupportModalOpen(true)
     }
