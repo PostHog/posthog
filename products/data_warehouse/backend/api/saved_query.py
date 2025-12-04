@@ -535,6 +535,12 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         saved_query.schedule_materialization(unpause=should_unpause)
 
         # Mark as materialized after successful enable_materialization
+        if saved_query.is_materialized is False:
+            return response.Response(
+                {"error": "Materialization failed. Please try again or contact support."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         saved_query.is_materialized = True
         saved_query.save(update_fields=["is_materialized"])
 
