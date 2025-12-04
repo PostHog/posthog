@@ -100,7 +100,7 @@ jobs:
                   enable-terraform-change-pr-commenter: true
                   terragrunt-working-directory: ${{ matrix.working_dir }}
                   commands: |
-                      if terragrunt --non-interactive run -- plan -detailed-exitcode -out="${{ matrix.working_dir }}/terraform.tfplan" -lock-timeout=10m; then
+                      if terragrunt --non-interactive run -- plan -detailed-exitcode -out="terraform.tfplan" -lock-timeout=10m; then
                         # Succeeded, diff is empty (no changes)
                         rm terraform.tfplan || true # delete the plan so we don't comment
                       else
