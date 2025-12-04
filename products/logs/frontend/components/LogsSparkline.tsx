@@ -64,7 +64,7 @@ export function LogsSparkline(): JSX.Element {
     const renderLabel = useCallback(
         (label: string): string => {
             const d = isUTC ? dayjs(label).utc() : dayjs(label)
-            const tz = isUTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
+            const tz = isUTC ? 'UTC' : (shortTimeZone(undefined, d.toDate()) ?? 'Local')
             return `${d.format('D MMM YYYY HH:mm:ss')} ${tz}`
         },
         [isUTC]
