@@ -1816,6 +1816,29 @@
                 transform: translateY(0);
             }
         }
+
+        @keyframes Logomark__jump-continuous {
+            0%,
+            44%,
+            100% {
+                transform: translateY(0);
+            }
+
+            22% {
+                transform: translateY(calc(-10px * var(--logomark-jump-magnitude)));
+            }
+        }
+
+        /* stylelint-disable-next-line order/order */
+        &-continuous {
+            @extend .animate-logomark-jump;
+
+            /* stylelint-disable-next-line order/order */
+            svg > * {
+                animation-name: Logomark__jump-continuous;
+                animation-duration: 0.9s;
+            }
+        }
     }
 
     /* stylelint-disable-next-line order/order */

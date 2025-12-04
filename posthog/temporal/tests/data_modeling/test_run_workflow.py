@@ -299,7 +299,6 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     s3_objects = await minio_client.list_objects_v2(
@@ -362,7 +361,6 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["now_converted", "now"])
@@ -407,7 +405,6 @@ async def test_materialize_model_nullable_nothing_column(ateam, bucket_name, min
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     table = delta_table.to_pyarrow_table(columns=["nullable_nothing_column", "nullable_nothing_column_type"])
@@ -450,7 +447,6 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -987,7 +983,6 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
         model_label=model_label,
         saved_query_id=str(uuid.uuid4()),
         table_uri="s3://source/table",
-        file_uris=["s3://source/table/part-0.parquet"],
     )
 
     @temporal_activity.defn
@@ -1108,7 +1103,6 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
     await database_sync_to_async(saved_query.refresh_from_db)()
@@ -1171,7 +1165,6 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1244,7 +1237,6 @@ async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, 
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1382,7 +1374,6 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         # Verify final state
@@ -1422,7 +1413,6 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 
@@ -1472,7 +1462,6 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1521,7 +1510,6 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client, tru
             saved_query,
             job,
             unittest.mock.AsyncMock(),
-            unittest.mock.AsyncMock(),
         )
 
         assert key == saved_query.normalized_name
@@ -1569,7 +1557,6 @@ async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_c
             ateam,
             saved_query,
             job,
-            unittest.mock.AsyncMock(),
             unittest.mock.AsyncMock(),
         )
 

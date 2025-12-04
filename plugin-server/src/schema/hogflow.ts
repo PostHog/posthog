@@ -80,6 +80,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: z.any(), // type this stronger
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -92,6 +93,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -111,6 +113,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: z.any(), // type this stronger
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),

@@ -12,7 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -97,7 +97,7 @@ export interface RecordingViewedSummaryAnalytics {
 
 export interface Player {
     replayer: Replayer
-    windowId: string
+    windowId: number
 }
 
 export enum SessionRecordingPlayerMode {
@@ -934,7 +934,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!currentTimestamp) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
+                const windowId = currentSegment?.windowId
+                const snapshots = windowId !== undefined ? (sessionPlayerData.snapshotsByWindowId[windowId] ?? []) : []
 
                 const currIndex = findLastIndex(
                     snapshots,
@@ -1886,6 +1887,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.updatePlayerTimeTracking()
         // Schedule periodic updates
         actions.schedulePlayerTimeTracking()
+    }),
+
+    urlToAction(({ actions, props }) => {
+        const handleTimestampParams = (searchParams: Record<string, string>): void => {
+            if (searchParams.timestamp) {
+                const desiredStartTime = Number(searchParams.timestamp)
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTimestamp(desiredStartTime, true)
+                }
+            } else if (searchParams.t) {
+                const desiredStartTime = Number(searchParams.t) * 1000
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTime(desiredStartTime)
+                }
+            }
+        }
+
+        return {
+            '/replay/:id': (_, searchParams) => handleTimestampParams(searchParams),
+            '/replay': (_, searchParams) => {
+                if (searchParams.sessionRecordingId === props.sessionRecordingId) {
+                    handleTimestampParams(searchParams)
+                }
+            },
+        }
     }),
 ])
 

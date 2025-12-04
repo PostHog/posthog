@@ -11,6 +11,7 @@ describe('createValidateEventMetadataStep', () => {
             token: 'test-token-123',
             distinct_id: 'test-user-456',
             force_disable_person_processing: false,
+            historical_migration: false,
         }
 
         step = createValidateEventMetadataStep()
