@@ -125,6 +125,43 @@ describe('Projects', { concurrent: false }, () => {
             expect(Array.isArray(propertyDefs)).toBe(true)
             expect(propertyDefs.length).toBeGreaterThan(0)
         })
+
+        it('should respect limit parameter', async () => {
+            const result = await propertyDefsTool.handler(context, {
+                type: 'event',
+                eventName: '$pageview',
+                limit: 5,
+            })
+            const propertyDefs = parseToolResponse(result)
+            expect(propertyDefs.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await propertyDefsTool.handler(context, {
+                type: 'person',
+                limit: 10,
+            })
+            const allProps = parseToolResponse(allResult)
+
+            if (allProps.length > 1) {
+                const offsetResult = await propertyDefsTool.handler(context, {
+                    type: 'person',
+                    limit: 10,
+                    offset: 1,
+                })
+                const offsetProps = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetProps[0].name).not.toBe(allProps[0].name)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await propertyDefsTool.handler(context, {
+                type: 'person',
+            })
+            const propertyDefs = parseToolResponse(result)
+            expect(propertyDefs.length).toBeLessThanOrEqual(50)
+        })
     })
 
     describe('event-definitions-list tool', () => {
@@ -193,6 +230,30 @@ describe('Projects', { concurrent: false }, () => {
                 // Filtered results should be a subset of all results
                 expect(filteredEventDefs.length).toBeLessThanOrEqual(allEventDefs.length)
             }
+        })
+
+        it('should respect limit parameter', async () => {
+            const result = await eventDefsTool.handler(context, { limit: 5 })
+            const eventDefs = parseToolResponse(result)
+            expect(eventDefs.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await eventDefsTool.handler(context, { limit: 10 })
+            const allEvents = parseToolResponse(allResult)
+
+            if (allEvents.length > 1) {
+                const offsetResult = await eventDefsTool.handler(context, { limit: 10, offset: 1 })
+                const offsetEvents = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetEvents[0].name).not.toBe(allEvents[0].name)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await eventDefsTool.handler(context, {})
+            const eventDefs = parseToolResponse(result)
+            expect(eventDefs.length).toBeLessThanOrEqual(50)
         })
     })
 
