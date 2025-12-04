@@ -120,6 +120,7 @@ export interface MultiQuestionForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    /** Thinking blocks, as well as server_tool_use and web_search_tool_result ones. Anthropic format of blocks. */
     thinking?: Record<string, unknown>[]
 }
 
