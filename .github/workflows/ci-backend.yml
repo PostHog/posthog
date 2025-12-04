@@ -940,6 +940,8 @@ jobs:
                   fetch-depth: 1
 
             - name: Download all snapshot patches
+              id: download-patches
+              continue-on-error: true
               uses: actions/download-artifact@v4
               with:
                   pattern: snapshot-patch-*
@@ -949,13 +951,19 @@ jobs:
             - name: Check for patches
               id: check-patches
               run: |
-                  if [ -d "/tmp/snapshot-patches" ] && [ -n "$(find /tmp/snapshot-patches -name '*.patch' 2>/dev/null)" ]; then
+                  if [ "${{ steps.download-patches.outcome }}" == "failure" ] || [ ! -d /tmp/snapshot-patches ]; then
+                    echo "has-patches=false" >> $GITHUB_OUTPUT
+                    echo "No snapshot patches found"
+                    exit 0
+                  fi
+
+                  if [ -n "$(find /tmp/snapshot-patches -name '*.patch' -type f -size +0c 2>/dev/null)" ]; then
                     echo "has-patches=true" >> $GITHUB_OUTPUT
                     echo "Found patches:"
                     ls -la /tmp/snapshot-patches/
                   else
                     echo "has-patches=false" >> $GITHUB_OUTPUT
-                    echo "No snapshot patches to apply"
+                    echo "Patch files empty or missing - no snapshot changes"
                   fi
 
             - name: Commit snapshots
