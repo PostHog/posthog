@@ -106,12 +106,13 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                         ) : (
                             <Tooltip title={action.name}>
                                 <div
-                                    className="text-[0.45rem] font-sans font-medium cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1"
+                                    className={`text-[0.45rem] font-sans font-medium rounded px-0.5 -mx-0.5 transition-colors pl-1 truncate min-w-0 flex-1 ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                     onClick={(e) => {
-                                        e.stopPropagation()
-                                        startEditingName()
+                                        if (isSelected) {
+                                            e.stopPropagation()
+                                            startEditingName()
+                                        }
                                     }}
-                                    onMouseDown={(e) => e.stopPropagation()}
                                 >
                                     {action.name}
                                 </div>
@@ -125,13 +126,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 autoFocus
                                 value={editDescriptionValue}
                                 onChange={setEditDescriptionValue}
+                                onFocus={(e: React.FocusEvent<HTMLTextAreaElement>) => {
+                                    const el = e.target
+                                    el.setSelectionRange(el.value.length, el.value.length)
+                                }}
                                 onBlur={(e: React.FocusEvent) => {
                                     e.stopPropagation()
                                     saveDescription()
                                 }}
                                 onKeyDown={(e: React.KeyboardEvent) => {
                                     e.stopPropagation()
-                                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault()
                                         saveDescription()
                                         ;(e.target as HTMLTextAreaElement).blur()
@@ -147,12 +152,13 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-fill-button-tertiary-hover rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
+                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                 onClick={(e) => {
-                                    e.stopPropagation()
-                                    startEditingDescription()
+                                    if (isSelected) {
+                                        e.stopPropagation()
+                                        startEditingDescription()
+                                    }
                                 }}
-                                onMouseDown={(e) => e.stopPropagation()}
                             >
                                 {action.description || ''}
                             </div>

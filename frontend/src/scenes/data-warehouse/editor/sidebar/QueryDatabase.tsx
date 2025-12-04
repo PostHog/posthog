@@ -379,7 +379,7 @@ export const QueryDatabase = (): JSX.Element => {
                                             undefined,
                                             undefined,
                                             OutputTab.Endpoint,
-                                            item.name
+                                            item.record?.endpoint?.name
                                         )
                                     )
                                 }}

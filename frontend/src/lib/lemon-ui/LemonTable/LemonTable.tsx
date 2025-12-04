@@ -86,6 +86,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     maxHeaderWidth?: string
     /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
+    /** Row actions to display in a "More" menu at the end of each row. Return null to hide actions for specific rows. */
+    rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
 }
 
 export function LemonTable<T extends Record<string, any>>({
@@ -123,6 +125,7 @@ export function LemonTable<T extends Record<string, any>>({
     pinnedColumns,
     maxHeaderWidth,
     hideScrollbar,
+    rowActions,
 }: LemonTableProps<T>): JSX.Element {
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
@@ -416,6 +419,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 )
                                             })
                                     )}
+                                    {rowActions && <th className="w-0" />}
                                     <LemonTableLoader loading={loading} tag="th" />
                                 </tr>
                             </thead>
@@ -456,6 +460,7 @@ export function LemonTable<T extends Record<string, any>>({
                                             pinnedColumns={pinnedColumns}
                                             pinnedColumnWidths={pinnedColumnWidths}
                                             columns={columns}
+                                            rowActions={rowActions}
                                         />
                                     )
                                 })

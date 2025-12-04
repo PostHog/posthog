@@ -1,1 +1,1 @@
-0923_add_quick_filters
+0933_add_event_names_and_uuids_to_restriction_config
