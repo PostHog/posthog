@@ -79,7 +79,6 @@ jobs:
             # Terragrunt S3 backend config (to manage .tfstate)
             TF_STATE_BUCKET: ${{ secrets.TF_STATE_BUCKET }}
             TF_STATE_REGION: ${{ secrets.TF_STATE_REGION }}
-            TF_STATE_LOCK_TABLE: ${{ secrets.TF_STATE_LOCK_TABLE }}
 
         steps:
             - name: Checkout

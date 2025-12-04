@@ -23,7 +23,7 @@ remote_state {
     bucket         = get_env("TF_STATE_BUCKET")
     key            = "posthog-provider/${path_relative_to_include()}/terraform.tfstate"
     region         = get_env("TF_STATE_REGION")
-    dynamodb_table = get_env("TF_STATE_LOCK_TABLE")
+    use_lockfile   = true
     encrypt        = true
   }
 }
