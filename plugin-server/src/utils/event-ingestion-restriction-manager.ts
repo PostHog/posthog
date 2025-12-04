@@ -115,6 +115,10 @@ export class EventIngestionRestrictionManager {
                                             return [`${item.token}:distinct_id:${item.distinct_id}`]
                                         } else if ('session_id' in item && item.session_id) {
                                             return [`${item.token}:session_id:${item.session_id}`]
+                                        } else if ('event_name' in item && item.event_name) {
+                                            return [`${item.token}:event_name:${item.event_name}`]
+                                        } else if ('event_uuid' in item && item.event_uuid) {
+                                            return [`${item.token}:event_uuid:${item.event_uuid}`]
                                         } else {
                                             return [item.token]
                                         }
@@ -150,31 +154,55 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    shouldDropEvent(token?: string, distinctId?: string, sessionId?: string): boolean {
+    shouldDropEvent(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
         return this.checkRestriction(
             token,
             distinctId,
             sessionId,
+            eventName,
+            eventUuid,
             this.staticDropEventList,
             RestrictionType.DROP_EVENT_FROM_INGESTION
         )
     }
 
-    shouldSkipPerson(token?: string, distinctId?: string, sessionId?: string): boolean {
+    shouldSkipPerson(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
         return this.checkRestriction(
             token,
             distinctId,
             sessionId,
+            eventName,
+            eventUuid,
             this.staticSkipPersonList,
             RestrictionType.SKIP_PERSON_PROCESSING
         )
     }
 
-    shouldForceOverflow(token?: string, distinctId?: string, sessionId?: string): boolean {
+    shouldForceOverflow(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
         return this.checkRestriction(
             token,
             distinctId,
             sessionId,
+            eventName,
+            eventUuid,
             this.staticForceOverflowList,
             RestrictionType.FORCE_OVERFLOW_FROM_INGESTION
         )
@@ -184,6 +212,8 @@ export class EventIngestionRestrictionManager {
         token: string | undefined,
         distinctId: string | undefined,
         sessionId: string | undefined,
+        eventName: string | undefined,
+        eventUuid: string | undefined,
         staticList: Set<string>,
         restrictionType: RestrictionType
     ): boolean {
@@ -191,7 +221,7 @@ export class EventIngestionRestrictionManager {
             return false
         }
 
-        const keys = this.buildLookupKeys(token, distinctId, sessionId)
+        const keys = this.buildLookupKeys(token, distinctId, sessionId, eventName, eventUuid)
 
         if (this.matchesStaticList(token, keys, staticList)) {
             return true
@@ -203,18 +233,34 @@ export class EventIngestionRestrictionManager {
     private buildLookupKeys(
         token: string,
         distinctId?: string,
-        sessionId?: string
-    ): { tokenDistinctIdKey?: string; tokenSessionIdKey?: string; tokenDistinctIdKeyLegacy?: string } {
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): {
+        tokenDistinctIdKey?: string
+        tokenSessionIdKey?: string
+        tokenEventNameKey?: string
+        tokenEventUuidKey?: string
+        tokenDistinctIdKeyLegacy?: string
+    } {
         return {
             tokenDistinctIdKey: distinctId ? `${token}:distinct_id:${distinctId}` : undefined,
             tokenSessionIdKey: sessionId ? `${token}:session_id:${sessionId}` : undefined,
+            tokenEventNameKey: eventName ? `${token}:event_name:${eventName}` : undefined,
+            tokenEventUuidKey: eventUuid ? `${token}:event_uuid:${eventUuid}` : undefined,
             tokenDistinctIdKeyLegacy: distinctId ? `${token}:${distinctId}` : undefined,
         }
     }
 
     private matchesStaticList(
         token: string,
-        keys: { tokenDistinctIdKey?: string; tokenSessionIdKey?: string; tokenDistinctIdKeyLegacy?: string },
+        keys: {
+            tokenDistinctIdKey?: string
+            tokenSessionIdKey?: string
+            tokenEventNameKey?: string
+            tokenEventUuidKey?: string
+            tokenDistinctIdKeyLegacy?: string
+        },
         staticList: Set<string>
     ): boolean {
         // Static config only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id
@@ -227,7 +273,12 @@ export class EventIngestionRestrictionManager {
 
     private matchesDynamicConfig(
         token: string,
-        keys: { tokenDistinctIdKey?: string; tokenSessionIdKey?: string },
+        keys: {
+            tokenDistinctIdKey?: string
+            tokenSessionIdKey?: string
+            tokenEventNameKey?: string
+            tokenEventUuidKey?: string
+        },
         restrictionType: RestrictionType
     ): boolean {
         if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
@@ -246,7 +297,9 @@ export class EventIngestionRestrictionManager {
         return (
             configSet.has(token) ||
             (!!keys.tokenDistinctIdKey && configSet.has(keys.tokenDistinctIdKey)) ||
-            (!!keys.tokenSessionIdKey && configSet.has(keys.tokenSessionIdKey))
+            (!!keys.tokenSessionIdKey && configSet.has(keys.tokenSessionIdKey)) ||
+            (!!keys.tokenEventNameKey && configSet.has(keys.tokenEventNameKey)) ||
+            (!!keys.tokenEventUuidKey && configSet.has(keys.tokenEventUuidKey))
         )
     }
 }
