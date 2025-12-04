@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { useEffect, useRef } from 'react'
 
 import { IconCalendar, IconCollapse, IconExpand, IconInfo } from '@posthog/icons'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
 
-import { Chart, ChartDataset, ChartItem } from 'lib/Chart'
+import { ChartDataset } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useChart } from 'lib/hooks/useChart'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -109,13 +109,13 @@ interface AppMetricsGraphProps {
 }
 
 function AppMetricsGraph({ metrics, metricsLoading }: AppMetricsGraphProps): JSX.Element {
-    const canvasRef = useRef<HTMLCanvasElement | null>(null)
-
-    useEffect(() => {
-        let chart: Chart
-        if (canvasRef.current && metrics && !inStorybookTestRunner()) {
-            chart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
-                type: 'line',
+    const { canvasRef } = useChart({
+        getConfig: () => {
+            if (!metrics || inStorybookTestRunner()) {
+                return null
+            }
+            return {
+                type: 'line' as const,
                 data: {
                     labels: metrics.dates,
                     datasets: [
@@ -147,7 +147,6 @@ function AppMetricsGraph({ metrics, metricsLoading }: AppMetricsGraphProps): JSX
                         },
                     },
                     plugins: {
-                        // @ts-expect-error Types of library are out of date
                         crosshair: false,
                         legend: {
                             display: false,
@@ -160,13 +159,10 @@ function AppMetricsGraph({ metrics, metricsLoading }: AppMetricsGraphProps): JSX
                         intersect: false,
                     },
                 },
-            })
-
-            return () => {
-                chart?.destroy()
             }
-        }
-    }, [metrics])
+        },
+        deps: [metrics],
+    })
 
     if (metricsLoading || !metrics) {
         return <LemonSkeleton className="AppMetricsGraph border rounded p-6" />

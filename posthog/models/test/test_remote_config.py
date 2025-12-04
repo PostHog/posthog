@@ -179,6 +179,13 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.sync_remote_config()
         assert self.remote_config.config["sessionRecording"]["domains"] == self.team.recording_domains
 
+    def test_extra_settings_recorder_script(self):
+        self.team.session_recording_opt_in = True
+        self.team.extra_settings = {"recorder_script": "custom-recorder"}
+        self.team.save()
+        self.sync_remote_config()
+        assert self.remote_config.config["sessionRecording"]["scriptConfig"] == {"script": "custom-recorder"}
+
 
 class TestRemoteConfigSurveys(_RemoteConfigBase):
     # Largely copied from TestSurveysAPIList
@@ -337,6 +344,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                                             "text": None,
                                             "event": "$pageview",
                                             "selector": None,
+                                            "selector_regex": None,
                                             "tag_name": None,
                                             "properties": None,
                                             "url_matching": "contains",

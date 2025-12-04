@@ -1,5 +1,8 @@
+import { Message } from 'node-rdkafka'
+
 import { KafkaProducerWrapper } from '../../kafka/producer'
-import { RawKafkaEvent } from '../../types'
+import { ingestionLagGauge } from '../../main/ingestion-queues/metrics'
+import { EventHeaders, RawKafkaEvent } from '../../types'
 import { MessageSizeTooLarge } from '../../utils/db/error'
 import { eventProcessedAndIngestedCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
@@ -9,18 +12,33 @@ import { ProcessingStep } from '../pipelines/steps'
 export interface EmitEventStepConfig {
     kafkaProducer: KafkaProducerWrapper
     clickhouseJsonEventsTopic: string
+    groupId: string
 }
 
-export function createEmitEventStep<T extends { eventToEmit?: RawKafkaEvent }>(
+export interface EmitEventStepInput {
+    eventToEmit?: RawKafkaEvent
+    inputHeaders?: EventHeaders
+    inputMessage?: Message
+}
+
+export function createEmitEventStep<T extends EmitEventStepInput>(
     config: EmitEventStepConfig
 ): ProcessingStep<T, void> {
     return function emitEventStep(input: T): Promise<PipelineResult<void>> {
-        const { eventToEmit } = input
+        const { eventToEmit, inputHeaders, inputMessage } = input
 
         if (!eventToEmit) {
             return Promise.resolve(ok(undefined, []))
         }
-        const { kafkaProducer, clickhouseJsonEventsTopic } = config
+        const { kafkaProducer, clickhouseJsonEventsTopic, groupId } = config
+
+        // Record ingestion lag metric if we have the required data
+        if (inputHeaders?.now && inputMessage?.topic !== undefined && inputMessage?.partition !== undefined) {
+            const lag = Date.now() - inputHeaders.now.getTime()
+            ingestionLagGauge
+                .labels({ topic: inputMessage.topic, partition: String(inputMessage.partition), groupId })
+                .set(lag)
+        }
 
         // TODO: It's not great that we put the produce outcome in side effects, we should probably await it here
         //       but it might slow the pipeline down. Historically, it has always been like that.

@@ -46,10 +46,16 @@
         "postinstall": "git config --get blame.ignoreRevsFile > /dev/null 2>&1 || git config blame.ignoreRevsFile .git-blame-ignore-revs > /dev/null 2>&1 || true",
         "lint": "pnpm lint:js && pnpm lint:css",
         "lint:js": "oxlint --quiet",
-        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\""
+        "lint:css": "stylelint \"(frontend|products)/**/*.{css,scss}\"",
+        "nuke": "say -v 'Samantha' 'Nuclear launch detected' && pnpm nuke:docker && pnpm nuke:js && pnpm nuke:python && pnpm nuke:rust",
+        "nuke:docker": "docker-compose -f docker-compose.dev.yml down -v",
+        "nuke:js": "rm -rf **/node_modules",
+        "nuke:python": "uv pip freeze -q | cut -d'=' -f1 | cut -d'@' -f1 | xargs uv pip uninstall",
+        "nuke:rust": "cd rust && cargo clean && find . -name 'index.node' -type f -delete"
     },
     "dependencies": {
         "concurrently": "^5.3.0",
+        "fuse.js": "^6.6.2",
         "husky": "^7.0.4",
         "lint-staged": "~15.4.3",
         "turbo": "^2.4.2",
@@ -76,7 +82,8 @@
         "overrides": {
             "playwright": "1.45.0",
             "typescript": "5.2.2",
-            "@posthog/icons": "0.35.2"
+            "@posthog/icons": "0.35.2",
+            "node-forge": "1.3.2"
         },
         "patchedDependencies": {
             "heatmap.js@2.0.5": "patches/heatmap.js@2.0.5.patch",

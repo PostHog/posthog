@@ -1,3 +1,3 @@
-from .context import SUPPORTED_QUERY_MODEL_BY_KIND, AssistantContextManager
+from .context import AssistantContextManager
 
-__all__ = ["AssistantContextManager", "SUPPORTED_QUERY_MODEL_BY_KIND"]
+__all__ = ["AssistantContextManager"]
