@@ -54,6 +54,7 @@ from .insight_variable import InsightVariable
 from .instance_setting import InstanceSetting
 from .integration import Integration
 from .link import Link
+from .materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
 from .message_template import MessageTemplate
 from .message_category import MessageCategory
 from .message_preferences import MessageRecipientPreference
@@ -150,6 +151,8 @@ __all__ = [
     "InstanceSetting",
     "Integration",
     "InviteExpiredException",
+    "MaterializedColumnSlot",
+    "MaterializedColumnSlotState",
     "MessageCategory",
     "MessageRecipientPreference",
     "MessageTemplate",
