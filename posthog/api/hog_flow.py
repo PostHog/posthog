@@ -25,6 +25,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.feature_flag.user_blast_radius import get_user_blast_radius
 from posthog.models.hog_flow.hog_flow import HogFlow
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test
@@ -72,6 +73,8 @@ class HogFlowActionSerializer(serializers.Serializer):
                     serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
                     serializer.is_valid(raise_exception=True)
                     data["config"]["filters"] = serializer.validated_data
+            elif data.get("config", {}).get("type") == "batch":
+                pass
             else:
                 raise serializers.ValidationError({"config": "Invalid trigger type"})
 
@@ -393,3 +396,19 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             return Response({"status": "error", "message": res.json()["error"]}, status=res.status_code)
 
         return Response(res.json())
+
+    @action(methods=["POST"], detail=False)
+    def user_blast_radius(self, request: Request, **kwargs):
+        if "filters" not in request.data:
+            raise exceptions.ValidationError("Missing filters for which to get blast radius")
+
+        filters = request.data.get("filters") or {}
+
+        users_affected, total_users = get_user_blast_radius(self.team, filters)
+
+        return Response(
+            {
+                "users_affected": users_affected,
+                "total_users": total_users,
+            }
+        )

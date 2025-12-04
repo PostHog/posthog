@@ -10,6 +10,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
+import { batchTriggerLogic } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -20,9 +21,36 @@ const TriggerPopover = ({
 }): JSX.Element => {
     const logic = hogFlowManualTriggerButtonLogic(props)
     const { workflow, variableValues, inputs } = useValues(logic)
-    const { setInput, clearInputs, triggerManualWorkflow } = useActions(logic)
+    const { setInput, clearInputs, triggerManualWorkflow, triggerBatchWorkflow } = useActions(logic)
 
-    const isScheduleTrigger = workflow?.trigger?.type === 'schedule'
+    const { blastRadius } = useValues(
+        batchTriggerLogic({
+            id: props.id,
+            filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
+        })
+    )
+
+    const isScheduleTrigger =
+        (workflow?.trigger?.type === 'schedule' || workflow?.trigger?.type === 'batch') &&
+        Boolean(workflow?.trigger?.scheduled_at)
+
+    const getButtonCopy = (): string => {
+        switch (workflow?.trigger?.type) {
+            case 'manual':
+                return 'Run workflow'
+            case 'batch': {
+                const forBlastRadius = blastRadius ? `for ${blastRadius.users_affected} users` : ''
+                if (isScheduleTrigger) {
+                    return `Schedule workflow ${forBlastRadius}`
+                }
+                return `Run workflow ${forBlastRadius}`
+            }
+            case 'schedule':
+                return 'Schedule workflow'
+            default:
+                return 'Run workflow'
+        }
+    }
 
     const variablesSection =
         !workflow?.variables || workflow.variables.length === 0 ? (
@@ -85,14 +113,20 @@ const TriggerPopover = ({
                     status="alt"
                     onClick={() => {
                         const scheduledAt = isScheduleTrigger ? (workflow?.trigger as any)?.scheduled_at : undefined
-                        triggerManualWorkflow(variableValues, scheduledAt)
+
+                        if (workflow?.trigger?.type === 'batch') {
+                            triggerBatchWorkflow(variableValues, scheduledAt)
+                        } else {
+                            triggerManualWorkflow(variableValues, scheduledAt)
+                        }
+
                         setPopoverVisible(false)
                         clearInputs()
                     }}
                     data-attr="run-workflow-btn"
                     sideIcon={isScheduleTrigger ? <IconClock /> : <IconPlayFilled />}
                 >
-                    {isScheduleTrigger ? 'Schedule workflow' : 'Run workflow'}
+                    {getButtonCopy()}
                 </LemonButton>
             </div>
         </div>

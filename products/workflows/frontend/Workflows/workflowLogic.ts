@@ -127,6 +127,10 @@ export const workflowLogic = kea<workflowLogicType>([
             variables,
             scheduledAt,
         }),
+        triggerBatchWorkflow: (variables: Record<string, any>, scheduledAt?: string) => ({
+            variables,
+            scheduledAt,
+        }),
         discardChanges: true,
     }),
     loaders(({ props, values }) => ({
@@ -452,6 +456,15 @@ export const workflowLogic = kea<workflowLogicType>([
                     action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
                 },
             })
+        },
+        triggerBatchWorkflow: async ({}) => {
+            // Similar to triggerManualWorkflow but for batch workflows
+            if (!values.workflow.id || values.workflow.id === 'new') {
+                lemonToast.error('You need to save the workflow before triggering it manually.')
+                return
+            }
+
+            lemonToast.info('Batch workflow runs coming soon...')
         },
     })),
     afterMount(({ actions }) => {
