@@ -138,7 +138,7 @@ describe('createParseHeadersStep', () => {
                     token: 'complex-token',
                     distinct_id: 'complex-user',
                     timestamp: '2023-01-01T00:00:00Z',
-                    now: '2023-01-01T12:00:00Z',
+                    now: new Date('2023-01-01T12:00:00Z'),
                     force_disable_person_processing: false,
                     historical_migration: false,
                 },
@@ -381,7 +381,7 @@ describe('createParseHeadersStep', () => {
                 ok({
                     ...input,
                     headers: {
-                        now: '2023-01-01T12:00:00Z',
+                        now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
                     },
@@ -401,7 +401,7 @@ describe('createParseHeadersStep', () => {
                 ok({
                     ...input,
                     headers: {
-                        now: '2023-01-01T12:00:00Z',
+                        now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
                     },
@@ -427,7 +427,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         token: 'test-token',
                         timestamp: '2023-01-01T00:00:00Z',
-                        now: '2023-01-01T12:00:00Z',
+                        now: new Date('2023-01-01T12:00:00Z'),
                         force_disable_person_processing: false,
                         historical_migration: false,
                     },
@@ -575,6 +575,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         distinct_id: 'user\uFFFD123',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -594,6 +595,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         token: 'test\uFFFDtoken',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )

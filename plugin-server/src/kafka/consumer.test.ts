@@ -830,6 +830,7 @@ describe('parseEventHeaders', () => {
                 distinct_id: 'user-123',
                 now: new Date(isoDate),
                 force_disable_person_processing: false,
+                historical_migration: false,
             })
         })
 
