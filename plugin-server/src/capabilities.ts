@@ -113,5 +113,9 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             return {
                 logsIngestion: true,
             }
+        case PluginServerMode.cdp_data_warehouse_events:
+            return {
+                cdpDataWarehouseEvents: true,
+            }
     }
 }
