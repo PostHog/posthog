@@ -1,5 +1,8 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, HumanMessage
 
@@ -12,6 +15,7 @@ class TestTicketCommand(BaseTest):
         super().setUp()
         self.command = TicketCommand(self.team, self.user)
 
+    @pytest.mark.asyncio
     @patch.object(TicketCommand, "_summarize_conversation")
     async def test_execute_returns_summary(self, mock_summarize):
         """Test that /ticket returns the conversation summary."""
@@ -24,14 +28,18 @@ class TestTicketCommand(BaseTest):
                 HumanMessage(content="/ticket"),
             ]
         )
-        config = {"configurable": {"thread_id": "test-conversation-id", "trace_id": "test-trace-id"}}
+        config = RunnableConfig(configurable={"thread_id": "test-conversation-id", "trace_id": "test-trace-id"})
 
         result = await self.command.execute(config, state)
 
         self.assertEqual(len(result.messages), 1)
-        self.assertEqual(result.messages[0].content, "Summary of the conversation")
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertEqual(message.content, "Summary of the conversation")
         mock_summarize.assert_called_once()
 
+    @pytest.mark.asyncio
     async def test_execute_first_message_prompts_for_input(self):
         """Test that /ticket as first message prompts user to describe issue."""
         state = AssistantState(
@@ -39,12 +47,15 @@ class TestTicketCommand(BaseTest):
                 HumanMessage(content="/ticket"),
             ]
         )
-        config = {"configurable": {"thread_id": "test-conversation-id"}}
+        config = RunnableConfig(configurable={"thread_id": "test-conversation-id"})
 
         result = await self.command.execute(config, state)
 
         self.assertEqual(len(result.messages), 1)
-        self.assertIn("describe your issue", result.messages[0].content.lower())
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("describe your issue", message.content.lower())
 
     def test_is_first_message_with_only_ticket_command(self):
         """Test that _is_first_message returns True when only /ticket is present."""
