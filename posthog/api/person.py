@@ -48,6 +48,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -397,11 +398,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+            # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
+            person_ids = PersonDistinctId.objects.filter(
+                team_id=self.team_id, distinct_id__in=distinct_ids
+            ).values_list("person_id", flat=True)
+            persons = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
+            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 

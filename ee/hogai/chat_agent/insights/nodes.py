@@ -15,18 +15,19 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage, To
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
-from posthog.schema import AssistantToolCallMessage, VisualizationMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Insight
 
 from ee.hogai.chat_agent.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.context import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.core.shared_prompts import HYPERLINK_USAGE_INSTRUCTIONS
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import build_insight_url
+from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 
 from .prompts import (
     ITERATIVE_SEARCH_SYSTEM_PROMPT,
@@ -37,7 +38,7 @@ from .prompts import (
 )
 
 logger = structlog.get_logger(__name__)
-# Silence Pydantic serializer warnings for creation of VisualizationMessage/Query execution
+# Silence Pydantic serializer warnings for creation of Query execution
 warnings.filterwarnings("ignore", category=UserWarning, message=".*Pydantic serializer.*")
 
 TIMING_LOG_PREFIX = "[INSIGHT_SEARCH]"
@@ -131,7 +132,6 @@ class InsightSearchNode(AssistantNode):
 
     @timing_logger("InsightSearchNode.arun")
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
-        self.dispatcher.update("Searching for insights")
         search_query = state.search_insights_query
         self._current_iteration = 0
 
@@ -662,8 +662,8 @@ class InsightSearchNode(AssistantNode):
             return None
 
     @timing_logger("InsightSearchNode._create_visualization_message_for_insight")
-    async def _create_visualization_message_for_insight(self, insight: InsightDict) -> VisualizationMessage | None:
-        """Create a VisualizationMessage to render the insight UI."""
+    async def _create_artifact_ref_message_for_insight(self, insight: InsightDict) -> ArtifactRefMessage | None:
+        """Create an ArtifactMessage to render the insight UI."""
         try:
             for step in ["Executing insight query...", "Processing query parameters", "Running data analysis"]:
                 self.dispatcher.update(step)
@@ -673,17 +673,13 @@ class InsightSearchNode(AssistantNode):
             if not query_obj:
                 return None
 
-            insight_name = insight["name"] or insight["derived_name"] or "Unnamed Insight"
-
-            visualization_message = VisualizationMessage(
-                query=f"Existing insight: {insight_name}",
-                plan=f"Showing existing insight: {insight_name}",
-                answer=query_obj,
+            # Reference the existing insight instead of creating an artifact
+            return ArtifactRefMessage(
+                content_type=ArtifactContentType.VISUALIZATION,
+                artifact_id=insight["short_id"],
+                source=ArtifactSource.INSIGHT,
                 id=str(uuid4()),
-                short_id=insight["short_id"],
             )
-
-            return visualization_message
 
         except Exception as e:
             capture_exception(e)
@@ -819,7 +815,7 @@ class InsightSearchNode(AssistantNode):
 
         for _, selection in self._evaluation_selections.items():
             insight = selection["insight"]
-            visualization_message = await self._create_visualization_message_for_insight(insight)
+            visualization_message = await self._create_artifact_ref_message_for_insight(insight)
             if visualization_message:
                 visualization_messages.append(visualization_message)
 

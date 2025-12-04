@@ -82,7 +82,6 @@ export const SelectExistingFeatureFlagModal = ({
                                         <LemonButton
                                             size="xsmall"
                                             type="primary"
-                                            disabledReason={undefined}
                                             onClick={() => {
                                                 onSelect(flag)
                                                 handleClose()

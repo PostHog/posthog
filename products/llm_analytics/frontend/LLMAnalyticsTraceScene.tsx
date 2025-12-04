@@ -52,7 +52,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
-import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -68,13 +68,6 @@ import {
     isLLMEvent,
     removeMilliseconds,
 } from './utils'
-
-enum TraceViewMode {
-    Conversation = 'conversation',
-    Raw = 'raw',
-    Summary = 'summary',
-    Evals = 'evals',
-}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -123,7 +116,8 @@ function TraceSceneWrapper(): JSX.Element {
                         />
                         <div className="flex flex-wrap justify-end items-center gap-x-2 gap-y-1">
                             <DisplayOptionsSelect />
-                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] && (
+                            {(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) && (
                                 <LemonButton
                                     type="secondary"
                                     size="xsmall"
@@ -212,7 +206,10 @@ function TraceMetadata({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const getSessionUrl = (sessionId: string): string => {
-        if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]) {
+        if (
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             return urls.llmAnalyticsSession(sessionId)
         }
         // Fallback to filtering traces by session when feature flag is off
@@ -239,7 +236,8 @@ function TraceMetadata({
             {trace.aiSessionId && (
                 <Chip
                     title={
-                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW]
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSIONS_VIEW] ||
+                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
                             ? 'AI Session ID - Click to view session details'
                             : 'AI Session ID - Click to filter traces by this session'
                     }
@@ -665,10 +663,8 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
-        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
-
-        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+        const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -685,7 +681,9 @@ const EventContent = React.memo(
 
         const showEvalsTab = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]
 
-        const showSummaryTab = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION]
+        const showSummaryTab =
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SUMMARIZATION] ||
+            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
         // Load AI data for the current event
         const { input: loadedInput, output: loadedOutput } = useAIData(event)
@@ -811,7 +809,8 @@ const EventContent = React.memo(
                                     content: (
                                         <>
                                             {displayOption === DisplayOption.TextView &&
-                                            featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ? (
+                                            (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+                                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]) ? (
                                                 isLLMEvent(event) &&
                                                 (event.event === '$ai_generation' ||
                                                     event.event === '$ai_span' ||
@@ -905,6 +904,7 @@ const EventContent = React.memo(
                                                       trace={!isLLMEvent(event) ? event : undefined}
                                                       event={isLLMEvent(event) ? event : undefined}
                                                       tree={tree}
+                                                      autoGenerate={initialTab === 'summary'}
                                                   />
                                               ),
                                           },
@@ -1018,18 +1018,22 @@ function DisplayOptionsSelect(): JSX.Element {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
             tooltip: 'Show all messages and full conversation history',
+            'data-attr': 'llma-trace-display-expand-all',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',
+            'data-attr': 'llma-trace-display-expand-last',
         },
-        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW]
+        ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
+        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
             ? [
                   {
                       value: DisplayOption.TextView,
                       label: 'Text view',
                       tooltip: 'Simple human readable text view, for humans',
+                      'data-attr': 'llma-trace-display-text-view',
                   },
               ]
             : []),
