@@ -12,6 +12,7 @@ from django.utils.timezone import now
 
 import requests
 from dateutil.relativedelta import relativedelta
+from drf_spectacular.utils import extend_schema
 from loginas.utils import is_impersonated_session
 from posthoganalytics import capture_exception
 from rest_framework import renderers, request, serializers, status, viewsets
@@ -312,6 +313,7 @@ class PluginSerializer(serializers.ModelSerializer):
         return super().update(plugin, validated_data)
 
 
+@extend_schema(tags=["core"])
 class PluginViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = Plugin.objects.all()
@@ -760,6 +762,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         return response
 
 
+@extend_schema(tags=["core"])
 class PluginConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "plugin"
     queryset = PluginConfig.objects.all()

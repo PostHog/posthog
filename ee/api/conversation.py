@@ -9,6 +9,7 @@ import pydantic
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync as asgi_async_to_sync
+from drf_spectacular.utils import extend_schema
 from prometheus_client import Histogram
 from rest_framework import exceptions, serializers, status
 from rest_framework.decorators import action
@@ -113,6 +114,7 @@ class MessageSerializer(serializers.Serializer):
         return data
 
 
+@extend_schema(tags=["max"])
 class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
     scope_object = "INTERNAL"
     serializer_class = ConversationSerializer
