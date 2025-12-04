@@ -8,7 +8,7 @@ import type { Experiment } from '~/types'
 import { NEW_EXPERIMENT } from '../constants'
 import { createExperimentLogic } from './createExperimentLogic'
 
-describe('CreateExperiment Integration', () => {
+describe('ExperimentForm Integration', () => {
     let logic: ReturnType<typeof createExperimentLogic.build>
     let routerPushSpy: jest.SpyInstance
 
