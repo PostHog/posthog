@@ -716,7 +716,3 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
-
-
-class TestFunnelPersons(BaseTestFunnelPersons):
-    __test__ = True
