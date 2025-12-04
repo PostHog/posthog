@@ -89,11 +89,8 @@ function LogsViewerContent({
     // Position cursor at linked log when deep linking (URL -> cursor)
     useEffect(() => {
         if (linkToLogId && logs.length > 0) {
-            const index = logs.findIndex((l) => l.uuid === linkToLogId)
             setCursorToLogId(linkToLogId, logs)
-            if (index !== -1) {
-                containerRef.current?.focus()
-            }
+            containerRef.current?.focus()
         }
     }, [linkToLogId, logs, setCursorToLogId])
 
