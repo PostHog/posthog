@@ -65,7 +65,7 @@
 
             > h1 {
                 font-size: 1.75rem; // Larger, clean title
-                color: var(--text-3000);
+                color: var(--color-foreground);
             }
 
             > h2 {
@@ -248,7 +248,7 @@
                 top: 0.35rem;
                 right: 0.6rem;
                 font-size: 0.75rem;
-                color: var(--text-3000);
+                color: var(--color-foreground);
                 text-transform: uppercase;
                 letter-spacing: 0.02em;
                 content: attr(data-language);
@@ -313,7 +313,7 @@
             > figcaption {
                 margin-top: 0.4rem;
                 font-size: 0.9em;
-                color: var(--text-3000);
+                color: var(--color-foreground);
             }
 
             // Tables
@@ -358,7 +358,7 @@
                 }
 
                 &:visited {
-                    color: var(--text-3000);
+                    color: var(--color-foreground);
                 }
 
                 &:focus-visible {
@@ -409,7 +409,7 @@
             }
 
             & svg {
-                color: var(--text-3000);
+                color: var(--color-foreground);
             }
 
             &.Backlink--selected {

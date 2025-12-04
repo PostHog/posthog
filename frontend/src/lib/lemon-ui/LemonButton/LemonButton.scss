@@ -69,7 +69,7 @@
     --lemon-button-height: 2.3125rem;
     --lemon-button-gap: 0.5rem;
     --lemon-button-icon-opacity: 0.8;
-    --lemon-button-color: var(--text-3000);
+    --lemon-button-color: var(--color-foreground);
 
     // Make sure we override .Link's styles where needed, e.g. padding
     display: flex;
@@ -230,7 +230,7 @@
 
     &.LemonButton--primary.LemonButton--status-danger {
         --lemon-button-bg-color: var(--red-100);
-        --lemon-button-color: var(--text-3000);
+        --lemon-button-color: var(--color-foreground);
 
         [theme='dark'] & {
             --lemon-button-bg-color: #312101;
@@ -243,7 +243,7 @@
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
-            --lemon-button-color: var(--text-3000);
+            --lemon-button-color: var(--color-foreground);
         }
     }
 

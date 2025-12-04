@@ -592,7 +592,7 @@
     --blue: #597dce;
     --purple: #c278cf;
     --green: var(--success);
-    --black: var(--text-3000);
+    --black: var(--color-foreground);
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
     // --data-color-1: #1d4aff;
@@ -1102,7 +1102,7 @@
         font-size: 14px;
         font-weight: 400;
         line-height: 1.5715;
-        color: var(--text-3000);
+        color: var(--color-foreground);
         color-scheme: light dark;
         touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
         background: var(--color-background);
@@ -1189,7 +1189,7 @@
         h2,
         h3,
         h4 {
-            color: var(--text-3000);
+            color: var(--color-foreground);
         }
 
         h1 {
@@ -1227,7 +1227,7 @@
         .LemonButton,
         .Link {
             .text-link {
-                color: var(--text-3000) !important;
+                color: var(--color-foreground) !important;
             }
 
             &:hover {
@@ -1317,7 +1317,7 @@
         font-size: 0.875rem;
         font-weight: 500;
         line-height: 1.25rem;
-        color: var(--text-3000);
+        color: var(--color-foreground);
 
         b,
         strong {
@@ -1387,7 +1387,7 @@
         font-weight: bold;
         line-height: 1rem;
         pointer-events: none;
-        border: 2px solid var(--text-3000);
+        border: 2px solid var(--color-foreground);
         border-radius: 50%;
 
         // variants

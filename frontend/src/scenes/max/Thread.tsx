@@ -663,7 +663,7 @@ function ShimmeringContent({ children }: { children: React.ReactNode }): JSX.Ele
                 className="bg-clip-text text-transparent"
                 style={{
                     backgroundImage:
-                        'linear-gradient(in oklch 90deg, var(--text-3000), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--text-3000))',
+                        'linear-gradient(in oklch 90deg, var(--color-foreground), var(--muted-3000), var(--trace-3000), var(--muted-3000), var(--color-foreground))',
                     backgroundSize: '200% 100%',
                     animation: 'shimmer 3s linear infinite',
                 }}
