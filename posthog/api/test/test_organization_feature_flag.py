@@ -696,8 +696,10 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         flag_response = response.json()["success"][0]
         self.assertEqual(flag_response["is_remote_configuration"], True)
+        self.assertEqual(flag_response["has_encrypted_payloads"], False)
         self.assertEqual(flag_response["key"], remote_config_flag.key)
 
         # Verify the flag in the database
         copied_flag = FeatureFlag.objects.get(key=remote_config_flag.key, team=target_project)
         self.assertTrue(copied_flag.is_remote_configuration)
+        self.assertFalse(copied_flag.has_encrypted_payloads)
