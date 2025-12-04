@@ -356,7 +356,7 @@
     --color-white: white;
 
     /* Main application background and foreground */
-    --color-background: var(--color-posthog-3000-150); /* => --color-bg-primary */
+    --color-background: var(--color-posthog-3000-150); /* => --color-bg-card */
     --color-foreground: var(--color-neutral-950); /* => --color-text-primary */
     --color-foreground-inverse: var(--color-neutral-50); /* => --color-text-primary-inverse */
 
@@ -387,7 +387,7 @@
     /* Warning color for warnings and cautions */
     --color-warning: var(--color-yellow-50);
     --color-warning-strong: var(--color-yellow-300);
-    --color-warning-foreground: var(--color-yellow-950);
+    --color-warning-foreground: var(--color-yellow-700);
 
     /* Destructive color for errors and critical actions */
     --color-destructive: var(--color-red-50);

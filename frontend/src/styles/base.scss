@@ -507,7 +507,7 @@
     // --color-text-secondary: var(--color-neutral-750);
     // --color-text-tertiary: var(--color-neutral-600);
     // --color-text-success: var(--color-green-600);
-    // --color-text-warning: var(--color-yellow-700);
+    // --color-text-warning-foreground: var(--color-yellow-700);
     // --color-text-error: var(--color-red-600);
 
     // Borders
@@ -688,7 +688,7 @@
     --toastify-color-light: var(--color-card);
     --toastify-color-info: var(--color-blue-500);
     --toastify-color-success: var(--success);
-    --toastify-color-warning: var(--warning);
+    --toastify-color-warning: var(--color-warning-foreground);
     --toastify-color-error: var(--danger);
     --toastify-color-progress-info: var(--toastify-color-info);
     --toastify-color-progress-success: var(--toastify-color-success);
@@ -987,7 +987,7 @@
     --color-text-secondary: var(--color-neutral-350);
     --color-text-tertiary: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
-    --color-text-warning: var(--color-yellow-400);
+    --color-text-warning-foreground: var(--color-yellow-400);
     --color-text-error: var(--color-red-400);
 
     // Borders (dark mode)

@@ -476,7 +476,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
 
                                                     {/* Unapplied state */}
                                                     {item.record?.unapplied && (
-                                                        <IconUpload className="ml-1 text-warning" />
+                                                        <IconUpload className="ml-1 text-warning-foreground" />
                                                     )}
                                                 </span>
                                             )}
@@ -1446,7 +1446,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 {activeDragItem.displayName || activeDragItem.name}
                             </span>
                             {activeDragItem.checked && checkedItemCount && checkedItemCount > 1 && (
-                                <span className="ml-1 text-xs rounded-full bg-primary-highlight px-2 py-0.5 whitespace-nowrap">
+                                <span className="ml-1 text-xs rounded-full bg-card-highlight px-2 py-0.5 whitespace-nowrap">
                                     +<span>{checkedItemCount - 1}</span>{' '}
                                     <span>other{checkedItemCount - 1 === 1 ? '' : 's'}</span>
                                 </span>

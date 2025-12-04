@@ -712,7 +712,7 @@ export function SavedInsights(): JSX.Element {
                                             }}
                                             icon={
                                                 insight.favorited ? (
-                                                    <IconStarFilled className="text-warning" />
+                                                    <IconStarFilled className="text-warning-foreground" />
                                                 ) : (
                                                     <IconStar className="text-secondary" />
                                                 )

@@ -17,7 +17,7 @@ export function ScenePin({ dataAttrKey, onClick, isPinned }: ScenePinProps): JSX
             data-attr={`${dataAttrKey}-pin-button`}
             tooltip={isPinned ? 'Unpin' : 'Pin'}
         >
-            {isPinned ? <IconPinFilled className="text-warning" /> : <IconPin />}
+            {isPinned ? <IconPinFilled className="text-warning-foreground" /> : <IconPin />}
             Pin
         </ButtonPrimitive>
     )

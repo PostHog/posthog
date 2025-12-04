@@ -107,7 +107,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                             <Spinner className="text-lg" />
                                         ) : record.status === 'pending' ? (
                                             <div className="flex gap-1 items-center">
-                                                <IconWarning className="size-6 text-warning" /> Not present
+                                                <IconWarning className="size-6 text-warning-foreground" /> Not present
                                             </div>
                                         ) : record.status === 'success' ? (
                                             <div className="flex gap-1 items-center">

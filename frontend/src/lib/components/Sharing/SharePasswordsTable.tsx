@@ -190,7 +190,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                             </div>
                             <div className="mt-3 p-3 bg-warning-highlight border border-warning rounded">
                                 <div className="flex gap-2">
-                                    <IconWarning className="text-warning text-lg flex-shrink-0 mt-0.5" />
+                                    <IconWarning className="text-warning-foreground text-lg flex-shrink-0 mt-0.5" />
                                     <div className="text-sm">
                                         <strong>Important:</strong> Store this password securely. Anyone with this
                                         password will be able to access this{' '}

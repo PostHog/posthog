@@ -23,7 +23,7 @@ export function RenderMetricValue(
         return (
             <LemonTag
                 className="uppercase text-secondary bg-mark"
-                icon={isSecret ? <IconLock className="text-warning" /> : undefined}
+                icon={isSecret ? <IconLock className="text-warning-foreground" /> : undefined}
             >
                 Secret
             </LemonTag>

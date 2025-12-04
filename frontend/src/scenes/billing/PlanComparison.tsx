@@ -37,7 +37,7 @@ export function PlanIcon({
                 </>
             ) : feature.limit ? (
                 <>
-                    <IconWarning className={clsx('text-warning mx-4 shrink-0', className)} />
+                    <IconWarning className={clsx('text-warning-foreground mx-4 shrink-0', className)} />
                     {feature.limit &&
                         `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
                             timeDenominator ? `/${timeDenominator}` : ''
@@ -327,7 +327,7 @@ export const PlanComparison = ({
                                         <tr>
                                             <th
                                                 colSpan={3}
-                                                className="PlanTable__th__section bg-primary justify-left rounded text-left mb-2"
+                                                className="PlanTable__th__section bg-card justify-left rounded text-left mb-2"
                                             >
                                                 <div className="flex items-center gap-x-2 my-2">
                                                     {getProductIcon(

@@ -31,7 +31,7 @@ export const ExplainCSPViolationButton = ({
                     <>
                         <LemonMarkdown wrapCode={true}>{r.response}</LemonMarkdown>
                         <div className="flex items-center mt-2 p-2 border border-border-strong rounded">
-                            <IconWarning className="text-warning-dark flex-shrink-0 mr-2" />
+                            <IconWarning className="text-warning-foreground-dark flex-shrink-0 mr-2" />
                             <span className="text-xs text-muted">
                                 Security advice from robots should always be double-checked by humans
                             </span>

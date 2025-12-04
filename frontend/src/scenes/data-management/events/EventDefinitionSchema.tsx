@@ -113,7 +113,7 @@ function PropertyGroupCard({
                             </Tooltip>
                         </h4>
                         {queryResult.isTruncated && (
-                            <div className="mb-2 px-2 py-1 bg-warning-highlight text-warning text-xs rounded">
+                            <div className="mb-2 px-2 py-1 bg-warning-highlight text-warning-foreground text-xs rounded">
                                 Only showing {queryResult.displayedProperties} of {queryResult.totalProperties}{' '}
                                 properties. Chart is limited to 25 properties.
                             </div>

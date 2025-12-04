@@ -153,7 +153,8 @@ function piiMaskingMenuItem(
         {
             icon: piiMaskingEnabled ? <IconEye /> : <IconHide />,
             label: piiMaskingEnabled ? 'Show PII' : 'Hide PII',
-            sideIcon: piiWarning && piiWarning.length > 0 ? <IconWarning className="text-warning" /> : undefined,
+            sideIcon:
+                piiWarning && piiWarning.length > 0 ? <IconWarning className="text-warning-foreground" /> : undefined,
             tooltip: piiWarning && piiWarning.length > 0 ? piiWarning.join('\n') : undefined,
             onClick: (e: React.MouseEvent) => {
                 e.preventDefault()

@@ -34,7 +34,7 @@ function getStatusDisplay(status: SourceStatus): {
         case ExternalDataSchemaStatus.Cancelled:
             return { tagType: 'danger' }
         case MarketingSourceStatus.Warning:
-            return { icon: <IconWarning className="text-warning" /> }
+            return { icon: <IconWarning className="text-warning-foreground" /> }
         case MarketingSourceStatus.Error:
             return { icon: <IconX className="text-muted" /> }
         case MarketingSourceStatus.Success:

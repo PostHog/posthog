@@ -488,7 +488,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                     stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
                         ? 'text-success'
                         : stats.pass_rate >= PASS_RATE_WARNING_THRESHOLD
-                          ? 'text-warning'
+                          ? 'text-warning-foreground'
                           : 'text-danger'
 
                 return (

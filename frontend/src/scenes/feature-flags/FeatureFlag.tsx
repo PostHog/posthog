@@ -434,7 +434,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     label="Key"
                                     help={
                                         hasKeyChanged && id !== 'new' ? (
-                                            <span className="text-warning">
+                                            <span className="text-warning-foreground">
                                                 <b>Warning! </b>Changing this key will
                                                 <Link
                                                     to={`https://posthog.com/docs/feature-flags${UTM_TAGS}#feature-flag-persistence`}
@@ -604,7 +604,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             key={option.value}
                                                             className={`border rounded-lg p-4 cursor-pointer transition-all hover:border-border-light ${
                                                                 value === option.value
-                                                                    ? 'border-border bg-primary-highlight'
+                                                                    ? 'border-border bg-card-highlight'
                                                                     : 'border-border'
                                                             }`}
                                                             onClick={() => onChange(option.value)}

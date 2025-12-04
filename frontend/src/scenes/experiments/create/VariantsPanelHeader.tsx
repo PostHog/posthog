@@ -60,7 +60,7 @@ export const VariantsPanelHeader = ({
             {hasErrors ? (
                 <IconErrorOutline className="text-danger w-4 h-4 shrink-0" />
             ) : hasWarnings ? (
-                <IconWarning className="text-warning w-4 h-4 shrink-0" />
+                <IconWarning className="text-warning-foreground w-4 h-4 shrink-0" />
             ) : (
                 <IconCheckCircle className="text-success w-4 h-4 shrink-0" />
             )}
@@ -69,7 +69,7 @@ export const VariantsPanelHeader = ({
             <span
                 className={clsx(
                     'text-sm truncate',
-                    hasErrors ? 'text-danger' : hasWarnings ? 'text-warning' : 'text-muted'
+                    hasErrors ? 'text-danger' : hasWarnings ? 'text-warning-foreground' : 'text-muted'
                 )}
             >
                 {summaryParts.map((part, i) => (

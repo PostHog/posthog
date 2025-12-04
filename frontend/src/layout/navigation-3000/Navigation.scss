@@ -571,7 +571,7 @@
     }
 
     &.SidebarListItem--marker-status-warning {
-        --sidebar-list-item-status-color: var(--warning);
+        --sidebar-list-item-status-color: var(--color-warning-foreground);
     }
 
     &.SidebarListItem--marker-status-danger {

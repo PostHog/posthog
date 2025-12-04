@@ -173,7 +173,7 @@
         transition: transform 150ms ease-in-out;
 
         &--warning {
-            --tick-color: var(--warning);
+            --tick-color: var(--color-warning-foreground);
         }
 
         &--danger {

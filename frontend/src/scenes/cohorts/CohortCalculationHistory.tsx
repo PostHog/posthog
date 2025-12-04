@@ -105,7 +105,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                     return <span className="text-danger">Error</span>
                 }
                 if (!record.finished_at) {
-                    return <span className="text-warning">In Progress</span>
+                    return <span className="text-warning-foreground">In Progress</span>
                 }
                 return <span className="text-success">Completed</span>
             },

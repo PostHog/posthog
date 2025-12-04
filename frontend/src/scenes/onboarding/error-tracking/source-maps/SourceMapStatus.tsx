@@ -35,7 +35,7 @@ export function SourceMapStatus(): JSX.Element {
                         </>
                     ) : (
                         <>
-                            <IconWarning className="text-warning text-2xl" />
+                            <IconWarning className="text-warning-foreground text-2xl" />
                             <div>
                                 <div className="font-semibold">No source maps uploaded yet</div>
                                 <div className="text-sm text-muted">

@@ -39,9 +39,9 @@
     }
 
     &.LemonTag--warning {
-        color: var(--warning);
+        color: var(--color-warning-foreground);
         background-color: none;
-        border-color: var(--warning);
+        border-color: var(--color-warning-foreground);
 
         [theme='dark'] & {
             background-color: var(--color-card);

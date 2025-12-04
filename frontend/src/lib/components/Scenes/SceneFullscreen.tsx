@@ -18,7 +18,7 @@ export function SceneFullscreen({ dataAttrKey, onClick, isFullscreen }: SceneFul
             tooltip={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
             active={isFullscreen}
         >
-            {isFullscreen ? <IconExpand45 className="text-warning" /> : <IconExpand45 />}
+            {isFullscreen ? <IconExpand45 className="text-warning-foreground" /> : <IconExpand45 />}
             Fullscreen
         </ButtonPrimitive>
     )

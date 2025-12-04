@@ -503,7 +503,7 @@ export function QueryInfo({ tabId }: QueryInfoProps): JSX.Element {
                                                         placement="right"
                                                         title="This is the currently viewed query"
                                                     >
-                                                        <IconTarget className="text-warning" />
+                                                        <IconTarget className="text-warning-foreground" />
                                                     </Tooltip>
                                                 )}
                                                 {name}

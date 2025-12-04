@@ -116,7 +116,7 @@ export function DashboardsTable({
                                 {isPrimary && (
                                     <Tooltip title="The primary dashboard is shown on the project home page.">
                                         <span>
-                                            <IconHome className="ml-1 text-base text-warning" />
+                                            <IconHome className="ml-1 text-base text-warning-foreground" />
                                         </span>
                                     </Tooltip>
                                 )}
@@ -199,7 +199,11 @@ export function DashboardsTable({
 
                                       <LemonDivider />
 
-                                      <LemonRow icon={<IconHome className="text-warning" />} fullWidth status="warning">
+                                      <LemonRow
+                                          icon={<IconHome className="text-warning-foreground" />}
+                                          fullWidth
+                                          status="warning"
+                                      >
                                           <span className="text-secondary">
                                               Change the default dashboard
                                               <br />

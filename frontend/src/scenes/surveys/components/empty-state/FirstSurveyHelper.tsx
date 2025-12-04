@@ -41,7 +41,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                     {/* Primary Action - Most Important */}
                     <div className="bg-primary-3000/5 border border-border-3000/20 rounded-lg p-4 mb-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-8 h-8 bg-primary-3000 rounded-lg flex-shrink-0">
+                            <div className="flex items-center justify-center w-8 h-8 bg-card-3000 rounded-lg flex-shrink-0">
                                 <IconRocket className="w-4 h-4 text-white" />
                             </div>
                             <div className="flex-1 min-w-0">

@@ -18,7 +18,7 @@ function getPassRateColor(passRate: number): string {
         return 'text-success'
     }
     if (passRate >= PASS_RATE_WARNING_THRESHOLD) {
-        return 'text-warning'
+        return 'text-warning-foreground'
     }
     return 'text-danger'
 }

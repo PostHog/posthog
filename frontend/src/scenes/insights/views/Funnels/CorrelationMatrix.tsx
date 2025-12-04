@@ -58,7 +58,7 @@ export function CorrelationMatrix(): JSX.Element {
         correlationScoreStrength === 'strong' ? (
             <IconCheckCircle className="text-success" />
         ) : correlationScoreStrength === 'moderate' ? (
-            <IconCancel className="text-warning" />
+            <IconCancel className="text-warning-foreground" />
         ) : (
             <IconErrorOutline className="text-danger" />
         )
@@ -209,7 +209,7 @@ export function CorrelationMatrix(): JSX.Element {
                                         correlationScoreStrength === 'strong'
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
-                                              ? 'text-warning'
+                                              ? 'text-warning-foreground'
                                               : 'text-danger'
                                     )}
                                 >

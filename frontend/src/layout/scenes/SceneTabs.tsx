@@ -347,7 +347,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                     ) : isEditing ? (
                         <input
                             ref={inputRef}
-                            className="scene-tab-title grow text-left bg-primary border-none outline-1 text-foreground z-30 max-w-full"
+                            className="scene-tab-title grow text-left bg-card border-none outline-1 text-foreground z-30 max-w-full"
                             value={editValue}
                             onChange={(e) => setEditValue(e.target.value)}
                             onBlur={() => {

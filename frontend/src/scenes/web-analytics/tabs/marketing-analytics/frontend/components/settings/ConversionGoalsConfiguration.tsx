@@ -169,10 +169,12 @@ export function ConversionGoalsConfiguration({
                                 }
                                 return (
                                     <div className={isInvalid ? 'flex items-center gap-1.5' : ''}>
-                                        <span className={isInvalid ? 'text-warning' : ''}>
+                                        <span className={isInvalid ? 'text-warning-foreground' : ''}>
                                             {goal.conversion_goal_name}
                                         </span>
-                                        {isInvalid && <IconWarning className="text-warning w-4 h-4 shrink-0" />}
+                                        {isInvalid && (
+                                            <IconWarning className="text-warning-foreground w-4 h-4 shrink-0" />
+                                        )}
                                     </div>
                                 )
                             },

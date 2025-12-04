@@ -108,7 +108,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-foreground-3000 font-bold text-lg">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-card text-foreground-3000 font-bold text-lg">
                                 1
                             </div>
                             <div>
@@ -142,7 +142,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             <div className="flex items-center justify-between">
                                 <div className="flex items-center gap-3">
                                     {managedViewsetsEnabled && (
-                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-primary text-foreground-3000 font-bold text-lg">
+                                        <div className="flex items-center justify-center w-12 h-12 rounded-full bg-card text-foreground-3000 font-bold text-lg">
                                             2
                                         </div>
                                     )}
@@ -296,7 +296,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         'relative p-4 rounded-lg border-2',
                                         source.isAvailable
                                             ? source.isConnected
-                                                ? 'border-border bg-primary-lightest'
+                                                ? 'border-border bg-card-lightest'
                                                 : 'border-border bg-bg-light'
                                             : 'border-border bg-bg-light opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
@@ -308,7 +308,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         <div>
                                             <h5 className="font-medium text-sm">{source.id}</h5>
                                             {!source.isAvailable && (
-                                                <span className="text-xs text-warning bg-warning-light p-1 rounded-full">
+                                                <span className="text-xs text-warning-foreground bg-warning-light p-1 rounded-full">
                                                     Coming Soon
                                                 </span>
                                             )}

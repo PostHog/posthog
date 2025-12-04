@@ -36,7 +36,7 @@ export function SignupPanel1(): JSX.Element | null {
                 <LemonField
                     name="email"
                     label="Email"
-                    help={emailCaseNotice && <span className="text-warning">{emailCaseNotice}</span>}
+                    help={emailCaseNotice && <span className="text-warning-foreground">{emailCaseNotice}</span>}
                 >
                     <LemonInput
                         className="ph-ignore-input"

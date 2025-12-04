@@ -173,7 +173,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                                     : 'The view this draft is based on has been deleted. Publishing will create a new view.'
                             }
                         >
-                            {!editingView && <IconInfo className="mr-1" color="var(--warning)" />}
+                            {!editingView && <IconInfo className="mr-1" color="var(--color-warning-foreground)" />}
                             Publish
                         </LemonButton>
                     </>
@@ -303,7 +303,7 @@ function RunButton(): JSX.Element {
             ? 'This query is not using indices optimally, which may result in slower performance.'
             : undefined
 
-        return ['var(--warning)', tooltipContent]
+        return ['var(--color-warning-foreground)', tooltipContent]
     }, [metadata, isUsingIndices, queryInput, isSourceQueryLastRun])
 
     return (

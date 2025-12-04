@@ -582,7 +582,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 const confirmation = (
                     <>
                         <h4 className="mt-2">Full refresh tables</h4>
-                        <div className={fullRefreshTables.length > 0 ? 'text-warning' : ''}>
+                        <div className={fullRefreshTables.length > 0 ? 'text-warning-foreground' : ''}>
                             {fullRefreshTables.length > 0 && <IconWarning />}
                             <span className={fullRefreshTables.length > 0 ? 'pl-2' : ''}>
                                 Full refresh syncs can dramatically increase your spend if you aren't mindful of them.{' '}
@@ -608,7 +608,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     {fullRefreshTables.length > maxTablesShownPerSection && (
                                         <div className="my-4">
                                             and{' '}
-                                            <span className="text-warning font-bold">
+                                            <span className="text-warning-foreground font-bold">
                                                 {fullRefreshTables.length - maxTablesShownPerSection}
                                             </span>{' '}
                                             more...
@@ -643,7 +643,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     {appendOnlyTables.length > maxTablesShownPerSection && (
                                         <div className="my-4">
                                             and{' '}
-                                            <span className="text-warning font-bold">
+                                            <span className="text-warning-foreground font-bold">
                                                 {appendOnlyTables.length - maxTablesShownPerSection}
                                             </span>{' '}
                                             more...
@@ -659,8 +659,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             {ignoredTables.length > 0 ? (
                                 <>
                                     You currently have{' '}
-                                    <span className="text-warning font-bold">{ignoredTables.length}</span> table(s) set
-                                    to be ignored from future syncs.
+                                    <span className="text-warning-foreground font-bold">{ignoredTables.length}</span>{' '}
+                                    table(s) set to be ignored from future syncs.
                                 </>
                             ) : (
                                 <>You are syncing all of your tables. You'll be bathing in data soon.</>
@@ -674,7 +674,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             {incrementalTables.length > 0 && (
                                 <>
                                     You currently have{' '}
-                                    <span className="text-warning font-bold">
+                                    <span className="text-warning-foreground font-bold">
                                         {incrementalTables.length} {incrementalTables.length === 69 && ' (nice)'}
                                     </span>{' '}
                                     table(s) set to sync incrementally.

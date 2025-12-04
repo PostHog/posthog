@@ -87,12 +87,12 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
             className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
-            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-primary" />}
+            {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-card" />}
 
             <div className="flex items-center gap-2 mb-2">
                 {data.isCurrentView && (
                     <Tooltip placement="top" title="This is the currently viewed query">
-                        <IconTarget className="text-warning text-sm" />
+                        <IconTarget className="text-warning-foreground text-sm" />
                     </Tooltip>
                 )}
                 <Tooltip title={data.name} placement="top">
@@ -128,7 +128,7 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
                 <div className="text-xs text-muted mt-2">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
             )}
 
-            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-primary" />}
+            {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-card" />}
         </div>
     )
 }

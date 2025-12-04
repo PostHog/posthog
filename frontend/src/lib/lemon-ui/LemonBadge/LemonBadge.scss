@@ -39,7 +39,7 @@
     }
 
     &.LemonBadge--warning {
-        --lemon-badge-color: var(--warning);
+        --lemon-badge-color: var(--color-warning-foreground);
     }
 
     &.LemonBadge--danger {

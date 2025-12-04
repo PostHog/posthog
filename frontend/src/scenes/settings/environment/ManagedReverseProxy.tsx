@@ -69,7 +69,7 @@ export function ManagedReverseProxy(): JSX.Element {
                                 ? 'text-success'
                                 : status == 'erroring'
                                   ? 'text-danger'
-                                  : 'text-warning-dark'
+                                  : 'text-warning-foreground-dark'
                         )}
                     >
                         {status === 'issuing' && <Spinner />}

@@ -50,7 +50,7 @@ function DroppableContainer({
             ref={disabled ? undefined : setNodeRef}
             className={cn(
                 'space-y-2 min-h-[200px] rounded-md',
-                isOver && !disabled && 'ring-2 ring-primary/40 bg-primary/5',
+                isOver && !disabled && 'ring-2 ring-primary/40 bg-card/5',
                 disabled && 'opacity-50 pointer-events-none'
             )}
         >

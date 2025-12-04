@@ -118,7 +118,7 @@ export function SessionEventsList(): JSX.Element {
             {/* Events List */}
             {!eventsListFolded && (
                 <div
-                    className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-primary border-t border-border"
+                    className="p-2 space-y-1 max-h-[600px] overflow-y-auto bg-card border-t border-border"
                     onScroll={handleScroll}
                 >
                     {sessionEvents?.map((event, index) => (

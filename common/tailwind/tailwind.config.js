@@ -223,7 +223,7 @@ const plugin = require('tailwindcss/plugin')
 // 'danger-lighter': 'var(--danger-lighter)',
 // 'danger-dark': 'var(--danger-dark)',
 // 'danger-highlight': 'var(--danger-highlight)',
-// warning: 'var(--warning)',
+// warning: 'var(--color-warning-foreground)',
 // 'warning-highlight': 'var(--warning-highlight)',
 // 'warning-dark': 'var(--warning-dark)',
 // highlight: 'var(--highlight)',
@@ -607,7 +607,7 @@ const config = {
             //     'surface-tertiary': 'var(--color-bg-surface-tertiary)',
             //     'surface-tooltip': 'var(--color-bg-surface-tooltip)',
             //     'surface-tooltip-inverse': 'var(--color-bg-surface-tooltip-inverse)',
-            //     'surface-popover': 'var(--color-bg-surface-popover)',
+            //     'surface-popover': 'var(--color-card)',
             //     'surface-popover-inverse': 'var(--color-bg-surface-popover-inverse)',
             //     'fill-primary': 'var(--color-card)',
             //     'fill-secondary': 'var(--color-bg-fill-secondary)',
@@ -668,7 +668,7 @@ const config = {
             //     success: 'var(--color-border-success)',
             // },
             ringColor: {
-                ...commonColors,
+                // ...commonColors,
 
                 primary: 'var(--color-border-border)',
                 secondary: 'var(--color-card)',

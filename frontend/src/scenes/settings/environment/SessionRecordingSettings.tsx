@@ -81,7 +81,7 @@ export const SupportedPlatforms = memo(function SupportedPlatforms(props: {
 }): JSX.Element | null {
     const allSupported = props && Object.keys(props).length === 5 && Object.values(props).every((value) => !!value)
     return allSupported ? null : (
-        <div className="text-xs inline-flex flex-row bg-primary rounded items-center border overflow-hidden mb-2 w-fit">
+        <div className="text-xs inline-flex flex-row bg-card rounded items-center border overflow-hidden mb-2 w-fit">
             <Tooltip delayMs={200} title="We support lots of platforms! But not every feature works everywhere (yet)">
                 <span className="px-1 py-0.5 font-semibold cursor-help">Supported platforms:</span>
             </Tooltip>

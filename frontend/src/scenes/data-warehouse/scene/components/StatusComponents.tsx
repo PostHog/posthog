@@ -15,7 +15,7 @@ export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.
         return <IconCancel className="text-danger" />
     }
     if (status === ExternalDataJobStatus.BillingLimits || status === ExternalDataJobStatus.BillingLimitTooLow) {
-        return <IconExclamation className="text-warning" />
+        return <IconExclamation className="text-warning-foreground" />
     }
     if (status === ExternalDataJobStatus.Running) {
         return <IconSync className="animate-spin" />

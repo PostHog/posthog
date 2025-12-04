@@ -66,7 +66,7 @@ SectionedOptions.args = {
             ),
             options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
             footer: (
-                <div className="bg-primary rounded p-2">
+                <div className="bg-card rounded p-2">
                     <p className="text-secondary max-w-60">
                         I am a custom footer! <br />
                         This might be a good time to tell you about our premium features...

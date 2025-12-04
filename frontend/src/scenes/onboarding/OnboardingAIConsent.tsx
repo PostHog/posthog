@@ -52,7 +52,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     <FlappyHog isOpen={showFlappyHog} onClose={() => setShowFlappyHog(false)} />
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-3">
-                            <IconSparkles className="text-2xl text-warning" />
+                            <IconSparkles className="text-2xl text-warning-foreground" />
                             <span className="font-semibold text-lg">Your AI-powered product analyst</span>
                         </div>
                         <p className="text-muted mb-4">
@@ -105,7 +105,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                         />
                     </div>
                     {isNotAdmin && (
-                        <p className="text-warning text-sm mt-2 mb-0">
+                        <p className="text-warning-foreground text-sm mt-2 mb-0">
                             Only organization admins can enable AI features. Ask an admin to enable this setting.
                         </p>
                     )}

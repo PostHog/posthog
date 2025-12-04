@@ -85,7 +85,7 @@ export function Navigation({
                     role="main"
                     tabIndex={0}
                     id="main-content"
-                    className="@container/main-content bg-background"
+                    className="@container/main-content bg-[var(--scene-layout-background)]"
                     style={
                         {
                             '--scene-layout-rect-right': mainContentRect?.right + 'px',

@@ -33,7 +33,7 @@ export default function MariusTechTipsPage(): React.JSX.Element {
                 <div className="text-center mb-12">
                     <div className="avatar mb-4">
                         <div className="w-20 rounded-full">
-                            <div className="bg-primary text-white text-2xl w-20 h-20 rounded-full flex items-center justify-center">
+                            <div className="bg-card text-white text-2xl w-20 h-20 rounded-full flex items-center justify-center">
                                 👨‍💻
                             </div>
                         </div>
@@ -209,7 +209,7 @@ export default function MariusTechTipsPage(): React.JSX.Element {
                 </article>
 
                 {/* CTA Section */}
-                <div className="text-center bg-primary/10 p-8 rounded-lg">
+                <div className="text-center bg-card/10 p-8 rounded-lg">
                     <h3 className="text-2xl font-bold mb-4">Ready for Secure File Sharing?</h3>
                     <p className="text-base-content/70 mb-6">
                         Don't let these mistakes happen to you. Try Hedgebox today and keep your files as secure as your

@@ -524,7 +524,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </span>
                                             {shouldShowCountWarning && (
                                                 <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
-                                                    <IconWarning className="text-warning ml-2" />
+                                                    <IconWarning className="text-warning-foreground ml-2" />
                                                 </Tooltip>
                                             )}
                                         </>

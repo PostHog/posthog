@@ -131,7 +131,7 @@ export function LogsScene(): JSX.Element {
             </div>
             <SceneDivider />
             <div>
-                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-primary pt-2">
+                <div className="sticky top-[calc(var(--breadcrumbs-height-compact)+var(--scene-title-section-height))] z-20 bg-card pt-2">
                     <div className="pb-2">
                         <DisplayOptions />
                     </div>

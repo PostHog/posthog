@@ -357,7 +357,7 @@ function Message({ message, isLastInGroup, isFinal }: MessageProps): JSX.Element
                 {isLastInGroup && message.status === 'error' && (
                     <MessageTemplate type="ai" boxClassName="border-warning">
                         <div className="flex items-center gap-1.5">
-                            <IconWarning className="text-xl text-warning" />
+                            <IconWarning className="text-xl text-warning-foreground" />
                             <i>
                                 PostHog AI is generating this answer one more time because the previous attempt has
                                 failed.
@@ -1206,7 +1206,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
                             className={clsx(
                                 'w-full text-left p-2 rounded transition-colors text-sm',
                                 selectedIndex === index
-                                    ? 'bg-primary text-foreground-inverted font-semibold'
+                                    ? 'bg-card text-foreground-inverted font-semibold'
                                     : 'hover:bg-muted'
                             )}
                         >

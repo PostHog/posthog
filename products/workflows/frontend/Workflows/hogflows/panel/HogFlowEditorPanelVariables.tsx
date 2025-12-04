@@ -99,7 +99,7 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                     <LemonField.Pure label="Usage syntax">
                         <Tooltip title={`{{ variables.${variable.key} }}`}>
                             <span className="group relative">
-                                <code className="w-36 py-2 bg-primary-alt-highlight-light rounded-sm text-center text-xs truncate block">
+                                <code className="w-36 py-2 bg-card-alt-highlight-light rounded-sm text-center text-xs truncate block">
                                     {`{{ variables.${variable.key} }}`}
                                 </code>
                                 <span className="absolute top-0 right-0 z-10 p-px opacity-0 transition-opacity group-hover:opacity-100">

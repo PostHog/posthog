@@ -141,7 +141,9 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                     )}
 
                     {tags.length >= 10 && (
-                        <div className="text-xs text-warning">Maximum of 10 default evaluation tags allowed.</div>
+                        <div className="text-xs text-warning-foreground">
+                            Maximum of 10 default evaluation tags allowed.
+                        </div>
                     )}
                 </div>
             )}

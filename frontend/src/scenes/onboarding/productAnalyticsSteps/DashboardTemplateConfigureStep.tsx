@@ -66,7 +66,7 @@ const UrlInput = ({ iframeRef }: { iframeRef: React.RefObject<HTMLIFrameElement>
                 }}
                 prefix={
                     <span className="-mr-2 flex items-center">
-                        <div className="bg-primary rounded">
+                        <div className="bg-card rounded">
                             <LemonInputSelect
                                 mode="single"
                                 value={[browserUrl || 'my-website.com']}
@@ -120,7 +120,7 @@ export const SiteChooser = (): JSX.Element => {
 
     return (
         <>
-            <div className="absolute inset-0 bg-primary-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
+            <div className="absolute inset-0 bg-card-alt-highlight z-10 rounded opacity-80 backdrop-filter backdrop-blur-md flex items-center justify-center" />
             <div className="absolute inset-0 z-20 rounded flex items-center justify-center">
                 <LemonCard className="max-w-lg" hoverEffect={false}>
                     {iframeBanner?.level == 'error' && (

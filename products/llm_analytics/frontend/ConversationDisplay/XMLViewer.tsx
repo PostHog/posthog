@@ -79,7 +79,7 @@ function XMLNodeDisplay({
                     <span className="text-foreground">
                         {'<'}
                         <span className="text-danger font-semibold">{node.name}</span>
-                        {attributeString && <span className="text-warning">{attributeString}</span>}
+                        {attributeString && <span className="text-warning-foreground">{attributeString}</span>}
                         {!hasChildren ? ' />' : isCollapsed ? '>' : '>'}
                         {hasChildren && isCollapsed && (
                             <span

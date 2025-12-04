@@ -256,7 +256,7 @@ const ActivationTask = ({
     return (
         <li
             className={clsx(
-                'p-2 border bg-primary-alt-highlight flex flex-col',
+                'p-2 border bg-card-alt-highlight flex flex-col',
                 completed || skipped ? 'line-through opacity-70' : '',
                 lockedReason && 'opacity-70'
             )}

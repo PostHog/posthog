@@ -114,7 +114,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
         return ''
     }
 
-    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning' | 'text-success' => {
+    const getIconColor = (): 'text-accent' | 'text-danger' | 'text-warning-foreground' | 'text-success' => {
         if (item.table?.type === 'materialized_view') {
             if (item.table.status === 'Running') {
                 return 'text-accent'
@@ -123,7 +123,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                 return 'text-danger'
             }
             if (item.table.status === 'Modified') {
-                return 'text-warning'
+                return 'text-warning-foreground'
             }
         }
         return 'text-success'

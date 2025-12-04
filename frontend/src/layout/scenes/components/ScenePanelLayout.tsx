@@ -70,7 +70,7 @@ export function ScenePanelLayout(): JSX.Element {
                 <ScrollableShadows
                     direction="vertical"
                     className="h-full flex-1"
-                    innerClassName="px-2 py-2 bg-primary"
+                    innerClassName="px-2 py-2 bg-card"
                     styledScrollbars
                 >
                     <div ref={registerScenePanelElement} />

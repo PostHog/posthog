@@ -104,7 +104,7 @@ export default function HomePage(): JSX.Element {
 
                     <div className="grid lg:grid-cols-3 gap-8">
                         <div className="bg-base-100 border border-base-300/50 rounded-2xl p-8 shadow transition-all duration-300">
-                            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
+                            <div className="w-16 h-16 bg-card/10 rounded-2xl flex items-center justify-center mb-6">
                                 <span className="text-3xl">🛡️</span>
                             </div>
                             <h3 className="text-xl font-semibold text-base-content mb-3">Fox-proof</h3>
@@ -115,7 +115,7 @@ export default function HomePage(): JSX.Element {
                         </div>
 
                         <div className="bg-base-100 border border-base-300/50 rounded-2xl p-8 shadow transition-all duration-300">
-                            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
+                            <div className="w-16 h-16 bg-card/10 rounded-2xl flex items-center justify-center mb-6">
                                 <span className="text-3xl">⚡</span>
                             </div>
                             <h3 className="text-xl font-semibold text-base-content mb-3">Instant</h3>
@@ -126,7 +126,7 @@ export default function HomePage(): JSX.Element {
                         </div>
 
                         <div className="bg-base-100 border border-base-300/50 rounded-2xl p-8 shadow transition-all duration-300">
-                            <div className="w-16 h-16 bg-primary/10 rounded-2xl flex items-center justify-center mb-6">
+                            <div className="w-16 h-16 bg-card/10 rounded-2xl flex items-center justify-center mb-6">
                                 <span className="text-3xl">🤝</span>
                             </div>
                             <h3 className="text-xl font-semibold text-base-content mb-3">Warm & fuzzy</h3>
@@ -161,7 +161,7 @@ export default function HomePage(): JSX.Element {
             <footer className="border-t border-base-300/50 py-12 bg-base-100">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex flex-col md:flex-row justify-between items-center">
-                        <div className="w-7 h-7 bg-primary rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
+                        <div className="w-7 h-7 bg-card rounded-lg flex items-center justify-center group-hover:scale-105 transition-transform">
                             <svg className="w-4 h-4 text-white" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                             </svg>

@@ -27,7 +27,7 @@ export const PlayerCommentModal = (): JSX.Element => {
 
     return (
         <div className="absolute bottom-4 left-4 z-20 w-90">
-            <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
+            <div className="flex flex-col bg-card border border-border rounded p-2 shadow-lg">
                 <Form
                     logic={playerCommentOverlayLogic}
                     props={playerCommentOverlayLogicProps}

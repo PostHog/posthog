@@ -43,14 +43,10 @@ export function SettingsBar({
 }>): JSX.Element {
     return (
         <div
-            className={cn(
-                'flex flex-row w-full overflow-hidden font-light text-xs bg-primary items-center',
-                className,
-                {
-                    'border-b': ['bottom', 'all'].includes(border),
-                    'border-t': ['top', 'all'].includes(border),
-                }
-            )}
+            className={cn('flex flex-row w-full overflow-hidden font-light text-xs bg-card items-center', className, {
+                'border-b': ['bottom', 'all'].includes(border),
+                'border-t': ['top', 'all'].includes(border),
+            })}
         >
             {children}
         </div>

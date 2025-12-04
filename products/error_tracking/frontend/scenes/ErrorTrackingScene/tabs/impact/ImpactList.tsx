@@ -116,7 +116,7 @@ export const Options = (): JSX.Element => {
     const { issues } = useValues(errorTrackingImpactListLogic)
 
     return (
-        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
+        <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-card">
             {selectedIssueIds.length > 0 ? <IssueActions issues={issues} selectedIds={selectedIssueIds} /> : <Reload />}
         </div>
     )

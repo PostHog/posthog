@@ -94,7 +94,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                     }
                 }}
             >
-                <div className="border rounded bg-primary text-xs *:flex *:gap-2 *:px-2 *:py-1">
+                <div className="border rounded bg-card text-xs *:flex *:gap-2 *:px-2 *:py-1">
                     <div className="flex justify-between mt-1">
                         <div className="flex items-center gap-2">
                             {product && getProductIcon(product.iconColor, product.icon, 'text-lg')}

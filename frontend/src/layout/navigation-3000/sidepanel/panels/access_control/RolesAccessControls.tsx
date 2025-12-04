@@ -314,7 +314,7 @@ function RoleModal(): JSX.Element {
                 <div>
                     <p>{baseContent}</p>
                     {isDefaultRole && (
-                        <p className="text-warning font-medium mt-2">
+                        <p className="text-warning-foreground font-medium mt-2">
                             ⚠️ This role is currently set as the default for new members and will be cleared from
                             organization settings.
                         </p>

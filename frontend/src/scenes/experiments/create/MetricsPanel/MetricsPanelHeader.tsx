@@ -45,11 +45,13 @@ export const MetricsPanelHeader = ({
                 {isValid ? (
                     <IconCheckCircle className="text-success w-4 h-4 shrink-0" />
                 ) : (
-                    <IconWarning className="text-warning w-4 h-4 shrink-0" />
+                    <IconWarning className="text-warning-foreground w-4 h-4 shrink-0" />
                 )}
                 <span className="font-semibold shrink-0">Metrics</span>
                 <span className="text-muted shrink-0">•</span>
-                <span className={clsx('text-sm truncate', isValid ? 'text-muted' : 'text-warning')}>{summaryText}</span>
+                <span className={clsx('text-sm truncate', isValid ? 'text-muted' : 'text-warning-foreground')}>
+                    {summaryText}
+                </span>
             </div>
         </Tooltip>
     )

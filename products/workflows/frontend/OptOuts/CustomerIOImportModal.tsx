@@ -197,7 +197,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 <LemonTag>{csvProgress.users_skipped.toLocaleString()}</LemonTag>
                             </div>
                             {csvProgress.parse_errors > 0 && (
-                                <div className="flex items-center justify-between text-warning">
+                                <div className="flex items-center justify-between text-warning-foreground">
                                     <span>Parse errors:</span>
                                     <LemonTag type="warning">{csvProgress.parse_errors}</LemonTag>
                                 </div>

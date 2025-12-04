@@ -126,7 +126,7 @@ export function Products(): JSX.Element {
     const otherProducts = AVAILABLE_ONBOARDING_PRODUCT_KEYS.filter((key) => !availablePreSelectedProducts.includes(key))
 
     return (
-        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-primary overflow-x-hidden">
+        <div className="flex flex-col flex-1 w-full min-h-full p-4 items-center justify-center bg-card overflow-x-hidden">
             <>
                 {/* Back button at the top */}
                 {isUseCaseOnboardingEnabled && (

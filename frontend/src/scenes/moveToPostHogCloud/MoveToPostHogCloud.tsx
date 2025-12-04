@@ -131,7 +131,7 @@ export function MoveToPostHogCloud(): JSX.Element {
                         {CLOUD_FEATURES.map((feature, i) => {
                             return (
                                 <li
-                                    className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-primary-alt-highlight"
+                                    className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-card-alt-highlight"
                                     key={`subfeature-${i}`}
                                 >
                                     <span className="inline-block text-2xl mb-2 opacity-75">{feature.icon}</span>

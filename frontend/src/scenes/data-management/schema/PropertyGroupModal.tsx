@@ -87,7 +87,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                     />
                     {isNonStandardPropertyName(property.name) && (
                         <Tooltip title="Property names should start with a letter or underscore and contain only letters, numbers, and underscores. Non-standard names may not work correctly with type safety features. Only use if already in use.">
-                            <IconWarning className="text-warning text-lg flex-shrink-0" />
+                            <IconWarning className="text-warning-foreground text-lg flex-shrink-0" />
                         </Tooltip>
                     )}
                 </div>

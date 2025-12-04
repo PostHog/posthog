@@ -93,7 +93,7 @@ export function TaskControlPanel(): JSX.Element {
                     title="Active Tasks"
                     value={activeTasks.length}
                     icon={<IconClock className="w-5 h-5" />}
-                    color="text-warning"
+                    color="text-warning-foreground"
                 />
                 <OverviewCard
                     title="Need Attention"
@@ -237,7 +237,7 @@ function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
                 if (completionStageKeys.includes(stage.key.toLowerCase())) {
                     return 'text-success'
                 } else if (stage.agent_name && !stage.is_manual_only) {
-                    return 'text-warning' // Agent stages
+                    return 'text-warning-foreground' // Agent stages
                 } else if (stage.is_manual_only || !stage.agent_name) {
                     return 'text-foreground' // Manual stages
                 }

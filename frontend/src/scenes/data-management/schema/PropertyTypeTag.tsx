@@ -44,7 +44,7 @@ export function PropertyTypeTag({ propertyName, schemaPropertyType }: PropertyTy
             <LemonTag type="muted">{schemaPropertyType}</LemonTag>
             {hasTypeMismatch && (
                 <Tooltip title={getTooltipMessage()}>
-                    <IconWarning className="text-warning text-base" />
+                    <IconWarning className="text-warning-foreground text-base" />
                 </Tooltip>
             )}
         </div>
