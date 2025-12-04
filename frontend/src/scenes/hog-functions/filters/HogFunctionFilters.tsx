@@ -88,6 +88,7 @@ export function HogFunctionFilters({
     const isTransformation = type === 'transformation'
     const isDataWarehouse = configuration?.filters?.source === 'data-warehouse'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
+    const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
 
     const excludedProperties: ExcludedProperties = {
         [TaxonomicFilterGroupType.EventProperties]: [
@@ -136,7 +137,8 @@ export function HogFunctionFilters({
     }
 
     // NOTE: Mappings won't work for person updates currently as they are totally event based...
-    const showSourcePicker = cdpPersonUpdatesEnabled && type === 'destination' && !useMapping
+    const showSourcePicker =
+        (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled) && type === 'destination' && !useMapping
     const showEventMatchers =
         !useMapping && ['events', 'data-warehouse'].includes(configuration?.filters?.source ?? 'events')
 
@@ -170,8 +172,12 @@ export function HogFunctionFilters({
                             <LemonSelect
                                 options={[
                                     { value: 'events', label: 'Events' },
-                                    { value: 'person-updates', label: 'Person updates' },
-                                    { value: 'data-warehouse', label: 'Data warehouse' },
+                                    ...(cdpPersonUpdatesEnabled
+                                        ? [{ value: 'person-updates', label: 'Person updates' }]
+                                        : []),
+                                    ...(cdpDwhTableSourceEnabled
+                                        ? [{ value: 'data-warehouse', label: 'Data warehouse' }]
+                                        : []),
                                 ]}
                                 value={value?.source ?? 'events'}
                                 onChange={(val) => {
