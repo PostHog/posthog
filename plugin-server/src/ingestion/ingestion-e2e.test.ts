@@ -2570,4 +2570,82 @@ describe('Event Pipeline E2E tests', () => {
             expect(eventNames).toEqual(['$create_alias', 'anonymous event 1', 'anonymous event 2'])
         })
     })
+
+    testWithTeamIngester('Should not share cached person data between batches', {}, async (ingester, hub, team) => {
+        const distinctId = 'user-across-batches'
+
+        // First batch: Create a person with initial properties
+        const batch1Events = [
+            new EventBuilder(team, distinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: { batch1_prop: 'value1', shared_prop: 'batch1' },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(batch1Events))
+        await waitForKafkaMessages(hub)
+
+        // Verify batch 1 wrote correctly
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject({
+                batch1_prop: 'value1',
+                shared_prop: 'batch1',
+            })
+        })
+
+        // Second batch: Update the same person with new properties
+        // If the store wasn't reset, it might use stale cached data
+        const batch2Events = [
+            new EventBuilder(team, distinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: { batch2_prop: 'value2', shared_prop: 'batch2' },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(batch2Events))
+        await waitForKafkaMessages(hub)
+
+        // Verify batch 2 wrote correctly and merged with existing properties
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            // Should have properties from both batches, with batch2 overwriting shared_prop
+            expect(persons[0].properties).toMatchObject({
+                batch1_prop: 'value1',
+                batch2_prop: 'value2',
+                shared_prop: 'batch2',
+            })
+        })
+
+        // Third batch: Verify a third batch also works correctly
+        const batch3Events = [
+            new EventBuilder(team, distinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: { batch3_prop: 'value3' },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(batch3Events))
+        await waitForKafkaMessages(hub)
+
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            // Should have properties from all three batches
+            expect(persons[0].properties).toMatchObject({
+                batch1_prop: 'value1',
+                batch2_prop: 'value2',
+                batch3_prop: 'value3',
+                shared_prop: 'batch2',
+            })
+        })
+    })
 })
