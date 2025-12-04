@@ -7,7 +7,6 @@ DEFAULT_MAX_TRACES_PER_WINDOW = 100  # Max traces to process per window (conserv
 DEFAULT_BATCH_SIZE = 5  # Number of traces to process in parallel per batch
 DEFAULT_MODE = "detailed"  # Summary detail level: 'minimal' or 'detailed' (detailed provides more context for embeddings/clustering)
 DEFAULT_WINDOW_MINUTES = 60  # Process traces from last N minutes (matches schedule frequency)
-DEFAULT_LOOKBACK_HOURS = 24  # How far back to look for team activity
 
 # Schedule configuration
 SCHEDULE_INTERVAL_HOURS = 1  # How often the coordinator runs
@@ -20,7 +19,6 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
 EMBED_TIMEOUT_SECONDS = 60  # 1 minute for batch embedding (Kafka is async)
-COORDINATOR_ACTIVITY_TIMEOUT_MINUTES = 5  # Timeout for coordinator activities (team discovery)
 EVENT_PROCESSING_DELAY_SECONDS = 5  # Delay after summarization to allow events to be processed before embedding
 
 # Embedding timestamp query buffer (minutes)
@@ -34,14 +32,13 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (i
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 SUMMARIZE_RETRY_POLICY = RetryPolicy(maximum_attempts=2)  # Fewer retries due to LLM cost
 EMBED_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
-COORDINATOR_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema
 EVENT_NAME_TRACE_SUMMARY = "$ai_trace_summary"
 
 # Team allowlist - only these teams will be processed by the coordinator
-# Empty list means all teams are allowed
+# Empty list means no teams will be processed (coordinator skips)
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project
