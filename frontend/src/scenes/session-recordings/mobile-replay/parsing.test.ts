@@ -20,7 +20,7 @@ describe('snapshot parsing', () => {
         const parsed = await parseEncodedSnapshots(withoutMeta, sessionId)
 
         const source = { source: 'blob_v2', blob_key: '0' } as any
-        const results = processAllSnapshots(
+        const results = await processAllSnapshots(
             [source],
             { [keyForSource(source)]: { snapshots: parsed } } as any,
             { snapshots: {} },
@@ -29,7 +29,7 @@ describe('snapshot parsing', () => {
         )
 
         expect(results.length).toEqual(numberOfParsedLinesInData)
-        const meta = results.find((r) => r.type === 4)!
+        const meta = results.find((r: { type: number }) => r.type === 4)!
         // Mobile snapshots now extract dimensions from the actual snapshot data (393x852)
         // rather than using the viewport callback, which is the correct behavior
         expect(meta.data).toEqual({ width: 393, height: 852, href: 'unknown' })
