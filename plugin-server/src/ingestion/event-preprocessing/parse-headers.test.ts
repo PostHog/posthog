@@ -215,6 +215,72 @@ describe('createParseHeadersStep', () => {
         )
     })
 
+    describe('session_id header', () => {
+        it('should parse session_id when present', async () => {
+            const input = {
+                message: {
+                    headers: [
+                        { token: Buffer.from('test-token') },
+                        { distinct_id: Buffer.from('test-user') },
+                        { session_id: Buffer.from('test-session-123') },
+                    ],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        session_id: 'test-session-123',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should handle session_id with string value', async () => {
+            const input = {
+                message: {
+                    headers: [{ session_id: 'string-session-456' }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        session_id: 'string-session-456',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+
+        it('should not include session_id when not present', async () => {
+            const input = {
+                message: {
+                    headers: [{ token: Buffer.from('test-token') }, { distinct_id: Buffer.from('test-user') }],
+                } as Pick<Message, 'headers'>,
+            }
+            const result = await step(input)
+
+            expect(result).toEqual(
+                ok({
+                    ...input,
+                    headers: {
+                        token: 'test-token',
+                        distinct_id: 'test-user',
+                        force_disable_person_processing: false,
+                    },
+                })
+            )
+        })
+    })
+
     describe('force_disable_person_processing header', () => {
         it('should parse force_disable_person_processing as true when value is "true"', async () => {
             const input = {

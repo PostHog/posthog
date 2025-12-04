@@ -1933,6 +1933,7 @@
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
+                "filter_session_recordings",
                 "create_insight",
                 "create_form"
             ],
@@ -16140,6 +16141,10 @@
                     "enum": ["auto", "legacy_null_as_string", "legacy_null_as_null", "disabled"],
                     "type": "string"
                 },
+                "materializedColumnsOptimizationMode": {
+                    "enum": ["disabled", "optimized"],
+                    "type": "string"
+                },
                 "optimizeJoinedFilters": {
                     "type": "boolean"
                 },
@@ -17981,7 +17986,19 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": [
+                "ID",
+                "Campaign",
+                "Source",
+                "Cost",
+                "Clicks",
+                "Impressions",
+                "CPC",
+                "CTR",
+                "Reported Conversion",
+                "Reported Conversion Value",
+                "Reported ROAS"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -17994,7 +18011,8 @@
                 "date",
                 "impressions",
                 "source",
-                "reported_conversion"
+                "reported_conversion",
+                "reported_conversion_value"
             ],
             "type": "string"
         },
@@ -19404,6 +19422,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "values": {
+                    "description": "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g. `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`, `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n- 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present).",
                     "items": {
                         "$ref": "#/definitions/MaxUniversalFilterValue"
                     },
@@ -19513,6 +19532,28 @@
             "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "percentage_usage", "addons"],
             "type": "object"
         },
+        "MaxRecordingEventFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Name of the event.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Optional property filters for this event only.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "events",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxRecordingUniversalFilters": {
             "additionalProperties": false,
             "properties": {
@@ -19603,6 +19644,9 @@
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/MaxRecordingEventFilter"
                 }
             ]
         },
@@ -20664,7 +20708,8 @@
                 "error_tracking_issue",
                 "revenue_analytics",
                 "flag",
-                "log"
+                "log",
+                "workflow_variable"
             ],
             "type": "string"
         },
@@ -28014,6 +28059,9 @@
                 "reported_conversion": {
                     "type": "string"
                 },
+                "reported_conversion_value": {
+                    "type": "string"
+                },
                 "source": {
                     "type": "string"
                 }
@@ -28842,7 +28890,8 @@
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
-                "max_ai_context"
+                "max_ai_context",
+                "workflow_variables"
             ],
             "type": "string"
         },
