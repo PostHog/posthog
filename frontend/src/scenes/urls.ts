@@ -112,6 +112,7 @@ export const urls = {
     inviteSignup: (id: string): string => `/signup/${id}`,
     products: (): string => '/products',
     useCaseSelection: (): string => '/onboarding/use-case',
+    onboardingCoupon: (campaign: string): string => `/onboarding/coupons/${campaign}`,
     onboarding: (productKey: string, stepKey?: OnboardingStepKey, sdk?: SDKKey): string =>
         `/onboarding/${productKey}${stepKey ? '?step=' + stepKey : ''}${
             sdk && stepKey ? '&sdk=' + sdk : sdk ? '?sdk=' + sdk : ''
