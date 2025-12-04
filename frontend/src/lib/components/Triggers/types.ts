@@ -1,5 +1,3 @@
-import { SessionReplayUrlTriggerConfig } from '~/types'
-
 export type Trigger =
     | URLMatchTrigger
     | EventTrigger
@@ -19,7 +17,7 @@ export enum TriggerType {
 
 export interface URLMatchTrigger extends BaseTrigger {
     type: TriggerType.URL_MATCH
-    urls: SessionReplayUrlTriggerConfig[] | null
+    urls: UrlTriggerConfig[] | null
 }
 
 export interface EventTrigger extends BaseTrigger {
@@ -44,10 +42,15 @@ export interface MinDurationTrigger extends BaseTrigger {
 
 export interface UrlBlocklistTrigger extends BaseTrigger {
     type: TriggerType.URL_BLOCKLIST
-    urls: SessionReplayUrlTriggerConfig[] | null
+    urls: UrlTriggerConfig[] | null
 }
 
 interface BaseTrigger {
     type: TriggerType
     enabled: boolean
+}
+
+export type UrlTriggerConfig = {
+    url: string
+    matching: 'regex'
 }
