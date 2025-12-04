@@ -112,7 +112,7 @@ def push_hypercache_stats_metrics(
         return
 
     try:
-        with pushed_metrics_registry("hypercache_stats") as registry:
+        with pushed_metrics_registry(f"hypercache_stats_{namespace}") as registry:
             coverage_gauge = Gauge(
                 "posthog_hypercache_coverage_percent",
                 "Percentage of teams with cached data",

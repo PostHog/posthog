@@ -445,7 +445,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
                 size_bytes=1024000,
             )
 
-        mock_registry_cm.assert_called_once_with("hypercache_stats")
+        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags")
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
@@ -477,7 +477,7 @@ class TestPushHypercacheStatsMetrics(BaseTest):
                 size_bytes=None,
             )
 
-        mock_registry_cm.assert_called_once()
+        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata")
 
     @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
     @patch("posthog.storage.hypercache_manager.logger")
