@@ -48,8 +48,8 @@ The summaries and embeddings are used for:
 graph TB
     subgraph "Hourly Coordinator (Scheduled)"
         SCHED[Temporal Schedule] --> COORD[Coordinator Workflow]
-        COORD --> QUERY[Query Teams with Traces]
-        QUERY --> SPAWN[Spawn Child Workflows]
+        COORD --> ALLOW[Get Teams from Allowlist]
+        ALLOW --> SPAWN[Spawn Child Workflows]
     end
 
     subgraph "Per-Team Batch Job"
@@ -75,7 +75,7 @@ graph TB
 
     style SCHED fill:#fff9c4
     style COORD fill:#fff9c4
-    style QUERY fill:#fff9c4
+    style ALLOW fill:#fff9c4
     style SPAWN fill:#fff9c4
     style A fill:#e1f5ff
     style E fill:#e8f5e9
@@ -99,15 +99,13 @@ graph TB
 - `mode` (optional): Summary detail level - `minimal` or `detailed` (default: `detailed`)
 - `window_minutes` (optional): Time window to query in minutes (default: 60)
 - `model` (optional): LLM model to use (default: gpt-5-mini)
-- `lookback_hours` (optional): How far back to look for team activity (default: 24)
 
 **Flow**:
 
 1. Captures workflow start time via `temporalio.workflow.now()` for idempotent queries
-2. Queries for teams with LLM trace events in the lookback window (using workflow time for deterministic results)
+2. Gets list of allowed team IDs from `ALLOWED_TEAM_IDS` constant
 3. Spawns child `batch-trace-summarization` workflow for each team
 4. Aggregates results into typed `CoordinatorResult` with team/trace/summary counts
-5. Teams without traces are skipped
 
 **Returns**: `CoordinatorResult` dataclass with fields:
 
@@ -162,7 +160,7 @@ graph TB
    - Returns `SummarizationActivityResult` with success/skipped status and metadata
 
 3. **`embed_summaries_activity`**
-   - Fetches `$ai_trace_summary` events from ClickHouse using timestamp filtering
+   - Fetches `$ai_trace_summary` events using HogQL for team-scoped queries
      - Uses workflow start time to create narrow query window (±5-10 minutes)
      - Prevents full table scans on large event tables
    - Formats summaries for embedding (title + flow + bullets + notes)
@@ -256,9 +254,8 @@ The batch trace summarization runs automatically via a coordinator workflow sche
 The coordinator workflow (`batch-trace-summarization-coordinator`):
 
 - Runs every hour via Temporal schedules (configured in `schedule.py`)
-- Discovers teams with LLM trace activity in the last 24 hours
+- Processes teams from the `ALLOWED_TEAM_IDS` allowlist
 - Spawns a child workflow for each team to process their traces
-- Teams without traces are skipped
 
 The schedule is created automatically when Temporal starts.
 
@@ -282,7 +279,7 @@ ALLOWED_TEAM_IDS: list[int] = [
 ```
 
 - Non-empty list: Only specified teams will be processed by the coordinator
-- Empty list (`[]`): All teams with trace activity will be processed
+- Empty list (`[]`): No teams will be processed (coordinator skips)
 - Manual triggers can still target any team regardless of allowlist
 
 **Custom schedule for specific team:**
@@ -342,12 +339,11 @@ Key constants in `constants.py`:
 - `SAMPLE_RETRY_POLICY` - Retry configuration for trace sampling activity (3 attempts)
 - `SUMMARIZE_RETRY_POLICY` - Retry configuration for summary generation activity (2 attempts due to LLM cost)
 - `EMBED_RETRY_POLICY` - Retry configuration for embedding activity (3 attempts)
-- `COORDINATOR_ACTIVITY_RETRY_POLICY` - Retry configuration for coordinator activities (3 attempts)
 - `COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY` - Retry configuration for child workflows (2 attempts)
 
 **Other:**
 
-- `ALLOWED_TEAM_IDS` - Team allowlist for coordinator (empty list = all teams allowed)
+- `ALLOWED_TEAM_IDS` - Team allowlist for coordinator (empty list = no teams processed)
 - `EVENT_NAME_TRACE_SUMMARY` - Event name for summary storage (`$ai_trace_summary`)
 - `WORKFLOW_NAME` - Temporal workflow name (`batch-trace-summarization`)
 
@@ -497,8 +493,7 @@ Test coverage:
 - ✅ Embedding generation with failure tracking
 - ✅ Embedding failure threshold enforcement (>10%)
 - ✅ Workflow input parsing
-- ✅ Coordinator team discovery queries
-- ✅ Coordinator team allowlist filtering
+- ✅ Coordinator team allowlist retrieval
 - ✅ Coordinator input parsing
 
 ## Module Structure
@@ -511,9 +506,9 @@ The implementation is split into focused, single-responsibility modules:
   - Returns typed `BatchSummarizationResult` with comprehensive metrics
   - Uses asyncio semaphore for controlled concurrency
   - Passes workflow start time to embedding activity for efficient queries
-- `coordinator.py` - Coordinator workflow for multi-team processing (~200 lines)
+- `coordinator.py` - Coordinator workflow for multi-team processing (~150 lines)
   - Returns typed `CoordinatorResult` with aggregated metrics
-  - Uses workflow time for idempotent queries (not database `now()`)
+  - Uses allowlist for team discovery (avoids cross-team queries)
   - Spawns child workflows with proper retry policies
 - `schedule.py` - Temporal schedule configuration for hourly runs (~50 lines)
 - `models.py` - Type-safe data models (~110 lines)
@@ -530,15 +525,9 @@ The implementation is split into focused, single-responsibility modules:
   - Generates and saves summaries atomically within single activity
   - No large objects passed through workflow history
 - `embedding.py` - Summary formatting and embedding generation via Kafka (~140 lines)
-  - Fetches summaries from ClickHouse with timestamp filtering for efficiency
+  - Fetches summaries using HogQL for team-scoped queries
   - Processes embeddings in parallel using asyncio
   - Returns comprehensive success/failure metrics
-
-**Coordinator activities:**
-
-- `coordinator.py:get_teams_with_recent_traces_activity` - Query teams with LLM activity
-  - Uses workflow time parameter for idempotent, deterministic queries
-  - Filters by allowlist if configured
 
 **Dependencies (reused code):**
 
