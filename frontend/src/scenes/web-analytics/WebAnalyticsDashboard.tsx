@@ -48,6 +48,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
 import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
@@ -419,13 +420,15 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 
 // We're switching the filters based on the productTab right now so it is abstracted here
 // until we decide if we want to keep the same components/states for both tabs
-const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
     const { productTab } = useValues(webAnalyticsLogic)
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
         case ProductTab.MARKETING:
             return <MarketingAnalyticsFilters tabs={tabs} />
+        case ProductTab.HEALTH:
+            return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -441,6 +444,10 @@ const MainContent = (): JSX.Element => {
 
     if (productTab === ProductTab.MARKETING) {
         return <MarketingDashboard />
+    }
+
+    if (productTab === ProductTab.HEALTH) {
+        return <HealthStatusTab />
     }
 
     return <Tiles />
@@ -543,6 +550,31 @@ const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: 
     ]
 }
 
+const HealthTabLabel = (): JSX.Element => {
+    const { hasUrgentIssues } = useValues(webAnalyticsHealthLogic)
+
+    return (
+        <div className="flex items-center gap-1.5">
+            Health
+            {hasUrgentIssues && (
+                <div className="w-4 h-4 rounded-full bg-danger flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">!</span>
+                </div>
+            )}
+        </div>
+    )
+}
+
+const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
+    return [
+        {
+            key: ProductTab.HEALTH,
+            label: <HealthTabLabel />,
+            link: '/web/health',
+        },
+    ]
+}
+
 export const WebAnalyticsDashboard = (): JSX.Element => {
     return (
         <BindLogic logic={webAnalyticsLogic} props={{}}>
@@ -581,6 +613,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
+                ...healthTab(),
             ]}
             sceneInset
             className="-mt-4"

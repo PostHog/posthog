@@ -78,6 +78,7 @@ export enum ProductTab {
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
+    HEALTH = 'health',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
