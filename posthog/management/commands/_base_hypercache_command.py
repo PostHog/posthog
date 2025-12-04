@@ -319,10 +319,7 @@ class BaseHyperCacheCommand(BaseCommand):
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
             # Update cache metrics after verification completes (even on failure)
-            try:
-                get_cache_stats(self.get_hypercache_config())
-            except Exception as e:
-                self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
+            self._update_cache_stats_safe()
 
             if not settings.TEST:
                 connection.close()
@@ -694,10 +691,7 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
 
         # Update cache metrics after warming completes
-        try:
-            get_cache_stats(config)
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
+        self._update_cache_stats_safe(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 
@@ -718,6 +712,23 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(f"    Cache: {diff.get('cached_value')}")
 
     # Configuration and validation helpers
+
+    def _update_cache_stats_safe(self, config: HyperCacheManagementConfig | None = None) -> None:
+        """
+        Update cache metrics, logging a warning on failure.
+
+        This wraps get_cache_stats() in a try/except to handle Redis timeouts
+        gracefully without crashing the command. Metric updates are non-critical
+        operations that shouldn't abort the main workflow.
+
+        Args:
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
+        try:
+            config = config or self.get_hypercache_config()
+            get_cache_stats(config)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
 
     def check_dedicated_cache_configured(self) -> bool:
         """

@@ -11,7 +11,6 @@ import statistics
 
 from posthog.management.commands._base_hypercache_command import BaseHyperCacheCommand
 from posthog.models.team import Team
-from posthog.storage.hypercache_manager import get_cache_stats
 from posthog.storage.team_metadata_cache import TEAM_HYPERCACHE_MANAGEMENT_CONFIG, _load_team_metadata
 
 
@@ -171,7 +170,4 @@ class Command(BaseHyperCacheCommand):
         )
 
         # Update cache metrics
-        try:
-            get_cache_stats(self.get_hypercache_config())
-        except Exception as e:
-            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
+        self._update_cache_stats_safe()
