@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { logsLogic } from './logsLogic'
+import { SparklineTimezone, logsLogic } from './logsLogic'
 
 const createMockLog = (uuid: string): LogMessage => ({
     uuid,
@@ -73,7 +73,7 @@ describe('logsLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.highlightNextLog()
-                }).toDispatchActions(['highlightNextLog', 'loadMoreLogs'])
+                }).toDispatchActions(['highlightNextLog', 'fetchNextLogsPage'])
             })
 
             it('does nothing when at last log and no more to load', async () => {
@@ -86,7 +86,7 @@ describe('logsLogic', () => {
                     logic.actions.highlightNextLog()
                 })
                     .toDispatchActions(['highlightNextLog'])
-                    .toNotHaveDispatchedActions(['setHighlightedLogId', 'loadMoreLogs'])
+                    .toNotHaveDispatchedActions(['setHighlightedLogId', 'fetchNextLogsPage'])
             })
 
             it('does nothing when logs are empty', async () => {
@@ -192,6 +192,26 @@ describe('logsLogic', () => {
                 expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
                 expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
             })
+        })
+    })
+
+    describe('sparklineTimezone', () => {
+        it('updates when setSparklineTimezone is called', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSparklineTimezone(SparklineTimezone.Device)
+            })
+                .toDispatchActions(['setSparklineTimezone'])
+                .toMatchValues({
+                    sparklineTimezone: SparklineTimezone.Device,
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSparklineTimezone(SparklineTimezone.UTC)
+            })
+                .toDispatchActions(['setSparklineTimezone'])
+                .toMatchValues({
+                    sparklineTimezone: SparklineTimezone.UTC,
+                })
         })
     })
 })

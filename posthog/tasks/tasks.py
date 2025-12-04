@@ -806,20 +806,6 @@ def check_flags_to_rollback() -> None:
         pass
 
 
-@shared_task(ignore_result=True)
-def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_single_recording_v2
-
-    persist_single_recording_v2(id, team_id)
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings_v2() -> None:
-    from posthog.session_recordings.persist_to_lts.persistence_tasks import persist_finished_recordings_v2
-
-    persist_finished_recordings_v2()
-
-
 @shared_task(
     ignore_result=True,
     queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,

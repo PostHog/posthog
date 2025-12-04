@@ -447,20 +447,19 @@ def get_source_events_query(
     """
     match source:
         case ExperimentDataWarehouseNode():
+            # For DW tables, don't prefix fields with table name since:
+            # 1. We're in a single-table query context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
             return ast.SelectQuery(
                 select=[
                     ast.Alias(
                         alias="timestamp",
-                        expr=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                        expr=ast.Field(chain=[source.timestamp_field]),
                     ),
                     ast.Alias(
                         alias="entity_identifier",
-                        expr=ast.Field(
-                            chain=[
-                                source.table_name,
-                                *source.data_warehouse_join_key.split("."),
-                            ]
-                        ),
+                        expr=ast.Field(chain=[*source.data_warehouse_join_key.split(".")]),
                     ),
                     ast.Alias(alias="value", expr=get_source_value_expr(source)),
                 ],
@@ -471,7 +470,7 @@ def get_source_events_query(
                     exprs=[
                         *get_source_time_window(
                             date_range_query,
-                            left=ast.Field(chain=[source.table_name, source.timestamp_field]),
+                            left=ast.Field(chain=[source.timestamp_field]),
                             conversion_window=conversion_window,
                             conversion_window_unit=conversion_window_unit,
                         ),

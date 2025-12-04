@@ -29,8 +29,7 @@ def template_context():
     return {
         "event_types": config.ai_event_types,
         "pageview_mappings": config.pageview_mappings,
-        "date_start": "2025-01-01",
-        "date_end": "2025-01-02",
+        "metric_date": "2025-01-01",
         "include_error_rates": config.include_error_rates,
     }
 
@@ -350,8 +349,8 @@ def test_pageview_counts_logic(template_context: dict, mock_events_data: list, e
         template = Template(f.read())
         rendered = template.render(**template_context)
 
-    # Verify SQL filters $pageview events
-    assert "event = '$pageview'" in rendered, "Should filter for $pageview events"
+    # Verify SQL uses the llma_pageview_events CTE (which filters $pageview events)
+    assert "llma_pageview_events" in rendered, "Should use llma_pageview_events CTE"
     assert "$current_url" in rendered, "Should use $current_url property"
     assert "LIKE" in rendered, "Should use LIKE for URL matching"
 

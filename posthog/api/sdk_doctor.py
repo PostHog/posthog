@@ -50,7 +50,7 @@ def sdk_doctor(request: Request) -> Response:
                 {
                     **entry,
                     "is_latest": entry["lib_version"] == sdk_data_for_lib["latestVersion"],
-                    "release_date": sdk_data_for_lib["releaseDates"][entry["lib_version"]],
+                    "release_date": sdk_data_for_lib["releaseDates"].get(entry["lib_version"], None),
                 }
                 for entry in entries
             ],
