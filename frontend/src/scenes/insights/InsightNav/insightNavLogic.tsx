@@ -10,6 +10,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { urls } from 'scenes/urls'
 
+import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -311,15 +312,18 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
+            // Expand GroupNodes for insight types that don't support them (non-Trends)
+            const seriesList = isTrendsQuery(mergedQuery) ? cache.series : expandGroupNodes(cache.series)
+
             if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(cache.series.slice(0, 1), MathAvailability.None)
+                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None)
             } else {
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
                     : isStickinessQuery(mergedQuery)
                       ? MathAvailability.ActorsOnly
                       : MathAvailability.None
-                mergedQuery.series = cleanSeriesMath(cache.series, mathAvailability)
+                mergedQuery.series = cleanSeriesMath(seriesList, mathAvailability)
             }
         }
         // else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {

@@ -563,3 +563,27 @@ export const compareFilterToQuery = (filters: Record<string, any>): CompareFilte
         compare_to: filters.compare_to,
     })
 }
+
+/** Expand GroupNodes into individual EventsNode/ActionsNode for insight types that don't support GroupNode */
+export const expandGroupNodes = (
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+    const expanded: (EventsNode | ActionsNode | DataWarehouseNode)[] = []
+
+    for (const item of series) {
+        if (item.kind === NodeKind.GroupNode) {
+            // Expand GroupNode into its individual components
+            for (const value of item.values) {
+                if (value.kind === NodeKind.EventsNode || value.kind === NodeKind.ActionsNode) {
+                    expanded.push(value as EventsNode | ActionsNode)
+                } else if (value.kind === NodeKind.DataWarehouseNode) {
+                    expanded.push(value as DataWarehouseNode)
+                }
+            }
+        } else {
+            expanded.push(item as EventsNode | ActionsNode | DataWarehouseNode)
+        }
+    }
+
+    return expanded
+}
