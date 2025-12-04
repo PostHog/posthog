@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use tracing::error;
 
 use crate::{
+    capture::CaptureArgs,
     error::CapturedError,
     experimental::{query::command::QueryCommand, tasks::TaskCommand},
     invocation_context::{context, init_context},
@@ -31,6 +32,9 @@ pub enum Commands {
     /// Interactively authenticate with PostHog, storing a personal API token locally. You can also use the
     /// environment variables `POSTHOG_CLI_TOKEN` and `POSTHOG_CLI_ENV_ID`
     Login,
+
+    /// Capture an event to PostHog
+    Capture(CaptureArgs),
 
     /// Experimental commands, not quite ready for prime time
     Exp {
@@ -125,6 +129,9 @@ impl Cli {
             Commands::Login => {
                 // Notably login doesn't have a context set up going it - it sets one up
                 crate::login::login(self.host)?;
+            }
+            Commands::Capture(args) => {
+                crate::capture::capture_event(&args)?;
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
