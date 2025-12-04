@@ -51,7 +51,14 @@ export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 
 export const ErrorTrackingListSchema = ListErrorsSchema
 
-export const ExperimentGetAllSchema = z.object({})
+export const ExperimentGetAllSchema = z.object({
+    data: z
+        .object({
+            limit: z.number().int().positive().optional(),
+            offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+})
 
 export const ExperimentGetSchema = z.object({
     experimentId: z.number().describe('The ID of the experiment to retrieve'),
@@ -266,7 +273,14 @@ export const FeatureFlagDeleteSchema = z.object({
     flagKey: z.string(),
 })
 
-export const FeatureFlagGetAllSchema = z.object({})
+export const FeatureFlagGetAllSchema = z.object({
+    data: z
+        .object({
+            limit: z.number().int().positive().optional(),
+            offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+})
 
 export const FeatureFlagGetDefinitionSchema = z.object({
     flagId: z.number().int().positive().optional(),
@@ -327,12 +341,16 @@ export const ProjectGetAllSchema = z.object({})
 
 export const ProjectEventDefinitionsSchema = z.object({
     q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
 })
 
 export const ProjectPropertyDefinitionsInputSchema = z.object({
     type: z.enum(['event', 'person']).describe('Type of properties to get'),
     eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
     includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
 })
 
 export const ProjectSetActiveSchema = z.object({
