@@ -555,7 +555,7 @@ const HealthTabLabel = (): JSX.Element => {
 
     return (
         <div className="flex items-center gap-1.5">
-            Health
+            Installation Health
             {hasUrgentIssues && (
                 <div className="w-4 h-4 rounded-full bg-danger flex items-center justify-center">
                     <span className="text-white text-xs font-bold">!</span>
