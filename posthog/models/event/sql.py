@@ -133,6 +133,19 @@ def ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table: str) -> str:
     return f"ALTER TABLE {table} \n {separator.join(s)}"
 
 
+def MV_DYNAMICALLY_MATERIALIZED_COLUMNS() -> str:
+    s = []
+    for i in range(10):
+        s.append(f"dmat_string_{i}")
+    for i in range(10):
+        s.append(f"dmat_numeric_{i}")
+    for i in range(10):
+        s.append(f"dmat_bool_{i}")
+    for i in range(10):
+        s.append(f"dmat_datetime_{i}")
+    return ",\n".join(s)
+
+
 EVENTS_TABLE_MATERIALIZED_COLUMNS = f"""
     , $group_0 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_0')")} COMMENT 'column_materializer::$group_0'
     , $group_1 VARCHAR MATERIALIZED {trim_quotes_expr("JSONExtractRaw(properties, '$group_1')")} COMMENT 'column_materializer::$group_1'
@@ -229,7 +242,7 @@ def KAFKA_EVENTS_TABLE_JSON_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
         extra_fields="",
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )
@@ -262,6 +275,7 @@ group2_created_at,
 group3_created_at,
 group4_created_at,
 person_mode,
+{dynamically_materialized_columns},
 _timestamp,
 _offset,
 arrayMap(
@@ -274,6 +288,7 @@ arrayMap(
 FROM {database}.kafka_events_json
 """.format(
         target_table=WRITABLE_EVENTS_DATA_TABLE(),
+        dynamically_materialized_columns=MV_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         cluster=settings.CLICKHOUSE_CLUSTER,
         database=settings.CLICKHOUSE_DATABASE,
     )
@@ -398,7 +413,7 @@ def WRITABLE_EVENTS_TABLE_SQL():
         on_cluster_clause=ON_CLUSTER_CLAUSE(),
         engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
         extra_fields=KAFKA_COLUMNS + KAFKA_CONSUMER_BREADCRUMBS_COLUMN,
-        dynamically_materialized_columns="",
+        dynamically_materialized_columns=EVENTS_TABLE_DYNAMICALLY_MATERIALIZED_COLUMNS(),
         materialized_columns="",
         indexes="",
     )

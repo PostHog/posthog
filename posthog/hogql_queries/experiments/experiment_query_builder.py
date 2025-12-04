@@ -404,7 +404,7 @@ class ExperimentQueryBuilder:
         if is_dw:
             assert isinstance(self.metric.source, ExperimentDataWarehouseNode)
             table = self.metric.source.table_name
-            timestamp_field = f"{table}.{self.metric.source.timestamp_field}"
+            timestamp_field = self.metric.source.timestamp_field
             join_condition = "{join_condition}"
         else:
             table = "events"
@@ -852,7 +852,7 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric.numerator, ExperimentDataWarehouseNode)
             num_table = self.metric.numerator.table_name
             num_entity_field = f"{self.metric.numerator.data_warehouse_join_key}"
-            num_timestamp_field = f"{num_table}.{self.metric.numerator.timestamp_field}"
+            num_timestamp_field = self.metric.numerator.timestamp_field
         else:
             num_table = "events"
             num_entity_field = self.entity_key
@@ -863,7 +863,7 @@ class ExperimentQueryBuilder:
             assert isinstance(self.metric.denominator, ExperimentDataWarehouseNode)
             denom_table = self.metric.denominator.table_name
             denom_entity_field = f"{self.metric.denominator.data_warehouse_join_key}"
-            denom_timestamp_field = f"{denom_table}.{self.metric.denominator.timestamp_field}"
+            denom_timestamp_field = self.metric.denominator.timestamp_field
         else:
             denom_table = "events"
             denom_entity_field = self.entity_key
@@ -1067,7 +1067,11 @@ class ExperimentQueryBuilder:
         # Data warehouse sources use different table and predicate logic
         timestamp_field_chain: list[str | int]
         if isinstance(source, ExperimentDataWarehouseNode):
-            timestamp_field_chain = [table_alias, source.timestamp_field]
+            # For DW tables, don't prefix with table name since:
+            # 1. We're in a single-table CTE context where field names are unambiguous
+            # 2. DW table names may contain dots (e.g., "bigquery.table_name") which
+            #    confuse HogQL field resolution when used as a prefix
+            timestamp_field_chain = [source.timestamp_field]
             metric_event_filter = data_warehouse_node_to_filter(self.team, source)
         else:
             timestamp_field_chain = [table_alias, "timestamp"]
