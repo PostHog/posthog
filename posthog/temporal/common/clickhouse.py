@@ -695,7 +695,7 @@ class ClickHouseClient:
                 # Give up after 5 failed probes
                 tcp_keepcnt = 5
                 sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, tcp_keepcnt)
-                self.logger.info(
+                self.logger.debug(
                     "Configured keepalive probes",
                     tcp_keepidle=tcp_keepidle,
                     tcp_keepintvl=tcp_keepintvl,
