@@ -17,17 +17,15 @@ use crate::metrics::consts::{
 pub struct TrackedConnection {
     conn: PoolConnection<Postgres>,
     start: Instant,
-    pool_name: String,
-    operation: String,
+    labels: [(String, String); 2],
 }
 
 impl TrackedConnection {
-    fn new(conn: PoolConnection<Postgres>, pool_name: String, operation: String) -> Self {
+    fn new(conn: PoolConnection<Postgres>, labels: [(String, String); 2]) -> Self {
         Self {
             conn,
             start: Instant::now(),
-            pool_name,
-            operation,
+            labels,
         }
     }
 }
@@ -50,10 +48,7 @@ impl Drop for TrackedConnection {
     fn drop(&mut self) {
         histogram(
             FLAG_CONNECTION_HOLD_TIME,
-            &[
-                ("pool".to_string(), self.pool_name.clone()),
-                ("operation".to_string(), self.operation.clone()),
-            ],
+            &self.labels,
             self.start.elapsed().as_millis() as f64,
         );
     }
@@ -93,13 +88,17 @@ pub async fn get_connection_with_metrics(
     pool_name: &str,
     operation: &str,
 ) -> Result<TrackedConnection, CustomDatabaseError> {
-    let labels = vec![
+    // Allocate labels once, reuse everywhere
+    let labels: [(String, String); 2] = [
         ("pool".to_string(), pool_name.to_string()),
         ("operation".to_string(), operation.to_string()),
     ];
-    let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
 
-    let result = client.get_connection().await;
+    // Time connection acquisition (guard records on drop)
+    let result = {
+        let _conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+        client.get_connection().await
+    };
 
     if let Some(stats) = client.as_ref().get_pool_stats() {
         let utilization = if stats.size > 0 {
@@ -107,11 +106,7 @@ pub async fn get_connection_with_metrics(
         } else {
             0.0
         };
-        gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), pool_name.to_string())],
-            utilization,
-        );
+        gauge(FLAG_POOL_UTILIZATION_GAUGE, &labels[..1], utilization);
     }
 
     // Track pool acquisition timeouts specifically
@@ -121,7 +116,7 @@ pub async fn get_connection_with_metrics(
         }
     }
 
-    result.map(|conn| TrackedConnection::new(conn, pool_name.to_string(), operation.to_string()))
+    result.map(|conn| TrackedConnection::new(conn, labels))
 }
 
 /// Acquires a writer database connection while tracking metrics.
