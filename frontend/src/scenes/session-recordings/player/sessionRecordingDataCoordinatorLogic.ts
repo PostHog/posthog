@@ -24,7 +24,7 @@ import { sessionRecordingCommentsLogic } from './sessionRecordingCommentsLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
-import { ProcessingCache, processAllSnapshots } from './snapshot-processing/process-all-snapshots'
+import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -69,6 +69,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadSnapshotsForSourceSuccess',
                     'setSnapshots',
                     'loadRecordingFromFile',
+                    'registerWindowId',
                 ],
                 eventsLogic,
                 ['loadEvents', 'loadFullEventData', 'loadEventsSuccess'],
@@ -95,6 +96,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'annotations',
                     'annotationsLoading',
                     'isLoadingSnapshots',
+                    'uuidToIndex',
+                    'getWindowId',
                 ],
                 eventsLogic,
                 [
@@ -169,7 +172,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         snapshots: [
             (s, p) => [s.snapshotSources, s.viewportForTimestamp, p.sessionRecordingId, s.snapshotsBySources],
             (sources, viewportForTimestamp, sessionRecordingId, snapshotsBySources): RecordingSnapshot[] => {
-                cache.processingCache = cache.processingCache || ({} as ProcessingCache)
+                cache.processingCache = cache.processingCache || { snapshots: {} }
                 const snapshots = processAllSnapshots(
                     sources,
                     snapshotsBySources,
@@ -223,8 +226,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 snapshots: RecordingSnapshot[],
                 start: Dayjs | null,
                 end: Dayjs | null,
-                trackedWindow: string | null,
-                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                trackedWindow: number | null,
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
                 isLoadingSnapshots: boolean
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
@@ -269,9 +272,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         windowIdForTimestamp: [
             (s) => [s.segments],
             (segments) =>
-                (timestamp: number): string | undefined => {
+                (timestamp: number): number | undefined => {
                     cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
-                    if (cache.windowIdForTimestamp[timestamp]) {
+                    if (cache.windowIdForTimestamp[timestamp] !== undefined) {
                         return cache.windowIdForTimestamp[timestamp]
                     }
                     const matchingWindowId = segments.find(
@@ -301,13 +304,16 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowsHaveFullSnapshot: [
             (s) => [s.snapshotsByWindowId],
-            (snapshotsByWindowId: Record<string, eventWithTime[]>) => {
-                return Object.entries(snapshotsByWindowId).reduce((acc, [windowId, events]) => {
-                    acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
-                        (event) => event.type === EventType.FullSnapshot
-                    )
-                    return acc
-                }, {})
+            (snapshotsByWindowId: Record<number, eventWithTime[]>) => {
+                return Object.entries(snapshotsByWindowId).reduce(
+                    (acc, [windowId, events]) => {
+                        acc[`window-id-${windowId}-has-full-snapshot`] = events.some(
+                            (event) => event.type === EventType.FullSnapshot
+                        )
+                        return acc
+                    },
+                    {} as Record<string, boolean>
+                )
             },
             {
                 resultEqualityCheck: equal,
@@ -359,8 +365,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIds: [
             (s) => [s.snapshotsByWindowId],
-            (snapshotsByWindowId: Record<string, eventWithTime[]>): string[] => {
-                return Object.keys(snapshotsByWindowId)
+            (snapshotsByWindowId: Record<number, eventWithTime[]>): number[] => {
+                return Object.keys(snapshotsByWindowId).map(Number)
             },
         ],
 
@@ -435,7 +441,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             ],
             (
                 meta: SessionRecordingType | null,
-                snapshotsByWindowId: Record<string, eventWithTime[]>,
+                snapshotsByWindowId: Record<number, eventWithTime[]>,
                 segments: RecordingSegment[],
                 bufferedToTime: number | null,
                 start: Dayjs | null,

@@ -8,7 +8,7 @@ exports[`segmenter ends a segment if it is the last window 1`] = `
     "isActive": true,
     "kind": "window",
     "startTimestamp": 1672531200000,
-    "windowId": "A",
+    "windowId": 1,
   },
   {
     "durationMs": 400,
@@ -24,7 +24,7 @@ exports[`segmenter ends a segment if it is the last window 1`] = `
     "isActive": false,
     "kind": "window",
     "startTimestamp": 1672531200500,
-    "windowId": "B",
+    "windowId": 2,
   },
 ]
 `;
@@ -37,7 +37,7 @@ exports[`segmenter includes inactive events in the active segment until a thresh
     "isActive": false,
     "kind": "window",
     "startTimestamp": 1672531200000,
-    "windowId": "A",
+    "windowId": 1,
   },
 ]
 `;
@@ -50,7 +50,7 @@ exports[`segmenter inserts gaps inclusively 1`] = `
     "isActive": false,
     "kind": "window",
     "startTimestamp": 1672531200000,
-    "windowId": "A",
+    "windowId": 1,
   },
   {
     "durationMs": 599800,
@@ -66,7 +66,7 @@ exports[`segmenter inserts gaps inclusively 1`] = `
     "isActive": false,
     "kind": "window",
     "startTimestamp": 1672531799900,
-    "windowId": "B",
+    "windowId": 2,
   },
 ]
 `;
@@ -79,7 +79,7 @@ exports[`segmenter matches snapshots 1`] = `
     "isActive": true,
     "kind": "window",
     "startTimestamp": 1682952380877,
-    "windowId": "187d7c761a0525d-05f175487d4b65-1d525634-384000-187d7c761a149d0",
+    "windowId": 1,
   },
   {
     "durationMs": 1533,
@@ -95,7 +95,7 @@ exports[`segmenter matches snapshots 1`] = `
     "isActive": true,
     "kind": "window",
     "startTimestamp": 1682952388104,
-    "windowId": "187d7c77dfe1d45-08bdcaf91135a2-1d525634-384000-187d7c77dff39a6",
+    "windowId": 2,
   },
 ]
 `;

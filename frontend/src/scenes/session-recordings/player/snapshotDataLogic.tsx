@@ -11,6 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { normalizeMode } from 'scenes/session-recordings/player/snapshot-processing/DecompressionWorkerManager'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
 import { SourceKey, keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
+import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
 import '~/queries/utils'
 import {
@@ -39,8 +40,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
+    connect((props: SnapshotLogicProps) => ({
+        actions: [windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }), ['registerWindowId']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            windowIdRegistryLogic({ sessionRecordingId: props.sessionRecordingId }),
+            ['uuidToIndex', 'getWindowId'],
+        ],
     })),
     actions({
         setSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
@@ -86,7 +93,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ values, props, cache, actions }) => ({
         snapshotSources: [
             null as SessionRecordingSnapshotSource[] | null,
             {
@@ -176,10 +183,35 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     const decompressionMode = normalizeMode(
                         typeof featureFlagValue === 'string' ? featureFlagValue : undefined
                     )
+
+                    // Create a local copy of the registry state for synchronous lookups during parsing
+                    const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
+                    const registerWindowIdCallback = (uuid: string): number => {
+                        if (uuid in localWindowIds) {
+                            return localWindowIds[uuid]
+                        }
+                        const index = Object.keys(localWindowIds).length + 1
+                        localWindowIds[uuid] = index
+                        return index
+                    }
+
                     // sorting is very cheap for already sorted lists
                     const parsedSnapshots = (
-                        await parseEncodedSnapshots(response, props.sessionRecordingId, decompressionMode, posthog)
+                        await parseEncodedSnapshots(
+                            response,
+                            props.sessionRecordingId,
+                            decompressionMode,
+                            posthog,
+                            registerWindowIdCallback
+                        )
                     ).sort((a, b) => a.timestamp - b.timestamp)
+
+                    // Sync any newly discovered window IDs to the shared registry
+                    for (const uuid of Object.keys(localWindowIds)) {
+                        if (!(uuid in values.uuidToIndex)) {
+                            actions.registerWindowId(uuid)
+                        }
+                    }
                     // we store the data in the cache because we want to avoid copying this data as much as possible
                     // and kea's immutability means we were copying all the data on every snapshot call
                     cache.snapshotsBySource = cache.snapshotsBySource || {}

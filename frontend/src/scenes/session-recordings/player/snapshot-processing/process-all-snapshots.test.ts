@@ -152,7 +152,7 @@ describe('process all snapshots', () => {
                             snapshots: snapshots,
                         },
                     },
-                    {},
+                    { snapshots: {} },
                     () => {
                         return {
                             width: '100',
@@ -198,7 +198,7 @@ describe('process all snapshots', () => {
                     [key]: {
                         snapshots: [
                             {
-                                windowId: '1',
+                                windowId: 1,
                                 timestamp: 1234567890,
                                 type: 0,
                                 data: {
@@ -208,7 +208,7 @@ describe('process all snapshots', () => {
                                 },
                             } as RecordingSnapshot,
                             {
-                                windowId: '1',
+                                windowId: 1,
                                 timestamp: 1234567890,
                                 type: 0,
                                 data: {
@@ -220,7 +220,7 @@ describe('process all snapshots', () => {
                         ],
                     },
                 },
-                {},
+                { snapshots: {} },
                 () => {
                     return {
                         width: '100',
@@ -327,7 +327,7 @@ describe('process all snapshots', () => {
 
             expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeCompressedBlock, { isParallel: false })
             expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
+            expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
         })
 
@@ -411,7 +411,7 @@ describe('process all snapshots', () => {
 
             expect(mockWorkerManager.decompress).toHaveBeenCalledWith(fakeRawSnappyData, { isParallel: false })
             expect(result).toHaveLength(1)
-            expect(result[0].windowId).toBe('1')
+            expect(result[0].windowId).toBe(1)
             expect(result[0].timestamp).toBe(1234567890)
         })
     })
@@ -518,13 +518,13 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             expect(results.length).toBeGreaterThanOrEqual(2)
-            expect(results[0].windowId).toBe('1')
+            expect(results[0].windowId).toBe(1)
 
             const hasFullSnapshot = results.some((r) => r.type === 2)
             const hasIncrementalSnapshot = results.some((r) => r.type === 3)
@@ -569,13 +569,13 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             expect(results.length).toBeGreaterThanOrEqual(2) // Meta + Full
-            expect(results[0].windowId).toBe('1')
+            expect(results[0].windowId).toBe(1)
 
             const fullSnapshots = results.filter((r) => r.type === 2)
             expect(fullSnapshots).toHaveLength(1)
@@ -615,7 +615,7 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => undefined,
                 sessionId
             )
@@ -631,7 +631,7 @@ describe('process all snapshots', () => {
                 height: 667,
                 href: 'https://example.com', // From the mock transformer
             })
-            expect(firstMeta.windowId).toBe('mobile-window')
+            expect(firstMeta.windowId).toBe(1)
         })
 
         it('prefers mobile snapshot dimensions over viewportForTimestamp for mobile data', async () => {
@@ -666,7 +666,7 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '999', height: '999', href: 'https://wrong.com' }),
                 sessionId
             )
@@ -705,14 +705,14 @@ describe('process all snapshots', () => {
 
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
             expect(parsed).toHaveLength(1)
-            expect(parsed[0].windowId).toBe('1')
+            expect(parsed[0].windowId).toBe(1)
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '100', height: '100', href: 'https://example.com' }),
                 sessionId
             )
@@ -752,13 +752,13 @@ describe('process all snapshots', () => {
             const result = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
 
             result.forEach((event) => {
-                expect(event.windowId).toBe('custom-window-123')
+                expect(event.windowId).toBe(1)
             })
 
             const fullSnapshot = result.find((r) => r.type === 2)
@@ -796,7 +796,7 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
@@ -893,7 +893,7 @@ describe('process all snapshots', () => {
             const results = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => undefined,
                 sessionId
             )
@@ -910,7 +910,7 @@ describe('process all snapshots', () => {
                 height: 896,
                 href: 'unknown',
             })
-            expect(firstMeta.windowId).toBe('mobile-window')
+            expect(firstMeta.windowId).toBe(1)
         })
 
         it('handles edge cases gracefully', async () => {
@@ -945,7 +945,7 @@ describe('process all snapshots', () => {
             const result = processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
-                {},
+                { snapshots: {} },
                 () => ({ width: '400', height: '800', href: 'https://example.com' }),
                 sessionId
             )
@@ -975,7 +975,7 @@ describe('process all snapshots', () => {
 
             expect(result.length).toBeGreaterThan(0)
             result.forEach((event) => {
-                expect(event.windowId).toBe('1')
+                expect(event.windowId).toBe(1)
             })
         })
     })

@@ -239,7 +239,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
                         snapshots,
                     },
                 } as Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-                {},
+                { snapshots: {} },
                 fakeViewportForTimestamp,
                 '12345'
             )
@@ -265,13 +265,13 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             // the result would be one event longer, introducing, instead of removing, a duplicate
             const verySimilarSnapshots: RecordingSnapshot[] = [
                 {
-                    windowId: '1',
+                    windowId: 1,
                     type: 3,
                     data: { source: 2, type: 0, id: 33, x: 852.7421875, y: 133.1640625 },
                     timestamp: 1682952389798,
                 },
                 {
-                    windowId: '1',
+                    windowId: 1,
                     type: 3,
                     data: { source: 2, type: 2, id: 33, x: 852, y: 133, pointerType: 0 },
                     timestamp: 1682952389798,
