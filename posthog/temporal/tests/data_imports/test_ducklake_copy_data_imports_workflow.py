@@ -5,6 +5,7 @@ from unittest.mock import MagicMock
 
 import temporalio.converter
 
+from posthog.ducklake.verification import DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
@@ -15,6 +16,7 @@ from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
+    verify_data_imports_ducklake_copy_activity,
 )
 
 from products.data_warehouse.backend.models.credential import DataWarehouseCredential
@@ -269,3 +271,278 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
     assert any("delta_scan" in str(call) for call in execute_calls)
     mock_conn.close.assert_called_once()
+
+
+def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    results = verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert results == []
+
+
+def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchone.return_value = (0,)
+    mock_duckdb_connect = MagicMock(return_value=mock_conn)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        mock_duckdb_connect,
+    )
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
+        MagicMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
+        MagicMock(return_value=[]),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="row_count_check",
+        sql="SELECT ABS((SELECT COUNT(*) FROM delta_scan(?)) - (SELECT COUNT(*) FROM {ducklake_table})) AS diff",
+        description="Compare row counts",
+        parameters=("source_table_uri",),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    results = verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert len(results) == 1
+    assert results[0].name == "row_count_check"
+    assert results[0].passed is True
+    assert results[0].observed_value == 0.0
+    mock_conn.close.assert_called_once()
+
+
+def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.execute.side_effect = Exception("Query execution failed")
+    mock_duckdb_connect = MagicMock(return_value=mock_conn)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        mock_duckdb_connect,
+    )
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
+        MagicMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
+        MagicMock(return_value=[]),
+    )
+
+    query = DuckLakeCopyVerificationQuery(
+        name="failing_query",
+        sql="SELECT 1",
+        description="A query that fails",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=0.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    results = verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert len(results) == 1
+    assert results[0].name == "failing_query"
+    assert results[0].passed is False
+    assert results[0].error == "Query execution failed"
+    mock_conn.close.assert_called_once()
+
+
+def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeypatch):
+    mock_conn = MagicMock()
+    mock_conn.execute.return_value.fetchone.return_value = (5,)
+    mock_duckdb_connect = MagicMock(return_value=mock_conn)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        mock_duckdb_connect,
+    )
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={}),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_schema_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
+        MagicMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
+        MagicMock(return_value=[]),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
+        MagicMock(return_value=[]),
+    )
+
+    query_pass = DuckLakeCopyVerificationQuery(
+        name="within_tolerance",
+        sql="SELECT 5",
+        description="Should pass with tolerance",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=10.0,
+    )
+
+    query_fail = DuckLakeCopyVerificationQuery(
+        name="outside_tolerance",
+        sql="SELECT 5",
+        description="Should fail outside tolerance",
+        parameters=(),
+        expected_value=0.0,
+        tolerance=2.0,
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+        verification_queries=[query_pass, query_fail],
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    results = verify_data_imports_ducklake_copy_activity(inputs)
+
+    assert len(results) == 2
+    assert results[0].name == "within_tolerance"
+    assert results[0].passed is True
+    assert results[1].name == "outside_tolerance"
+    assert results[1].passed is False

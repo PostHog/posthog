@@ -17,7 +17,11 @@ from posthog.ducklake.common import (
     escape as ducklake_escape,
     get_config,
 )
-from posthog.ducklake.verification import DuckLakeCopyVerificationQuery, get_data_imports_verification_queries
+from posthog.ducklake.verification import (
+    DuckLakeCopyVerificationParameter,
+    DuckLakeCopyVerificationQuery,
+    get_data_imports_verification_queries,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -107,6 +111,20 @@ class DuckLakeCopyDataImportsActivityInputs:
     team_id: int
     job_id: str
     model: DuckLakeCopyDataImportsMetadata
+
+
+@dataclasses.dataclass
+class DuckLakeCopyDataImportsVerificationResult:
+    """Result of a single verification check for data imports DuckLake copy."""
+
+    name: str
+    passed: bool
+    observed_value: float | None = None
+    expected_value: float | None = None
+    tolerance: float | None = None
+    description: str | None = None
+    sql: str | None = None
+    error: str | None = None
 
 
 @activity.defn
@@ -389,3 +407,438 @@ def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, 
     except duckdb.CatalogException as exc:
         if alias not in str(exc):
             raise
+
+
+@activity.defn
+def verify_data_imports_ducklake_copy_activity(
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+) -> list[DuckLakeCopyDataImportsVerificationResult]:
+    """Run configured DuckDB verification queries to ensure the copy matches the source."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+
+    if not inputs.model.verification_queries:
+        logger.info("No DuckLake verification queries configured - skipping")
+        return []
+
+    heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
+    with heartbeater:
+        config = get_config()
+        conn = duckdb.connect()
+        alias = "ducklake"
+        results: list[DuckLakeCopyDataImportsVerificationResult] = []
+
+        try:
+            _configure_source_storage(conn, logger)
+            configure_connection(conn, config, install_extension=True)
+            _attach_ducklake_catalog(conn, config, alias=alias)
+
+            ducklake_table = f"{alias}.{inputs.model.ducklake_schema_name}.{inputs.model.ducklake_table_name}"
+            format_values = {
+                "ducklake_table": ducklake_table,
+                "ducklake_schema": f"{alias}.{inputs.model.ducklake_schema_name}",
+                "ducklake_alias": alias,
+                "schema_name": inputs.model.ducklake_schema_name,
+                "table_name": inputs.model.ducklake_table_name,
+            }
+
+            for query in inputs.model.verification_queries:
+                rendered_sql = query.sql.format(**format_values)
+                params = [_resolve_data_imports_verification_parameter(param, inputs) for param in query.parameters]
+
+                try:
+                    row = conn.execute(rendered_sql, params).fetchone()
+                except Exception as exc:
+                    logger.warning(
+                        "DuckLake verification query failed",
+                        check=query.name,
+                        error=str(exc),
+                    )
+                    results.append(
+                        DuckLakeCopyDataImportsVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error=str(exc),
+                        )
+                    )
+                    continue
+
+                if not row:
+                    logger.warning("DuckLake verification query returned no rows", check=query.name)
+                    results.append(
+                        DuckLakeCopyDataImportsVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error="Query returned no rows",
+                        )
+                    )
+                    continue
+
+                raw_value = row[0]
+                try:
+                    observed = float(raw_value)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "DuckLake verification query returned a non-numeric value",
+                        check=query.name,
+                        value=raw_value,
+                    )
+                    results.append(
+                        DuckLakeCopyDataImportsVerificationResult(
+                            name=query.name,
+                            passed=False,
+                            expected_value=query.expected_value,
+                            tolerance=query.tolerance,
+                            description=query.description,
+                            sql=rendered_sql,
+                            error="Query did not return a numeric value",
+                        )
+                    )
+                    continue
+
+                diff = abs(observed - (query.expected_value or 0.0))
+                tolerance = query.tolerance or 0.0
+                passed = diff <= tolerance
+                log_method = logger.info if passed else logger.warning
+                log_method(
+                    "DuckLake verification result",
+                    check=query.name,
+                    observed_value=observed,
+                    expected_value=query.expected_value,
+                    tolerance=tolerance,
+                )
+
+                results.append(
+                    DuckLakeCopyDataImportsVerificationResult(
+                        name=query.name,
+                        passed=passed,
+                        observed_value=observed,
+                        expected_value=query.expected_value,
+                        tolerance=tolerance,
+                        description=query.description,
+                        sql=rendered_sql,
+                    )
+                )
+
+            schema_result = _run_data_imports_schema_verification(conn, ducklake_table, inputs)
+            if schema_result:
+                results.append(schema_result)
+
+            partition_result = _run_data_imports_partition_verification(conn, ducklake_table, inputs)
+            if partition_result:
+                results.append(partition_result)
+
+            results.extend(_run_data_imports_key_cardinality_verifications(conn, ducklake_table, inputs))
+            results.extend(_run_data_imports_non_nullable_verifications(conn, ducklake_table, inputs))
+        finally:
+            conn.close()
+
+    failed = [result for result in results if not result.passed]
+    if failed:
+        logger.warning(
+            "DuckLake verification checks failed",
+            model_label=inputs.model.model_label,
+            failures=[dataclasses.asdict(result) for result in failed],
+        )
+
+    return results
+
+
+def _resolve_data_imports_verification_parameter(
+    parameter: DuckLakeCopyVerificationParameter, inputs: DuckLakeCopyDataImportsActivityInputs
+) -> str | int:
+    """Resolve a verification parameter to its runtime value."""
+    model = inputs.model
+    mapping: dict[DuckLakeCopyVerificationParameter, str | int] = {
+        DuckLakeCopyVerificationParameter.TEAM_ID: inputs.team_id,
+        DuckLakeCopyVerificationParameter.JOB_ID: inputs.job_id,
+        DuckLakeCopyVerificationParameter.MODEL_LABEL: model.model_label,
+        DuckLakeCopyVerificationParameter.NORMALIZED_NAME: model.source_normalized_name,
+        DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI: model.source_table_uri,
+        DuckLakeCopyVerificationParameter.SCHEMA_NAME: model.ducklake_schema_name,
+        DuckLakeCopyVerificationParameter.TABLE_NAME: model.ducklake_table_name,
+    }
+
+    if parameter not in mapping:
+        raise ValueError(f"Unsupported DuckLake verification parameter '{parameter}'")
+
+    return mapping[parameter]
+
+
+def _run_data_imports_schema_verification(
+    conn: duckdb.DuckDBPyConnection, ducklake_table: str, inputs: DuckLakeCopyDataImportsActivityInputs
+) -> DuckLakeCopyDataImportsVerificationResult | None:
+    """Compare schema between Delta source and DuckLake table."""
+    try:
+        source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+        ducklake_schema = _fetch_schema(conn, ducklake_table)
+    except Exception as exc:
+        return DuckLakeCopyDataImportsVerificationResult(
+            name="data_imports.schema_hash",
+            passed=False,
+            description="Compare schema hash between Delta source and DuckLake table.",
+            error=str(exc),
+        )
+
+    mismatches = _diff_schema(source_schema, ducklake_schema)
+    passed = not mismatches
+    error = None
+    if not passed:
+        preview = "; ".join(mismatches[:5])
+        if len(mismatches) > 5:
+            preview = f"{preview}; +{len(mismatches) - 5} more differences"
+        error = f"Schema mismatch: {preview}"
+
+    return DuckLakeCopyDataImportsVerificationResult(
+        name="data_imports.schema_hash",
+        passed=passed,
+        description="Compare schema hash between Delta source and DuckLake table.",
+        expected_value=0.0,
+        observed_value=0.0 if passed else 1.0,
+        tolerance=0.0,
+        error=error,
+    )
+
+
+def _run_data_imports_partition_verification(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+) -> DuckLakeCopyDataImportsVerificationResult | None:
+    """Verify partition counts match between source and DuckLake."""
+    partition_column = inputs.model.source_partition_column
+    if not partition_column:
+        return None
+
+    bucket_expr = _build_partition_bucket_expression(partition_column, inputs.model.source_partition_column_type)
+    sql = f"""
+        WITH source AS (
+            SELECT {bucket_expr} AS bucket, count(*) AS cnt
+            FROM delta_scan(?)
+            GROUP BY 1
+        ),
+        ducklake AS (
+            SELECT {bucket_expr} AS bucket, count(*) AS cnt
+            FROM {ducklake_table}
+            GROUP BY 1
+        )
+        SELECT COALESCE(source.bucket, ducklake.bucket) AS bucket,
+               COALESCE(source.cnt, 0) AS source_count,
+               COALESCE(ducklake.cnt, 0) AS ducklake_count
+        FROM source
+        FULL OUTER JOIN ducklake USING (bucket)
+        WHERE COALESCE(source.cnt, 0) != COALESCE(ducklake.cnt, 0)
+        ORDER BY bucket
+    """
+
+    try:
+        mismatches = conn.execute(sql, [inputs.model.source_table_uri]).fetchall()
+    except Exception as exc:
+        return DuckLakeCopyDataImportsVerificationResult(
+            name="data_imports.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=str(exc),
+        )
+
+    if mismatches:
+        return DuckLakeCopyDataImportsVerificationResult(
+            name="data_imports.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            expected_value=0.0,
+            observed_value=float(len(mismatches)),
+            tolerance=0.0,
+            error=f"Partition mismatches detected: {mismatches[:5]}",
+        )
+
+    return DuckLakeCopyDataImportsVerificationResult(
+        name="data_imports.partition_counts",
+        passed=True,
+        description="Ensure partition counts match between source and DuckLake.",
+        expected_value=0.0,
+        observed_value=0.0,
+        tolerance=0.0,
+    )
+
+
+def _run_data_imports_key_cardinality_verifications(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+) -> list[DuckLakeCopyDataImportsVerificationResult]:
+    """Verify key column cardinality matches between source and DuckLake."""
+    results: list[DuckLakeCopyDataImportsVerificationResult] = []
+    if not inputs.model.source_key_columns:
+        return results
+
+    for column in inputs.model.source_key_columns:
+        column_expr = _quote_identifier(column)
+        sql = f"""
+            SELECT
+                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan(?)) AS source_count,
+                (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
+        """
+        try:
+            row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
+            if row is None:
+                raise ValueError(f"Key cardinality query for {column} returned no rows")
+        except Exception as exc:
+            results.append(
+                DuckLakeCopyDataImportsVerificationResult(
+                    name=f"data_imports.key_cardinality.{column}",
+                    passed=False,
+                    description=f"Validate key cardinality for {column}.",
+                    error=str(exc),
+                )
+            )
+            continue
+
+        source_count = float(row[0] or 0)
+        ducklake_count = float(row[1] or 0)
+        diff = abs(source_count - ducklake_count)
+        passed = diff == 0
+        results.append(
+            DuckLakeCopyDataImportsVerificationResult(
+                name=f"data_imports.key_cardinality.{column}",
+                passed=passed,
+                description=f"Validate key cardinality for {column}.",
+                expected_value=0.0,
+                observed_value=diff,
+                tolerance=0.0,
+                error=None if passed else f"source={source_count}, ducklake={ducklake_count}",
+            )
+        )
+
+    return results
+
+
+def _run_data_imports_non_nullable_verifications(
+    conn: duckdb.DuckDBPyConnection,
+    ducklake_table: str,
+    inputs: DuckLakeCopyDataImportsActivityInputs,
+) -> list[DuckLakeCopyDataImportsVerificationResult]:
+    """Verify null counts match for non-nullable columns between source and DuckLake."""
+    results: list[DuckLakeCopyDataImportsVerificationResult] = []
+    if not inputs.model.source_non_nullable_columns:
+        return results
+
+    source_uri = inputs.model.source_table_uri
+    for column in inputs.model.source_non_nullable_columns:
+        column_expr = _quote_identifier(column)
+        source_sql = f"SELECT COUNT(*) FROM delta_scan(?) WHERE {column_expr} IS NULL"
+        ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
+        try:
+            source_row = conn.execute(source_sql, [source_uri]).fetchone()
+            ducklake_row = conn.execute(ducklake_sql).fetchone()
+            if source_row is None or ducklake_row is None:
+                raise ValueError(f"Null ratio query for {column} returned no rows")
+        except Exception as exc:
+            results.append(
+                DuckLakeCopyDataImportsVerificationResult(
+                    name=f"data_imports.null_ratio.{column}",
+                    passed=False,
+                    description=f"Ensure null ratio matches for {column}.",
+                    error=str(exc),
+                )
+            )
+            continue
+
+        source_nulls = float(source_row[0] or 0)
+        ducklake_nulls = float(ducklake_row[0] or 0)
+        passed = ducklake_nulls == source_nulls
+        results.append(
+            DuckLakeCopyDataImportsVerificationResult(
+                name=f"data_imports.null_ratio.{column}",
+                passed=passed,
+                description=f"Ensure null ratio matches for {column}.",
+                expected_value=source_nulls,
+                observed_value=ducklake_nulls,
+                tolerance=0.0,
+                error=None
+                if passed
+                else f"{column} null mismatch (source={int(source_nulls)}, ducklake={int(ducklake_nulls)})",
+            )
+        )
+
+    return results
+
+
+def _fetch_delta_schema(conn: duckdb.DuckDBPyConnection, source_uri: str) -> list[tuple[str, str]]:
+    """Fetch schema from a Delta table."""
+    rows = conn.execute(
+        "DESCRIBE SELECT * FROM delta_scan(?) LIMIT 0",
+        [source_uri],
+    ).fetchall()
+    return [(row[0], row[1]) for row in rows]
+
+
+def _fetch_schema(conn: duckdb.DuckDBPyConnection, table_name: str) -> list[tuple[str, str]]:
+    """Fetch schema from a DuckLake table."""
+    rows = conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()
+    return [(row[1], row[2]) for row in rows]
+
+
+def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:
+    """Compare schemas and return list of mismatches."""
+    mismatches: list[str] = []
+    source_map = _schema_map(source_schema)
+    ducklake_map = _schema_map(ducklake_schema)
+
+    source_keys = set(source_map.keys())
+    ducklake_keys = set(ducklake_map.keys())
+
+    for key in sorted(source_keys - ducklake_keys):
+        column_name, _ = source_map[key]
+        mismatches.append(f"{column_name} missing from DuckLake")
+
+    for key in sorted(ducklake_keys - source_keys):
+        column_name, _ = ducklake_map[key]
+        mismatches.append(f"{column_name} missing from Delta source")
+
+    for key in sorted(source_keys & ducklake_keys):
+        source_name, source_type = source_map[key]
+        _, ducklake_type = ducklake_map[key]
+        if source_type != ducklake_type:
+            mismatches.append(f"{source_name} type mismatch (delta={source_type}, ducklake={ducklake_type})")
+
+    return mismatches
+
+
+def _schema_map(schema: list[tuple[str, str]]) -> dict[str, tuple[str, str]]:
+    """Create a normalized map of column names to (original_name, type)."""
+    mapping: dict[str, tuple[str, str]] = {}
+    for name, column_type in schema:
+        normalized_name = (name or "").strip().lower()
+        mapping[normalized_name] = (name, (column_type or "").strip())
+    return mapping
+
+
+def _build_partition_bucket_expression(column_name: str, column_type: str | None) -> str:
+    """Build a SQL expression for partition bucketing."""
+    column_expr = _quote_identifier(column_name)
+    if _is_datetime_column_type(column_type):
+        return f"date_trunc('day', {column_expr})"
+    return column_expr
+
+
+def _is_datetime_column_type(column_type: str | None) -> bool:
+    """Check if a column type is a datetime type."""
+    if not column_type:
+        return False
+    normalized = column_type.strip().lower()
+    return "date" in normalized or "time" in normalized
+
+
+def _quote_identifier(identifier: str) -> str:
+    """Quote a SQL identifier."""
+    escaped = identifier.replace('"', '""')
+    return f'"{escaped}"'
