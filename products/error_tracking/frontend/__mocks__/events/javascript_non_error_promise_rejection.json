@@ -147,7 +147,6 @@
             "u": "http://localhost:8010/project/1/onboarding/product_analytics?step=install"
         },
         "$group_1": "0195b934-6b5a-0000-a2cb-44f1514aaedc",
-        "$feature/support-form-in-onboarding": true,
         "email_service_available": false,
         "token": "phc_ngf62dtzXeNsSZNWJ8eB5Je1l7FQoSybCZHEOggcXv7",
         "$feature/settings-session-table-version": true,
@@ -280,7 +279,6 @@
             "onboarding-new-installation-step",
             "web-analytics-trend-viz-toggle",
             "web-analytics-hide-modal-actors",
-            "support-form-in-onboarding",
             "ai-setup-wizard",
             "crm-blocking-queries",
             "crm-iteration-one",
