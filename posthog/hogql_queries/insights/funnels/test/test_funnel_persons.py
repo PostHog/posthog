@@ -126,10 +126,12 @@ class BaseTestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         person1 = _create_person(
             distinct_ids=["person1"],
             team_id=self.team.pk,
+            properties={"$country": "PL"},
         )
         person2 = _create_person(
             distinct_ids=["person2"],
             team_id=self.team.pk,
+            properties={"$country": "EE"},
         )
         journeys_for(
             {
