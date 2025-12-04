@@ -175,6 +175,7 @@ const createdEvent: RawKafkaEvent = {
     team_id: 2,
     timestamp: '2020-02-23 02:15:00.000' as ClickHouseTimestamp,
     uuid: 'uuid1',
+    historical_migration: false,
 }
 
 const person: Person = {
