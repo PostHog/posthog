@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 
 import { GroupType } from '~/types'
 
@@ -53,11 +54,10 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
         useValues(groupAnalyticsConfigLogic)
     const { setSingular, setPlural, reset, save, deleteGroupType } = useActions(groupAnalyticsConfigLogic)
 
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { groupsAccessStatus, needsUpgradeForGroups } = useValues(groupsAccessLogic)
 
-    if (groupsAccessStatus === GroupsAccessStatus.NoAccess) {
-        // Hide settings if the user doesn't have access
-        return null
+    if (needsUpgradeForGroups) {
+        return <GroupsIntroduction />
     }
 
     const columns: LemonTableColumns<GroupType> = [
