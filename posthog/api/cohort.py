@@ -370,7 +370,7 @@ class CSVConfig:
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
 
 
-class CohortListItemSerializer(serializers.ModelSerializer):
+class CohortMinimalSerializer(serializers.ModelSerializer):
     """Minimal serializer for cohort references (e.g., person cohorts endpoint)."""
 
     class Meta:
