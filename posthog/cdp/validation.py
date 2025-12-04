@@ -284,7 +284,7 @@ class InputsSerializer(serializers.DictField):
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "data-warehouse"], required=False, default="events"
+        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -317,8 +317,8 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
             data.pop("data_warehouse", None)
 
-        if data.get("source") == "data-warehouse":
-            # Don't allow events or actions for data-warehouse
+        if data.get("source") == "data-warehouse-table":
+            # Don't allow events or actions for data-warehouse-table
             data.pop("events", None)
             data.pop("actions", None)
 

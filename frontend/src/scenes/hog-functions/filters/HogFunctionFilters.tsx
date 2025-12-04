@@ -86,7 +86,7 @@ export function HogFunctionFilters({
     } = useActions(hogFunctionConfigurationLogic)
 
     const isTransformation = type === 'transformation'
-    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse'
+    const isDataWarehouse = configuration?.filters?.source === 'data-warehouse-table'
     const cdpPersonUpdatesEnabled = useFeatureFlag('CDP_PERSON_UPDATES')
     const cdpDwhTableSourceEnabled = useFeatureFlag('CDP_DWH_TABLE_SOURCE')
 
@@ -140,7 +140,7 @@ export function HogFunctionFilters({
     const showSourcePicker =
         (cdpPersonUpdatesEnabled || cdpDwhTableSourceEnabled) && type === 'destination' && !useMapping
     const showEventMatchers =
-        !useMapping && ['events', 'data-warehouse'].includes(configuration?.filters?.source ?? 'events')
+        !useMapping && ['events', 'data-warehouse-table'].includes(configuration?.filters?.source ?? 'events')
 
     const mainContent = (
         <div
@@ -176,7 +176,7 @@ export function HogFunctionFilters({
                                         ? [{ value: 'person-updates', label: 'Person updates' }]
                                         : []),
                                     ...(cdpDwhTableSourceEnabled
-                                        ? [{ value: 'data-warehouse', label: 'Data warehouse' }]
+                                        ? [{ value: 'data-warehouse-table', label: 'Data warehouse' }]
                                         : []),
                                 ]}
                                 value={value?.source ?? 'events'}

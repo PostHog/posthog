@@ -101,10 +101,10 @@ export function convertToDataWarehouseEventToHogFunctionInvocationGlobals(
             url: projectUrl,
         },
         event: {
-            uuid: 'data-warehouse-sources-table-uuid-do-not-use',
-            event: 'data-warehouse-sources-table-event-do-not-use',
+            uuid: 'data-warehouse-table-uuid-do-not-use',
+            event: 'data-warehouse-table-event-do-not-use',
             elements_chain: '', // Not applicable but left here for compatibility
-            distinct_id: 'data-warehouse-sources-table-distinct-id-do-not-use',
+            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
             properties: data,
             timestamp: DateTime.now().toISO(),
             url: '',
