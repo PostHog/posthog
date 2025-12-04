@@ -199,13 +199,30 @@ def _call_llm_for_labels(
         if not result:
             raise Exception("OpenAI returned empty response")
 
-        # Convert to dict[cluster_id -> ClusterLabel]
+        # Convert to dict[cluster_id -> ClusterLabel], validating cluster IDs
+        valid_cluster_ids = set(range(num_clusters))
         labels_dict = {}
         for cluster in result.clusters:
+            if cluster.cluster_id not in valid_cluster_ids:
+                logger.warning(
+                    "llm_returned_invalid_cluster_id",
+                    cluster_id=cluster.cluster_id,
+                    valid_ids=list(valid_cluster_ids),
+                )
+                continue
             labels_dict[cluster.cluster_id] = ClusterLabel(
                 title=cluster.title,
                 description=cluster.description,
             )
+
+        # Fill in any missing clusters with fallback labels
+        for cluster_id in valid_cluster_ids:
+            if cluster_id not in labels_dict:
+                logger.warning("llm_missing_cluster_label", cluster_id=cluster_id)
+                labels_dict[cluster_id] = ClusterLabel(
+                    title=f"Cluster {cluster_id}",
+                    description=f"Cluster of {sum(1 for label in labels if label == cluster_id)} similar traces",
+                )
 
         return labels_dict
 
