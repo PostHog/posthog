@@ -163,6 +163,16 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.sum, 6)
         self.assertEqual(test_variant.sum_squares, 6)  # Binary: 1^2 = 1
 
+        # Verify ratio-specific fields for control variant
+        self.assertEqual(control_variant.denominator_sum, 6)  # 6 users started
+        self.assertEqual(control_variant.denominator_sum_squares, 6)  # 6 (since 1^2 = 1)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)  # 4 completed
+
+        # Verify ratio-specific fields for test variant
+        self.assertEqual(test_variant.denominator_sum, 8)  # 8 users started
+        self.assertEqual(test_variant.denominator_sum_squares, 8)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
+
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -281,6 +291,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 7)
         self.assertEqual(test_variant.sum, 4)
 
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 7)
+        self.assertEqual(control_variant.denominator_sum_squares, 7)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(test_variant.denominator_sum, 7)
+        self.assertEqual(test_variant.denominator_sum_squares, 7)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 4)
+
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -389,6 +407,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_first.number_of_samples, 2)
         self.assertEqual(test_first.sum, 2)  # Both users retained
 
+        # Verify ratio-specific fields for FIRST_SEEN
+        self.assertEqual(control_first.denominator_sum, 2)
+        self.assertEqual(control_first.denominator_sum_squares, 2)
+        self.assertEqual(control_first.numerator_denominator_sum_product, 2)
+        self.assertEqual(test_first.denominator_sum, 2)
+        self.assertEqual(test_first.denominator_sum_squares, 2)
+        self.assertEqual(test_first.numerator_denominator_sum_product, 2)
+
         # Now test with LAST_SEEN
         metric_last_seen = ExperimentRetentionMetric(
             start_event=EventsNode(
@@ -426,6 +452,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(control_last.sum, 2)  # Both users retained
         self.assertEqual(test_last.number_of_samples, 2)
         self.assertEqual(test_last.sum, 2)  # Both users retained
+
+        # Verify ratio-specific fields for LAST_SEEN
+        self.assertEqual(control_last.denominator_sum, 2)
+        self.assertEqual(control_last.denominator_sum_squares, 2)
+        self.assertEqual(control_last.numerator_denominator_sum_product, 2)
+        self.assertEqual(test_last.denominator_sum, 2)
+        self.assertEqual(test_last.denominator_sum_squares, 2)
+        self.assertEqual(test_last.numerator_denominator_sum_product, 2)
 
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
@@ -553,6 +587,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 2)
         self.assertEqual(test_variant.sum, 2)
 
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 3)
+        self.assertEqual(control_variant.denominator_sum_squares, 3)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 2)
+        self.assertEqual(test_variant.denominator_sum, 2)
+        self.assertEqual(test_variant.denominator_sum_squares, 2)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
+
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -644,6 +686,15 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.number_of_samples, 4)
         self.assertEqual(test_variant.sum, 0)
         self.assertEqual(test_variant.sum_squares, 0)
+
+        # Verify ratio fields are populated even with 0% retention
+        # Denominator should reflect users who started, numerator should be 0
+        self.assertEqual(control_variant.denominator_sum, 3)  # 3 users started
+        self.assertEqual(control_variant.denominator_sum_squares, 3)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 0)  # 0 completed
+        self.assertEqual(test_variant.denominator_sum, 4)  # 4 users started
+        self.assertEqual(test_variant.denominator_sum_squares, 4)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 0)  # 0 completed
 
     @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
     @freeze_time("2024-01-01T12:00:00Z")
@@ -777,3 +828,14 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         # Test B: 6 started, 5 retained
         self.assertEqual(test_b_variant.number_of_samples, 6)
         self.assertEqual(test_b_variant.sum, 5)
+
+        # Verify ratio-specific fields for all three variants
+        self.assertEqual(control_variant.denominator_sum, 5)
+        self.assertEqual(control_variant.denominator_sum_squares, 5)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(test_a_variant.denominator_sum, 4)
+        self.assertEqual(test_a_variant.denominator_sum_squares, 4)
+        self.assertEqual(test_a_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(test_b_variant.denominator_sum, 6)
+        self.assertEqual(test_b_variant.denominator_sum_squares, 6)
+        self.assertEqual(test_b_variant.numerator_denominator_sum_product, 5)

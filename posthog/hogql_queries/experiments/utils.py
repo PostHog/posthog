@@ -184,7 +184,11 @@ def get_variant_result(
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
         case ExperimentRetentionMetric():
-            pass  # No additional fields beyond base_stats (binary outcome: sum/sum_squares only)
+            # Retention metrics are treated as ratio metrics for correct significance calculations
+            # Numerator: binary completion (0 or 1), Denominator: always 1 per user who started
+            base_stats["denominator_sum"] = result[metric_fields_start_idx]
+            base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
+            base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
         case ExperimentMeanMetric():
             pass  # No additional fields beyond base_stats
 
@@ -378,6 +382,27 @@ def metric_variant_to_statistic(
             sum=variant.sum,
             sum_squares=variant.sum_squares,
         )
+        denominator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.denominator_sum or 0.0,
+            sum_squares=variant.denominator_sum_squares or 0.0,
+        )
+        return RatioStatistic(
+            n=variant.number_of_samples,
+            m_statistic=numerator_stat,
+            d_statistic=denominator_stat,
+            m_d_sum_of_products=variant.numerator_denominator_sum_product or 0.0,
+        )
+    elif isinstance(metric, ExperimentRetentionMetric):
+        # Retention metrics use ratio statistic to properly account for
+        # uncertainty in both numerator and denominator
+        # Numerator: count of users who completed (binary: 0 or 1 per user)
+        numerator_stat = SampleMeanStatistic(
+            n=variant.number_of_samples,
+            sum=variant.sum,
+            sum_squares=variant.sum_squares,
+        )
+        # Denominator: each user who started contributes 1
         denominator_stat = SampleMeanStatistic(
             n=variant.number_of_samples,
             sum=variant.denominator_sum or 0.0,

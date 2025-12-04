@@ -1383,13 +1383,20 @@ class ExperimentQueryBuilder:
         within a specified time window after performing a "start event".
 
         Statistical Treatment:
-        This metric is treated as a binomial outcome (0 or 1 per entity), similar to
-        funnel conversion rates. Each entity is assigned:
-        - 1 if they completed the event within the retention window after starting
-        - 0 if they did not complete or completed outside the window
+        This metric is treated as a ratio metric using RatioStatistic. Each entity has:
+        - Numerator value: 1 if completed within retention window, 0 otherwise
+        - Denominator value: 1 (they performed the start event)
 
-        The collected statistics (sum, sum_squares, num_users) are processed using
-        ProportionStatistic for both frequentist and Bayesian analysis.
+        Unlike standard proportion tests (where sample size is fixed), retention metrics
+        have a random denominator (count of users who started). This makes retention a
+        ratio of two random variables, requiring delta method variance.
+
+        Returns 7 fields for RatioStatistic:
+        - Standard: num_users, total_sum, total_sum_of_squares
+        - Ratio-specific: denominator_sum, denominator_sum_squares, numerator_denominator_sum_product
+
+        The collected statistics are processed using RatioStatistic (not ProportionStatistic)
+        for both frequentist and Bayesian analysis.
 
         Structure:
         - exposures: all exposures with variant assignment
@@ -1474,7 +1481,10 @@ class ExperimentQueryBuilder:
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
                 sum(entity_metrics.value) AS total_sum,
-                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+                count(entity_metrics.entity_id) AS denominator_sum,
+                count(entity_metrics.entity_id) AS denominator_sum_squares,
+                sum(entity_metrics.value) AS numerator_denominator_sum_product
             FROM entity_metrics
             WHERE notEmpty(variant)
             GROUP BY entity_metrics.variant

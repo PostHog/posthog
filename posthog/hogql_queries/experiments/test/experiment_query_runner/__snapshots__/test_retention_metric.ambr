@@ -4,7 +4,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -74,7 +77,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -144,7 +150,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -214,7 +223,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -284,7 +296,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -354,7 +369,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -424,7 +442,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -494,7 +515,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -564,7 +588,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -634,7 +661,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -704,7 +734,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -774,7 +807,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -844,7 +880,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -914,7 +953,10 @@
   SELECT entity_metrics.variant AS variant,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
