@@ -18,7 +18,7 @@ import {
 } from './healthCheckTypes'
 import type { webAnalyticsHealthLogicType } from './webAnalyticsHealthLogicType'
 
-export interface RawStatusData {
+export interface WebAnalyticsHealthStatus {
     isSendingWebVitals: boolean
     isSendingPageViews: boolean
     isSendingPageLeaves: boolean
@@ -38,9 +38,9 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
     }),
 
     loaders(({}) => ({
-        rawStatusData: {
-            __default: null as RawStatusData | null,
-            loadRawStatusData: async (): Promise<RawStatusData> => {
+        webAnalyticsHealthStatus: {
+            __default: null as WebAnalyticsHealthStatus | null,
+            loadWebAnalyticsHealthStatus: async (): Promise<WebAnalyticsHealthStatus> => {
                 const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
                     api.eventDefinitions.list({
                         event_type: EventDefinitionType.Event,
@@ -94,9 +94,9 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     selectors({
         eventChecks: [
-            (s) => [s.rawStatusData, s.rawStatusDataLoading],
-            (rawStatusData: RawStatusData | null, loading: boolean): HealthCheck[] => {
-                if (loading || !rawStatusData) {
+            (s) => [s.webAnalyticsHealthStatus, s.webAnalyticsHealthStatusLoading],
+            (webAnalyticsHealthStatus: WebAnalyticsHealthStatus | null, loading: boolean): HealthCheck[] => {
+                if (loading || !webAnalyticsHealthStatus) {
                     return [
                         createLoadingCheck(HealthCheckId.PAGEVIEW_EVENTS, 'events', 'PageView events'),
                         createLoadingCheck(HealthCheckId.PAGELEAVE_EVENTS, 'events', 'PageLeave events'),
@@ -109,11 +109,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.PAGEVIEW_EVENTS,
                         category: 'events',
                         title: '$pageview',
-                        description: rawStatusData.isSendingPageViews
+                        description: webAnalyticsHealthStatus.isSendingPageViews
                             ? 'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!'
                             : 'Complete the PostHog installation to start seeing events in your dashboard.',
-                        status: rawStatusData.isSendingPageViews ? 'success' : 'error',
-                        action: rawStatusData.isSendingPageViews
+                        status: webAnalyticsHealthStatus.isSendingPageViews ? 'success' : 'error',
+                        action: webAnalyticsHealthStatus.isSendingPageViews
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -126,11 +126,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.PAGELEAVE_EVENTS,
                         category: 'events',
                         title: '$pageleave',
-                        description: rawStatusData.isSendingPageLeaves
+                        description: webAnalyticsHealthStatus.isSendingPageLeaves
                             ? 'Bounce rate and session duration are accurate!'
                             : 'Without $pageleave events, bounce rate and session duration might be inaccurate.',
-                        status: rawStatusData.isSendingPageLeaves ? 'success' : 'warning',
-                        action: rawStatusData.isSendingPageLeaves
+                        status: webAnalyticsHealthStatus.isSendingPageLeaves ? 'success' : 'warning',
+                        action: webAnalyticsHealthStatus.isSendingPageLeaves
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -142,11 +142,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.SCROLL_DEPTH,
                         category: 'events',
                         title: 'Scroll depth',
-                        description: rawStatusData.isSendingPageLeavesScroll
+                        description: webAnalyticsHealthStatus.isSendingPageLeavesScroll
                             ? 'Scroll tracking is enabled! Tracking how far users scroll on each page.'
                             : 'Enable scroll depth to see how far users read your content before leaving.',
-                        status: rawStatusData.isSendingPageLeavesScroll ? 'success' : 'warning',
-                        action: rawStatusData.isSendingPageLeavesScroll
+                        status: webAnalyticsHealthStatus.isSendingPageLeavesScroll ? 'success' : 'warning',
+                        action: webAnalyticsHealthStatus.isSendingPageLeavesScroll
                             ? undefined
                             : {
                                   label: 'View installation guide',
@@ -207,9 +207,13 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         ],
 
         performanceChecks: [
-            (s) => [s.rawStatusData, s.rawStatusDataLoading, s.currentTeam],
-            (rawStatusData: RawStatusData | null, loading: boolean, currentTeam: TeamType | null): HealthCheck[] => {
-                if (loading || !rawStatusData) {
+            (s) => [s.webAnalyticsHealthStatus, s.webAnalyticsHealthStatusLoading, s.currentTeam],
+            (
+                webAnalyticsHealthStatus: WebAnalyticsHealthStatus | null,
+                loading: boolean,
+                currentTeam: TeamType | null
+            ): HealthCheck[] => {
+                if (loading || !webAnalyticsHealthStatus) {
                     return [createLoadingCheck(HealthCheckId.WEB_VITALS, 'performance', 'Web vitals')]
                 }
 
@@ -220,14 +224,14 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                         id: HealthCheckId.WEB_VITALS,
                         category: 'performance',
                         title: '$web_vitals',
-                        description: rawStatusData.isSendingWebVitals
+                        description: webAnalyticsHealthStatus.isSendingWebVitals
                             ? 'LCP, INP, and CLS are being tracked. You can monitor your real user experience!'
                             : webVitalsEnabled
                               ? 'Enabled but no data yet. Core Web Vitals (LCP, INP, CLS) measure real user experience.'
                               : 'Core Web Vitals (LCP, INP, CLS) measure real user experience. Google uses these metrics for search ranking.',
-                        status: rawStatusData.isSendingWebVitals ? 'success' : 'warning',
+                        status: webAnalyticsHealthStatus.isSendingWebVitals ? 'success' : 'warning',
                         action:
-                            rawStatusData.isSendingWebVitals || webVitalsEnabled
+                            webAnalyticsHealthStatus.isSendingWebVitals || webVitalsEnabled
                                 ? { label: 'View Web Vitals', to: '/web/web-vitals' }
                                 : { label: 'Enable Web Vitals', to: urls.settings('environment-web-analytics') },
                         docsUrl: 'https://posthog.com/docs/web-analytics/web-vitals',
@@ -317,13 +321,13 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
 
     listeners(({ actions }) => ({
         refreshHealthChecks: () => {
-            actions.loadRawStatusData()
+            actions.loadWebAnalyticsHealthStatus()
             actions.loadHasReverseProxy()
         },
     })),
 
     afterMount(({ actions }) => {
-        actions.loadRawStatusData()
+        actions.loadWebAnalyticsHealthStatus()
         actions.loadHasReverseProxy()
     }),
 ])
