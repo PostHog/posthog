@@ -74,9 +74,12 @@ export function LogsSparkline(): JSX.Element {
         return sparklineData.dates.map((date) => dayjs(date).toISOString())
     }, [sparklineData.dates])
 
-    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
-        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
-    }
+    const onSelectionChange = useCallback(
+        (selection: { startIndex: number; endIndex: number }): void => {
+            setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
+        },
+        [setDateRangeFromSparkline]
+    )
 
     return (
         <div className="relative h-40 flex flex-col">
