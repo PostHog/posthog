@@ -13,6 +13,7 @@ from posthog.schema import (
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
@@ -345,9 +346,44 @@ class TrendsActorsQueryBuilder:
                     left=ast.Field(chain=["event"]),
                     right=ast.Constant(value=str(self.entity.event)),
                 )
-
+        elif isinstance(self.entity, GroupNode):
+            return self._get_group_expr(self.entity)
         else:
             raise ValueError(f"Invalid entity kind {self.entity.kind}")
+
+        return None
+
+    def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
+        group_filters = []
+        for value in group.values:
+            if isinstance(value, EventsNode):
+                if value.event is not None:
+                    group_filters.append(
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value=str(value.event)),
+                        )
+                    )
+            elif isinstance(value, ActionsNode):
+                try:
+                    action = Action.objects.get(pk=int(value.id), team__project_id=self.team.project_id)
+                    group_filters.append(action_to_expr(action))
+                except Action.DoesNotExist:
+                    # If an action doesn't exist, skip it
+                    pass
+
+        if len(group_filters) == 0:
+            return None
+
+        if len(group_filters) == 1:
+            return group_filters[0]
+
+        if group.operator == "OR":
+            return ast.Or(exprs=group_filters)
+
+        if group.operator == "AND":
+            return ast.And(exprs=group_filters)
 
         return None
 
