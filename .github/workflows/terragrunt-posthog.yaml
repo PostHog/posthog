@@ -75,10 +75,10 @@ jobs:
             TERRAFORM_VERSION: '1.13.0'
             TERRAGRUNT_VERSION: '0.93.12'
             # PostHog provider auth
-            POSTHOG_API_KEY: ${{ secrets.POSTHOG_PROVIDER_POSTHOG_API_KEY }}
+            POSTHOG_PROVIDER_POSTHOG_API_KEY: ${{ secrets.POSTHOG_PROVIDER_POSTHOG_API_KEY }}
             # Terragrunt S3 backend config (to manage .tfstate)
-            TF_STATE_BUCKET: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_BUCKET }}
-            TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
+            POSTHOG_PROVIDER_TF_STATE_BUCKET: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_BUCKET }}
+            POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
 
         steps:
             - name: Checkout
