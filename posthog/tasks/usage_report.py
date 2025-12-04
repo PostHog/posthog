@@ -1160,6 +1160,7 @@ def get_teams_with_rows_exported_in_period(begin: datetime, end: datetime) -> li
             batch_export__deleted=False,
         )
         .exclude(batch_export__destination__type=BatchExportDestination.Destination.HTTP)
+        .exclude(batch_export__destination__type=BatchExportDestination.Destination.WORKFLOWS)
         .values(team_id=F("batch_export__team_id"))
         .annotate(total=Sum("records_completed"))
     )
