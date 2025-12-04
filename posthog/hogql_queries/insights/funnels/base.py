@@ -331,7 +331,7 @@ class FunnelBase(ABC):
             skip_step_filter=skip_step_filter,
         )
 
-        # TODO: properly handle refactoring of FunnelEventQuery
+        # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
         if breakdown and breakdownType == BreakdownType.COHORT:
             assert funnel_events_query.select_from is not None
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
@@ -351,7 +351,7 @@ class FunnelBase(ABC):
             cohort_queries.append(query)
 
         if isinstance(breakdown, list) and "all" in breakdown:
-            # TODO: implement for data warehouse tables and mixed funnels
+            # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
             all_query = FunnelEventQuery(context=self.context).to_query(skip_step_filter=True)
             all_query.select = [
                 ast.Alias(alias="cohort_person_id", expr=ast.Field(chain=["person_id"])),

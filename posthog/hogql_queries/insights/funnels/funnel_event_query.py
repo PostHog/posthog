@@ -123,7 +123,6 @@ class FunnelEventQuery:
         def _build_data_warehouse_table_query(
             table_name: str, steps: Sequence[tuple[int, DataWarehouseNode]]
         ) -> ast.SelectQuery:
-            # TODO: Implement where conditions for data warehouse sources
             node = steps[0][1]
 
             all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
@@ -153,11 +152,7 @@ class FunnelEventQuery:
                     left=ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field]),
                     right=ast.Constant(value=date_range.date_to()),
                 ),
-                # TODO: add filter for steps here
             ]
-            # aggregation_target_filter = self._aggregation_target_filter()
-            # if aggregation_target_filter is not None:
-            #     where_exprs.append(aggregation_target_filter)
             where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
             if not skip_step_filter:
