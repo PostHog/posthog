@@ -108,6 +108,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
+            featured=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

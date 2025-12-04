@@ -72,6 +72,7 @@ interface NewSourcesWizardProps {
     onComplete?: () => void
     allowedSources?: ExternalDataSourceType[] // Filter to only show these source types
     initialSource?: ExternalDataSourceType // Pre-select this source and start on step 2
+    hideBackButton?: boolean
 }
 
 export function NewSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
@@ -117,7 +118,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 setInitialConnector(initialConnector)
             }
         }
-    }, [props.initialSource, connectors, setInitialConnector])
+    }, [props.initialSource]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const footer = useCallback(() => {
         if (currentStep === 1) {
@@ -126,15 +127,17 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
 
         return (
             <div className="flex flex-row gap-2 justify-end mt-4">
-                <LemonButton
-                    type="secondary"
-                    center
-                    data-attr="source-modal-back-button"
-                    onClick={onBack}
-                    disabledReason={!canGoBack && 'You cant go back from here'}
-                >
-                    Back
-                </LemonButton>
+                {!props.hideBackButton && (
+                    <LemonButton
+                        type="secondary"
+                        center
+                        data-attr="source-modal-back-button"
+                        onClick={onBack}
+                        disabledReason={!canGoBack && 'You cant go back from here'}
+                    >
+                        Back
+                    </LemonButton>
+                )}
                 <LemonButton
                     loading={isLoading || manualLinkIsLoading}
                     disabledReason={!canGoNext && 'You cant click next yet'}
