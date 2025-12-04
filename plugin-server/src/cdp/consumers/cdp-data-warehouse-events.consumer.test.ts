@@ -5,7 +5,6 @@ import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createKafkaMessage } from '../_tests/fixtures'
-import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
 import { CdpDataWarehouseEvent } from '../schema'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -87,8 +86,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             const event = createDataWarehouseEvent(team.id, { test_prop: 'test_value' })
@@ -121,8 +119,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             const event = createDataWarehouseEvent(99999)
@@ -147,8 +144,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             const events = [
@@ -165,8 +161,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
                 team_id: team2.id,
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             const invocations2 = await processor._parseKafkaBatch(events)
@@ -179,15 +174,14 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             const fnWithDataWarehouseFilter = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'events' },
+                filters: { ...HOG_FILTERS_EXAMPLES.no_filters.filters, source: 'events' },
             })
 
             await insertHogFunction({
@@ -216,8 +210,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                ...HOG_FILTERS_EXAMPLES.no_filters,
-                filters: { source: 'data-warehouse-table' },
+                ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             const event = createDataWarehouseEvent(team.id, { test_prop: 'test_value' })
