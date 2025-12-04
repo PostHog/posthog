@@ -188,4 +188,7 @@ class Command(BaseHyperCacheCommand):
         )
 
         # Update cache metrics
-        get_cache_stats(self.get_hypercache_config())
+        try:
+            get_cache_stats(self.get_hypercache_config())
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
