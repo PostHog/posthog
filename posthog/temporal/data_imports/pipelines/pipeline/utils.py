@@ -38,8 +38,8 @@ DLT_TO_PA_TYPE_MAP = {
     "decimal": pa.float64(),
 }
 
-DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
-DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
+# deltalake maximum precision and scale
+DEFAULT_PA_DECIMAL_TYPE = pa.decimal128(38, 32)
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
@@ -198,23 +198,15 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
 
             # If the delta table schema has a larger scale/precision, then update the
             # pyarrow schema to use the larger values so that we're not trying to downscale
-            if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
+            if isinstance(field.type, pa.Decimal128Type):
                 py_arrow_table_column = table.column(field.name)
 
-                if (
-                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
-                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
-                ) and (
+                if isinstance(py_arrow_table_column.type, pa.Decimal128Type) and (
                     field.type.precision > py_arrow_table_column.type.precision
                     or field.type.scale > py_arrow_table_column.type.scale
                 ):
                     field_index = table.schema.get_field_index(field.name)
-
-                    new_decimal_type = (
-                        pa.decimal128(field.type.precision, field.type.scale)
-                        if field.type.precision <= 38
-                        else pa.decimal256(field.type.precision, field.type.scale)
-                    )
+                    new_decimal_type = pa.decimal128(field.type.precision, field.type.scale)
 
                     new_schema = table.schema.set(
                         field_index,
@@ -505,21 +497,26 @@ def table_from_py_list(table_data: list[Any], schema: Optional[pa.Schema] = None
     return table_from_iterator(iter(table_data), schema=schema)
 
 
-def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type | pa.Decimal256Type:
-    if precision <= 38:
-        return pa.decimal128(precision, scale)
-    elif precision <= 76:
-        return pa.decimal256(precision, scale)
-    else:
-        return pa.decimal256(76, max(0, 76 - (precision - scale)))
+class DecimalPrecisionExceededException(Exception):
+    pass
 
 
-def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | pa.Decimal256Type:
+def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type:
+    if precision > 38:
+        raise DecimalPrecisionExceededException(
+            f"Decimal precision {precision} exceeds maximum supported precision of 38"
+        )
+    return pa.decimal128(precision, scale)
+
+
+def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type:
     """Determine maximum precision and scale from all `decimal.Decimal` values.
 
     Returns:
-        A `pa.Decimal128Type` or `pa.Decimal256Type` with enough precision and
-        scale to hold all `values`.
+        A `pa.Decimal128Type` with enough precision and scale to hold all `values`.
+
+    Raises:
+        DecimalPrecisionExceededException: If the required precision exceeds 38.
     """
     max_precision = 1
     max_scale = 0
@@ -551,16 +548,10 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
 
 
 def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
-    for decimal_type in [
-        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
-        pa.decimal256(76, DEFAULT_NUMERIC_SCALE),
-    ]:
-        try:
-            return pa.array(values, type=decimal_type)
-        except:
-            pass
-
-    raise ValueError("Cant build a decimal type from defaults")
+    try:
+        return pa.array(values, type=DEFAULT_PA_DECIMAL_TYPE)
+    except pa.ArrowInvalid as e:
+        raise DecimalPrecisionExceededException(f"Decimal value exceeds maximum supported precision of 38: {e}") from e
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -593,7 +584,7 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
 
             return build_pyarrow_decimal_type(precision, scale)
 
-        return pa.decimal256(DEFAULT_NUMERIC_PRECISION, DEFAULT_NUMERIC_SCALE)
+        return DEFAULT_PA_DECIMAL_TYPE
 
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
@@ -781,16 +772,13 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
-                if len(e.args) > 0 and (
-                    "does not fit into precision" in e.args[0] or "would cause data loss" in e.args[0]
-                ):
-                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
-                    new_field_type = number_arr.type
-
-                    py_type = decimal.Decimal
-                    unique_types_in_column = {decimal.Decimal}
-                else:
-                    raise
+                if len(e.args):
+                    message = e.args[0]
+                    if "does not fit into precision" in message or "would cause data loss" in message:
+                        raise DecimalPrecisionExceededException(
+                            f"Decimal value exceeds maximum supported precision of 38"
+                        ) from e
+                raise
 
             columnar_table_data[field_name] = number_arr
             if arrow_schema:
