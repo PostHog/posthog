@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -28,6 +28,7 @@ import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { STATUS_TOOLTIP, StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
@@ -81,6 +82,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             onChange={updateAssignee}
                                             disabled={issue.status != 'active'}
                                         />
+                                        <Tooltip title={STATUS_TOOLTIP[issue.status]}>
+                                            <StatusIndicator status={issue.status} className="ml-1 mr-2" />
+                                        </Tooltip>
                                         <IssueStatusSelect status={issue.status} onChange={updateStatus} />
                                     </div>
                                 }

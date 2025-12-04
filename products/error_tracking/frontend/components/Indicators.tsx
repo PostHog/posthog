@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+import React from 'react'
 
 import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
 
@@ -23,16 +24,19 @@ interface LabelIndicatorProps {
     className?: string
 }
 
-export function LabelIndicator({ intent, label, size, tooltip, className }: LabelIndicatorProps): JSX.Element {
+export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
+    { intent, label, size, tooltip, className },
+    ref
+): JSX.Element {
     return (
         <Tooltip title={tooltip} placement="right">
-            <div className={clsx('flex items-center', className, sizeVariants[size])}>
+            <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
             </div>
         </Tooltip>
     )
-}
+})
 
 const STATUS_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     active: 'Active',
@@ -58,8 +62,8 @@ const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     resolved: 'Resolve issue',
 }
 
-const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
-    suppressed: 'Stop capturing this issue',
+export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
+    suppressed: 'New occurrences of this issue are ignored',
     active: 'Ongoing issue',
     archived: undefined,
     resolved: 'Will become active again on next occurrence',
@@ -74,13 +78,10 @@ interface StatusIndicatorProps {
     className?: string
 }
 
-export function StatusIndicator({
-    status,
-    size = 'small',
-    intent = false,
-    className,
-    withTooltip,
-}: StatusIndicatorProps): JSX.Element {
+export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorProps>(function StatusIndicator(
+    { status, size = 'small', intent = false, className, withTooltip },
+    ref
+): JSX.Element {
     return (
         <LabelIndicator
             intent={STATUS_INTENT[status]}
@@ -88,6 +89,7 @@ export function StatusIndicator({
             label={intent ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
             className={className}
+            ref={ref}
         />
     )
-}
+})

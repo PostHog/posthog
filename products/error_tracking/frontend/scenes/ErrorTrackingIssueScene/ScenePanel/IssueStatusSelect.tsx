@@ -1,5 +1,4 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenuOverlay } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -14,15 +13,28 @@ export const IssueStatusSelect = ({
         <LemonButton
             type="primary"
             onClick={() => onChange(status === 'active' ? 'resolved' : 'active')}
-            sideAction={
-                status === 'active'
-                    ? {
-                          icon: <IconX />,
-                          tooltip: 'Suppress issue',
-                          onClick: () => onChange('suppressed'),
-                      }
-                    : undefined
-            }
+            sideAction={{
+                dropdown: {
+                    closeOnClickInside: false,
+                    placement: 'bottom-end',
+                    overlay: (
+                        <LemonMenuOverlay
+                            items={[
+                                status !== 'suppressed'
+                                    ? {
+                                          label: 'Suppress issue',
+                                          onClick: () => onChange('suppressed'),
+                                      }
+                                    : {
+                                          label: 'Stop suppressing, but keep resolved',
+                                          onClick: () => onChange('resolved'),
+                                      },
+                            ]}
+                        />
+                    ),
+                },
+            }}
+            size="small"
         >
             {status === 'active' ? 'Resolve' : 'Reopen'}
         </LemonButton>
