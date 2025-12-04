@@ -151,6 +151,7 @@ describe('createApplyDropRestrictionsStep', () => {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 event: '$pageview',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -175,6 +176,7 @@ describe('createApplyDropRestrictionsStep', () => {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 uuid: 'event-uuid-123',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -199,6 +201,7 @@ describe('createApplyDropRestrictionsStep', () => {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 event: '$blocked_event',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -223,6 +226,7 @@ describe('createApplyDropRestrictionsStep', () => {
                 token: 'valid-token-123',
                 distinct_id: 'user-456',
                 uuid: 'blocked-uuid-789',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }

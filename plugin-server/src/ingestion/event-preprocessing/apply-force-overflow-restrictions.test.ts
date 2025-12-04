@@ -233,6 +233,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 event: '$pageview',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -268,6 +269,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
                 token: 't-xyz',
                 distinct_id: 'd-1',
                 uuid: 'event-uuid-123',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -303,6 +305,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
                 token: 't-abc',
                 distinct_id: 'd-2',
                 event: '$blocked_event',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
@@ -338,6 +341,7 @@ describe('createApplyForceOverflowRestrictionsStep', () => {
                 token: 't-abc',
                 distinct_id: 'd-2',
                 uuid: 'blocked-uuid-789',
+                historical_migration: false,
                 force_disable_person_processing: false,
             },
         }
