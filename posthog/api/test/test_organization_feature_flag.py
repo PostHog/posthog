@@ -703,3 +703,50 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         copied_flag = FeatureFlag.objects.get(key=remote_config_flag.key, team=target_project)
         self.assertTrue(copied_flag.is_remote_configuration)
         self.assertFalse(copied_flag.has_encrypted_payloads)
+
+    def test_copy_encrypted_payloads_flag(self):
+        """Test that copying a flag with encrypted payloads decrypts them before copying."""
+        from posthog.helpers.encrypted_flag_payloads import encrypt_flag_payloads
+
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        # Create a flag with encrypted payloads
+        flag_data = {
+            "groups": [{"rollout_percentage": 100}],
+            "payloads": {"true": '{"key": "secret_value"}'},
+        }
+        encrypt_flag_payloads({"has_encrypted_payloads": True, "filters": flag_data})
+
+        encrypted_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="encrypted-flag",
+            filters=flag_data,
+            rollout_percentage=100,
+            is_remote_configuration=True,
+            has_encrypted_payloads=True,
+        )
+
+        data = {
+            "feature_flag_key": encrypted_flag.key,
+            "from_project": encrypted_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["is_remote_configuration"], True)
+        self.assertEqual(flag_response["has_encrypted_payloads"], True)
+        self.assertEqual(flag_response["key"], encrypted_flag.key)
+
+        # Verify the flag in the database has encrypted payloads
+        copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
+        self.assertTrue(copied_flag.is_remote_configuration)
+        self.assertTrue(copied_flag.has_encrypted_payloads)
+        # The payload should be encrypted in the database (different from original since it was decrypted and re-encrypted)
+        self.assertIsNotNone(copied_flag.filters.get("payloads", {}).get("true"))
