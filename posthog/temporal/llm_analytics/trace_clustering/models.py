@@ -49,6 +49,13 @@ class ClusterLabel:
     description: str
 
 
+class TraceClusterMetadata(TypedDict):
+    """Metadata for a trace within a cluster."""
+
+    distance_to_centroid: float
+    rank: int
+
+
 @dataclass
 class ClusterData:
     """Data structure for a cluster to be emitted in events."""
@@ -57,7 +64,7 @@ class ClusterData:
     size: int
     title: str
     description: str
-    traces: dict[str, dict]  # trace_id -> {distance_to_centroid, rank}
+    traces: dict[str, TraceClusterMetadata]
     centroid: list[float]
 
 
