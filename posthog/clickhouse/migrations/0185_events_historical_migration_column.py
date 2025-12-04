@@ -8,7 +8,7 @@ ADD COLUMN IF NOT EXISTS historical_migration Bool
 
 ADD_HISTORICAL_MIGRATION_COLUMN_INDEX = """
 ALTER TABLE {table}
-ADD INDEX IF NOT EXISTS historical_migration_set (historical_migration) TYPE minmax GRANULARITY 1
+ADD INDEX IF NOT EXISTS historical_migration_minmax (historical_migration) TYPE minmax GRANULARITY 1
 """
 
 operations = [
