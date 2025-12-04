@@ -494,7 +494,7 @@ async def materialize_model(
                 )
 
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
+            schema_mode: typing.Literal["merge", "overwrite"] | None = None
             if index == 0:
                 mode = "overwrite"
                 schema_mode = "overwrite"
@@ -503,6 +503,7 @@ async def materialize_model(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
 
+            write_start = dt.datetime.now()
             deltalake.write_deltalake(
                 table_or_uri=delta_table,
                 storage_options=storage_options,
@@ -511,10 +512,18 @@ async def materialize_model(
                 schema_mode=schema_mode,
                 engine="rust",
             )
+            write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
+
+            save_start = dt.datetime.now()
             await database_sync_to_async(job.save)()
+            save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            await logger.adebug(
+                f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
+            )
 
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
