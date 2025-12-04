@@ -2552,6 +2552,9 @@ importers:
       react:
         specifier: '*'
         version: 18.2.0
+      use-debounce:
+        specifier: ^9.0.3
+        version: 9.0.3(react@18.2.0)
       zod:
         specifier: '*'
         version: 3.25.76
