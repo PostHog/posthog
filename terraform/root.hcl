@@ -20,9 +20,9 @@ remote_state {
     if_exists = "overwrite"
   }
   config = {
-    bucket         = get_env("TF_STATE_BUCKET")
+    bucket         = get_env("POSTHOG_PROVIDER_TF_STATE_BUCKET")
     key            = "posthog-provider/${path_relative_to_include()}/terraform.tfstate"
-    region         = get_env("TF_STATE_REGION")
+    region         = get_env("POSTHOG_PROVIDER_TF_STATE_REGION")
     use_lockfile   = true
     encrypt        = true
   }

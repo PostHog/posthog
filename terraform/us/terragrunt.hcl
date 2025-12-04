@@ -17,5 +17,5 @@ generate "providers_region.tf" {
 }
 
 inputs = {
-  posthog_api_key = get_env("POSTHOG_API_KEY")
+  posthog_api_key = get_env("POSTHOG_PROVIDER_POSTHOG_API_KEY")
 }
