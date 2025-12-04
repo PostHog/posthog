@@ -3,6 +3,7 @@ import './ActionFilterGroup.scss'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { BuiltLogic, useActions } from 'kea'
+import { useValues } from 'kea'
 
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
@@ -11,6 +12,7 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { uuid } from 'lib/utils'
+import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
 import { EntityTypes, FilterLogicalOperator } from '~/types'
 
@@ -53,6 +55,7 @@ export function ActionFilterGroup({
     trendsDisplayCategory,
 }: ActionFilterGroupProps): JSX.Element {
     const { updateFilter: updateSeriesFilter, removeLocalFilter, splitLocalFilter } = useActions(logic)
+    const { mathDefinitions } = useValues(mathsLogic)
 
     // Ensure nested filters have order set for entityFilterVisible tracking.
     // This is critical after deletion: if we delete event[1] from [0,1,2], we get [0,2] but need [0,1].
@@ -97,6 +100,19 @@ export function ActionFilterGroup({
                         index,
                     } as any)
                 },
+                updateFilterMath: (updates: any) => {
+                    const newValues = [...values]
+                    newValues[eventIndex] = {
+                        ...newValues[eventIndex],
+                        ...updates,
+                    }
+                    updateSeriesFilter({
+                        type: EntityTypes.GROUPS,
+                        operator: filter.operator,
+                        values: newValues,
+                        index,
+                    } as any)
+                },
                 removeLocalFilter: () => {
                     const newValues = values.filter((_, i) => i !== eventIndex)
                     const groupName = newValues.map((v) => v.name).join(', ')
@@ -126,17 +142,46 @@ export function ActionFilterGroup({
         } as any)
     }
 
-    const handleMathChange = (filterIndex: number, math: string): void => {
+    const handleMathChange = (filterIndex: number, selectedMath?: string): void => {
+        let mathProperties
+        const mathProperty = filter.math_property
+        const mathHogQL = filter.math_hogql
+        const mathPropertyType = filter.math_property_type
+
+        if (selectedMath) {
+            const selectedMathDef = (mathDefinitions as Record<string, any>)[selectedMath]
+            const math_property =
+                selectedMathDef?.category === MathCategory.PropertyValue ? (mathProperty ?? '$time') : undefined
+            const math_hogql =
+                selectedMathDef?.category === MathCategory.HogQLExpression ? (mathHogQL ?? 'count()') : undefined
+            const apiValues = mathTypeToApiValues(selectedMath)
+            mathProperties = {
+                ...apiValues,
+                ...(apiValues.math_group_type_index === undefined && { math_group_type_index: undefined }),
+                math_property,
+                math_hogql,
+                math_property_type: mathPropertyType,
+            }
+        } else {
+            mathProperties = {
+                math_property: undefined,
+                math_property_type: undefined,
+                math_hogql: undefined,
+                math_group_type_index: undefined,
+                math: undefined,
+            }
+        }
+
         // Propagate math to all nested values
         const updatedValues = values.map((val) => ({
             ...val,
-            math: math || undefined,
+            ...mathProperties,
         }))
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
             values: updatedValues,
-            math: math || undefined,
+            ...mathProperties,
             index: filterIndex,
         } as any)
     }
@@ -217,6 +262,7 @@ export function ActionFilterGroup({
                             <MathSelector
                                 size="small"
                                 math={filter.math}
+                                mathGroupTypeIndex={filter.math_group_type_index}
                                 index={index}
                                 onMathSelect={handleMathChange}
                                 disabled={disabled || readOnly}
