@@ -74,8 +74,7 @@ const SectionButton = ({
 
 export const HeatmapToolbarMenu = (): JSX.Element => {
     const { wildcardHref, autoWildcardEnabled } = useValues(currentPageLogic)
-    const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled, onWildcardHrefBlur } =
-        useActions(currentPageLogic)
+    const { setWildcardHref, autoWildcardHref, setAutoWildcardEnabled } = useActions(currentPageLogic)
 
     const {
         matchLinksByHref,
@@ -110,12 +109,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <div className="flex gap-1">
-                    <LemonInput
-                        className="flex-1"
-                        value={wildcardHref}
-                        onChange={setWildcardHref}
-                        onBlur={onWildcardHrefBlur}
-                    />
+                    <LemonInput className="flex-1" value={wildcardHref} onChange={setWildcardHref} />
                     <LemonButton
                         type={autoWildcardEnabled ? 'primary' : 'secondary'}
                         icon={<IconMagicWand />}
