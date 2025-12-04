@@ -217,15 +217,8 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
-    const {
-        experimentLoading,
-        experimentId,
-        experiment,
-        usesNewQueryRunner,
-        isExperimentDraft,
-        exposureCriteria,
-        featureFlags,
-    } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, isExperimentDraft, exposureCriteria } =
+        useValues(experimentLogic)
     const { setExperiment, updateExperimentMetrics, addSharedMetricsToExperiment, removeSharedMetricFromExperiment } =
         useActions(experimentLogic)
 
@@ -240,10 +233,6 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
     const { closeSharedMetricModal } = useActions(sharedMetricModalLogic)
 
     /**
-     * this is temporary, for testing purposes only.
-     * this has to be migrated into a scene with a proper path, and paramsToProps
-     * so it works seamlesly with the toolbar and tab bar navigation.
-     *
      * We show the create form if the experiment is draft + has no primary metrics. Otherwise,
      * we show the experiment view.
      */
@@ -256,8 +245,7 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
         !experimentLoading &&
         getExperimentStatus(experiment) === ProgressStatus.Draft &&
         experiment.type === 'product' &&
-        allPrimaryMetrics.length === 0 &&
-        featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_CREATE_FORM] === 'test'
+        allPrimaryMetrics.length === 0
     ) {
         return <CreateExperiment draftExperiment={experiment} tabId={tabId} />
     }
