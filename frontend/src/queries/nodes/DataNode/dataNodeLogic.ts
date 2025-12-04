@@ -987,6 +987,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }, AUTOLOAD_INTERVAL)
                     return () => window.clearInterval(timerId)
                 }, 'autoLoadInterval')
+            } else {
+                cache.disposables.dispose('autoLoadInterval')
             }
         },
         dataLoading: (dataLoading) => {

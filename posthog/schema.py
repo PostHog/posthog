@@ -23,6 +23,7 @@ class AIEventType(StrEnum):
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
+    FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -1787,6 +1788,11 @@ class MaterializationMode(StrEnum):
     DISABLED = "disabled"
 
 
+class MaterializedColumnsOptimizationMode(StrEnum):
+    DISABLED = "disabled"
+    OPTIMIZED = "optimized"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -2002,6 +2008,8 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CPC = "CPC"
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
+    REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -2014,6 +2022,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     IMPRESSIONS = "impressions"
     SOURCE = "source"
     REPORTED_CONVERSION = "reported_conversion"
+    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2655,6 +2664,7 @@ class PropertyFilterType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     FLAG = "flag"
     LOG = "log"
+    WORKFLOW_VARIABLE = "workflow_variable"
 
 
 class PropertyMathType(StrEnum):
@@ -3139,6 +3149,7 @@ class SourceMap(BaseModel):
     id: str | None = None
     impressions: str | None = None
     reported_conversion: str | None = None
+    reported_conversion_value: str | None = None
     source: str | None = None
 
 
@@ -3341,6 +3352,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+    WORKFLOW_VARIABLES = "workflow_variables"
 
 
 class TestSetupRequest(BaseModel):
@@ -4747,6 +4759,7 @@ class HogQLQueryModifiers(BaseModel):
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
     materializationMode: MaterializationMode | None = None
+    materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
@@ -12118,6 +12131,12 @@ class TracesQuery(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    randomOrder: bool | None = Field(
+        default=None,
+        description=(
+            "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias."
+        ),
+    )
     response: TracesQueryResponse | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None

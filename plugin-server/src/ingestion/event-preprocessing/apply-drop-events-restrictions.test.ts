@@ -30,7 +30,11 @@ describe('createApplyDropRestrictionsStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith('valid-token-123', 'user-456')
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            undefined
+        )
     })
 
     it('should return drop when token is present but should be dropped', async () => {
@@ -49,7 +53,8 @@ describe('createApplyDropRestrictionsStep', () => {
         expect(result).toEqual(drop('blocked_token'))
         expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
             'blocked-token-abc',
-            'blocked-user-def'
+            'blocked-user-def',
+            undefined
         )
     })
 
@@ -63,7 +68,7 @@ describe('createApplyDropRestrictionsStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined, undefined)
     })
 
     it('should handle empty headers', async () => {
@@ -78,6 +83,50 @@ describe('createApplyDropRestrictionsStep', () => {
         const result = await step(input)
 
         expect(result).toEqual(ok(input))
-        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined)
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(undefined, undefined, undefined)
+    })
+
+    it('should pass session_id when present in headers', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 'valid-token-123',
+                distinct_id: 'user-456',
+                session_id: 'session-789',
+                force_disable_person_processing: false,
+            },
+        }
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(false)
+
+        const result = await step(input)
+
+        expect(result).toEqual(ok(input))
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            'session-789'
+        )
+    })
+
+    it('should drop event when session_id is restricted', async () => {
+        const input = {
+            message: {} as any,
+            headers: {
+                token: 'valid-token-123',
+                distinct_id: 'user-456',
+                session_id: 'blocked-session-789',
+                force_disable_person_processing: false,
+            },
+        }
+        jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
+
+        const result = await step(input)
+
+        expect(result).toEqual(drop('blocked_token'))
+        expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            'valid-token-123',
+            'user-456',
+            'blocked-session-789'
+        )
     })
 })

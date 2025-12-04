@@ -22,6 +22,13 @@ For local dev the defaults are:
 - `DUCKLAKE_S3_ACCESS_KEY=object_storage_root_user`
 - `DUCKLAKE_S3_SECRET_KEY=object_storage_root_password`
 
+## Feature flag gating
+
+The modeling workflow launches the DuckLake copy child only when the
+`ducklake-data-modeling-copy-workflow` feature flag is enabled for the team (as evaluated
+via `feature_enabled`). Create or update that flag locally to target the team you are testing
+with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
+
 ## Target bucket layout
 
 Every model copy is written to a deterministic prefix inside the DuckLake data bucket. Each workflow
@@ -50,12 +57,7 @@ For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:
 Follow this checklist to exercise the DuckLake copy workflow on a local checkout without needing extra tribal knowledge:
 
 1. **Start the dev stack**  
-   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up.
-
-   ```bash
-   export DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED=true
-   hogli start
-   ```
+   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-modeling-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a model materialization from the app**  
    In the PostHog UI, open Data Warehouse → Views, pick (or create) a view, open the Materialization section, enable it if needed, and click **Sync now**. This schedules the `data-modeling-run` workflow for that team/view.
