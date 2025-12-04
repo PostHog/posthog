@@ -431,6 +431,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
     },
+    [Scene.MarketingAnalytics]: {
+        projectBased: true,
+        name: 'Marketing analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing-analytics',
+        description: 'Analyze your marketing performance across channels with ad spend, conversions, and ROI metrics.',
+        iconType: 'marketing_analytics',
+    },
     [Scene.SavedInsights]: {
         projectBased: true,
         name: 'Product analytics',
@@ -531,6 +539,11 @@ export const redirects: Record<
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
+    '/web/marketing': (_, searchParams) => {
+        const params = new URLSearchParams(searchParams as Record<string, string>).toString()
+        return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
+    },
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -621,9 +634,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],

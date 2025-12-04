@@ -3,11 +3,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
-import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -48,10 +47,6 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
-import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
-import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -85,23 +80,6 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                     }
                     return null
                 })}
-        </div>
-    )
-}
-
-const MarketingTiles = (props: { tiles?: QueryTile[]; compact?: boolean }): JSX.Element => {
-    const { tiles, compact = false } = props
-
-    return (
-        <div
-            className={clsx(
-                'mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3',
-                compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
-            )}
-        >
-            {tiles?.map((tile, i) => (
-                <QueryTileItem key={i} tile={tile} />
-            ))}
         </div>
     )
 }
@@ -424,8 +402,6 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
-        case ProductTab.MARKETING:
-            return <MarketingAnalyticsFilters tabs={tabs} />
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -439,68 +415,7 @@ const MainContent = (): JSX.Element => {
         return <PageReports />
     }
 
-    if (productTab === ProductTab.MARKETING) {
-        return <MarketingDashboard />
-    }
-
     return <Tiles />
-}
-
-const MarketingDashboard = (): JSX.Element => {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { validExternalTables, validNativeSources, loading } = useValues(marketingAnalyticsLogic)
-    const { tiles: marketingTiles } = useValues(marketingAnalyticsTilesLogic)
-
-    const feedbackBanner = (
-        <LemonBanner
-            type="info"
-            dismissKey="marketing-analytics-beta-banner"
-            className="mb-2 mt-4"
-            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
-        >
-            Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
-            directly to us!
-        </LemonBanner>
-    )
-
-    let component: JSX.Element | null = null
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
-        // fallback in case the user is able to access the page but the feature flag is not enabled
-        component = (
-            <LemonBanner type="info">
-                You can enable marketing analytics in the feature preview settings{' '}
-                <Link to="https://app.posthog.com/settings/user-feature-previews#marketing-analytics">here</Link>.
-            </LemonBanner>
-        )
-    } else if (loading) {
-        component = <LemonSkeleton />
-    } else if (validExternalTables.length === 0 && validNativeSources.length === 0) {
-        // if the user has no sources configured, show a warning instead of an empty state
-        component = (
-            <ProductIntroduction
-                productName="Marketing Analytics"
-                productKey={ProductKey.MARKETING_ANALYTICS}
-                thingName="marketing integration"
-                titleOverride="Add your first marketing integration"
-                description="To enable marketing analytics, you need to integrate your marketing data sources. You can do this in the settings by adding a native (like Google Ads) or non-native (from a bucket like S3) source."
-                action={() => window.open(urls.settings('environment-marketing-analytics'), '_blank')}
-                isEmpty={true}
-                docsURL="https://posthog.com/docs/web-analytics/marketing-analytics"
-                customHog={FilmCameraHog}
-            />
-        )
-    } else {
-        // if the user has sources configured and the feature flag is enabled, show the marketing tiles
-        component = <MarketingTiles tiles={marketingTiles} />
-    }
-
-    return (
-        <>
-            {feedbackBanner}
-            <MarketingAnalyticsSourceStatusBanner />
-            {component}
-        </>
-    )
 }
 
 const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
@@ -519,26 +434,6 @@ const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label
                 </div>
             ),
             link: '/web/page-reports',
-        },
-    ]
-}
-
-const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
-        return []
-    }
-    return [
-        {
-            key: ProductTab.MARKETING,
-            label: (
-                <div className="flex items-center gap-1">
-                    Marketing
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            link: '/web/marketing',
         },
     ]
 }
@@ -580,7 +475,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 ...pageReportsTab(featureFlags),
-                ...marketingTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"

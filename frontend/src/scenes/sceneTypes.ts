@@ -158,6 +158,7 @@ export enum Scene {
     Logs = 'Logs',
     ManagedMigration = 'ManagedMigration',
     ManagedMigrationNew = 'ManagedMigrationNew',
+    MarketingAnalytics = 'MarketingAnalytics',
     MessagingLibraryTemplate = 'MessagingLibraryTemplate',
     NewAction = 'NewAction',
     TaskDetail = 'TaskDetail',
@@ -291,6 +292,9 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+
+    // Marketing Analytics
+    [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,

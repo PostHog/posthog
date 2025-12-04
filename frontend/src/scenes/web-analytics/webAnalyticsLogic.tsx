@@ -109,7 +109,6 @@ import {
     sessionPropertiesToPathClean,
 } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -128,8 +127,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsTilesLogic,
-            ['tiles as marketingTiles'],
         ],
     })),
     actions({
@@ -921,7 +918,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.isGreaterThanMd,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
-                s.marketingTiles,
                 s.hiddenTiles,
             ],
             (
@@ -942,7 +938,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 isGreaterThanMd,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles,
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -1214,10 +1209,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             },
                         },
                     ]
-                }
-
-                if (productTab === ProductTab.MARKETING) {
-                    return marketingTiles as unknown as WebAnalyticsTile[]
                 }
 
                 const allTiles: (WebAnalyticsTile | null)[] = [
@@ -2248,8 +2239,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.MARKETING) {
-                basePath = '/web/marketing'
             }
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
@@ -2309,11 +2298,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 productTab = ProductTab.ANALYTICS
             }
 
-            if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
-                    productTab
-                )
-            ) {
+            if (![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS].includes(productTab)) {
                 return
             }
 

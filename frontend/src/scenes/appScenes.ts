@@ -60,6 +60,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Login2FA]: () => import('./authentication/Login2FA'),
     [Scene.EmailMFAVerify]: () => import('./authentication/EmailMFAVerify'),
     [Scene.Login]: () => import('./authentication/Login'),
+    [Scene.MarketingAnalytics]: () => import('./marketing-analytics/MarketingAnalyticsScene'),
     [Scene.Max]: () => import('./max/Max'),
     [Scene.MoveToPostHogCloud]: () => import('./moveToPostHogCloud/MoveToPostHogCloud'),
     [Scene.NewTab]: () => import('./new-tab/NewTabScene'),
