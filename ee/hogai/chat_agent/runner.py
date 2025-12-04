@@ -67,6 +67,7 @@ class ChatAgentRunner(BaseAgentRunner):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
+        is_workflow_billable: bool = True,
     ):
         super().__init__(
             team,
@@ -83,6 +84,7 @@ class ChatAgentRunner(BaseAgentRunner):
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,
+            is_workflow_billable=is_workflow_billable,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
