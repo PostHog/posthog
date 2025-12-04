@@ -195,7 +195,7 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
-    let personsStoreForBatch: BatchWritingPersonsStoreForBatch
+    let personsStoreForBatch: BatchWritingPersonsStore
     let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
