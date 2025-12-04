@@ -149,6 +149,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -168,6 +169,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -186,6 +188,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -211,6 +214,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -230,6 +234,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -274,6 +279,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -288,6 +294,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -323,6 +330,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
@@ -339,6 +347,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -355,6 +364,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
@@ -380,6 +390,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -399,6 +410,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -417,6 +429,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -441,6 +454,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -460,6 +474,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -504,6 +519,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -518,6 +534,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -553,6 +570,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
@@ -569,6 +587,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -585,6 +604,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
