@@ -1,5 +1,5 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, Hub, IncomingEventWithTeam } from '../../types'
 import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
@@ -8,6 +8,7 @@ import { PipelineResult, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
+    headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean

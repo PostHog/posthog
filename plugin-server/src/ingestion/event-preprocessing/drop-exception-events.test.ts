@@ -1,3 +1,4 @@
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { drop, ok } from '../pipelines/results'
 import { createDropExceptionEventsStep } from './drop-exception-events'
 
@@ -17,12 +18,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
@@ -43,12 +43,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
@@ -69,12 +68,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
@@ -95,12 +93,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
@@ -121,12 +118,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
@@ -147,12 +143,11 @@ describe('createDropExceptionEventsStep', () => {
                         now: '2021-01-01T00:00:00Z',
                         uuid: '123e4567-e89b-12d3-a456-426614174000',
                     },
-                    headers: {
+                    headers: createTestEventHeaders({
                         token: 'token123',
                         distinct_id: 'user123',
                         timestamp: '2021-01-01T00:00:00Z',
-                        force_disable_person_processing: false,
-                    },
+                    }),
                 },
             }
 
