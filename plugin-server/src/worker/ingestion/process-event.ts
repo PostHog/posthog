@@ -257,7 +257,8 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
-            historical_migration: historicalMigration,
+            // Only include historical_migration when true to avoid bloating messages
+            ...(historicalMigration ? { historical_migration: true } : {}),
         }
 
         return rawEvent

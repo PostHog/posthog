@@ -831,10 +831,10 @@ describe('IngestionConsumer', () => {
             expect(oldEventMessage).toBeDefined()
             expect(oldEventMessage?.value.historical_migration).toBe(true)
 
-            // Recent event should have historical_migration: false (<48 hours)
+            // Recent event should not have historical_migration set (<48 hours, defaults to false)
             const recentEventMessage = eventsTopicMessages.find((m) => m.value.event === 'recent-event')
             expect(recentEventMessage).toBeDefined()
-            expect(recentEventMessage?.value.historical_migration).toBe(false)
+            expect(recentEventMessage?.value.historical_migration).toBeUndefined()
         })
     })
 
