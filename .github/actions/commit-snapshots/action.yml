@@ -164,7 +164,7 @@ runs:
               .github/scripts/post-snapshot-comment.js \
                 "$WORKFLOW_TYPE" \
                 "update" \
-                '$CHANGES' \
+                "$CHANGES" \
                 "$PR_NUMBER" \
                 "$REPOSITORY" \
                 "$COMMIT_SHA" \
