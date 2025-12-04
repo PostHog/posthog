@@ -8,17 +8,24 @@ import { useValues } from 'kea'
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
+import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover, TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import {
+    TaxonomicPopover,
+    TaxonomicPopoverProps,
+    TaxonomicStringPopover,
+} from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { uuid } from 'lib/utils'
 import { MathCategory, mathTypeToApiValues, mathsLogic } from 'scenes/trends/mathsLogic'
 
-import { EntityTypes, FilterLogicalOperator } from '~/types'
+import { BaseMathType, EntityTypes, FilterLogicalOperator } from '~/types'
 
 import { ActionFilterRow, MathAvailability, MathSelector } from '../ActionFilterRow/ActionFilterRow'
 import { LocalFilter } from '../entityFilterLogic'
 import { entityFilterLogicType } from '../entityFilterLogicType'
+import { actionFilterGroupLogic } from './actionFilterGroupLogic'
 
 interface ActionFilterGroupProps {
     logic: BuiltLogic<entityFilterLogicType>
@@ -56,6 +63,8 @@ export function ActionFilterGroup({
 }: ActionFilterGroupProps): JSX.Element {
     const { updateFilter: updateSeriesFilter, removeLocalFilter, splitLocalFilter } = useActions(logic)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { isHogQLDropdownVisible } = useValues(actionFilterGroupLogic({ filterUuid: filter.uuid }))
+    const { setHogQLDropdownVisible } = useActions(actionFilterGroupLogic({ filterUuid: filter.uuid }))
 
     // Ensure nested filters have order set for entityFilterVisible tracking.
     // This is critical after deletion: if we delete event[1] from [0,1,2], we get [0,2] but need [0,1].
@@ -186,6 +195,48 @@ export function ActionFilterGroup({
         } as any)
     }
 
+    const handleMathPropertySelect = (property: string, groupType: TaxonomicFilterGroupType): void => {
+        const mathProperties = {
+            math_property: property,
+            math_property_type: groupType,
+            math_hogql: undefined,
+        }
+        // Propagate to all nested values
+        const updatedValues = values.map((val) => ({
+            ...val,
+            ...mathProperties,
+        }))
+        updateSeriesFilter({
+            type: EntityTypes.GROUPS,
+            operator: filter.operator,
+            values: updatedValues,
+            math: filter.math,
+            ...mathProperties,
+            index,
+        } as any)
+    }
+
+    const handleMathHogQLSelect = (hogql: string): void => {
+        const mathProperties = {
+            math_property: undefined,
+            math_property_type: undefined,
+            math_hogql: hogql,
+        }
+        // Propagate to all nested values
+        const updatedValues = values.map((val) => ({
+            ...val,
+            ...mathProperties,
+        }))
+        updateSeriesFilter({
+            type: EntityTypes.GROUPS,
+            operator: filter.operator,
+            values: updatedValues,
+            math: filter.math,
+            ...mathProperties,
+            index,
+        } as any)
+    }
+
     const handleAddEvent = (changedValue: any, taxonomicGroupType: any, item: any): void => {
         const newEvent: LocalFilter = {
             id: changedValue ? String(changedValue) : null,
@@ -222,19 +273,19 @@ export function ActionFilterGroup({
             }}
         >
             <div className="ActionFilterGroup__wrapper">
-                {/* Top row: Series indicator, Operator, Aggregation */}
                 <div className="ActionFilterGroup__header-row">
-                    {showSeriesIndicator && (
-                        <div className="ActionFilterGroup__series-indicator">
-                            {seriesIndicatorType === 'numeric' ? (
-                                <span>{index + 1}</span>
-                            ) : (
-                                <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
-                            )}
-                        </div>
-                    )}
+                    {/* First row: badge, operator, math controls */}
+                    <div className="ActionFilterGroup__configuration">
+                        {showSeriesIndicator && (
+                            <div className="ActionFilterGroup__series-indicator">
+                                {seriesIndicatorType === 'numeric' ? (
+                                    <span>{index + 1}</span>
+                                ) : (
+                                    <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
+                                )}
+                            </div>
+                        )}
 
-                    <div className="ActionFilterGroup__header-controls">
                         <div className="ActionFilterGroup__control-group">
                             <span className="ActionFilterGroup__control-label">Operator:</span>
                             <LemonSelect
@@ -257,6 +308,7 @@ export function ActionFilterGroup({
                                 data-attr={`group-operator-selector-${index}`}
                             />
                         </div>
+
                         <div className="ActionFilterGroup__control-group">
                             <span className="ActionFilterGroup__control-label">Math:</span>
                             <MathSelector
@@ -269,11 +321,33 @@ export function ActionFilterGroup({
                                 mathAvailability={MathAvailability.All}
                                 trendsDisplayCategory={trendsDisplayCategory}
                             />
+                            {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
+                                ?.category === MathCategory.PropertyValue && (
+                                <TaxonomicStringPopover
+                                    groupType={
+                                        filter.math_property_type || TaxonomicFilterGroupType.NumericalEventProperties
+                                    }
+                                    groupTypes={[
+                                        TaxonomicFilterGroupType.DataWarehouseProperties,
+                                        TaxonomicFilterGroupType.NumericalEventProperties,
+                                        TaxonomicFilterGroupType.SessionProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                                    ]}
+                                    value={filter.math_property}
+                                    onChange={(currentValue, groupType) =>
+                                        handleMathPropertySelect(currentValue, groupType)
+                                    }
+                                    eventNames={values.map((v) => v.name).filter(Boolean) as string[]}
+                                    data-attr="math-property-select"
+                                    showNumericalPropsOnly={showNumericalPropsOnly}
+                                />
+                            )}
                         </div>
                     </div>
 
                     {!readOnly && (
-                        <>
+                        <div className="ActionFilterGroup__configuration_buttons">
                             <Tooltip title="Remove group">
                                 <LemonButton
                                     size="small"
@@ -292,7 +366,43 @@ export function ActionFilterGroup({
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
-                        </>
+                        </div>
+                    )}
+
+                    {/* SQL selector (only shown when HogQL expression is selected) */}
+                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]?.category ===
+                        MathCategory.HogQLExpression && (
+                        <div className="ActionFilterGroup__hogql_selector">
+                            <div className="ActionFilterGroup__control-group">
+                                <LemonDropdown
+                                    visible={isHogQLDropdownVisible}
+                                    closeOnClickInside={false}
+                                    onClickOutside={() => setHogQLDropdownVisible(false)}
+                                    overlay={
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                            <HogQLEditor
+                                                value={filter.math_hogql || 'count()'}
+                                                onChange={(currentValue) => {
+                                                    handleMathHogQLSelect(currentValue)
+                                                    setHogQLDropdownVisible(false)
+                                                }}
+                                            />
+                                        </div>
+                                    }
+                                >
+                                    <LemonButton
+                                        fullWidth
+                                        type="secondary"
+                                        size="small"
+                                        data-attr={`math-hogql-select-${index}`}
+                                        onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                                    >
+                                        <code>{filter.math_hogql || 'count()'}</code>
+                                    </LemonButton>
+                                </LemonDropdown>
+                            </div>
+                        </div>
                     )}
                 </div>
 

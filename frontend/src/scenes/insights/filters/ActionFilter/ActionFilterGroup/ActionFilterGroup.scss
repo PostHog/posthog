@@ -1,7 +1,10 @@
 .ActionFilterGroup {
+    max-width: 100%;
     list-style: none;
 
     &__wrapper {
+        display: flex;
+        flex-direction: column;
         overflow: hidden;
         border: 1px solid var(--color-border-primary);
         border-radius: var(--radius);
@@ -16,11 +19,35 @@
     /* Header row */
     &__header-row {
         display: flex;
-        gap: 12px;
-        align-items: center;
-        justify-content: space-between;
+        flex-shrink: 0;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-content: flex-start;
+        align-items: flex-start;
+        min-width: 0;
         padding: 12px 16px;
         border-bottom: 1px solid var(--color-border-primary);
+    }
+
+    &__configuration {
+        display: flex;
+        flex-shrink: 1;
+        gap: 8px;
+        align-items: center;
+        order: 1;
+        min-width: 0;
+        max-width: 80%;
+    }
+
+    &__configuration_buttons {
+        display: flex;
+        flex-basis: auto;
+        flex-shrink: 0;
+        gap: 4px;
+        align-self: center;
+        order: 2;
+        margin-left: auto;
+        white-space: nowrap;
     }
 
     &__series-indicator {
@@ -40,11 +67,14 @@
 
     &__control-group {
         display: flex;
+        flex-shrink: 1;
+        flex-wrap: wrap;
         gap: 8px;
         align-items: center;
         min-width: 0;
 
         .LemonSelect {
+            min-width: 0;
             height: 100%;
             white-space: nowrap;
         }
@@ -68,6 +98,17 @@
         background-color: var(--color-bg-secondary);
         border: 1px solid var(--color-border-light);
         border-radius: 4px;
+    }
+
+    &__hogql_selector {
+        display: flex;
+        flex-basis: 100%;
+        flex-shrink: 1;
+        gap: 8px;
+        align-items: center;
+        order: 3;
+        min-width: 0;
+        padding: 8px 0 0;
     }
 
     /* Events section */
