@@ -805,11 +805,11 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.297.0
-        version: 1.297.0
+        specifier: 1.301.1
+        version: 1.301.1
       posthog-js-lite:
-        specifier: 4.1.0
-        version: 4.1.0
+        specifier: 4.2.1
+        version: 4.2.1
       prettier:
         specifier: ^3.6.2
         version: 3.6.2
@@ -6492,6 +6492,9 @@ packages:
 
   '@posthog/core@1.5.3':
     resolution: {integrity: sha512-1cHCMR2uS/rAdBIFlBPJ4rPYaw1O42VkFy/LwQLtoy2hMQb2DdhCoSHfgA66R9TvcOybZsSANlbuihmGEZUKVQ==}
+
+  '@posthog/core@1.7.0':
+    resolution: {integrity: sha512-d6ZV4grpzeH/6/LP8quMVpSjY1puRkrqfwcPvGRKUAX7tb7YHyp/zMiTDuJmOFbpUxAMBXH5nDwcPiyCY2WGzA==}
 
   '@posthog/icons@0.35.2':
     resolution: {integrity: sha512-JLPjPzaK+K7xy8VSXQ8+u+Bpq9jl1vddIeofX6GcbH98X+C+UG14JFYoCejjAen/xL1o7fBco6uvvmeu+mDfEQ==}
@@ -16536,11 +16539,14 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@4.1.0:
-    resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
+  posthog-js-lite@4.2.1:
+    resolution: {integrity: sha512-E5sN4Z9TxEdp/L7HkyuvMs3demijmXcgbtGPj1ykPq+aCyPgGOvL745p4rIPVwzBZoqjoIdqRls8ck+LVRHCdQ==}
 
   posthog-js@1.297.0:
     resolution: {integrity: sha512-+kHHe3oTRLPBokks5E2pojDfx0yAzkXLeN8BCfVY9kZ7eaaHuezpFb4DQ7i4hzI5nMFDe5qWotsUO73/GR6lmw==}
+
+  posthog-js@1.301.1:
+    resolution: {integrity: sha512-ikkW716dfO1RkLREq5nrVDmcfQTrQfk3sAcP0ExuvSJ9NWOsvA2hz75bgV3GcHqG9xYlSm7Qe6Fzbn5kzx6MiQ==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -25707,6 +25713,10 @@ snapshots:
   '@posthog/core@1.4.0': {}
 
   '@posthog/core@1.5.3':
+    dependencies:
+      cross-spawn: 7.0.6
+
+  '@posthog/core@1.7.0':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -38346,11 +38356,21 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@4.1.0: {}
+  posthog-js-lite@4.2.1:
+    dependencies:
+      '@posthog/core': 1.7.0
 
   posthog-js@1.297.0:
     dependencies:
       '@posthog/core': 1.5.3
+      core-js: 3.46.0
+      fflate: 0.4.8
+      preact: 10.27.2
+      web-vitals: 4.2.4
+
+  posthog-js@1.301.1:
+    dependencies:
+      '@posthog/core': 1.7.0
       core-js: 3.46.0
       fflate: 0.4.8
       preact: 10.27.2
