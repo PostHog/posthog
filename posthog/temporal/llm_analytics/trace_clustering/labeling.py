@@ -226,8 +226,14 @@ def _call_llm_for_labels(
 
         return labels_dict
 
-    except Exception:
-        logger.exception("failed_to_generate_cluster_labels")
+    except Exception as e:
+        logger.exception(
+            "failed_to_generate_cluster_labels",
+            error=str(e),
+            error_type=type(e).__name__,
+            team_id=team_id,
+            num_clusters=num_clusters,
+        )
         # Return fallback labels
         return {
             cluster_id: ClusterLabel(
