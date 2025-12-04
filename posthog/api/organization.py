@@ -185,6 +185,42 @@ class OrganizationSerializer(
             "instance_tag": settings.INSTANCE_TAG,
         }
 
+    def validate_members_can_invite(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_invite != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure who can send invites.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_enforce_2fa(self, value: bool | None) -> bool | None:
+        if self.instance and self.instance.enforce_2fa != value:
+            if not self.instance.is_feature_available(AvailableFeature.TWO_FACTOR_ENFORCEMENT):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to enforce 2FA.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_allow_publicly_shared_resources(self, value: bool) -> bool:
+        if self.instance and self.instance.allow_publicly_shared_resources != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure public sharing settings.",
+                    code="payment_required",
+                )
+        return value
+
+    def validate_members_can_use_personal_api_keys(self, value: bool) -> bool:
+        if self.instance and self.instance.members_can_use_personal_api_keys != value:
+            if not self.instance.is_feature_available(AvailableFeature.ORGANIZATION_SECURITY_SETTINGS):
+                raise serializers.ValidationError(
+                    "You must upgrade your plan to configure personal API key permissions.",
+                    code="payment_required",
+                )
+        return value
+
     def get_member_count(self, organization: Organization):
         return (
             OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)

@@ -9,7 +9,7 @@
         },
         {
             "path": "Customer analytics",
-            "category": "Unreleased",
+            "category": "Analytics",
             "iconType": "cohort",
             "type": null,
             "intents": ["customer_analytics"]

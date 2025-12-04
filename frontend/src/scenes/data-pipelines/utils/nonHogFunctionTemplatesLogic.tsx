@@ -89,6 +89,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         unreleasedValue,
                         featureFlagValue
                     )
+
                     return {
                         id: `managed-${connector.name}`,
                         type: 'source',
@@ -103,6 +104,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
+                        featured: connector.featured ?? false,
                     }
                 })
                 const selfManaged = manualConnectors.map(

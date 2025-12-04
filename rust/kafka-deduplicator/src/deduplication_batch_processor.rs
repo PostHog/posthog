@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::async_trait;
 use common_kafka::kafka_producer::KafkaContext;
 use common_types::{CapturedEvent, RawEvent};
@@ -9,19 +9,20 @@ use itertools::Itertools;
 use rayon::prelude::*;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
+use rdkafka::ClientConfig;
 use tracing::{debug, error};
 
 use crate::kafka::types::Partition;
 use crate::{
-    deduplication_processor::{DeduplicationConfig, DuplicateEventProducerWrapper},
     duplicate_event::DuplicateEvent,
     kafka::batch_consumer::BatchConsumerProcessor,
     kafka::batch_message::KafkaMessage,
     metrics::MetricsHelper,
     metrics_const::{
-        DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_TOTAL_COUNTER,
-        TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
-        TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER, TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
+        DEDUPLICATION_RESULT_COUNTER, DUPLICATE_EVENTS_PUBLISHED_COUNTER,
+        DUPLICATE_EVENTS_TOTAL_COUNTER, TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM,
+        TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM, TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER,
+        TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
         TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM, UNIQUE_EVENTS_TOTAL_COUNTER,
         UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM, UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM,
         UUID_DEDUP_FIELD_DIFFERENCES_COUNTER, UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM,
@@ -34,9 +35,78 @@ use crate::{
     },
     store::keys::{TimestampKey, UuidKey},
     store::metadata::{TimestampMetadata, UuidMetadata},
+    store::DeduplicationStoreConfig,
     store_manager::StoreManager,
     utils::timestamp,
 };
+
+/// Configuration for the deduplication processor
+#[derive(Debug, Clone)]
+pub struct DeduplicationConfig {
+    pub output_topic: Option<String>,
+    pub duplicate_events_topic: Option<String>,
+    pub producer_config: ClientConfig,
+    pub store_config: DeduplicationStoreConfig,
+    pub producer_send_timeout: Duration,
+    pub flush_interval: Duration,
+}
+
+#[derive(Clone)]
+pub struct DuplicateEventProducerWrapper {
+    producer: Arc<FutureProducer<KafkaContext>>,
+    topic: String,
+}
+
+impl DuplicateEventProducerWrapper {
+    pub fn new(topic: String, producer: Arc<FutureProducer<KafkaContext>>) -> Result<Self> {
+        Ok(Self { producer, topic })
+    }
+
+    pub async fn send(
+        &self,
+        duplicate_event: DuplicateEvent,
+        kafka_key: &str,
+        timeout: Duration,
+        metrics: &MetricsHelper,
+    ) -> Result<()> {
+        let payload =
+            serde_json::to_vec(&duplicate_event).context("Failed to serialize duplicate event")?;
+
+        let delivery_result = self
+            .producer
+            .send(
+                FutureRecord::to(&self.topic)
+                    .key(kafka_key)
+                    .payload(&payload),
+                Timeout::After(timeout),
+            )
+            .await;
+
+        match delivery_result {
+            Ok(_) => {
+                metrics
+                    .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
+                    .with_label("topic", &self.topic)
+                    .with_label("status", "success")
+                    .increment(1);
+                Ok(())
+            }
+            Err((e, _)) => {
+                metrics
+                    .counter(DUPLICATE_EVENTS_PUBLISHED_COUNTER)
+                    .with_label("topic", &self.topic)
+                    .with_label("status", "failure")
+                    .increment(1);
+
+                error!(
+                    "Failed to publish duplicate event to topic {}: {}",
+                    self.topic, e
+                );
+                Ok(())
+            }
+        }
+    }
+}
 
 /// Enriched event with deduplication keys
 struct EnrichedEvent<'a> {
