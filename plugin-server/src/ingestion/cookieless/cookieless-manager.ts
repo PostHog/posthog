@@ -27,6 +27,7 @@ import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
+import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { PipelineResult, dlq, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
@@ -325,8 +326,7 @@ export class CookielessManager {
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (let i = 0; i < events.length; i++) {
-            const inputEvent = events[i]
-            const { event, team, message, headers } = inputEvent
+            const { event, team, message, headers } = events[i]
 
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
@@ -377,6 +377,16 @@ export class CookielessManager {
                 )
                 continue
             }
+
+            // Compare timestamp from headers with current parsing logic
+            compareTimestamps(
+                timestamp,
+                headers,
+                team.id,
+                event.uuid,
+                'cookieless_processing',
+                this.config.timestampLoggingSampleRate
+            )
 
             const {
                 userAgent,
@@ -498,7 +508,7 @@ export class CookielessManager {
                     ...eventWithProcessing.event.properties,
                     $distinct_id: distinctId,
                     $device_id: deviceId,
-                    $session_id: sessionId.toString(),
+                    $session_id: sessionId,
                 }
                 eventWithProcessing.event = stripPIIProperties({
                     ...eventWithProcessing.event,
