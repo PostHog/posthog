@@ -81,11 +81,22 @@ export function VirtualizedLogsList({
     useEffect(() => {
         if (cursorIndex !== null && dataSource.length > 0) {
             listRef.current?.scrollToRow(cursorIndex)
-            // Double scroll with delay to ensure row measurement is complete
-            const timer = setTimeout(() => {
-                listRef.current?.scrollToRow(cursorIndex)
-            }, 100)
-            return () => clearTimeout(timer)
+            // Double scroll after two animation frames to ensure row measurement is complete
+            let raf1: number | null = null
+            let raf2: number | null = null
+            raf1 = requestAnimationFrame(() => {
+                raf2 = requestAnimationFrame(() => {
+                    listRef.current?.scrollToRow(cursorIndex)
+                })
+            })
+            return () => {
+                if (raf1 !== null) {
+                    cancelAnimationFrame(raf1)
+                }
+                if (raf2 !== null) {
+                    cancelAnimationFrame(raf2)
+                }
+            }
         }
     }, [cursorIndex, dataSource.length])
 
