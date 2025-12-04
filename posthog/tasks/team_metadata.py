@@ -19,7 +19,6 @@ from posthog.models.team import Team
 from posthog.storage.hypercache_manager import (
     HYPERCACHE_BATCH_REFRESH_COUNTER,
     HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM,
-    HYPERCACHE_COVERAGE_GAUGE,
     HYPERCACHE_SIGNAL_UPDATE_COUNTER,
 )
 from posthog.storage.team_metadata_cache import (
@@ -84,11 +83,8 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
         # Note: HYPERCACHE_TEAMS_PROCESSED_COUNTER is already incremented by the generic
         # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
 
-        # Only scan once after refresh for metrics
+        # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
         stats_after = get_cache_stats()
-
-        coverage_percent = stats_after.get("cache_coverage_percent", 0)
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace="team_metadata").set(coverage_percent)
 
         duration = time.time() - start_time
         HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="team_metadata").observe(duration)
