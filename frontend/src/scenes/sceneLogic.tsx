@@ -1153,28 +1153,38 @@ export const sceneLogic = kea<sceneLogicType>([
                             removeProjectIdIfPresent(location.pathname).startsWith(path)
                         )
                     ) {
-                        const allProductUrls = Object.values(productUrlMapping).flat()
+                        const nextUrl =
+                            getRelativeNextPath(params.searchParams.next, location) ??
+                            removeProjectIdIfPresent(location.pathname)
+                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+
                         const productKeyFromUrl = Object.keys(productUrlMapping).find((key) =>
                             productUrlMapping[key as ProductKey]?.some(
                                 (path: string) =>
                                     removeProjectIdIfPresent(location.pathname).startsWith(path) &&
                                     !path.startsWith('/projects')
                             )
-                        )
-                        if (!productsNotDependingOnEventIngestion.includes(productKeyFromUrl as ProductKey)) {
+                        ) as ProductKey | undefined
+
+                        if (productKeyFromUrl && productsNotDependingOnEventIngestion.includes(productKeyFromUrl)) {
+                            return
+                        }
+
+                        if (
+                            productKeyFromUrl &&
+                            teamLogic.values.currentTeam &&
+                            !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
+                            // cloud mode? What is the experience for self-hosted?
+                        ) {
                             if (
                                 !teamLogic.values.hasOnboardedAnyProduct &&
-                                !allProductUrls.some((path) =>
-                                    removeProjectIdIfPresent(location.pathname).startsWith(path)
-                                ) &&
                                 !teamLogic.values.currentTeam?.ingested_event
                             ) {
-                                const nextUrl =
-                                    getRelativeNextPath(params.searchParams.next, location) ??
-                                    removeProjectIdIfPresent(location.pathname)
+                                console.warn(
+                                    `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
+                                )
 
                                 // Check if user is coming from a coupon campaign link
-                                const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
                                 if (campaign) {
                                     router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
                                     return
@@ -1186,27 +1196,20 @@ export const sceneLogic = kea<sceneLogicType>([
                                 )
                                 return
                             }
+                        }
 
-                            if (
-                                productKeyFromUrl &&
-                                teamLogic.values.currentTeam &&
-                                !teamLogic.values.currentTeam?.has_completed_onboarding_for?.[productKeyFromUrl]
-                                // cloud mode? What is the experience for self-hosted?
-                            ) {
-                                if (
-                                    !teamLogic.values.hasOnboardedAnyProduct &&
-                                    !teamLogic.values.currentTeam?.ingested_event
-                                ) {
-                                    console.warn(
-                                        `Onboarding not completed for ${productKeyFromUrl}, redirecting to onboarding intro`
-                                    )
-
-                                    router.actions.replace(
-                                        urls.onboarding(productKeyFromUrl, OnboardingStepKey.INSTALL)
-                                    )
-                                    return
-                                }
+                        if (!teamLogic.values.hasOnboardedAnyProduct && !teamLogic.values.currentTeam?.ingested_event) {
+                            // Check if user is coming from a coupon campaign link
+                            if (campaign) {
+                                router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                return
                             }
+
+                            router.actions.replace(
+                                getOnboardingEntryUrl(values.featureFlags),
+                                nextUrl ? { next: nextUrl } : undefined
+                            )
+                            return
                         }
                     }
                 }
