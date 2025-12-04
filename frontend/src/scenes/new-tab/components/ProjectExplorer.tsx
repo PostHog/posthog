@@ -15,7 +15,7 @@ import {
 } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
-import { Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
@@ -295,6 +295,10 @@ export function ProjectExplorer({
 
     return (
         <div className="flex flex-col gap-3">
+            <LemonBanner type="info">
+                This is a flagged feature <code>new-tab-project-explorer</code>. Share your feedback with
+                #team-platform-ux.
+            </LemonBanner>
             <div className="rounded bg-bg-300">
                 <div className={clsx(rowGridClass, 'border-b border-border px-3 py-2 text-xs uppercase text-muted')}>
                     <div className="flex items-center gap-2 pr-3 pl-6">
