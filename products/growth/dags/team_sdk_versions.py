@@ -13,8 +13,9 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
-from posthog.dags.common import JobOwners, redis
+from posthog.dags.common import JobOwners
 from posthog.dags.common.ops import get_all_team_ids_op
+from posthog.dags.common.resources import redis
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
