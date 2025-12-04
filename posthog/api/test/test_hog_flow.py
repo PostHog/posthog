@@ -259,7 +259,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
-        # The condition should be compiled to bytecode and present in the response
+
         condition = response.json()["actions"][1]["config"]["condition"]
         assert "filters" in condition
         assert "bytecode" in condition["filters"], condition["filters"]
