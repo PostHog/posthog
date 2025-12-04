@@ -5,6 +5,7 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
+from unittest.mock import patch
 
 from django.db import transaction
 from django.test import override_settings
@@ -38,6 +39,7 @@ TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 @override_settings(
     OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
 )
+@patch("posthog.session_recordings.synthetic_playlists.posthoganalytics.get_feature_flag", return_value=None)
 class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
