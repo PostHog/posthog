@@ -71,6 +71,16 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 
 # Cluster labeling configuration
-DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 7  # Number of representative traces to use for LLM labeling
+DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING = 20  # Number of representative traces to use for LLM labeling
 LABELING_LLM_MODEL = "gpt-5.1"
 LABELING_LLM_TIMEOUT = 240.0
+
+# HDBSCAN clustering parameters
+DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.05  # 5% of samples as minimum cluster size
+DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
+DEFAULT_UMAP_N_COMPONENTS = 50  # Dimensionality for clustering (not visualization)
+DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
+DEFAULT_UMAP_MIN_DIST = 0.0  # Tighter packing for clustering (vs 0.1 for visualization)
+
+# Noise cluster ID (HDBSCAN convention)
+NOISE_CLUSTER_ID = -1

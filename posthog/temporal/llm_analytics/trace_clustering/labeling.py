@@ -16,7 +16,11 @@ from pydantic import BaseModel
 
 from posthog.cloud_utils import is_cloud
 from posthog.models.team import Team
-from posthog.temporal.llm_analytics.trace_clustering.constants import LABELING_LLM_MODEL, LABELING_LLM_TIMEOUT
+from posthog.temporal.llm_analytics.trace_clustering.constants import (
+    LABELING_LLM_MODEL,
+    LABELING_LLM_TIMEOUT,
+    NOISE_CLUSTER_ID,
+)
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, ClusterRepresentatives
 from posthog.utils import get_instance_region
@@ -45,12 +49,13 @@ def generate_cluster_labels(
 
     Strategy:
     1. Fetch summaries for representative traces from $ai_trace_summary events using HogQL
-    2. Send all clusters to LLM in one call for better global context
-    3. LLM generates title + description for each cluster
+    2. Send regular clusters to LLM in one call for better global context
+    3. Generate fixed label for noise/outlier cluster (-1)
+    4. LLM generates title + description for each regular cluster
 
     Args:
         team: Team object for HogQL queries
-        labels: Cluster assignments for each trace (used for cluster sizes)
+        labels: Cluster assignments for each trace (-1 = noise/outliers)
         representative_trace_ids: Dict mapping cluster_id to list of representative trace IDs
         window_start: Start of time window
         window_end: End of time window
@@ -58,7 +63,9 @@ def generate_cluster_labels(
     Returns:
         Dict mapping cluster_id -> ClusterLabel
     """
-    num_clusters = len(np.unique(labels))
+    unique_labels = np.unique(labels)
+    regular_cluster_ids = [cid for cid in unique_labels if cid != NOISE_CLUSTER_ID]
+    has_noise_cluster = NOISE_CLUSTER_ID in unique_labels
 
     representative_trace_summaries = fetch_trace_summaries(
         team=team,
@@ -67,8 +74,9 @@ def generate_cluster_labels(
         window_end=window_end,
     )
 
+    # Build data for regular clusters only (exclude noise)
     clusters_data = []
-    for cluster_id in range(num_clusters):
+    for cluster_id in sorted(regular_cluster_ids):
         trace_ids_in_cluster = representative_trace_ids.get(cluster_id, [])
 
         representative_traces = []
@@ -84,9 +92,66 @@ def generate_cluster_labels(
             }
         )
 
-    prompt = _build_cluster_labels_prompt(num_clusters, clusters_data)
+    # Get LLM labels for regular clusters
+    labels_dict: dict[int, ClusterLabel] = {}
 
-    return _call_llm_for_labels(prompt, team.id, num_clusters, labels)
+    if clusters_data:
+        prompt = _build_cluster_labels_prompt(len(clusters_data), clusters_data)
+        labels_dict = _call_llm_for_labels(prompt, team.id, len(clusters_data), labels)
+
+    # Add fixed label for noise cluster if it exists
+    if has_noise_cluster:
+        noise_count = int((labels == NOISE_CLUSTER_ID).sum())
+        noise_traces = representative_trace_ids.get(NOISE_CLUSTER_ID, [])
+
+        # Build a description based on noise trace summaries
+        noise_description = _generate_noise_cluster_description(
+            noise_count,
+            noise_traces,
+            representative_trace_summaries,
+        )
+
+        labels_dict[NOISE_CLUSTER_ID] = ClusterLabel(
+            title="Outliers",
+            description=noise_description,
+        )
+
+    return labels_dict
+
+
+def _generate_noise_cluster_description(
+    noise_count: int,
+    noise_trace_ids: list[str],
+    trace_summaries: dict[str, dict],
+) -> str:
+    """Generate a description for the noise/outlier cluster.
+
+    Args:
+        noise_count: Number of traces in the noise cluster
+        noise_trace_ids: Representative trace IDs from noise cluster
+        trace_summaries: Dict of trace_id -> summary data
+
+    Returns:
+        Description string for the outliers cluster
+    """
+    base_description = (
+        f"These {noise_count} traces did not fit into any of the main clusters. "
+        "They may represent edge cases, errors, or uncommon usage patterns worth investigating."
+    )
+
+    # Add context from a few example traces if available
+    example_titles = []
+    for trace_id in noise_trace_ids[:3]:
+        if trace_id in trace_summaries:
+            title = trace_summaries[trace_id].get("title", "")
+            if title:
+                example_titles.append(title)
+
+    if example_titles:
+        examples_str = ", ".join(f'"{t}"' for t in example_titles)
+        base_description += f" Examples include: {examples_str}."
+
+    return base_description
 
 
 def _build_cluster_labels_prompt(num_clusters: int, clusters_data: list[dict]) -> str:
@@ -129,7 +194,7 @@ Here are the {num_clusters} clusters with their representative traces:
 Based on these representative traces, provide a title and description for each cluster:
 
 1. **Title**: 3-10 words that capture the main pattern (e.g., "PDF Generation Errors", "Authentication Flows", "Data Pipeline Processing")
-2. **Description**: 2-3 sentences explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
+2. **Description**: 3-5 sentences explaining what traces in this cluster have in common in terms of similar usage patterns, error messages, functionality or anything that jumps out as interesting.
 
 Respond with JSON in this exact format:
 {
@@ -137,12 +202,12 @@ Respond with JSON in this exact format:
     {
       "cluster_id": 0,
       "title": "Short Pattern Title",
-      "description": "Brief description of what these traces have in common."
+      "description": "Description of what these traces have in common."
     },
     {
       "cluster_id": 1,
       "title": "Another Pattern explaining the cluster",
-      "description": "What makes this cluster distinct from others."
+      "description": "Description of what these traces have in common."
     }
   ]
 }

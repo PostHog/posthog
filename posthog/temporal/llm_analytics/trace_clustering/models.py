@@ -54,6 +54,8 @@ class TraceClusterMetadata(TypedDict):
 
     distance_to_centroid: float
     rank: int
+    x: float  # UMAP 2D x coordinate for scatter plot visualization
+    y: float  # UMAP 2D y coordinate for scatter plot visualization
 
 
 @dataclass
@@ -66,6 +68,8 @@ class ClusterData:
     description: str
     traces: dict[str, TraceClusterMetadata]
     centroid: list[float]
+    centroid_x: float  # UMAP 2D x coordinate for scatter plot visualization
+    centroid_y: float  # UMAP 2D y coordinate for scatter plot visualization
 
 
 @dataclass
@@ -115,15 +119,33 @@ class KMeansResult:
 
 
 @dataclass
+class HDBSCANResult:
+    """Result of HDBSCAN clustering.
+
+    Unlike k-means, HDBSCAN can assign -1 to noise points (outliers).
+    Centroids are computed as the mean of cluster members.
+    """
+
+    labels: list[int]  # Cluster assignment for each sample (-1 = noise/outlier)
+    centroids: list[list[float]]  # Cluster centroids (mean of members), excludes noise
+    probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
+    num_noise_points: int  # Count of points assigned to noise cluster (-1)
+
+
+@dataclass
 class ClusteringComputeResult:
     """Output from the compute activity - passed to labeling and emission."""
 
     clustering_run_id: str
     trace_ids: list[str]
-    labels: list[int]  # cluster assignment per trace
-    centroids: list[list[float]]  # k centroids, each 384-dim
+    labels: list[int]  # cluster assignment per trace (-1 = noise/outlier for HDBSCAN)
+    centroids: list[list[float]]  # k centroids (excludes noise cluster)
     distances: list[list[float]]  # n_traces x k_clusters distance matrix
-    representative_trace_ids: ClusterRepresentatives  # cluster_id -> trace_ids
+    representative_trace_ids: ClusterRepresentatives  # cluster_id -> trace_ids (includes -1 for noise)
+    coords_2d: list[list[float]]  # UMAP 2D coordinates per trace, shape (n_traces, 2)
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid, shape (k, 2)
+    probabilities: list[float]  # Cluster membership probability per sample (0 for noise)
+    num_noise_points: int = 0  # Count of noise/outlier points
 
 
 @dataclass
@@ -157,3 +179,5 @@ class EmitEventsActivityInputs:
     centroids: list[list[float]]
     distances: list[list[float]]
     cluster_labels: dict[int, ClusterLabel]
+    coords_2d: list[list[float]]  # UMAP 2D coordinates per trace
+    centroid_coords_2d: list[list[float]]  # UMAP 2D coordinates per centroid
