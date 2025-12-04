@@ -9,7 +9,6 @@ from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, Sch
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
-    DEFAULT_LOOKBACK_HOURS,
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
@@ -32,7 +31,6 @@ async def create_batch_trace_summarization_schedule(client: Client):
                 batch_size=DEFAULT_BATCH_SIZE,
                 mode=DEFAULT_MODE,
                 window_minutes=DEFAULT_WINDOW_MINUTES,
-                lookback_hours=DEFAULT_LOOKBACK_HOURS,
             ),
             id="batch-trace-summarization-coordinator-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,

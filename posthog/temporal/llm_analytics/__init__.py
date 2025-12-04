@@ -12,7 +12,6 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     generate_and_save_summary_activity,
     query_traces_in_window_activity,
 )
-from posthog.temporal.llm_analytics.trace_summarization.coordinator import get_teams_with_recent_traces_activity
 
 WORKFLOWS = [
     RunEvaluationWorkflow,
@@ -28,5 +27,4 @@ ACTIVITIES = [
     query_traces_in_window_activity,
     generate_and_save_summary_activity,
     embed_summaries_activity,
-    get_teams_with_recent_traces_activity,
 ]
