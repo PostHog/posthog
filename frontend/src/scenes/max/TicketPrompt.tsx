@@ -90,7 +90,7 @@ export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptP
         resetSendSupportRequest({
             name: '',
             email: '',
-            kind: 'support',
+            kind: 'bug',
             target_area: 'max-ai',
             severity_level: 'low',
             message: messageContent,
