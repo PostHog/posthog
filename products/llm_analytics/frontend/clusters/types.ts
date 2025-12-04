@@ -1,7 +1,12 @@
+// Noise/outlier cluster ID from HDBSCAN
+export const NOISE_CLUSTER_ID = -1
+
 // Cluster trace info from the $ai_trace_clusters event
 export interface ClusterTraceInfo {
     distance_to_centroid: number
     rank: number
+    x: number // UMAP 2D x coordinate for scatter plot
+    y: number // UMAP 2D y coordinate for scatter plot
 }
 
 // Cluster data structure from the $ai_clusters property
@@ -12,6 +17,8 @@ export interface Cluster {
     description: string
     traces: Record<string, ClusterTraceInfo>
     centroid: number[] // 384-dim vector, not used in UI but present in data
+    centroid_x: number // UMAP 2D x coordinate for scatter plot
+    centroid_y: number // UMAP 2D y coordinate for scatter plot
 }
 
 // Full clustering run event data

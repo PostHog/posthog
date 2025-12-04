@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
 import { ClusterCard } from './ClusterCard'
+import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
-import { Cluster } from './types'
+import { Cluster, NOISE_CLUSTER_ID } from './types'
 
 export function ClustersView(): JSX.Element {
     const {
@@ -19,8 +21,9 @@ export function ClustersView(): JSX.Element {
         expandedClusterIds,
         traceSummaries,
         traceSummariesLoading,
+        isScatterPlotExpanded,
     } = useValues(clustersLogic)
-    const { setSelectedRunId, toggleClusterExpanded } = useActions(clustersLogic)
+    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } = useActions(clustersLogic)
 
     if (clusteringRunsLoading) {
         return (
@@ -64,6 +67,23 @@ export function ClustersView(): JSX.Element {
                         <span>{currentRun.totalTracesAnalyzed} traces analyzed</span>
                         <span>|</span>
                         <span>
+                            {(() => {
+                                const outlierCluster = sortedClusters.find(
+                                    (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
+                                )
+                                const regularClusterCount = sortedClusters.filter(
+                                    (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
+                                ).length
+                                const outlierCount = outlierCluster?.size || 0
+
+                                if (outlierCount > 0) {
+                                    return `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                }
+                                return `${regularClusterCount} clusters`
+                            })()}
+                        </span>
+                        <span>|</span>
+                        <span>
                             {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
                             {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
                         </span>
@@ -75,6 +95,34 @@ export function ClustersView(): JSX.Element {
             {currentRunLoading && (
                 <div className="flex items-center justify-center p-8">
                     <Spinner className="text-2xl" />
+                </div>
+            )}
+
+            {/* Scatter Plot Visualization */}
+            {!currentRunLoading && !traceSummariesLoading && sortedClusters.length > 0 && (
+                <div className="border rounded-lg bg-surface-primary overflow-hidden transition-all">
+                    <div
+                        className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors"
+                        onClick={toggleScatterPlotExpanded}
+                    >
+                        <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-base">Cluster visualization</h3>
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                icon={isScatterPlotExpanded ? <IconChevronDown /> : <IconChevronRight />}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleScatterPlotExpanded()
+                                }}
+                            />
+                        </div>
+                    </div>
+                    {isScatterPlotExpanded && (
+                        <div className="border-t p-4">
+                            <ClusterScatterPlot traceSummaries={traceSummaries} />
+                        </div>
+                    )}
                 </div>
             )}
 
