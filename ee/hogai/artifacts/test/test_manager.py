@@ -17,7 +17,7 @@ from posthog.schema import (
     VisualizationMessage,
 )
 
-from ee.hogai.artifacts.manager import ArtifactManager
+from ee.hogai.artifacts.manager import ArtifactManager, StoredNotebookArtifactContent
 from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import AgentArtifact, Conversation
 
@@ -82,6 +82,18 @@ class TestArtifactManagerCreate(BaseTest):
 
         self.assertEqual(len(artifact.name), 400)
 
+    def test_creates_notebook_artifact_with_correct_type(self):
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+        manager = ArtifactManager(team=self.team, user=self.user, config=config)
+        content = StoredNotebookArtifactContent(blocks=[])
+
+        artifact = async_to_sync(manager.create)(content, "Test Notebook")
+
+        self.assertIsNotNone(artifact.id)
+        self.assertEqual(artifact.name, "Test Notebook")
+        self.assertEqual(artifact.type, AgentArtifact.Type.NOTEBOOK)
+        self.assertEqual(artifact.data["blocks"], [])
+
 
 class TestArtifactManagerGetContentByShortId(BaseTest):
     def setUp(self):
@@ -98,13 +110,56 @@ class TestArtifactManagerGetContentByShortId(BaseTest):
             team=self.team,
         )
 
-        content = async_to_sync(self.manager.aget_content_by_short_id)(artifact.short_id)
+        content = async_to_sync(self.manager.aget_content_by_short_id)(artifact.short_id, VisualizationArtifactContent)
 
         self.assertEqual(content.name, "Test")
 
     def test_raises_when_artifact_not_found(self):
         with self.assertRaises(AgentArtifact.DoesNotExist):
-            async_to_sync(self.manager.aget_content_by_short_id)("xxxx")
+            async_to_sync(self.manager.aget_content_by_short_id)("xxxx", None)  # type: ignore[arg-type]
+
+    def test_retrieves_notebook_content_by_short_id(self):
+        artifact = AgentArtifact.objects.create(
+            name="Test Notebook",
+            type=AgentArtifact.Type.NOTEBOOK,
+            data={"blocks": [{"type": "markdown", "content": "Hello"}]},
+            conversation=self.conversation,
+            team=self.team,
+        )
+
+        content = async_to_sync(self.manager.aget_content_by_short_id)(artifact.short_id, StoredNotebookArtifactContent)
+
+        self.assertIsInstance(content, StoredNotebookArtifactContent)
+        self.assertEqual(len(content.blocks), 1)
+
+    def test_retrieves_content_with_expected_type(self):
+        artifact = AgentArtifact.objects.create(
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Test"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+
+        content = async_to_sync(self.manager.aget_content_by_short_id)(artifact.short_id, VisualizationArtifactContent)
+
+        self.assertIsInstance(content, VisualizationArtifactContent)
+        self.assertEqual(content.name, "Test")
+
+    def test_raises_type_error_when_expected_type_mismatches(self):
+        artifact = AgentArtifact.objects.create(
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Test"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+
+        with self.assertRaises(TypeError) as ctx:
+            async_to_sync(self.manager.aget_content_by_short_id)(artifact.short_id, StoredNotebookArtifactContent)
+
+        self.assertIn("Expected content type=StoredNotebookArtifactContent", str(ctx.exception))
+        self.assertIn("got content type=VisualizationArtifactContent", str(ctx.exception))
 
 
 class TestArtifactManagerGetEnrichedMessage(BaseTest):
@@ -224,11 +279,15 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
             ),
         ]
 
-        contents = async_to_sync(self.manager.aget_contents_by_message_id)(messages)
+        contents = async_to_sync(self.manager.aget_contents_by_id)(messages, aggregate_by="message_id")
 
         self.assertEqual(len(contents), 2)
-        self.assertEqual(contents[msg1_id].name, "First")
-        self.assertEqual(contents[msg2_id].name, "Second")
+        content1 = contents[msg1_id]
+        content2 = contents[msg2_id]
+        assert isinstance(content1, VisualizationArtifactContent)
+        assert isinstance(content2, VisualizationArtifactContent)
+        self.assertEqual(content1.name, "First")
+        self.assertEqual(content2.name, "Second")
 
     def test_extracts_content_from_state_visualization_messages(self):
         viz_id = str(uuid4())
@@ -247,11 +306,13 @@ class TestArtifactManagerGetContentsByMessageId(BaseTest):
         )
         messages: list[VisualizationMessage | ArtifactRefMessage] = [viz_message, artifact_message]
 
-        contents = async_to_sync(self.manager.aget_contents_by_message_id)(messages)
+        contents = async_to_sync(self.manager.aget_contents_by_id)(messages, aggregate_by="message_id")
 
         self.assertEqual(len(contents), 1)
-        self.assertEqual(contents[artifact_msg_id].name, "state query")
-        self.assertEqual(contents[artifact_msg_id].description, "state plan")
+        content = contents[artifact_msg_id]
+        assert isinstance(content, VisualizationArtifactContent)
+        self.assertEqual(content.name, "state query")
+        self.assertEqual(content.description, "state plan")
 
 
 class TestArtifactManagerEnrichMessages(BaseTest):
@@ -347,3 +408,131 @@ class TestArtifactManagerEnrichMessages(BaseTest):
         enriched = async_to_sync(self.manager.aenrich_messages)(messages)
 
         self.assertEqual(len(enriched), 0)
+
+
+class TestArtifactManagerUpdate(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
+        self.manager = ArtifactManager(team=self.team, user=self.user)
+
+    def test_updates_existing_artifact_data(self):
+        artifact = AgentArtifact.objects.create(
+            name="Original Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Original"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        new_content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Updated Name",
+            description="Updated description",
+        )
+
+        updated = async_to_sync(self.manager.update)(artifact.short_id, new_content)
+
+        self.assertEqual(updated.short_id, artifact.short_id)
+        self.assertEqual(updated.data["name"], "Updated Name")
+        self.assertEqual(updated.data["description"], "Updated description")
+
+    def test_raises_when_artifact_not_found(self):
+        new_content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Test",
+        )
+
+        with self.assertRaises(ValueError) as ctx:
+            async_to_sync(self.manager.update)("nonexistent", new_content)
+
+        self.assertIn("not found", str(ctx.exception))
+
+
+class TestArtifactManagerGetContentsByArtifactId(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.conversation = Conversation.objects.create(user=self.user, team=self.team)
+        self.manager = ArtifactManager(team=self.team, user=self.user)
+
+    def test_aggregate_by_artifact_id_groups_correctly(self):
+        artifact = AgentArtifact.objects.create(
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Test"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        messages = [
+            ArtifactRefMessage(
+                id=str(uuid4()),
+                content_type=ArtifactContentType.VISUALIZATION,
+                artifact_id=artifact.short_id,
+                source=ArtifactSource.ARTIFACT,
+            ),
+        ]
+
+        contents = async_to_sync(self.manager.aget_contents_by_id)(messages, aggregate_by="artifact_id")
+
+        self.assertEqual(len(contents), 1)
+        self.assertIn(artifact.short_id, contents)
+        content = contents[artifact.short_id]
+        assert isinstance(content, VisualizationArtifactContent)
+        self.assertEqual(content.name, "Test")
+
+    def test_filter_by_artifact_ids_filters_results(self):
+        artifact1 = AgentArtifact.objects.create(
+            name="Artifact 1",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "First"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        artifact2 = AgentArtifact.objects.create(
+            name="Artifact 2",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data={"query": {"kind": "TrendsQuery", "series": []}, "name": "Second"},
+            conversation=self.conversation,
+            team=self.team,
+        )
+        messages = [
+            ArtifactRefMessage(
+                id=str(uuid4()),
+                content_type=ArtifactContentType.VISUALIZATION,
+                artifact_id=artifact1.short_id,
+                source=ArtifactSource.ARTIFACT,
+            ),
+            ArtifactRefMessage(
+                id=str(uuid4()),
+                content_type=ArtifactContentType.VISUALIZATION,
+                artifact_id=artifact2.short_id,
+                source=ArtifactSource.ARTIFACT,
+            ),
+        ]
+
+        contents = async_to_sync(self.manager.aget_contents_by_id)(
+            messages, aggregate_by="artifact_id", filter_by_artifact_ids=[artifact1.short_id]
+        )
+
+        self.assertEqual(len(contents), 1)
+        self.assertIn(artifact1.short_id, contents)
+        self.assertNotIn(artifact2.short_id, contents)
+
+
+class TestArtifactTypeRegistry(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.manager = ArtifactManager(team=self.team, user=self.user)
+
+    def test_get_db_type_for_visualization_content(self):
+        content = VisualizationArtifactContent(query=AssistantTrendsQuery(series=[]))
+
+        db_type = self.manager._get_db_type_for_content(content)
+
+        self.assertEqual(db_type, AgentArtifact.Type.VISUALIZATION)
+
+    def test_get_db_type_for_notebook_content(self):
+        content = StoredNotebookArtifactContent(blocks=[])
+
+        db_type = self.manager._get_db_type_for_content(content)
+
+        self.assertEqual(db_type, AgentArtifact.Type.NOTEBOOK)

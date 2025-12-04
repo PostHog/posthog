@@ -47,9 +47,11 @@ from ee.hogai.tools import (
     TaskTool,
     TodoWriteTool,
 )
+from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.feature_flags import (
     has_agent_modes_feature_flag,
     has_create_form_tool_feature_flag,
+    has_create_notebook_tool_feature_flag,
     has_task_tool_feature_flag,
 )
 from ee.hogai.utils.prompt import format_prompt_string
@@ -82,8 +84,11 @@ class ChatAgentToolkit(AgentToolkit):
     @property
     def tools(self) -> list[type["MaxTool"]]:
         tools = list(DEFAULT_TOOLS if has_agent_modes_feature_flag(self._team, self._user) else LEGACY_DEFAULT_TOOLS)
+        # These three tools are just for testing, behind a FF
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
+        if has_create_notebook_tool_feature_flag(self._team, self._user):
+            tools.append(CreateNotebookTool)
         if has_task_tool_feature_flag(self._team, self._user):
             tools.append(TaskTool)
         return tools
