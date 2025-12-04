@@ -2,16 +2,7 @@ import { useDraggable, useDroppable } from '@dnd-kit/core'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import {
-    CSSProperties,
-    HTMLAttributes,
-    KeyboardEvent,
-    MouseEvent,
-    useCallback,
-    useEffect,
-    useMemo,
-    useState,
-} from 'react'
+import { CSSProperties, HTMLAttributes, KeyboardEvent, MouseEvent, useCallback, useEffect, useState } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
@@ -66,7 +57,7 @@ export function ProjectExplorer({
     tabId: string
     listboxRef: React.RefObject<ListBoxHandle>
 }): JSX.Element | null {
-    const logic = useMemo(() => projectExplorerLogic({ tabId }), [tabId])
+    const logic = projectExplorerLogic({ tabId })
     const {
         projectTreeLogicProps,
         checkedItems,

@@ -159,7 +159,7 @@ describe('newTabSceneLogic - recents search', () => {
         logic.actions.setNewTabSceneDataInclude(['apps'])
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.getSectionItemLimit('apps')).toBe(15)
+        expect(logic.values.getSectionItemLimit('apps')).toBe(25)
     })
 
     it('increments recents from the expanded base limit', async () => {
@@ -171,7 +171,7 @@ describe('newTabSceneLogic - recents search', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         const initialLimit = logic.values.getSectionItemLimit('recents')
-        expect(initialLimit).toBe(15)
+        expect(initialLimit).toBe(25)
 
         logic.actions.loadMoreRecents()
         await expectLogic(logic).toFinishAllListeners()
