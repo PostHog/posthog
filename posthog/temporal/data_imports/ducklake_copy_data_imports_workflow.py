@@ -2,21 +2,31 @@ import re
 import uuid
 import typing
 import dataclasses
+from urllib.parse import urlparse
 
 from django.conf import settings
 
+import duckdb
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.ducklake.common import (
+    attach_catalog,
+    configure_connection,
+    escape as ducklake_escape,
+    get_config,
+)
 from posthog.ducklake.verification import DuckLakeCopyVerificationQuery, get_data_imports_verification_queries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.data_warehouse.backend.s3 import ensure_bucket_exists
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -67,18 +77,36 @@ class DataImportsDuckLakeCopyInputs:
 class DuckLakeCopyDataImportsMetadata:
     """Metadata for a data imports schema to copy into DuckLake."""
 
+    # General
     model_label: str
-    schema_id: str
-    schema_name: str
-    normalized_name: str
+
+    # Source (Delta table)
+    source_schema_id: str
+    source_schema_name: str
+    source_normalized_name: str
     source_table_uri: str
+
+    # Destination (DuckLake)
     ducklake_schema_name: str
     ducklake_table_name: str
+
+    # Source metadata (optional, with defaults)
+    source_partition_column: str | None = None
+    source_partition_column_type: str | None = None
+    source_key_columns: list[str] = dataclasses.field(default_factory=list)
+    source_non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
+
+    # Verification
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
-    partition_column: str | None = None
-    partition_column_type: str | None = None
-    key_columns: list[str] = dataclasses.field(default_factory=list)
-    non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class DuckLakeCopyDataImportsActivityInputs:
+    """Inputs for a single model copy activity."""
+
+    team_id: int
+    job_id: str
+    model: DuckLakeCopyDataImportsMetadata
 
 
 @activity.defn
@@ -154,9 +182,9 @@ async def prepare_data_imports_ducklake_metadata_activity(
         model_list.append(
             DuckLakeCopyDataImportsMetadata(
                 model_label=f"{source_type}_{normalized_name}",
-                schema_id=str(schema.id),
-                schema_name=schema.name,
-                normalized_name=normalized_name,
+                source_schema_id=str(schema.id),
+                source_schema_name=schema.name,
+                source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=_sanitize_ducklake_identifier(
                     f"{DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX}_team_{inputs.team_id}",
@@ -166,25 +194,59 @@ async def prepare_data_imports_ducklake_metadata_activity(
                     f"{source_type}_{normalized_name}_{schema.id.hex[:8]}", default_prefix="data_imports"
                 ),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
-                partition_column=partition_column,
-                partition_column_type=partition_column_type,
-                key_columns=key_columns,
-                non_nullable_columns=non_nullable_columns,
+                source_partition_column=partition_column,
+                source_partition_column_type=partition_column_type,
+                source_key_columns=key_columns,
+                source_non_nullable_columns=non_nullable_columns,
             )
         )
 
     return model_list
 
 
+@activity.defn
+def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivityInputs) -> None:
+    """Copy a single data imports schema's Delta snapshot into DuckLake."""
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind(model_label=inputs.model.model_label, job_id=inputs.job_id)
+
+    heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
+    with heartbeater:
+        config = get_config()
+        conn = duckdb.connect()
+        alias = "ducklake"
+        try:
+            _configure_source_storage(conn, logger)
+            configure_connection(conn, config, install_extension=True)
+            _ensure_ducklake_bucket_exists(config)
+            _attach_ducklake_catalog(conn, config, alias=alias)
+
+            qualified_schema = f"{alias}.{inputs.model.ducklake_schema_name}"
+            qualified_table = f"{qualified_schema}.{inputs.model.ducklake_table_name}"
+
+            logger.info(
+                "Creating DuckLake table from Delta snapshot",
+                ducklake_table=qualified_table,
+                source_table=inputs.model.source_table_uri,
+            )
+            conn.execute(f"CREATE SCHEMA IF NOT EXISTS {qualified_schema}")
+            conn.execute(
+                f"CREATE OR REPLACE TABLE {qualified_table} AS SELECT * FROM delta_scan(?)",
+                [inputs.model.source_table_uri],
+            )
+            logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
+        finally:
+            conn.close()
+
+
 def _detect_data_imports_partition_column(
     schema: ExternalDataSchema, columns: dict[str, typing.Any], table_uri: str
 ) -> tuple[str | None, str | None]:
-    """Detect partition column for data imports tables with fallback logic.
+    """Detect partition column for data imports tables.
 
-    Fallback order:
+    Checks:
     1. Schema partitioning config (partitioning_keys)
     2. _ph_partition_key column (standard data imports partition key)
-    3. First datetime column found
     """
     if schema.partitioning_enabled and schema.partitioning_keys:
         partition_key = schema.partitioning_keys[0]
@@ -197,11 +259,6 @@ def _detect_data_imports_partition_column(
         metadata = columns.get(PARTITION_KEY)
         column_type = _extract_column_type(metadata)
         return PARTITION_KEY, column_type or None
-
-    for column_name, metadata in columns.items():
-        column_type = _extract_column_type(metadata)
-        if _is_datetime_column_type(column_type):
-            return column_name, column_type
 
     LOGGER.warning(
         "Unable to detect partition column for data imports - skipping partition verification.",
@@ -254,14 +311,6 @@ def _detect_data_imports_non_nullable_columns(columns: dict[str, typing.Any]) ->
     return result
 
 
-def _is_datetime_column_type(column_type: str | None) -> bool:
-    """Check if column type is a date/time type."""
-    if not column_type:
-        return False
-    normalized = column_type.strip().lower()
-    return "date" in normalized or "time" in normalized
-
-
 def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores)."""
     cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
@@ -270,3 +319,73 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     if cleaned[0].isdigit():
         cleaned = f"{default_prefix}_{cleaned}"
     return cleaned[:63]
+
+
+def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
+    """Configure DuckDB to read from source Delta tables in object storage."""
+    conn.execute("INSTALL httpfs")
+    conn.execute("LOAD httpfs")
+    conn.execute("INSTALL delta")
+    conn.execute("LOAD delta")
+
+    access_key = settings.AIRBYTE_BUCKET_KEY
+    secret_key = settings.AIRBYTE_BUCKET_SECRET
+    region = getattr(settings, "AIRBYTE_BUCKET_REGION", "")
+
+    endpoint = getattr(settings, "OBJECT_STORAGE_ENDPOINT", "") or ""
+    normalized_endpoint = ""
+    use_ssl = True
+    if endpoint:
+        normalized_endpoint, use_ssl = _normalize_object_storage_endpoint(endpoint)
+
+    secret_parts = ["TYPE S3"]
+    if access_key:
+        secret_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
+    if secret_key:
+        secret_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
+    if region:
+        secret_parts.append(f"REGION '{ducklake_escape(region)}'")
+    if normalized_endpoint:
+        secret_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+    secret_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+    secret_parts.append("URL_STYLE 'path'")
+    conn.execute(f"CREATE OR REPLACE SECRET ducklake_minio ({', '.join(secret_parts)})")
+
+
+def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
+    """Parse object storage endpoint to extract host and SSL setting."""
+    parsed = endpoint.strip()
+    if not parsed:
+        return "", True
+
+    if "://" in parsed:
+        url = urlparse(parsed)
+        host = url.netloc or url.path
+        use_ssl = url.scheme.lower() == "https"
+    else:
+        host = parsed
+        use_ssl = False
+
+    return host.rstrip("/"), use_ssl
+
+
+def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
+    """Ensure the DuckLake data bucket exists (local dev only)."""
+    if not settings.USE_LOCAL_SETUP:
+        return
+
+    ensure_bucket_exists(
+        f"s3://{config['DUCKLAKE_DATA_BUCKET'].rstrip('/')}",
+        config["DUCKLAKE_S3_ACCESS_KEY"],
+        config["DUCKLAKE_S3_SECRET_KEY"],
+        settings.OBJECT_STORAGE_ENDPOINT,
+    )
+
+
+def _attach_ducklake_catalog(conn: duckdb.DuckDBPyConnection, config: dict[str, str], alias: str) -> None:
+    """Attach the DuckLake catalog, swallowing the error if already attached."""
+    try:
+        attach_catalog(conn, config, alias=alias)
+    except duckdb.CatalogException as exc:
+        if alias not in str(exc):
+            raise

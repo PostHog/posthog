@@ -1,14 +1,18 @@
 import uuid
 
 import pytest
+from unittest.mock import MagicMock
 
 import temporalio.converter
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
+    DuckLakeCopyDataImportsActivityInputs,
+    DuckLakeCopyDataImportsMetadata,
     DuckLakeCopyDataImportsModelInput,
     DuckLakeCopyWorkflowGateInputs,
+    copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
 )
@@ -135,15 +139,15 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam):
 
     assert len(result) == 1
     metadata = result[0]
-    assert metadata.normalized_name == "customers"
+    assert metadata.source_normalized_name == "customers"
     assert metadata.ducklake_schema_name == f"data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name.startswith("postgres_customers_")
-    assert metadata.partition_column == "created_at"
-    assert "created_at" in metadata.key_columns
-    assert "id" in metadata.key_columns
-    assert "id" in metadata.non_nullable_columns
-    assert "created_at" in metadata.non_nullable_columns
-    assert "name" not in metadata.non_nullable_columns
+    assert metadata.source_partition_column == "created_at"
+    assert "created_at" in metadata.source_key_columns
+    assert "id" in metadata.source_key_columns
+    assert "id" in metadata.source_non_nullable_columns
+    assert "created_at" in metadata.source_non_nullable_columns
+    assert "name" not in metadata.source_non_nullable_columns
 
 
 @pytest.mark.asyncio
@@ -194,12 +198,12 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
 
     assert len(result) == 1
     metadata = result[0]
-    assert metadata.normalized_name == "charges"
-    assert metadata.partition_column is None
-    assert metadata.partition_column_type is None
-    assert "id" in metadata.key_columns
-    assert "id" in metadata.non_nullable_columns
-    assert "amount" not in metadata.non_nullable_columns
+    assert metadata.source_normalized_name == "charges"
+    assert metadata.source_partition_column is None
+    assert metadata.source_partition_column_type is None
+    assert "id" in metadata.source_key_columns
+    assert "id" in metadata.source_non_nullable_columns
+    assert "amount" not in metadata.source_non_nullable_columns
 
 
 @pytest.mark.asyncio
@@ -208,3 +212,60 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_models(atea
     inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-empty", models=[])
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
     assert result == []
+
+
+def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch):
+    mock_conn = MagicMock()
+    mock_duckdb_connect = MagicMock(return_value=mock_conn)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
+        mock_duckdb_connect,
+    )
+
+    mock_heartbeater = MagicMock()
+    mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
+    mock_heartbeater.__exit__ = MagicMock(return_value=False)
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.HeartbeaterSync",
+        MagicMock(return_value=mock_heartbeater),
+    )
+
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._configure_source_storage",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.configure_connection",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._ensure_ducklake_bucket_exists",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        MagicMock(),
+    )
+    monkeypatch.setattr(
+        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.get_config",
+        MagicMock(return_value={}),
+    )
+
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_customers",
+        source_schema_id="schema-123",
+        source_schema_name="customers",
+        source_normalized_name="customers",
+        source_table_uri="s3://bucket/team_1/customers",
+        ducklake_schema_name="data_imports_team_1",
+        ducklake_table_name="postgres_customers_abc12345",
+    )
+    inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+    copy_data_imports_to_ducklake_activity(inputs)
+
+    execute_calls = mock_conn.execute.call_args_list
+    assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
+    assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
+    assert any("delta_scan" in str(call) for call in execute_calls)
+    mock_conn.close.assert_called_once()
