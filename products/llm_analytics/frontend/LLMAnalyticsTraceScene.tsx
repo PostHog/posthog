@@ -175,7 +175,7 @@ function Chip({
 }): JSX.Element {
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
+            <LemonTag size="medium" className="bg-card" icon={icon}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -338,7 +338,7 @@ function TraceSidebar({
 
     return (
         <aside
-            className="sticky bottom-[var(--scene-padding)] border-border max-h-fit bg-surface-primary border rounded overflow-hidden flex flex-col w-full md:w-80"
+            className="sticky bottom-[var(--scene-padding)] border-border max-h-fit bg-card border rounded overflow-hidden flex flex-col w-full md:w-80"
             ref={ref}
         >
             <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -707,7 +707,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 bg-surface-primary max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
+            <div className="flex-1 bg-card max-h-fit border rounded flex flex-col border-border p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (

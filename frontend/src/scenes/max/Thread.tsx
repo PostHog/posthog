@@ -1156,7 +1156,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
     return (
         <div className={clsx('flex flex-col gap-px w-full break-words', className)}>
             {/* Everything wrapped in a message bubble */}
-            <div className="max-w-full border py-3 px-4 rounded-lg bg-surface-primary">
+            <div className="max-w-full border py-3 px-4 rounded-lg bg-card">
                 <div className="space-y-2">
                     <div className="w-full flex justify-between items-center">
                         <h2 className="text-sm font-semibold text-secondary">

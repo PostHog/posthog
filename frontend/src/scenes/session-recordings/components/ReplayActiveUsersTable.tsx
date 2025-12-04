@@ -16,7 +16,7 @@ export const ReplayActiveUsersTable = (): JSX.Element => {
     const { countedUsers, countedUsersLoading } = useValues(replayActiveUsersTableLogic({ scene: 'templates' }))
 
     return (
-        <div className="flex flex-col border rounded bg-surface-primary w-full px-4 py-2">
+        <div className="flex flex-col border rounded bg-card w-full px-4 py-2">
             <LemonTable
                 embedded={true}
                 columns={[

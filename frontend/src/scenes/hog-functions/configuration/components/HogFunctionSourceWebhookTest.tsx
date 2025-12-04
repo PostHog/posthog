@@ -41,11 +41,7 @@ export function HogFunctionSourceWebhookTest(): JSX.Element {
         <Form logic={hogFunctionSourceWebhookTestLogic} props={logicProps} formKey="testInvocation" enableFormOnSubmit>
             <div
                 ref={testResultsRef}
-                className={clsx(
-                    'p-3 rounded border',
-                    expanded ? 'bg-surface-primary' : 'bg-muted',
-                    expanded ? 'min-h-120' : ''
-                )}
+                className={clsx('p-3 rounded border', expanded ? 'bg-card' : 'bg-muted', expanded ? 'min-h-120' : '')}
             >
                 <div className="flex gap-2 justify-end items-center mb-2">
                     <div className="flex-1 deprecated-space-y-2">

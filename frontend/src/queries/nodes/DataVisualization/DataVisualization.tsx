@@ -187,7 +187,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
 
     if (responseError) {
         component = (
-            <div className="rounded bg-surface-primary relative flex flex-1 flex-col p-2">
+            <div className="rounded bg-card relative flex flex-1 flex-col p-2">
                 <InsightErrorState
                     query={props.query}
                     excludeDetail
@@ -204,7 +204,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     } else if (!response || responseLoading) {
         // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
         component = (
-            <div className="flex flex-col flex-1 justify-center items-center bg-surface-primary h-full">
+            <div className="flex flex-col flex-1 justify-center items-center bg-card h-full">
                 <StatelessInsightLoadingState queryId={queryId} pollResponse={pollResponse} />
             </div>
         )

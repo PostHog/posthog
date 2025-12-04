@@ -45,7 +45,7 @@ export const EventsFree: StoryFn<typeof TaxonomicFilter> = (args) => {
     useDelayedOnMountEffect(() => setIndex(1))
 
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -113,7 +113,7 @@ Actions.parameters = {
 
 export const Properties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -132,7 +132,7 @@ Properties.parameters = {
 
 export const NumericalProperties: StoryFn<typeof TaxonomicFilter> = (args) => {
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -168,7 +168,7 @@ export const Columnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useDelayedOnMountEffect(() => setIndex(1))
 
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -209,7 +209,7 @@ export const ForceColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useDelayedOnMountEffect(() => setIndex(1))
 
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )
@@ -249,7 +249,7 @@ export const ForceNonColumnar: StoryFn<typeof TaxonomicFilter> = (args) => {
     useDelayedOnMountEffect(() => setIndex(1))
 
     return (
-        <div className="w-fit border rounded p-2 bg-surface-primary">
+        <div className="w-fit border rounded p-2 bg-card">
             <TaxonomicFilter {...args} />
         </div>
     )

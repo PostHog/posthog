@@ -48,7 +48,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
             style={{ width }}
         >
             <div
-                className="relative flex flex-col rounded-md overflow-hidden bg-surface-primary max-h-full z-10"
+                className="relative flex flex-col rounded-md overflow-hidden bg-card max-h-full z-10"
                 style={{
                     border: '1px solid var(--color-border)',
                     boxShadow: '0 3px 0 var(--color-border)',

@@ -65,7 +65,7 @@ export function FeatureFlagVariantsForm({
 
     if (readOnly) {
         return (
-            <div className="border rounded p-4 bg-surface-primary">
+            <div className="border rounded p-4 bg-card">
                 <div className="grid grid-cols-10 gap-4 font-semibold">
                     <div className="col-span-2">Key</div>
                     <div className="col-span-2">Description</div>

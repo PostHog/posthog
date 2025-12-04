@@ -549,7 +549,7 @@ export const LineGraph = ({
 
     return (
         <div
-            className={clsx(className, 'rounded bg-surface-primary relative flex flex-1 flex-col', {
+            className={clsx(className, 'rounded bg-card relative flex flex-1 flex-col', {
                 'h-[60vh]': presetChartHeight,
                 'h-full': !presetChartHeight,
             })}

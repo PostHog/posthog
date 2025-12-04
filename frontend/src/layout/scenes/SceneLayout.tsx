@@ -163,7 +163,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                         <ScrollableShadows
                             direction="vertical"
                             className="h-full flex-1"
-                            innerClassName="px-2 py-2 bg-card"
+                            innerClassName="px-2 py-2 bg-muted"
                             styledScrollbars
                         >
                             <div ref={registerScenePanelElement} />

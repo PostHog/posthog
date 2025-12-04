@@ -61,7 +61,7 @@ export function BatchExportConfiguration(): JSX.Element {
                 >
                     <div className="flex flex-wrap gap-4 items-start">
                         <div className="flex flex-col flex-1 min-w-100 deprecated-space-y-3">
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-card deprecated-space-y-2">
                                 <LemonField
                                     label="Status"
                                     name="paused"
@@ -104,7 +104,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                     </LemonField>
                                 </div>
                             </div>
-                            <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                            <div className="p-3 rounded border bg-card deprecated-space-y-2">
                                 <div className="flex gap-2 min-h-16">
                                     <LemonField
                                         name="model"
@@ -237,7 +237,7 @@ export function BatchExportConfiguration(): JSX.Element {
                         </div>
 
                         <div className="gap-4 flex-2 deprecated-space-y-4 min-w-100">
-                            <div className="p-3 rounded border bg-surface-primary">
+                            <div className="p-3 rounded border bg-card">
                                 <BatchExportConfigurationFields
                                     isNew={isNew}
                                     formValues={configuration as BatchExportConfigurationForm}
@@ -245,7 +245,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                 />
                             </div>
                             {batchExportConfigTest && (
-                                <div className="p-3 rounded border bg-surface-primary">
+                                <div className="p-3 rounded border bg-card">
                                     <BatchExportConfigurationTests
                                         batchExportConfigTest={batchExportConfigTest}
                                         batchExportConfigTestLoading={batchExportConfigTestLoading}

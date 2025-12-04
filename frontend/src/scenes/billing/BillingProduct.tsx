@@ -112,7 +112,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
             ref={ref}
             data-attr={`billing-product-${product.type}`}
         >
-            <div className="border border-border rounded w-full bg-surface-primary" ref={productRef}>
+            <div className="border border-border rounded w-full bg-card" ref={productRef}>
                 <div className="border-b border-border rounded-t p-4">
                     <div className="flex gap-4 items-center justify-between">
                         {/* Product name and description */}

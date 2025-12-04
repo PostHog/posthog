@@ -257,7 +257,7 @@ function FrameContextLine({
     highlight?: boolean
 }): JSX.Element {
     return (
-        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-surface-primary'}>
+        <div className={highlight ? 'bg-fill-error-highlight' : 'bg-card'}>
             {lines
                 .sort((l) => l.number)
                 .map(({ number, line }) => (

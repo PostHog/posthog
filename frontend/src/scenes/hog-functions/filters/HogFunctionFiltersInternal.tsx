@@ -113,7 +113,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
     }, [contextId])
 
     return (
-        <div className="p-3 rounded border deprecated-space-y-2 bg-surface-primary">
+        <div className="p-3 rounded border deprecated-space-y-2 bg-card">
             <LemonField name="filters" label="Trigger">
                 {({ value, onChange }) => (
                     <>

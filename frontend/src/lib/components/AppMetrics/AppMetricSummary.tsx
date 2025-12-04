@@ -48,7 +48,7 @@ export function AppMetricSummary({
     const diff = (total - totalPreviousPeriod) / totalPreviousPeriod
 
     return (
-        <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
+        <div className="flex flex-1 flex-col relative border rounded p-3 bg-card min-w-[16rem]">
             <div className="flex flex-row justify-between items-start">
                 <LemonLabel info={description}>{name}</LemonLabel>
                 {loading ? (

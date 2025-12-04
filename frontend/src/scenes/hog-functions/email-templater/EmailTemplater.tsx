@@ -121,7 +121,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         {({ value }) => (
                             <>
                                 <div className="flex absolute inset-0 justify-center items-end p-2 opacity-0 transition-opacity hover:opacity-100">
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <div className="absolute inset-0 opacity-50 bg-card" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>
@@ -420,7 +420,7 @@ function NativeEmailTemplaterForm({
                                         value ? 'opacity-0' : 'opacity-100' // Hide if there is content
                                     )}
                                 >
-                                    <div className="absolute inset-0 opacity-50 bg-surface-primary" />
+                                    <div className="absolute inset-0 opacity-50 bg-card" />
                                     <LemonButton type="primary" size="small" onClick={() => setIsModalOpen(true)}>
                                         Click to modify content
                                     </LemonButton>

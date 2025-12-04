@@ -48,7 +48,7 @@ const preThousand = [
     'bg-muted-alt',
     'bg-mark',
     'bg-white',
-    'bg-surface-primary',
+    'bg-card',
     'bg-side',
     'bg-mid',
     'bg-border',

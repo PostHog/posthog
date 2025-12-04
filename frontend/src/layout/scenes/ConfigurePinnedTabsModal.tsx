@@ -88,7 +88,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     ): JSX.Element => (
         <div
             key={tab.id}
-            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary"
+            className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-card"
         >
             <div className="flex min-w-0 items-center gap-2">
                 <span className="shrink-0 text-lg text-muted-alt">
@@ -162,7 +162,7 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                         <h3 className="text-lg font-semibold text-foreground">Homepage</h3>
                         <p className="text-sm text-muted-alt">Choose your personal homepage for this project.</p>
                     </div>
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-surface-primary">
+                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 bg-card">
                         <div className="flex min-w-0 items-center gap-2">
                             <span className="shrink-0 text-lg text-muted-alt">{homepageIconElement}</span>
                             <div className="min-w-0">

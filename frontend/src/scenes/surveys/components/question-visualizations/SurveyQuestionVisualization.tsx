@@ -136,7 +136,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                                 <LemonSkeleton className="h-4 w-3/4" />
                                 <LemonSkeleton className="h-4 w-1/2" />
                             </div>
-                            <div className="bg-surface-primary px-5 py-4 border-t rounded-b">
+                            <div className="bg-card px-5 py-4 border-t rounded-b">
                                 <div className="flex items-center gap-2 justify-center">
                                     <LemonSkeleton className="w-6 h-6 rounded-full" />
                                     <LemonSkeleton className="h-4 w-24" />
@@ -148,7 +148,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
             )
         default:
             return (
-                <div className="bg-surface-primary">
+                <div className="bg-card">
                     <StatelessInsightLoadingState />
                 </div>
             )

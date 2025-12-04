@@ -214,7 +214,7 @@ function UrlConfigForm({
             logic={replayTriggersLogic}
             formKey={type === 'trigger' ? 'proposedUrlTrigger' : 'proposedUrlBlocklist'}
             enableFormOnSubmit
-            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-surface-primary gap-2"
+            className="w-full flex flex-col border rounded items-center p-2 pl-4 bg-card gap-2"
         >
             <div className="flex flex-col gap-2 w-full">
                 <LemonBanner type="info" className="text-sm">
@@ -294,7 +294,7 @@ function UrlConfigRow({
 }): JSX.Element {
     if (editIndex === index) {
         return (
-            <div className="border rounded p-2 bg-surface-primary">
+            <div className="border rounded p-2 bg-card">
                 <UrlConfigForm type={type} onCancel={() => onEdit(-1)} isSubmitting={false} />
             </div>
         )
@@ -302,7 +302,7 @@ function UrlConfigRow({
 
     return (
         <div
-            className={cn('border rounded flex items-center p-2 pl-4 bg-surface-primary', {
+            className={cn('border rounded flex items-center p-2 pl-4 bg-card', {
                 'border-success': checkUrlResult === true,
                 'border-danger': checkUrlResult === false,
             })}
@@ -421,7 +421,7 @@ function UrlConfigSection({
             )}
 
             {!props.isAddFormVisible && props.config && props.config.length > 0 && (
-                <div className="border rounded p-3 bg-surface-primary">
+                <div className="border rounded p-3 bg-card">
                     <LemonLabel className="text-sm font-medium mb-2 block">
                         Test a URL against these patterns:
                     </LemonLabel>

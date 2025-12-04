@@ -38,7 +38,7 @@ export function HeatmapsUrlsList(): JSX.Element {
     return (
         <div className="flex-1 flex items-center overflow-y-auto">
             <div className=" w-full">
-                <div className="gap-y-px p-2 border bg-surface-primary rounded">
+                <div className="gap-y-px p-2 border bg-card rounded">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
                     ) : noPageviews ? (

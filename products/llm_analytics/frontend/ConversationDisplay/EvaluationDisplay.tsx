@@ -49,7 +49,7 @@ export function EvaluationDisplay({ eventProperties }: { eventProperties: EventT
             </div>
 
             {reasoning && (
-                <div className="p-3 border rounded bg-surface-primary">
+                <div className="p-3 border rounded bg-card">
                     <div className="font-medium text-xs text-muted mb-1.5">REASONING</div>
                     <div className="text-sm whitespace-pre-wrap">{reasoning}</div>
                 </div>

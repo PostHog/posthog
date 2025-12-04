@@ -41,7 +41,7 @@ function DetailSection({
     return (
         <div className={showBorder ? 'border-t border-border' : ''}>
             <div
-                className="flex ml-1 gap-2 items-center justify-start cursor-pointer hover:bg-surface-primary"
+                className="flex ml-1 gap-2 items-center justify-start cursor-pointer hover:bg-card"
                 onClick={() => setIsExpanded(!isExpanded)}
             >
                 <LemonButton

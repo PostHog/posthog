@@ -44,7 +44,7 @@ export const SeverityLevelsFilter = (): JSX.Element => {
             : 'All levels'
 
     return (
-        <span className="rounded bg-surface-primary">
+        <span className="rounded bg-card">
             <LemonMenu
                 closeOnClickInside={false}
                 items={Object.entries(options).map(([key, label]) => ({

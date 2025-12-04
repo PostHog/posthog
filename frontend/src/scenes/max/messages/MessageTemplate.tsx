@@ -30,7 +30,7 @@ export const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateP
                 {children && (
                     <div
                         className={twMerge(
-                            'border py-2 px-3 rounded-lg bg-surface-primary',
+                            'border py-2 px-3 rounded-lg bg-card',
                             type === 'human' && 'font-medium',
                             boxClassName
                         )}

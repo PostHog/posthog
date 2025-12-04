@@ -336,7 +336,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         onChange={(section) => {
                             setSelectedSection(section)
                         }}
-                        className="bg-surface-primary"
+                        className="bg-card"
                         panels={[
                             {
                                 key: SurveyEditSection.Presentation,

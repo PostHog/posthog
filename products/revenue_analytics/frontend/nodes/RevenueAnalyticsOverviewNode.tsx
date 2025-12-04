@@ -109,7 +109,7 @@ const ItemCell = ({ item }: { item: Item }): JSX.Element => {
     )
 
     return (
-        <div className="flex flex-col items-center text-center justify-around w-full h-full border p-2 bg-surface-primary rounded">
+        <div className="flex flex-col items-center text-center justify-around w-full h-full border p-2 bg-card rounded">
             <div className="font-bold uppercase text-xs py-1">{item.label}</div>
             {value}
         </div>

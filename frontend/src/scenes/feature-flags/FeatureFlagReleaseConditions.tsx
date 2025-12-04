@@ -167,7 +167,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="border rounded p-4 bg-surface-primary">
+                <div className="border rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -517,7 +517,7 @@ export function FeatureFlagReleaseConditions({
         return (
             <div className="w-full" key={group.sort_key}>
                 {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
-                <div className="mb-4 rounded p-4 bg-surface-primary">
+                <div className="mb-4 rounded p-4 bg-card">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <div>

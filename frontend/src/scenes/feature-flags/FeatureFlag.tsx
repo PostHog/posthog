@@ -715,7 +715,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
                                                 <FeatureFlagAutoRollback />
                                             )}
-                                            <div className="border rounded bg-surface-primary">
+                                            <div className="border rounded bg-card">
                                                 <h3 className="p-2 mb-0">Permissions</h3>
                                                 <LemonDivider className="my-0" />
                                                 <div className="p-3">

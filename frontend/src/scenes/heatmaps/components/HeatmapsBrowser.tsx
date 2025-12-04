@@ -265,7 +265,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="gap-y-px p-2 border bg-surface-primary rounded">
+                <div className="gap-y-px p-2 border bg-card rounded">
                     {topUrlsLoading ? (
                         <LemonSkeleton className="h-10" repeat={10} />
                     ) : noPageviews ? (

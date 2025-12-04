@@ -68,7 +68,7 @@ export function ErrorTrackingScene(): JSX.Element {
                                 <TabsPrimitive
                                     value={activeTab}
                                     onValueChange={(value) => setActiveTab(value as ErrorTrackingSceneActiveTab)}
-                                    className="border rounded bg-surface-primary"
+                                    className="border rounded bg-card"
                                 >
                                     <TabsPrimitiveList className="border-b">
                                         <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
@@ -89,7 +89,7 @@ export function ErrorTrackingScene(): JSX.Element {
                             </div>
                         ) : (
                             <div>
-                                <div className="border rounded bg-surface-primary p-2">
+                                <div className="border rounded bg-card p-2">
                                     <IssuesFilters />
                                 </div>
                                 <IssuesList />

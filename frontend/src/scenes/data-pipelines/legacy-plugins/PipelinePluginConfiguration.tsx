@@ -168,7 +168,7 @@ export function PipelinePluginConfiguration({
             >
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex flex-col flex-1 gap-4 min-w-100">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                        <div className="p-3 rounded border bg-card deprecated-space-y-2">
                             <div className="flex flex-row gap-2 items-center min-h-16">
                                 <RenderApp plugin={plugin} imageSize="medium" />
                                 <div className="flex flex-col flex-1 py-1">
@@ -214,7 +214,7 @@ export function PipelinePluginConfiguration({
                     </div>
 
                     <div className="flex-2 min-w-100 deprecated-space-y-4">
-                        <div className="p-3 rounded border bg-surface-primary deprecated-space-y-2">
+                        <div className="p-3 rounded border bg-card deprecated-space-y-2">
                             <>
                                 {fields.length ? (
                                     fields

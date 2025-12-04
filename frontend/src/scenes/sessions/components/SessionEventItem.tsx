@@ -124,7 +124,7 @@ export function SessionEventItem({
     return (
         <div
             className={clsx(
-                'border border-border rounded overflow-hidden transition-all bg-surface-primary',
+                'border border-border rounded overflow-hidden transition-all bg-card',
                 !isExpanded && 'hover:bg-secondary-3000-hover-light',
                 isExpanded && 'border-primary',
                 isExpanded && highlightColor === 'danger' && 'border-danger-dark',

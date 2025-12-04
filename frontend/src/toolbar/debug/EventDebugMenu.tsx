@@ -145,7 +145,7 @@ export const EventDebugMenu = (): JSX.Element => {
                                         expanded ? markExpanded(null) : markExpanded(e.uuid || null)
                                     }}
                                 >
-                                    <div className="flex flex-row justify-between hover:bg-surface-primary hover:text-accent-highlight">
+                                    <div className="flex flex-row justify-between hover:bg-card hover:text-accent-highlight">
                                         <EventTimestamp e={e} />
 
                                         <div className="flex flex-row items-end gap-1">

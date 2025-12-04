@@ -27,7 +27,7 @@ export const LemonCard = forwardRef<HTMLDivElement, LemonCardProps>(function Lem
         <div
             ref={ref}
             className={cn(
-                'LemonCard border rounded p-6 bg-surface-primary relative',
+                'LemonCard border rounded p-6 bg-card relative',
                 {
                     'LemonCard--hoverEffect': hoverEffect,
                     'border-2 border-primary': focused,

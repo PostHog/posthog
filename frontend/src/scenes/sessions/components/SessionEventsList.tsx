@@ -85,7 +85,7 @@ export function SessionEventsList(): JSX.Element {
     return (
         <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
             {/* Header */}
-            <div className="flex items-center justify-between bg-surface-primary p-3">
+            <div className="flex items-center justify-between bg-card p-3">
                 <div className="flex items-center gap-2">
                     <LemonButton
                         size="small"

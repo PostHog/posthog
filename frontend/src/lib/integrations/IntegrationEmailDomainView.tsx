@@ -33,7 +33,7 @@ export function IntegrationEmailDomainView({
     const verificationRequired = integrations.some(isVerificationRequired)
 
     return (
-        <div className="rounded border bg-surface-primary">
+        <div className="rounded border bg-card">
             <div className="flex flex-1 justify-between items-center p-2">
                 <div className="flex flex-1 gap-4 items-center ml-2">
                     <IconLetter className="w-8 h-8" />

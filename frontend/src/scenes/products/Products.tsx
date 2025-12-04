@@ -275,7 +275,7 @@ export function Products(): JSX.Element {
                                             }))}
                                             onChange={(value) => value && setFirstProductOnboarding(value)}
                                             placeholder="Select a product"
-                                            className="bg-surface-primary"
+                                            className="bg-card"
                                         />
                                         <LemonButton
                                             sideIcon={<IconArrowRight />}

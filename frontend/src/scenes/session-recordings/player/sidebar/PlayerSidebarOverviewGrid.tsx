@@ -67,7 +67,7 @@ export function PlayerSidebarOverviewGrid({
 
     return (
         <>
-            <div className="rounded border bg-surface-primary">
+            <div className="rounded border bg-card">
                 {loading ? (
                     <div className="flex flex-col deprecated-space-y-1">
                         <LemonSkeleton.Row repeat={6} className="h-5" />

@@ -31,7 +31,7 @@ export function RunningTime(): JSX.Element {
                     />
                 ) : null}
             </div>
-            <div className="relative border rounded bg-surface-primary p-4 h-[280px] overflow-y-auto">
+            <div className="relative border rounded bg-card p-4 h-[280px] overflow-y-auto">
                 {!recommendedSampleSize || !recommendedRunningTime ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="text-center">

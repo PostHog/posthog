@@ -184,7 +184,7 @@ const ActivityDetailsSection = ({ logItem }: { logItem: HumanizedActivityLogItem
                     label: 'Raw',
                     tooltip: 'Show the raw data of the activity item.',
                     content: (
-                        <div className="bg-surface-primary p-2 rounded border border-border text-sm">
+                        <div className="bg-card p-2 rounded border border-border text-sm">
                             <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>
                         </div>
                     ),
@@ -231,7 +231,7 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
 
     if (beforeStr === afterStr) {
         return (
-            <div className="border rounded p-2 bg-surface-primary">
+            <div className="border rounded p-2 bg-card">
                 <div className="font-medium text-sm mb-1">{field}</div>
                 <div className="text-muted text-xs">No changes detected</div>
             </div>
@@ -239,7 +239,7 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     }
 
     return (
-        <div className="border rounded bg-surface-primary">
+        <div className="border rounded bg-card">
             <div className="font-medium text-sm p-2">{field}</div>
             <MonacoDiffEditor
                 original={beforeStr}

@@ -32,7 +32,7 @@ export function ElementInfo(): JSX.Element | null {
             </div>
 
             {position ? (
-                <div className="p-3 border-l-[5px] border-l-danger bg-surface-primary text-foreground">
+                <div className="p-3 border-l-[5px] border-l-danger bg-card text-foreground">
                     <h1 className="section-title">Stats</h1>
                     <p className="">
                         <IconCalendar /> <u>{dateRange}</u>

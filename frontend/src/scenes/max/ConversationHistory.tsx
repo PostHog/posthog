@@ -82,7 +82,7 @@ interface ConversationCardProps {
 function ConversationCard({ conversation, openConversation, sidePanel }: ConversationCardProps): JSX.Element {
     return (
         <Link
-            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
+            className="p-4 flex flex-row bg-card rounded-lg gap-2 w-full min-h-14 items-center justify-between"
             to={combineUrl(urls.ai(conversation.id), { from: 'history' }).url}
             onClick={(e) => {
                 if (sidePanel) {

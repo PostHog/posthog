@@ -154,7 +154,7 @@ function NPSRatingOverTime({ questionIndex, questionId }: { questionIndex: numbe
     const { setDateRange, setInterval, setCompareFilter } = useActions(surveyLogic)
 
     return (
-        <div className="bg-surface-primary rounded">
+        <div className="bg-card rounded">
             <LemonCollapse
                 panels={[
                     {
@@ -310,7 +310,7 @@ function RatingScoreOverTime({
     const formula = `(${formulaNumeratorParts.join('+')}) / (${formulaDenominatorParts.join('+')})`
 
     return (
-        <div className="bg-surface-primary rounded">
+        <div className="bg-card rounded">
             <LemonCollapse
                 panels={[
                     {

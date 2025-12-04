@@ -355,7 +355,7 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
     const matchedRecordings = actor.matched_recordings || []
 
     return (
-        <div className="relative border rounded bg-surface-primary">
+        <div className="relative border rounded bg-card">
             <div className="flex items-center gap-2 p-2">
                 <LemonButton
                     noPadding

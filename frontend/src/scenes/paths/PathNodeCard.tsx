@@ -58,7 +58,7 @@ export function PathNodeCard({ insightProps, node, canvasHeight }: PathNodeCardP
             matchWidth
         >
             <div
-                className="absolute rounded bg-surface-primary p-1"
+                className="absolute rounded bg-card p-1"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     width: PATH_NODE_CARD_WIDTH,

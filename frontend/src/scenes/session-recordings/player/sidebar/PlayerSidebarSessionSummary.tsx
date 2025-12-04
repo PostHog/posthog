@@ -696,7 +696,7 @@ export function PlayerSidebarSessionSummary(): JSX.Element | null {
     const { sessionSummary, sessionSummaryLoading } = useValues(playerMetaLogic(logicProps))
 
     return (
-        <div className="rounded border bg-surface-primary px-2 py-1">
+        <div className="rounded border bg-card px-2 py-1">
             {sessionSummaryLoading ? (
                 <>
                     <div className="flex items-center justify-between">

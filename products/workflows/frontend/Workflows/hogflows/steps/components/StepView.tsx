@@ -55,7 +55,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
 
     return (
         <div
-            className="relative flex flex-col cursor-pointer rounded user-select-none bg-surface-primary"
+            className="relative flex flex-col cursor-pointer rounded user-select-none bg-card"
             style={{
                 width: NODE_WIDTH,
                 height,

@@ -45,7 +45,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
     }
 
     return (
-        <div className="relative rounded-lg bg-surface-primary border mb-2">
+        <div className="relative rounded-lg bg-card border mb-2">
             <div className="absolute top-2 right-2 z-10">
                 <LemonButton
                     icon={<IconX className="w-4 h-4" />}

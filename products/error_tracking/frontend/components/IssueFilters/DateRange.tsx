@@ -27,7 +27,7 @@ export const DateRangeFilter = ({
     const { dateRange } = useValues(issueFiltersLogic)
     const { setDateRange } = useActions(issueFiltersLogic)
     return (
-        <span className={cn('rounded bg-surface-primary', className)}>
+        <span className={cn('rounded bg-card', className)}>
             <DateFilter
                 size={size}
                 dateFrom={dateRange.date_from}

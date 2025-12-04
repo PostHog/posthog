@@ -286,7 +286,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             isSideActionRight
                             iconOnly
                             size="xs"
-                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-surface-primary"
+                            className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-card"
                         >
                             <IconX className="text-tertiary size-3 group-hover:text-foreground z-10" />
                         </ButtonPrimitive>
@@ -322,7 +322,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                         'relative pb-0.5 pt-[2px] pl-2 pr-5 flex flex-row items-center gap-1 rounded-lg border border-transparent',
                         tab.active
                             ? 'tab-active rounded-bl-none rounded-br-none cursor-default text-foreground bg-[var(--scene-layout-background)] border-border'
-                            : 'cursor-pointer text-secondary bg-transparent hover:bg-surface-primary hover:text-foreground-hover z-20',
+                            : 'cursor-pointer text-secondary bg-transparent hover:bg-card hover:text-foreground-hover z-20',
                         'focus:outline-none',
                         isPinned && 'scene-tab--pinned justify-center pl-1 pr-1 gap-0',
                         className

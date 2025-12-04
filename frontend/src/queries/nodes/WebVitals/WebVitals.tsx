@@ -113,7 +113,7 @@ export function WebVitals(props: {
 
             <div className="flex flex-col sm:flex-row gap-2">
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
-                <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
+                <div className="flex flex-col flex-1 bg-card rounded border p-4">
                     <Query
                         query={webVitalsMetricQuery}
                         readOnly

@@ -13,7 +13,7 @@ interface ResponseCardProps {
 export function ScrollToSurveyResultsCard({ numOfResponses }: { numOfResponses: number }): JSX.Element {
     return (
         <button
-            className="border rounded p-3 bg-surface-primary flex items-center justify-center text-sm text-muted-foreground cursor-pointer"
+            className="border rounded p-3 bg-card flex items-center justify-center text-sm text-muted-foreground cursor-pointer"
             onClick={() => {
                 const surveyTableResults = document.querySelector('.survey-table-results')
                 if (surveyTableResults) {
@@ -41,7 +41,7 @@ export function ResponseCard({
     const showCount = count !== undefined && count > 1
 
     return (
-        <div className={`border rounded bg-surface-primary overflow-hidden flex flex-col ${className}`}>
+        <div className={`border rounded bg-card overflow-hidden flex flex-col ${className}`}>
             <div className="p-3">
                 <div className="text-sm font-medium mb-1 max-h-20 overflow-y-auto">
                     {typeof response !== 'string' ? JSON.stringify(response) : response}

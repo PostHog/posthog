@@ -21,7 +21,7 @@ export const SurveyTabPositionSelector = ({
     disabled?: boolean
 }): JSX.Element => {
     return (
-        <div className="grid grid-cols-3 grid-rows-3 gap-1 border border-input bg-surface-primary w-50 p-1 rounded-lg focus-within:border-border-strong">
+        <div className="grid grid-cols-3 grid-rows-3 gap-1 border border-input bg-card w-50 p-1 rounded-lg focus-within:border-border-strong">
             {positions.map((position) => (
                 <div key={position} style={positionStyles[position]}>
                     <PositionButton

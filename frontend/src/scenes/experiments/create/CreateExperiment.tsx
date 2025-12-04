@@ -127,7 +127,7 @@ export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentPro
                     activeKey={selectedPanel ?? undefined}
                     defaultActiveKey="experiment-exposure"
                     onChange={setSelectedPanel}
-                    className="bg-surface-primary"
+                    className="bg-card"
                     panels={[
                         {
                             key: 'experiment-exposure',

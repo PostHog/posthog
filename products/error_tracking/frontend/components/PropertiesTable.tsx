@@ -50,9 +50,7 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
                     },
                 },
             ]}
-            rowClassName={
-                alternatingColors ? 'even:bg-fill-tertiary odd:bg-surface-primary group' : 'bg-fill-secondary group'
-            }
+            rowClassName={alternatingColors ? 'even:bg-fill-tertiary odd:bg-card group' : 'bg-fill-secondary group'}
             firstColumnSticky
         />
     )

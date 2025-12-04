@@ -42,7 +42,7 @@ export function HogFunctionCode(): JSX.Element {
     const content = (
         <div
             ref={sourceCodeRef}
-            className={clsx('p-3 rounded border deprecated-space-y-2', showSource ? 'bg-surface-primary' : 'bg-muted')}
+            className={clsx('p-3 rounded border deprecated-space-y-2', showSource ? 'bg-card' : 'bg-muted')}
         >
             <div className="flex gap-2 justify-end items-center">
                 <div className="flex-1 deprecated-space-y-2">

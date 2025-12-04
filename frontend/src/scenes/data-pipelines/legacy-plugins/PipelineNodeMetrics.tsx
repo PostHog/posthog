@@ -364,7 +364,7 @@ function CollapsibleSection(props: {
             >
                 {props.title}
             </LemonButton>
-            {isExpanded && <div className="bg-surface-primary p-2">{props.children}</div>}
+            {isExpanded && <div className="bg-card p-2">{props.children}</div>}
         </div>
     )
 }

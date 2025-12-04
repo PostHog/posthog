@@ -69,25 +69,25 @@ function SessionSceneWrapper(): JSX.Element {
                     <SceneBreadcrumbBackButton />
                     <div className="flex items-start justify-between">
                         <header className="flex gap-1.5 flex-wrap">
-                            <LemonTag size="medium" className="bg-surface-primary">
+                            <LemonTag size="medium" className="bg-card">
                                 <span className="font-mono">{sessionId}</span>
                             </LemonTag>
-                            <LemonTag size="medium" className="bg-surface-primary">
+                            <LemonTag size="medium" className="bg-card">
                                 {sessionStats.traceCount} {sessionStats.traceCount === 1 ? 'trace' : 'traces'}
                             </LemonTag>
                             {sessionStats.totalCost > 0 && (
-                                <LemonTag size="medium" className="bg-surface-primary">
+                                <LemonTag size="medium" className="bg-card">
                                     Total: {formatLLMCost(sessionStats.totalCost)}
                                 </LemonTag>
                             )}
                             {sessionStats.totalLatency > 0 && (
-                                <LemonTag size="medium" className="bg-surface-primary">
+                                <LemonTag size="medium" className="bg-card">
                                     {sessionStats.totalLatency.toFixed(2)}s
                                 </LemonTag>
                             )}
                         </header>
                     </div>
-                    <div className="bg-surface-primary border rounded p-4">
+                    <div className="bg-card border rounded p-4">
                         <h3 className="font-semibold text-sm mb-3">Traces in this session</h3>
                         <div className="space-y-2">
                             {traces.map((trace) => {

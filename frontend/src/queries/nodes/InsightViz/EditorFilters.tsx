@@ -447,7 +447,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                         active={maxToolActive}
                     >
                         <div
-                            className={clsx('flex flex-row flex-wrap gap-8 bg-surface-primary', {
+                            className={clsx('flex flex-row flex-wrap gap-8 bg-card', {
                                 'p-4 rounded border': !embedded,
                             })}
                         >

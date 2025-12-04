@@ -387,7 +387,7 @@ export const RecordingsUniversalFiltersEmbed = ({
             key: 'filters',
             label: <div className="px-2">Filters</div>,
             content: (
-                <div className={clsx('relative bg-surface-primary w-full ', className)}>
+                <div className={clsx('relative bg-card w-full ', className)}>
                     {appliedSavedFilter && (
                         <div className="border-b px-2 py-3 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2 min-w-0">

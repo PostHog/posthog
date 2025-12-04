@@ -410,7 +410,7 @@ export const PlayerInspectorListItem = memo(function PlayerInspectorListItem({
                 'ml-1 flex flex-col items-center',
                 isExpanded && 'border border-primary',
                 isExpanded && item.highlightColor && `border border-${item.highlightColor}-dark`,
-                isHovering && 'bg-surface-primary'
+                isHovering && 'bg-card'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{

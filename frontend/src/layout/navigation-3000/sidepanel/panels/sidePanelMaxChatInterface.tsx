@@ -129,7 +129,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
         return (
             <div ref={ref} className="flex flex-col h-full">
                 <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
-                    <div className="bg-surface-primary dark:bg-transparent rounded p-1">
+                    <div className="bg-card dark:bg-transparent rounded p-1">
                         <h4 className="mb-2">Tips for using PostHog AI through chat:</h4>
                         <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
                             <li>PostHog AI can't handle files or images (yet.)</li>
@@ -163,8 +163,8 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                         <div
                                             className={`p-2 rounded-lg min-w-[90%] whitespace-pre-wrap ${
                                                 message.role === 'assistant'
-                                                    ? 'bg-surface-primary dark:bg-surface-primary text-default'
-                                                    : 'bg-surface-primary dark:bg-muted text-default'
+                                                    ? 'bg-card dark:bg-card text-default'
+                                                    : 'bg-card dark:bg-muted text-default'
                                             }`}
                                         >
                                             {message.role === 'assistant'
@@ -341,7 +341,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                         <div className="flex justify-start">
                             <div className="flex flex-col">
                                 <div className="text-sm text-foreground-alt mb-1">Max</div>
-                                <div className="p-2 rounded-lg bg-surface-primary dark:bg-surface-primary text-default">
+                                <div className="p-2 rounded-lg bg-card dark:bg-card text-default">
                                     <div className="flex items-center gap-2">
                                         <span>
                                             {hasServerError

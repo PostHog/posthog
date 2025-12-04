@@ -202,7 +202,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                 <ScrollableShadows
                                     direction="vertical"
                                     className={cn(
-                                        'bg-surface-primary border rounded group/colorful-product-icons colorful-product-icons-true',
+                                        'bg-card border rounded group/colorful-product-icons colorful-product-icons-true',
                                         className
                                     )}
                                 >

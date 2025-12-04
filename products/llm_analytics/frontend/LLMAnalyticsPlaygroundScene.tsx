@@ -147,7 +147,7 @@ function ToolsDisplay({ expandTextAreas }: { expandTextAreas: boolean }): JSX.El
 
     return (
         <>
-            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-surface-primary)] border-l-4 border-l-[var(--color-orange-500)]">
+            <div className="border rounded p-3 relative group bg-white dark:bg-[var(--bg-card)] border-l-4 border-l-[var(--color-orange-500)]">
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
                     <LemonButton
                         size="small"

@@ -38,7 +38,7 @@ export function HogFunctionInputs(): JSX.Element {
     } = useActions(hogFunctionConfigurationLogic)
 
     const content = (
-        <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-surface-primary')}>
+        <div className={clsx('p-3 rounded border deprecated-space-y-2 bg-card')}>
             <div className="deprecated-space-y-2">
                 {usesGroups && !hasGroupsAddon ? (
                     <LemonBanner type="warning">
