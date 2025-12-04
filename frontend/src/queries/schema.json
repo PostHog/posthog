@@ -28481,6 +28481,9 @@
                 "inputBackground": {
                     "type": "string"
                 },
+                "inputTextColor": {
+                    "type": "string"
+                },
                 "maxWidth": {
                     "type": "string"
                 },
