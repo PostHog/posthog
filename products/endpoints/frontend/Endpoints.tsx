@@ -82,15 +82,15 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
                 return (
                     <LemonTableLink
                         to={urls.endpoint(record.name)}
-                        title={record.name}
-                        description={
+                        title={
                             <>
+                                {record.name}
                                 <LemonTag type="option" size="small" className="mr-1">
                                     {record.query?.kind && humanizeQueryKind(record.query.kind)}
                                 </LemonTag>
-                                {record.description}
                             </>
                         }
+                        description={record.description}
                     />
                 )
             },
@@ -102,12 +102,11 @@ export const EndpointsTable = ({ tabId }: EndpointsTableProps): JSX.Element => {
             EndpointType,
             keyof EndpointType | undefined
         >,
-        {
-            ...atColumn<EndpointType>('materialization.last_materialized_at' as any, 'Last materialized at'),
-            render: function Render(_, record) {
-                return record.materialization?.last_materialized_at || '-'
-            },
-        } as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
+        atColumn<EndpointType>(
+            'materialization' as any,
+            'Last materialized at',
+            (record) => record.materialization?.last_materialized_at
+        ) as LemonTableColumn<EndpointType, keyof EndpointType | undefined>,
         {
             title: 'Endpoint path',
             key: 'endpoint_path',
