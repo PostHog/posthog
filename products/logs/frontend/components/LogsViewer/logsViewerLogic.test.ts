@@ -43,7 +43,7 @@ describe('logsViewerLogic', () => {
         const logsLength = mockLogs.length
 
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
 
@@ -141,7 +141,7 @@ describe('logsViewerLogic', () => {
 
     describe('empty logs', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
 
@@ -164,7 +164,7 @@ describe('logsViewerLogic', () => {
 
     describe('expansion', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
         it('expands a log when not expanded', async () => {
@@ -215,7 +215,7 @@ describe('logsViewerLogic', () => {
         const mockLog2 = createMockParsedLog('log-2')
 
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
 
@@ -275,7 +275,7 @@ describe('logsViewerLogic', () => {
 
     describe('focus state', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
 
@@ -300,7 +300,7 @@ describe('logsViewerLogic', () => {
 
     describe('display options', () => {
         beforeEach(() => {
-            logic = logsViewerLogic({ tabId: 'test-tab' })
+            logic = logsViewerLogic({ tabId: 'test-tab', logs: mockLogs, orderBy: 'latest' })
             logic.mount()
         })
 
