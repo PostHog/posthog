@@ -315,7 +315,7 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     return (
         <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
-                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector size="xxsmall" />}
+                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
                 {deepResearchMode ? (
                     <LemonButton
                         size="xxsmall"

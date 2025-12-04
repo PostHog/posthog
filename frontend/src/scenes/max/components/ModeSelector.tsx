@@ -170,11 +170,7 @@ function getModeOptions(deepResearchEnabled: boolean): LemonSelectSection<ModeVa
     ]
 }
 
-interface ModeSelectorProps {
-    size?: 'xsmall' | 'xxsmall'
-}
-
-export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Element {
+export function ModeSelector(): JSX.Element {
     const { agentMode, deepResearchMode } = useValues(maxThreadLogic)
     const { setAgentMode, setDeepResearchMode } = useActions(maxThreadLogic)
     const deepResearchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
@@ -198,7 +194,7 @@ export function ModeSelector({ size = 'xsmall' }: ModeSelectorProps): JSX.Elemen
             value={currentValue}
             onChange={handleChange}
             options={modeOptions}
-            size={size}
+            size="xxsmall"
             type="tertiary"
             tooltip={buildGeneralTooltip(
                 'Select a mode to focus PostHog AI on a specific product or task. Each mode unlocks specialized capabilities, tools, and expertise.',

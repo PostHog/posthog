@@ -102,6 +102,8 @@ export interface ModeDefinition {
     name: string
     description: string
     icon: JSX.Element
+    /** Scenes that should trigger this agent mode */
+    scenes: Set<Scene>
 }
 
 /** Default tools available in all modes */
@@ -552,16 +554,25 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
         name: 'Product analytics',
         description: 'Creates insights and dashboards to analyze your product data.',
         icon: iconForType('product_analytics'),
+        scenes: new Set([Scene.Dashboards, Scene.Dashboard, Scene.Insight, Scene.SavedInsights]),
     },
     [AgentMode.SQL]: {
         name: 'SQL',
         description: 'Generates and executes SQL queries for your PostHog data and connected data warehouse sources.',
         icon: iconForType('sql_editor'),
+        scenes: new Set([Scene.SQLEditor]),
     },
     [AgentMode.SessionReplay]: {
         name: 'Session replay',
         description: 'Analyzes session recordings and provides summaries and insights about user behavior.',
         icon: iconForType('session_replay'),
+        scenes: new Set([
+            Scene.Replay,
+            Scene.ReplaySingle,
+            Scene.ReplayPlaylist,
+            Scene.ReplayFilePlayback,
+            Scene.ReplaySettings,
+        ]),
     },
 }
 
@@ -573,7 +584,7 @@ export const SPECIAL_MODES = {
         icon: <IconShuffle />,
     },
     deep_research: {
-        name: 'Deep research',
+        name: 'Research',
         description:
             'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
         icon: <IconBrain />,

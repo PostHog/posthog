@@ -56,6 +56,7 @@ import type { maxThreadLogicType } from './maxThreadLogicType'
 import { RENDERABLE_UI_PAYLOAD_TOOLS } from './messages/UIPayloadAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommand } from './slash-commands'
 import {
+    getAgentModeForScene,
     isAssistantMessage,
     isAssistantToolCallMessage,
     isHumanMessage,
@@ -80,31 +81,6 @@ export interface MaxThreadLogicProps {
     tabId: string // used to refer back to MaxLogic
     conversationId: string
     conversation?: ConversationDetail | null
-}
-
-/** Maps agent modes to the scenes that should trigger them */
-const SCENE_TO_AGENT_MODE: Record<AgentMode, Set<Scene>> = {
-    [AgentMode.SQL]: new Set([Scene.SQLEditor]),
-    [AgentMode.ProductAnalytics]: new Set([Scene.Dashboards, Scene.Dashboard, Scene.Insight, Scene.SavedInsights]),
-    [AgentMode.SessionReplay]: new Set([
-        Scene.Replay,
-        Scene.ReplaySingle,
-        Scene.ReplayPlaylist,
-        Scene.ReplayFilePlayback,
-        Scene.ReplaySettings,
-    ]),
-}
-
-function getAgentModeForScene(sceneId: Scene | null): AgentMode | null {
-    if (!sceneId) {
-        return null
-    }
-    for (const [mode, scenes] of Object.entries(SCENE_TO_AGENT_MODE)) {
-        if (scenes.has(sceneId)) {
-            return mode as AgentMode
-        }
-    }
-    return null
 }
 
 export const maxThreadLogic = kea<maxThreadLogicType>([
