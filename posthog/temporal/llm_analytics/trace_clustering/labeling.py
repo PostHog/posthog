@@ -15,6 +15,7 @@ import structlog
 from pydantic import BaseModel
 
 from posthog.cloud_utils import is_cloud
+from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering.constants import LABELING_LLM_MODEL, LABELING_LLM_TIMEOUT
 from posthog.temporal.llm_analytics.trace_clustering.data import fetch_trace_summaries
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusterLabel, ClusterRepresentatives
@@ -34,7 +35,7 @@ class ClusterLabelsResponse(BaseModel):
 
 
 def generate_cluster_labels(
-    team_id: int,
+    team: Team,
     labels: np.ndarray,
     representative_trace_ids: ClusterRepresentatives,
     window_start: datetime,
@@ -43,12 +44,12 @@ def generate_cluster_labels(
     """Generate titles and descriptions for all clusters using LLM.
 
     Strategy:
-    1. Fetch summaries for representative traces from $ai_trace_summary events
+    1. Fetch summaries for representative traces from $ai_trace_summary events using HogQL
     2. Send all clusters to LLM in one call for better global context
     3. LLM generates title + description for each cluster
 
     Args:
-        team_id: Team ID
+        team: Team object for HogQL queries
         labels: Cluster assignments for each trace (used for cluster sizes)
         representative_trace_ids: Dict mapping cluster_id to list of representative trace IDs
         window_start: Start of time window
@@ -60,7 +61,7 @@ def generate_cluster_labels(
     num_clusters = len(np.unique(labels))
 
     representative_trace_summaries = fetch_trace_summaries(
-        team_id=team_id,
+        team=team,
         trace_ids=[tid for tids in representative_trace_ids.values() for tid in tids],
         window_start=window_start,
         window_end=window_end,
@@ -85,7 +86,7 @@ def generate_cluster_labels(
 
     prompt = _build_cluster_labels_prompt(num_clusters, clusters_data)
 
-    return _call_llm_for_labels(prompt, team_id, num_clusters, labels)
+    return _call_llm_for_labels(prompt, team.id, num_clusters, labels)
 
 
 def _build_cluster_labels_prompt(num_clusters: int, clusters_data: list[dict]) -> str:

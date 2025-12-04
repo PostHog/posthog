@@ -21,6 +21,7 @@ class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
     FEATURE_FLAGS = "feature_flags"
+    LLM_ANALYTICS = "llm_analytics"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
     WORKFLOWS = "workflows"

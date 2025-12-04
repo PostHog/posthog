@@ -1,20 +1,23 @@
 """
 Coordinator workflow for daily trace clustering.
 
-This workflow discovers teams with trace embeddings and spawns
-child workflows to cluster traces for each team.
+This workflow processes traces for teams in the ALLOWED_TEAM_IDS list
+and spawns child workflows to cluster traces for each team.
+
+Team discovery uses a simple allowlist approach to avoid cross-team
+ClickHouse queries. The per-team child workflows handle the case where
+a team has no traces gracefully (returning empty results).
 """
 
 import dataclasses
-from datetime import timedelta
 from typing import Any
 
 import structlog
 import temporalio
 
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.trace_clustering import constants
+from posthog.temporal.llm_analytics.trace_clustering.constants import ALLOWED_TEAM_IDS
 from posthog.temporal.llm_analytics.trace_clustering.models import ClusteringWorkflowInputs
 from posthog.temporal.llm_analytics.trace_clustering.workflow import DailyTraceClusteringWorkflow
 
@@ -29,91 +32,30 @@ class TraceClusteringCoordinatorInputs:
     max_samples: int = constants.DEFAULT_MAX_SAMPLES
     min_k: int = constants.DEFAULT_MIN_K
     max_k: int = constants.DEFAULT_MAX_K
-    min_embeddings: int = constants.MIN_TRACES_FOR_CLUSTERING
     max_concurrent_teams: int = constants.DEFAULT_MAX_CONCURRENT_TEAMS
 
 
-@dataclasses.dataclass
-class TeamsWithEmbeddingsResult:
-    """Result from querying teams with embeddings."""
-
-    team_ids: list[int]
-
-
-def query_teams_with_embeddings(lookback_days: int, min_embeddings: int) -> list[int]:
+def get_allowed_team_ids() -> list[int]:
     """
-    Query ClickHouse for teams that have trace embeddings in the lookback window.
+    Get the list of team IDs that should be processed for trace clustering.
 
-    Shared logic used by both the coordinator activity and manual trigger script.
+    Uses a simple allowlist approach to avoid cross-team ClickHouse queries.
+    Per-team child workflows handle the case where a team has no traces gracefully.
+
+    Returns:
+        List of team IDs from ALLOWED_TEAM_IDS constant
     """
-    from django.utils import timezone
-
-    from posthog.clickhouse.client.connection import Workload
-    from posthog.clickhouse.client.execute import sync_execute
-
-    end_dt = timezone.now()
-    start_dt = end_dt - timedelta(days=lookback_days)
-
-    result = sync_execute(
-        """
-        SELECT
-            team_id,
-            count(DISTINCT document_id) as embedding_count
-        FROM distributed_posthog_document_embeddings
-        WHERE timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND rendering = %(rendering)s
-            AND length(embedding) > 0
-        GROUP BY team_id
-        HAVING embedding_count >= %(min_embeddings)s
-        ORDER BY team_id
-        """,
-        {
-            "start_dt": start_dt,
-            "end_dt": end_dt,
-            "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-            "min_embeddings": min_embeddings,
-        },
-        workload=Workload.OFFLINE,
-    )
-    return [row[0] for row in result]
-
-
-@temporalio.activity.defn
-async def get_teams_with_embeddings_activity(
-    inputs: TraceClusteringCoordinatorInputs,
-) -> TeamsWithEmbeddingsResult:
-    """Query for teams that have trace embeddings in the lookback window."""
-
-    @database_sync_to_async
-    def get_teams():
-        return query_teams_with_embeddings(inputs.lookback_days, inputs.min_embeddings)
-
-    team_ids = await get_teams()
-
-    # Filter by allowlist if configured
-    if constants.ALLOWED_TEAM_IDS:
-        original_count = len(team_ids)
-        team_ids = [team_id for team_id in team_ids if team_id in constants.ALLOWED_TEAM_IDS]
-        logger.info(
-            "Filtered teams by allowlist",
-            original_count=original_count,
-            filtered_count=len(team_ids),
-            allowed_teams=constants.ALLOWED_TEAM_IDS,
-        )
-    else:
-        logger.info("Found teams with trace embeddings", team_count=len(team_ids))
-
-    return TeamsWithEmbeddingsResult(team_ids=team_ids)
+    return ALLOWED_TEAM_IDS.copy()
 
 
 @temporalio.workflow.defn(name="trace-clustering-coordinator")
 class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
     """
-    Coordinator workflow that discovers teams with embeddings and spawns child clustering workflows.
+    Coordinator workflow that processes traces for teams in ALLOWED_TEAM_IDS.
 
-    This runs on a schedule (e.g., daily) and automatically processes all teams
-    with sufficient trace embeddings.
+    This runs on a schedule (e.g., daily) and spawns child workflows for each
+    team in the allowlist. Teams with no traces will complete quickly with
+    empty results.
     """
 
     @staticmethod
@@ -124,8 +66,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             max_samples=int(inputs[1]) if len(inputs) > 1 else constants.DEFAULT_MAX_SAMPLES,
             min_k=int(inputs[2]) if len(inputs) > 2 else constants.DEFAULT_MIN_K,
             max_k=int(inputs[3]) if len(inputs) > 3 else constants.DEFAULT_MAX_K,
-            min_embeddings=int(inputs[4]) if len(inputs) > 4 else constants.MIN_TRACES_FOR_CLUSTERING,
-            max_concurrent_teams=int(inputs[5]) if len(inputs) > 5 else constants.DEFAULT_MAX_CONCURRENT_TEAMS,
+            max_concurrent_teams=int(inputs[4]) if len(inputs) > 4 else constants.DEFAULT_MAX_CONCURRENT_TEAMS,
         )
 
     @temporalio.workflow.run
@@ -135,25 +76,21 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
             "Starting trace clustering coordinator",
             lookback_days=inputs.lookback_days,
             max_samples=inputs.max_samples,
-            min_embeddings=inputs.min_embeddings,
         )
 
-        # Step 1: Get teams with trace embeddings
-        result = await temporalio.workflow.execute_activity(
-            get_teams_with_embeddings_activity,
-            inputs,
-            schedule_to_close_timeout=timedelta(minutes=5),
-            retry_policy=constants.COORDINATOR_ACTIVITY_RETRY_POLICY,
-        )
+        # Get teams from allowlist (no cross-team ClickHouse query needed)
+        team_ids = get_allowed_team_ids()
 
-        if not result.team_ids:
-            logger.info("No teams with sufficient embeddings found")
+        if not team_ids:
+            logger.info("No teams in allowlist")
             return {
                 "teams_processed": 0,
                 "total_clusters": 0,
             }
 
-        # Step 2: Spawn child workflows for each team with concurrency limit
+        logger.info("Processing teams from allowlist", team_count=len(team_ids), team_ids=team_ids)
+
+        # Spawn child workflows for each team with concurrency limit
         total_clusters = 0
         total_traces = 0
         failed_teams: list[int] = []
@@ -161,7 +98,6 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         # Process teams in batches for controlled parallelism
         max_concurrent = inputs.max_concurrent_teams
-        team_ids = result.team_ids
 
         for batch_start in range(0, len(team_ids), max_concurrent):
             batch = team_ids[batch_start : batch_start + max_concurrent]
@@ -206,7 +142,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
 
         logger.info(
             "Trace clustering coordinator completed",
-            teams_processed=len(result.team_ids),
+            teams_processed=len(team_ids),
             teams_succeeded=len(successful_teams),
             teams_failed=len(failed_teams),
             total_traces=total_traces,
@@ -214,7 +150,7 @@ class TraceClusteringCoordinatorWorkflow(PostHogWorkflow):
         )
 
         return {
-            "teams_processed": len(result.team_ids),
+            "teams_processed": len(team_ids),
             "teams_succeeded": len(successful_teams),
             "teams_failed": len(failed_teams),
             "failed_team_ids": failed_teams,

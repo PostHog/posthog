@@ -1,44 +1,32 @@
 """Data access layer for trace clustering.
 
-This module consolidates all ClickHouse queries used by the clustering workflow,
+This module consolidates all HogQL queries used by the clustering workflow,
 providing a single source of truth for data fetching operations.
+All queries are team-scoped through HogQL's automatic team filtering.
 """
 
 from datetime import datetime
-from typing import Any
 
-from posthog.clickhouse.client.connection import Workload
-from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
-from posthog.temporal.llm_analytics.trace_clustering.models import (
-    TraceEmbeddingRow,
-    TraceEmbeddings,
-    TraceId,
-    TraceSummaries,
-    TraceSummaryRow,
-)
-
-
-def _rows_to_dicts(rows: list[tuple[Any, ...]], column_types: list[tuple[str, str]]) -> list[dict[str, Any]]:
-    """Convert ClickHouse rows to dictionaries using column names.
-
-    This provides safe column access by name rather than fragile index-based access.
-    The returned dicts should be cast to appropriate TypedDicts by callers for type safety.
-    """
-    column_names = [col[0] for col in column_types]
-    return [dict(zip(column_names, row)) for row in rows]
+from posthog.temporal.llm_analytics.trace_clustering.models import TraceEmbeddings, TraceId, TraceSummaries
 
 
 def fetch_trace_embeddings_for_clustering(
-    team_id: int,
+    team: Team,
     window_start: datetime,
     window_end: datetime,
     max_samples: int,
 ) -> tuple[list[TraceId], TraceEmbeddings]:
-    """Query trace IDs and embeddings from document_embeddings table.
+    """Query trace IDs and embeddings from document_embeddings table using HogQL.
 
     Args:
-        team_id: Team ID to query embeddings for
+        team: Team object to query embeddings for
         window_start: Start of time window
         window_end: End of time window
         max_samples: Maximum number of traces to sample
@@ -46,51 +34,53 @@ def fetch_trace_embeddings_for_clustering(
     Returns:
         Tuple of (list of trace IDs, dict mapping trace_id -> embedding vector)
     """
-    query = """
+    query = parse_select(
+        """
         SELECT document_id, embedding
-        FROM distributed_posthog_document_embeddings
-        WHERE team_id = %(team_id)s
-            AND timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND product = %(product)s
-            AND document_type = %(document_type)s
-            AND rendering = %(rendering)s
+        FROM raw_document_embeddings
+        WHERE timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND product = {product}
+            AND document_type = {document_type}
+            AND rendering = {rendering}
             AND length(embedding) > 0
         ORDER BY rand()
-        LIMIT %(max_samples)s
-    """
-    rows, column_types = sync_execute(
-        query,
-        {
-            "team_id": team_id,
-            "start_dt": window_start,
-            "end_dt": window_end,
-            "product": constants.LLMA_TRACE_PRODUCT,
-            "document_type": constants.LLMA_TRACE_DOCUMENT_TYPE,
-            "rendering": constants.LLMA_TRACE_DETAILED_RENDERING,
-            "max_samples": max_samples,
-        },
-        workload=Workload.OFFLINE,
-        with_column_types=True,
+        LIMIT {max_samples}
+        """
     )
 
-    results: list[TraceEmbeddingRow] = _rows_to_dicts(rows, column_types)  # type: ignore[assignment]
-    trace_ids = [row["document_id"] for row in results]
-    embeddings_map = {row["document_id"]: row["embedding"] for row in results}
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = execute_hogql_query(
+            query_type="TraceEmbeddingsForClustering",
+            query=query,
+            placeholders={
+                "start_dt": ast.Constant(value=window_start),
+                "end_dt": ast.Constant(value=window_end),
+                "product": ast.Constant(value=constants.LLMA_TRACE_PRODUCT),
+                "document_type": ast.Constant(value=constants.LLMA_TRACE_DOCUMENT_TYPE),
+                "rendering": ast.Constant(value=constants.LLMA_TRACE_DETAILED_RENDERING),
+                "max_samples": ast.Constant(value=max_samples),
+            },
+            team=team,
+        )
+
+    rows = result.results or []
+    trace_ids = [row[0] for row in rows]
+    embeddings_map = {row[0]: row[1] for row in rows}
 
     return trace_ids, embeddings_map
 
 
 def fetch_trace_summaries(
-    team_id: int,
+    team: Team,
     trace_ids: list[TraceId],
     window_start: datetime,
     window_end: datetime,
 ) -> TraceSummaries:
-    """Fetch trace summaries from $ai_trace_summary events.
+    """Fetch trace summaries from $ai_trace_summary events using HogQL.
 
     Args:
-        team_id: Team ID (for security/filtering)
+        team: Team object (for HogQL team-scoped queries)
         trace_ids: List of trace IDs to fetch summaries for
         window_start: Start of time window
         window_end: End of time window
@@ -98,45 +88,50 @@ def fetch_trace_summaries(
     Returns:
         Dictionary mapping trace_id -> {title, flow_diagram, bullets, interesting_notes}
     """
+    if not trace_ids:
+        return {}
 
-    # Use materialized column mat_$ai_trace_id to leverage bloom filter index
-    # for efficient filtering by trace_id
-    query = """
+    query = parse_select(
+        """
         SELECT
-            `mat_$ai_trace_id` as trace_id,
-            JSONExtractString(properties, '$ai_summary_title') as title,
-            JSONExtractString(properties, '$ai_summary_flow_diagram') as flow_diagram,
-            JSONExtractString(properties, '$ai_summary_bullets') as bullets,
-            JSONExtractString(properties, '$ai_summary_interesting_notes') as interesting_notes
+            properties.$ai_trace_id as trace_id,
+            properties.$ai_summary_title as title,
+            properties.$ai_summary_flow_diagram as flow_diagram,
+            properties.$ai_summary_bullets as bullets,
+            properties.$ai_summary_interesting_notes as interesting_notes
         FROM events
-        WHERE team_id = %(team_id)s
-            AND event = '$ai_trace_summary'
-            AND timestamp >= %(start_dt)s
-            AND timestamp < %(end_dt)s
-            AND `mat_$ai_trace_id` IN %(trace_ids)s
-    """
-
-    rows, column_types = sync_execute(
-        query,
-        {
-            "team_id": team_id,
-            "trace_ids": trace_ids,
-            "start_dt": window_start,
-            "end_dt": window_end,
-        },
-        workload=Workload.OFFLINE,
-        with_column_types=True,
+        WHERE event = {event_name}
+            AND timestamp >= {start_dt}
+            AND timestamp < {end_dt}
+            AND properties.$ai_trace_id IN {trace_ids}
+        """
     )
 
-    results: list[TraceSummaryRow] = _rows_to_dicts(rows, column_types)  # type: ignore[assignment]
+    # Build trace_ids tuple for IN clause
+    trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
+
+    with tags_context(product=Product.LLM_ANALYTICS):
+        result = execute_hogql_query(
+            query_type="TraceSummariesForClustering",
+            query=query,
+            placeholders={
+                "event_name": ast.Constant(value="$ai_trace_summary"),
+                "start_dt": ast.Constant(value=window_start),
+                "end_dt": ast.Constant(value=window_end),
+                "trace_ids": trace_ids_tuple,
+            },
+            team=team,
+        )
+
+    rows = result.results or []
     trace_summaries: TraceSummaries = {
-        row["trace_id"]: {
-            "title": row["title"],
-            "flow_diagram": row["flow_diagram"],
-            "bullets": row["bullets"],
-            "interesting_notes": row["interesting_notes"],
+        row[0]: {
+            "title": row[1],
+            "flow_diagram": row[2],
+            "bullets": row[3],
+            "interesting_notes": row[4],
         }
-        for row in results
+        for row in rows
     }
 
     return trace_summaries

@@ -8,13 +8,13 @@ Automated workflow for clustering LLM traces based on their semantic embeddings,
 posthog/temporal/llm_analytics/trace_clustering/
 ├── workflow.py              # Temporal workflow definition (orchestrates 3 activities)
 ├── activities.py            # Temporal activity definitions (3 activities)
-├── data.py                  # Data access layer (all ClickHouse queries)
+├── data.py                  # Data access layer (HogQL queries for team-scoped data)
 ├── clustering.py            # K-means implementation and distance calculations
 ├── labeling.py              # LLM-based cluster labeling
 ├── event_emission.py        # Event building and emission to ClickHouse
 ├── models.py                # Data models (ClusteringInputs, ClusteringResult, etc.)
 ├── constants.py             # Configuration constants (timeouts, defaults, k range)
-├── coordinator.py           # Coordinator workflow (discovers teams and spawns child workflows)
+├── coordinator.py           # Coordinator workflow (processes teams from allowlist)
 ├── schedule.py              # Temporal schedule configuration
 ├── test_workflow.py         # Workflow and activity tests
 └── README.md                # This file
@@ -24,7 +24,7 @@ posthog/temporal/llm_analytics/trace_clustering/
 
 This workflow implements trace clustering for LLM analytics:
 
-1. **Fetch trace IDs and embeddings** - Query trace IDs and embeddings from `posthog_document_embeddings` table in a single query
+1. **Fetch trace IDs and embeddings** - Query trace IDs and embeddings via HogQL from the document embeddings table
 2. **Perform clustering with optimal k** - Test k values using silhouette score and return the best clustering result
 3. **Compute distances** - Calculate distance from each trace to cluster centroids
 4. **Select representatives** - Pick traces closest to each centroid for labeling
@@ -108,7 +108,7 @@ The workflow uses **three separate activities** with independent timeouts and re
 
 **Activity 1 (Compute)** - CPU-bound work:
 
-- Fetches embeddings from ClickHouse
+- Fetches embeddings via HogQL (team-scoped)
 - Performs k-means clustering with optimal k selection
 - Computes distance matrix
 - Selects representative traces for labeling
@@ -137,10 +137,10 @@ The workflow uses **three separate activities** with independent timeouts and re
 - `generate_cluster_labels_activity()` - LLM labeling
 - `emit_cluster_events_activity()` - Event emission
 
-**`data.py`** - Data access layer:
+**`data.py`** - Data access layer (HogQL):
 
-- `fetch_trace_embeddings_for_clustering()` - Query trace IDs and embeddings in a single query (filters by `document_type='llm-trace-summary'`)
-- `fetch_trace_summaries()` - Fetch trace summaries for LLM labeling
+- `fetch_trace_embeddings_for_clustering()` - Query trace IDs and embeddings via HogQL (team-scoped, filters by product/document_type/rendering)
+- `fetch_trace_summaries()` - Fetch trace summaries for LLM labeling via HogQL
 
 **`clustering.py`** - Clustering algorithms:
 
@@ -244,9 +244,9 @@ if results:
 
 The coordinator workflow (`trace-clustering-coordinator`) runs on a schedule and:
 
-1. Discovers teams with sufficient trace embeddings
-2. Spawns clustering workflow for each team
-3. Handles failures gracefully
+1. Processes teams from the `ALLOWED_TEAM_IDS` allowlist
+2. Spawns clustering workflow for each team in parallel
+3. Handles failures gracefully (individual team failures don't affect others)
 
 Team allowlist in `constants.py`:
 
@@ -258,30 +258,33 @@ ALLOWED_TEAM_IDS: list[int] = [
 ]
 ```
 
+To add new teams, simply add their IDs to this list.
+
 ## Configuration
 
 Key constants in `constants.py`:
 
-| Constant                                  | Default           | Description                         |
-| ----------------------------------------- | ----------------- | ----------------------------------- |
-| `DEFAULT_LOOKBACK_DAYS`                   | 7                 | Days of trace history to analyze    |
-| `DEFAULT_MAX_SAMPLES`                     | 1000              | Maximum traces to sample            |
-| `DEFAULT_MIN_K`                           | 2                 | Minimum clusters to test            |
-| `DEFAULT_MAX_K`                           | 10                | Maximum clusters to test            |
-| `MIN_TRACES_FOR_CLUSTERING`               | 20                | Minimum traces required             |
-| `COMPUTE_ACTIVITY_TIMEOUT`                | 120s              | Clustering compute timeout          |
-| `LLM_ACTIVITY_TIMEOUT`                    | 300s              | LLM labeling timeout                |
-| `EMIT_ACTIVITY_TIMEOUT`                   | 60s               | Event emission timeout              |
-| `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7                 | Representatives for LLM             |
-| `LABELING_LLM_MODEL`                      | gpt-5.1           | OpenAI model for labeling           |
-| `LABELING_LLM_TIMEOUT`                    | 240.0             | LLM request timeout (seconds)       |
-| `LLMA_TRACE_DOCUMENT_TYPE`                | llm-trace-summary | Document type filter for embeddings |
+| Constant                                  | Default           | Description                           |
+| ----------------------------------------- | ----------------- | ------------------------------------- |
+| `DEFAULT_LOOKBACK_DAYS`                   | 7                 | Days of trace history to analyze      |
+| `DEFAULT_MAX_SAMPLES`                     | 1000              | Maximum traces to sample              |
+| `DEFAULT_MIN_K`                           | 2                 | Minimum clusters to test              |
+| `DEFAULT_MAX_K`                           | 10                | Maximum clusters to test              |
+| `MIN_TRACES_FOR_CLUSTERING`               | 20                | Minimum traces required for workflow  |
+| `COMPUTE_ACTIVITY_TIMEOUT`                | 120s              | Clustering compute timeout            |
+| `LLM_ACTIVITY_TIMEOUT`                    | 300s              | LLM labeling timeout                  |
+| `EMIT_ACTIVITY_TIMEOUT`                   | 60s               | Event emission timeout                |
+| `DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING` | 7                 | Representatives for LLM               |
+| `LABELING_LLM_MODEL`                      | gpt-5.1           | OpenAI model for labeling             |
+| `LABELING_LLM_TIMEOUT`                    | 240.0             | LLM request timeout (seconds)         |
+| `LLMA_TRACE_DOCUMENT_TYPE`                | llm-trace-summary | Document type filter for embeddings   |
+| `ALLOWED_TEAM_IDS`                        | [1, 2, 112495]    | Teams to process (allowlist approach) |
 
 ## Processing Flow
 
 1. **Fetch Data**
-   - Query trace IDs and embeddings from `posthog_document_embeddings` in a single query
-   - Filter by `document_type='llm-trace-summary'`
+   - Query trace IDs and embeddings via HogQL (automatically team-scoped)
+   - Filter by product, document_type, and rendering
    - Sample if more than `max_samples`
 
 2. **Cluster with Optimal K**

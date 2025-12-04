@@ -49,7 +49,6 @@ EMIT_ACTIVITY_RETRY_POLICY = RetryPolicy(
 )
 
 # Coordinator retry policies
-COORDINATOR_ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event properties
@@ -64,7 +63,7 @@ LLMA_TRACE_DOCUMENT_TYPE = "llm-trace-summary"
 # Product for LLM trace summaries (matches sorting key in posthog_document_embeddings)
 LLMA_TRACE_PRODUCT = "llm-analytics"
 
-# Team allowlist (empty list = all teams allowed)
+# Team allowlist (empty list = no teams processed)
 ALLOWED_TEAM_IDS: list[int] = [
     1,  # Local development
     2,  # Internal PostHog project

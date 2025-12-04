@@ -10,7 +10,6 @@ from posthog.temporal.llm_analytics.trace_clustering import (
     TraceClusteringCoordinatorWorkflow,
     emit_cluster_events_activity,
     generate_cluster_labels_activity,
-    get_teams_with_embeddings_activity,
     perform_clustering_compute_activity,
 )
 from posthog.temporal.llm_analytics.trace_summarization import (
@@ -20,7 +19,6 @@ from posthog.temporal.llm_analytics.trace_summarization import (
     generate_and_save_summary_activity,
     query_traces_in_window_activity,
 )
-from posthog.temporal.llm_analytics.trace_summarization.coordinator import get_teams_with_recent_traces_activity
 
 WORKFLOWS = [
     RunEvaluationWorkflow,
@@ -38,10 +36,8 @@ ACTIVITIES = [
     query_traces_in_window_activity,
     generate_and_save_summary_activity,
     embed_summaries_activity,
-    get_teams_with_recent_traces_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
     emit_cluster_events_activity,
-    get_teams_with_embeddings_activity,
 ]

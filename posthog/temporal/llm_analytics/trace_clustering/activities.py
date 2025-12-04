@@ -14,6 +14,7 @@ import numpy as np
 import structlog
 from temporalio import activity
 
+from posthog.models.team import Team
 from posthog.temporal.llm_analytics.trace_clustering import constants
 from posthog.temporal.llm_analytics.trace_clustering.clustering import (
     calculate_trace_distances,
@@ -49,9 +50,12 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
     # Use a URL-friendly format: <team_id>_<YYYYMMDD>_<HHMMSS>
     clustering_run_id = f"{inputs.team_id}_{window_end.strftime('%Y%m%d_%H%M%S')}"
 
-    # Fetch trace IDs and embeddings
+    # Fetch team object for HogQL queries
+    team = Team.objects.get(id=inputs.team_id)
+
+    # Fetch trace IDs and embeddings using HogQL
     trace_ids, embeddings_map = fetch_trace_embeddings_for_clustering(
-        team_id=inputs.team_id,
+        team=team,
         window_start=window_start,
         window_end=window_end,
         max_samples=inputs.max_samples,
@@ -106,8 +110,11 @@ def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLa
     if window_start is None or window_end is None:
         raise ValueError(f"Invalid datetime format: window_start={inputs.window_start}, window_end={inputs.window_end}")
 
+    # Fetch team object for HogQL queries
+    team = Team.objects.get(id=inputs.team_id)
+
     cluster_labels = generate_cluster_labels(
-        team_id=inputs.team_id,
+        team=team,
         labels=np.array(inputs.labels),
         representative_trace_ids=inputs.representative_trace_ids,
         window_start=window_start,

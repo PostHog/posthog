@@ -12,7 +12,6 @@ from posthog.temporal.llm_analytics.trace_clustering.constants import (
     DEFAULT_MAX_K,
     DEFAULT_MAX_SAMPLES,
     DEFAULT_MIN_K,
-    MIN_TRACES_FOR_CLUSTERING,
 )
 from posthog.temporal.llm_analytics.trace_clustering.coordinator import TraceClusteringCoordinatorInputs
 
@@ -20,11 +19,10 @@ from posthog.temporal.llm_analytics.trace_clustering.coordinator import TraceClu
 async def create_trace_clustering_coordinator_schedule(client: Client):
     """Create or update the schedule for the trace clustering coordinator.
 
-    The coordinator automatically discovers teams with sufficient embeddings
+    The coordinator processes traces for teams in the ALLOWED_TEAM_IDS list
     and spawns child workflows to cluster traces for each team.
 
-    This schedule runs daily and processes all teams with sufficient trace embeddings.
-    Teams are filtered by the ALLOWED_TEAM_IDS constant in constants.py.
+    This schedule runs daily. Teams are defined in the ALLOWED_TEAM_IDS constant.
     """
     coordinator_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -34,7 +32,6 @@ async def create_trace_clustering_coordinator_schedule(client: Client):
                 max_samples=DEFAULT_MAX_SAMPLES,
                 min_k=DEFAULT_MIN_K,
                 max_k=DEFAULT_MAX_K,
-                min_embeddings=MIN_TRACES_FOR_CLUSTERING,
             ),
             id="trace-clustering-coordinator-schedule",
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
