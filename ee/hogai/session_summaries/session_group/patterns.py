@@ -9,7 +9,7 @@ import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
 
-from posthog.models.person import Person
+from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import get_persons_by_distinct_ids
 
 from ee.hogai.session_summaries import SummaryValidationError
@@ -145,9 +145,9 @@ class RawSessionGroupPatternAssignment(BaseModel):
         try:
             return [str(item) for item in v]
         except Exception as err:
-            raise SummaryValidationError(
-                f"Error converting event ids to strings when validating pattern assignments ({v}): {err}"
-            ) from err
+            msg = f"Error converting event ids to strings when validating pattern assignments ({v}): {err}"
+            logger.exception(msg, signals_type="session-summaries")
+            raise SummaryValidationError(msg) from err
 
 
 class RawSessionGroupPatternAssignmentsList(BaseModel):
@@ -161,25 +161,25 @@ class RawSessionGroupPatternAssignmentsList(BaseModel):
 def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -> RawSessionGroupSummaryPatternsList:
     """Parse YAML LLM output and validate extracted patterns."""
     if not raw_content:
-        raise SummaryValidationError(
-            f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
-        )
+        msg = f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     try:
         # Patterns aren't streamed, so the initial state is the final one
         json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
-        raise SummaryValidationError(
-            f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
-        ) from err
+        msg = f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
+        logger.exception(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
     # Validate the LLM output against the schema
     try:
         validated_patterns = RawSessionGroupSummaryPatternsList(**json_content)
     except ValidationError as err:
-        raise SummaryValidationError(
-            f"Error validating LLM output against the schema when extracting patterns for sessions {sessions_identifier}: {err}"
-        ) from err
+        msg = f"Error validating LLM output against the schema when extracting patterns for sessions {sessions_identifier}: {err}"
+        logger.exception(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
     return validated_patterns
 
 
@@ -188,25 +188,25 @@ def load_pattern_assignments_from_llm_content(
 ) -> RawSessionGroupPatternAssignmentsList:
     """Parse YAML output and validate pattern assignments."""
     if not raw_content:
-        raise SummaryValidationError(
-            f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
-        )
+        msg = f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
+        logger.error(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg)
     try:
         # Patterns aren't streamed, so the initial state is the final one
         json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
         if not isinstance(json_content, dict):
             raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
-        raise SummaryValidationError(
-            f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
-        ) from err
+        msg = f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
+        logger.exception(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
     # Validate the LLM output against the schema
     try:
         validated_assignments = RawSessionGroupPatternAssignmentsList(**json_content)
     except ValidationError as err:
-        raise SummaryValidationError(
-            f"Error validating LLM output against the schema when extracting pattern assignments for sessions {sessions_identifier}: {err}"
-        ) from err
+        msg = f"Error validating LLM output against the schema when extracting pattern assignments for sessions {sessions_identifier}: {err}"
+        logger.exception(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
     return validated_assignments
 
 
@@ -244,16 +244,38 @@ def combine_event_ids_mappings_from_single_session_summaries(
 
 def combine_patterns_assignments_from_single_session_summaries(
     patterns_assignments_list_of_lists: list[RawSessionGroupPatternAssignmentsList],
+    event_id_to_session_id_mapping: dict[str, tuple[str, str]],
 ) -> dict[int, list[str]]:
-    """Merge pattern assignments from multiple sessions."""
+    """Merge pattern assignments from multiple sessions.
+
+    Deduplicates to keep only one event per session per pattern (first occurrence wins).
+    """
     combined_patterns_assignments: dict[int, list[str]] = {}
+    # Track which sessions have already contributed to each pattern
+    pattern_session_seen: dict[int, set[str]] = {}
     for assignments_list in patterns_assignments_list_of_lists:
         for pattern_assignment in assignments_list.patterns:
             pattern_id = pattern_assignment.pattern_id
-            event_ids = pattern_assignment.event_ids
             if pattern_id not in combined_patterns_assignments:
                 combined_patterns_assignments[pattern_id] = []
-            combined_patterns_assignments[pattern_id].extend(event_ids)
+                pattern_session_seen[pattern_id] = set()
+            for event_id in pattern_assignment.event_ids:
+                # Get session_id for this event
+                ids_tuple = event_id_to_session_id_mapping.get(event_id)
+                if not ids_tuple:
+                    # Skip events without mapping - they'll fail enrichment anyway
+                    continue
+                _, session_id = ids_tuple
+                # Only add if this session hasn't contributed to this pattern yet
+                if session_id in pattern_session_seen[pattern_id]:
+                    logger.warning(
+                        f"Event {event_id} from session {session_id} already contributed to pattern {pattern_id}, skipping",
+                        session_id=session_id,
+                        signals_type="session-summaries",
+                    )
+                    continue
+                pattern_session_seen[pattern_id].add(session_id)
+                combined_patterns_assignments[pattern_id].append(event_id)
     return combined_patterns_assignments
 
 
@@ -297,9 +319,9 @@ def _get_segment_name_and_outcome_from_session_summary(
         segment_success = segment_outcome_state["success"]
         break
     if segment_name is None or segment_outcome is None or segment_success is None:
-        raise ValueError(
-            f"Segment name, outcome or success not found for segment index {target_segment_index} in session summary: {session_summary.data}"
-        )
+        msg = f"Segment name, outcome or success not found for segment index {target_segment_index} in session summary: {session_summary.data}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     return segment_name, segment_outcome, segment_success
 
 
@@ -361,10 +383,12 @@ def _enrich_pattern_assigned_event_with_session_summary_data(
                 )
                 return event_segment_context
             except Exception as err:
-                raise SummaryValidationError(
-                    f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event}): {err}"
-                ) from err
-    raise ValueError(f"Session summary with the required event ({pattern_assigned_event}) was not found")
+                msg = f"Error enriching pattern assigned event ({event}) with session summary data ({pattern_assigned_event}): {err}"
+                logger.exception(msg, session_id=pattern_assigned_event.session_id, signals_type="session-summaries")
+                raise SummaryValidationError(msg) from err
+    msg = f"Session summary with the required event ({pattern_assigned_event}) was not found"
+    logger.error(msg, session_id=pattern_assigned_event.session_id, signals_type="session-summaries")
+    raise ValueError(msg)
 
 
 def combine_patterns_ids_with_events_context(
@@ -375,7 +399,6 @@ def combine_patterns_ids_with_events_context(
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
     """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
-    patterns_with_removed_non_blocking_exceptions = set()
     # Creating mapping to avoid serializing the sessions on every event
     session_id_to_serialized_summary_mapping = {
         session_id: session_summary_to_serializer(db_summary.summary)
@@ -389,7 +412,8 @@ def combine_patterns_ids_with_events_context(
             if not ids_tuple:
                 logger.exception(
                     f"Event uuid and session id not found for event_id {event_id} when combining patterns with event ids "
-                    f"for pattern_id {pattern_id}"
+                    f"for pattern_id {pattern_id}",
+                    signals_type="session-summaries",
                 )
                 # Skip the event
                 continue
@@ -402,7 +426,9 @@ def combine_patterns_ids_with_events_context(
             if not db_summary or not session_summary:
                 logger.exception(
                     f"Session summary not found in the DB for session id {session_id} when combining patterns with event ids "
-                    f"for pattern_id {pattern_id}"
+                    f"for pattern_id {pattern_id}",
+                    session_id=session_id,
+                    signals_type="session-summaries",
                 )
                 # Skip the event
                 continue
@@ -412,20 +438,9 @@ def combine_patterns_ids_with_events_context(
                 session_summary=session_summary,
                 person=session_id_to_person_mapping.get(session_id),
             )
-            # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
-            if event_segment_context.target_event.exception == "non-blocking":
-                patterns_with_removed_non_blocking_exceptions.add(pattern_id)
-                continue
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
-    # If we removed all non-blocking exceptions for some patterns - it's not a failure
-    for pattern_id in patterns_with_removed_non_blocking_exceptions:
-        if pattern_id in pattern_event_ids_mapping:
-            # Avoid touching patterns that have events left even after removing non-blocking exceptions
-            continue
-        # Let's back the patterns we emptied, so we can properly calculate failure ratio
-        pattern_event_ids_mapping[pattern_id] = []
     return pattern_event_ids_mapping
 
 
@@ -462,15 +477,10 @@ def combine_patterns_with_events_context(
 ) -> EnrichedSessionGroupSummaryPatternsList:
     """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
-    non_failed_empty_patterns_count = 0
     for pattern in patterns.patterns:
         pattern_id = pattern.pattern_id
         pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id))
         if not pattern_events:
-            if pattern_events is not None:
-                # If the pattern has not events, but is in the mapping - it's not a failure,
-                # it means we made it empty by removing non-blocking exceptions
-                non_failed_empty_patterns_count += 1
             continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
@@ -481,7 +491,7 @@ def combine_patterns_with_events_context(
     # If not enough patterns were properly enriched - fail the activity
     # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
     minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
-    successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
+    successful_patterns_count = len(combined_patterns)
     failed_patterns_count = len(patterns.patterns) - successful_patterns_count
     if minimum_expected_patterns_count > successful_patterns_count:
         exception_message = (
@@ -490,7 +500,7 @@ def combine_patterns_with_events_context(
             f"Input: {len(patterns.patterns)}; success: {successful_patterns_count} "
             f"(enriched: {len(combined_patterns)}); failure: {failed_patterns_count}"
         )
-        logger.exception(exception_message)
+        logger.exception(exception_message, user_id=user_id, signals_type="session-summaries")
         raise ApplicationError(exception_message)
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     combined_patterns.sort(key=lambda p: severity_order.get(p.severity.value, 3))
@@ -504,9 +514,9 @@ def session_summary_to_serializer(session_summary_dict: dict[str, Any]) -> Sessi
         session_summary.is_valid(raise_exception=True)
         return session_summary
     except ValidationError as err:
-        raise SummaryValidationError(
-            f"Error validating session summary against the schema ({err}): {session_summary_dict}"
-        ) from err
+        msg = f"Error validating session summary against the schema ({err}): {session_summary_dict}"
+        logger.exception(msg, signals_type="session-summaries")
+        raise SummaryValidationError(msg) from err
 
 
 def get_persons_for_sessions_from_distinct_ids(
@@ -526,7 +536,13 @@ def get_persons_for_sessions_from_distinct_ids(
         return {}
     try:
         persons = get_persons_by_distinct_ids(team_id=team_id, distinct_ids=distinct_ids)
-        persons = persons.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        persons = persons.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         session_id_to_person_mapping: dict[str, Person | None] = {}
         for person in persons.iterator(chunk_size=1000):
             for distinct_id in person.distinct_ids:
@@ -539,6 +555,8 @@ def get_persons_for_sessions_from_distinct_ids(
     except Exception as err:
         # As access to persons DB could fail, return empty mapping to avoid failing the activity
         logger.exception(
-            f"Error getting persons for sessions from distinct ids ({distinct_ids}) for team {team_id} when summarizing sessions: {err}"
+            f"Error getting persons for sessions from distinct ids ({distinct_ids}) for team {team_id} when summarizing sessions: {err}",
+            team_id=team_id,
+            signals_type="session-summaries",
         )
         return {}

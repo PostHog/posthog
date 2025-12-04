@@ -228,7 +228,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 billable=inputs.billable,
             )
 
-            job_id, incremental, source_type = await workflow.execute_activity(
+            job_id, incremental_or_append, source_type = await workflow.execute_activity(
                 create_external_data_job_model_activity,
                 create_external_data_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=1),
@@ -288,7 +288,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                         maximum_attempts=9, non_retryable_error_types=["NonRetryableException"]
                     ),
                 }
-                if incremental or is_resumable_source
+                if incremental_or_append or is_resumable_source
                 else {
                     "start_to_close_timeout": dt.timedelta(hours=24),
                     "retry_policy": RetryPolicy(

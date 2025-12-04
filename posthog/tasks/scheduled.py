@@ -17,6 +17,7 @@ from posthog.tasks.alerts.checks import (
 from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.feature_flags import cleanup_stale_flags_expiry_tracking_task, refresh_expiring_flags_cache_entries
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.llm_analytics_usage_report import send_llm_analytics_usage_reports
 from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.surveys import sync_all_surveys_cache
 from posthog.tasks.tasks import (
@@ -35,7 +36,6 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     count_items_in_playlists,
     delete_expired_exported_assets,
-    ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
     ingestion_lag,
     pg_plugin_server_query_timing,
@@ -164,6 +164,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             send_org_usage_reports.s(organization_ids=delayed_orgs),
             name="send delayed org usage reports",
         )
+
+    # Send LLM Analytics usage reports daily at 4:15 AM UTC
+    sender.add_periodic_task(
+        crontab(hour="4", minute="15"),
+        send_llm_analytics_usage_reports.s(),
+        name="send llm analytics usage reports",
+    )
 
     # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
     sender.add_periodic_task(
@@ -356,12 +363,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             )
 
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
-
-        sender.add_periodic_task(
-            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
-            ee_persist_finished_recordings_v2.s(),
-            name="persist finished recordings v2",
-        )
 
         add_periodic_task_with_expiry(
             sender,

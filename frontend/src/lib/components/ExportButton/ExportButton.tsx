@@ -2,10 +2,11 @@ import { useMountedLogic } from 'kea'
 import { forwardRef } from 'react'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { now } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
-import { ExporterFormat, OnlineExportContext } from '~/types'
+import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
 
 import { TriggerExportProps } from './exporter'
 
@@ -29,7 +30,20 @@ export const ExportButton: React.FunctionComponent<ExportButtonProps & React.Ref
 
         const { actions } = exportsLogic
         const onExportClick = async (triggerExportProps: TriggerExportProps): Promise<void> => {
-            actions.startExport(triggerExportProps)
+            const timestamp = now().format('YYYY-MM-DD-hhmmss')
+            let modifiedContext: ExportContext | undefined = undefined
+
+            if (triggerExportProps.export_context && triggerExportProps.export_context.filename?.startsWith('export')) {
+                modifiedContext = {
+                    ...triggerExportProps.export_context,
+                    filename: `${triggerExportProps.export_context.filename}-${timestamp}`,
+                }
+            }
+            const modifiedProps = {
+                ...triggerExportProps,
+                export_context: modifiedContext ?? triggerExportProps.export_context,
+            }
+            actions.startExport(modifiedProps)
         }
 
         return (

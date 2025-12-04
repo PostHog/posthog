@@ -66,6 +66,15 @@ COMPATIBLE_TYPES: TypeTupleToCastMapping = {
         functools.partial(pa.compute.seconds_between, EPOCH_SECONDS)
     ),
     (pa.string(), JsonType()): _make_ensure_array(functools.partial(pa.compute.cast, target_type=JsonType())),
+    # We assume this is a destination field created from a ClickHouse `DateTime` that
+    # has  been updated to `DateTime64(3)`.
+    # This would mean the field would have been created as a BigQuery 'INT64', but we
+    # are now receiving a `pa.timestamp("ms", tz="UTC")`.
+    # So, since `DateTime` is seconds since the EPOCH, we maintain that here.
+    # This technically truncates the millisecond part of the value, but if it came from
+    # a `DateTime` then we assume it is empty (as it would have been empty before).
+    (pa.timestamp("ms", tz="UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
+    (pa.timestamp("ms", tz="Etc/UTC"), pa.int64()): TIMESTAMP_MS_TO_SECONDS_SINCE_EPOCH,
 }
 
 
@@ -116,12 +125,14 @@ class Field[T](typing.Protocol):
     """
 
     name: str
+    alias: str
     data_type: pa.DataType
 
     @classmethod
     def from_arrow_field(cls, field: pa.Field) -> typing.Self: ...
 
-    def to_arrow_field(cls) -> pa.Field: ...
+    def to_arrow_field(self) -> pa.Field:
+        return pa.field(self.name, self.data_type)
 
     @classmethod
     def from_destination_field(cls, field: T) -> typing.Self: ...
@@ -325,7 +336,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         if isinstance(key, int):
             return self.fields[key]
         elif isinstance(key, str):
-            return self._get_field_by_name(key)
+            return self._get_field_by_name_or_alias(key)
 
         raise TypeError(f"unsupported key type: '{type(key)}'")
 
@@ -344,7 +355,7 @@ class Table(TableBase, typing.Generic[FieldType]):
                 raise ValueError(f"Cannot update '{key}' with field of name '{value.name}'")
 
             try:
-                existing = self._get_field_by_name(key)
+                existing = self._get_field_by_name_or_alias(key)
                 index = self.fields.index(existing)
             except KeyError:
                 # New field.
@@ -355,7 +366,7 @@ class Table(TableBase, typing.Generic[FieldType]):
         else:
             raise TypeError(f"unsupported key type: '{type(key)}'")
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __delitem__(self, key: int | str) -> None:
         """Delete a field from this `Table`.
@@ -369,12 +380,12 @@ class Table(TableBase, typing.Generic[FieldType]):
             del self.fields[key]
 
         elif isinstance(key, str):
-            existing = self._get_field_by_name(key)
+            existing = self._get_field_by_name_or_alias(key)
             index = self.fields.index(existing)
 
             del self.fields[index]
 
-        self._get_field_by_name.cache_clear()
+        self._get_field_by_name_or_alias.cache_clear()
 
     def __contains__(self, field: FieldType | str) -> bool:
         """Check if this `Table` contains a field.
@@ -387,7 +398,7 @@ class Table(TableBase, typing.Generic[FieldType]):
 
         if isinstance(field, str):
             try:
-                _ = self._get_field_by_name(field)
+                _ = self._get_field_by_name_or_alias(field)
             except KeyError:
                 return False
             else:
@@ -396,17 +407,17 @@ class Table(TableBase, typing.Generic[FieldType]):
             return field in self.fields
 
     @functools.lru_cache
-    def _get_field_by_name(self, key: str) -> FieldType:
-        """Get a field from this `Table` by its name.
+    def _get_field_by_name_or_alias(self, key: str) -> FieldType:
+        """Get a field from this `Table` by its name or alias.
 
         This method uses a LRU cache to avoid iterating more than once per `key`, in case
-        it is in a loop and frequently getting fields by name.
+        it is in a loop and frequently getting fields by name or alias.
 
         Raises:
             KeyError: If a field with the name doesn't exist.
         """
         try:
-            return next(field for field in self.fields if field.name == key)
+            return next(field for field in self.fields if field.name == key or field.alias == key)
         except StopIteration:
             raise KeyError(key)
 

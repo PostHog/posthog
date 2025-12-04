@@ -106,5 +106,5 @@ class Command(BaseCommand):
         )
 
         for task in created_tasks:
-            status = task.current_stage.key if task.current_stage else "backlog"
+            status = task.latest_run.stage if task.latest_run else "backlog"
             self.stdout.write(f"  - {task.title} ({status})")

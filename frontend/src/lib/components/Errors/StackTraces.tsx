@@ -182,11 +182,13 @@ export function FrameHeaderDisplay({ frame }: { frame: ErrorTrackingStackFrame }
     const sourceData = getSourceDataForFrame(raw_id)
 
     return (
-        <div className="flex flex-1 justify-between items-center h-full">
-            <div className="flex flex-wrap gap-x-1">
+        <div className="flex flex-1 justify-between items-center h-full w-full gap-x-10">
+            <div className="flex flex-wrap gap-x-1 w-full min-w-0">
                 {resolvedName ? (
-                    <div className="flex">
-                        <span>{resolvedName}</span>
+                    <div className="flex min-w-0">
+                        <span className="truncate" title={resolvedName}>
+                            {resolvedName}
+                        </span>
                     </div>
                 ) : null}
                 <div className="flex font-light text-xs">

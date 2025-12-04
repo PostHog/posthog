@@ -6,6 +6,7 @@ import { ReactNode, useEffect, useRef } from 'react'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 import { cn } from 'lib/utils/css-classes'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
@@ -32,6 +33,8 @@ export function Navigation({
     const mainRef = useRef<HTMLElement>(null)
     const { mainContentRect } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
+    const { setTabScrollDepth } = useActions(sceneLogic)
+    const { activeTabId } = useValues(sceneLogic)
 
     // Set container ref so we can measure the width of the scene layout in logic
     useEffect(() => {
@@ -99,6 +102,11 @@ export function Navigation({
                                 : 'var(--color-bg-primary)',
                         } as React.CSSProperties
                     }
+                    onScroll={(e) => {
+                        if (activeTabId) {
+                            setTabScrollDepth(activeTabId, e.currentTarget.scrollTop)
+                        }
+                    }}
                 >
                     <SceneLayout sceneConfig={sceneConfig}>
                         {(!sceneConfig?.hideBillingNotice || !sceneConfig?.hideProjectNotice) && (

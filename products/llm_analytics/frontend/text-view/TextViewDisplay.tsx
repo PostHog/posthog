@@ -72,6 +72,7 @@ export function TextViewDisplay({
                 document.removeEventListener('mousedown', handleClickOutside)
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- setPopoutSegment is a stable Kea action
     }, [popoutSegment])
 
     const segments = useMemo(() => parseTextSegments(textRepr || ''), [textRepr])

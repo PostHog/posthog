@@ -774,12 +774,13 @@ export function ShipVariantModal(): JSX.Element {
     const { aggregationLabel } = useValues(groupsModel)
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
+
     useEffect(() => {
         if (experiment.parameters?.feature_flag_variants?.length > 1) {
             // First test variant selected by default
             setSelectedVariantKey(experiment.parameters.feature_flag_variants[1].key)
         }
-    }, [experiment])
+    }, [experiment.id])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null
@@ -912,7 +913,7 @@ export const ResetButton = (): JSX.Element => {
 
 export function StatusTag({ status }: { status: ProgressStatus }): JSX.Element {
     return (
-        <LemonTag type={getExperimentStatusColor(status)}>
+        <LemonTag type={getExperimentStatusColor(status)} className="cursor-default">
             <b className="uppercase">{status}</b>
         </LemonTag>
     )

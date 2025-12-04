@@ -1,6 +1,5 @@
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
-from unittest.mock import MagicMock, patch
 
 from django.utils.timezone import now
 
@@ -64,9 +63,8 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         assert "access_token" in response.json()
         return response.json()["access_token"]
 
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_enable_sharing_creates_access_token(self, _mock_copy_objects: MagicMock) -> None:
+    def test_enable_sharing_creates_access_token(self) -> None:
         token = self._enable_sharing(self.session_id)
         assert isinstance(token, str) and len(token) > 0
 
@@ -91,11 +89,8 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             ),
         ]
     )
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_sharing_token_forbidden_access_scenarios(
-        self, _name: str, url_builder, _mock_copy_objects: MagicMock
-    ) -> None:
+    def test_sharing_token_forbidden_access_scenarios(self, _name: str, url_builder) -> None:
         self.other_team = create_team(organization=self.organization)
 
         token = self._enable_sharing(self.session_id)
@@ -106,9 +101,8 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         response = self.client.get(url)
         assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_sharing_token_allows_authorized_access(self, _mock_copy_objects: MagicMock) -> None:
+    def test_sharing_token_allows_authorized_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
         self.client.logout()
@@ -125,9 +119,8 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
             "end_time": "2022-12-31T12:00:00Z",
         }
 
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts", return_value="some-lts-path")
     @freeze_time("2023-01-01T12:00:00Z")
-    def test_sharing_token_allows_snapshot_access(self, _mock_copy_objects: MagicMock) -> None:
+    def test_sharing_token_allows_snapshot_access(self) -> None:
         token = self._enable_sharing(self.session_id)
 
         self.client.logout()

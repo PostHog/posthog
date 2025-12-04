@@ -4,6 +4,7 @@ from uuid import uuid4
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -26,7 +27,6 @@ from posthog.schema import (
     EventTaxonomyItem,
     EventTaxonomyQuery,
     HumanMessage,
-    VisualizationMessage,
 )
 
 from posthog.event_usage import report_user_action
@@ -34,6 +34,7 @@ from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQu
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
 
+from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
@@ -42,6 +43,7 @@ from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import ArtifactRefMessage
 from ee.models.assistant import CoreMemory
 
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
@@ -431,23 +433,25 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         node_messages = state.memory_collection_messages or []
 
         filtered_messages = filter_and_merge_messages(
-            state.messages, entity_filter=(HumanMessage, AssistantMessage, VisualizationMessage)
+            state.messages, entity_filter=(HumanMessage, AssistantMessage, ArtifactRefMessage)
         )
-        conversation: list[BaseMessage] = []
+        enriched_messages = async_to_sync(self.context_manager.artifacts.aenrich_messages)(filtered_messages)
 
-        for message in filtered_messages:
+        conversation: list[BaseMessage] = []
+        for message in enriched_messages:
             if isinstance(message, HumanMessage):
                 conversation.append(LangchainHumanMessage(content=message.content, id=message.id))
             elif isinstance(message, AssistantMessage):
                 conversation.append(LangchainAIMessage(content=message.content, id=message.id))
-            elif isinstance(message, VisualizationMessage) and message.answer:
+            elif content := unwrap_visualization_artifact_content(message):
+                schema = content.query.model_dump_json(exclude_unset=True, exclude_none=True)
                 conversation += ChatPromptTemplate.from_messages(
                     [
                         ("assistant", MEMORY_COLLECTOR_WITH_VISUALIZATION_PROMPT),
                     ],
                     template_format="mustache",
                 ).format_messages(
-                    schema=message.answer.model_dump_json(exclude_unset=True, exclude_none=True),
+                    schema=schema,
                 )
 
         # Trim messages to keep only last 10 messages.

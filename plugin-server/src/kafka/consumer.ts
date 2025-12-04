@@ -23,6 +23,7 @@ import {
     HealthCheckResultOk,
     LogLevel,
 } from '~/types'
+import { sanitizeString } from '~/utils/db/utils'
 import { isTestEnv } from '~/utils/env-utils'
 import { parseJSON } from '~/utils/json-parse'
 
@@ -896,15 +897,18 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
 
     const result: EventHeaders = {
         force_disable_person_processing: false,
+        historical_migration: false,
     }
 
     headers?.forEach((header) => {
         Object.keys(header).forEach((key) => {
             const value = header[key].toString()
             if (key === 'token') {
-                result.token = value
+                result.token = sanitizeString(value)
             } else if (key === 'distinct_id') {
-                result.distinct_id = value
+                result.distinct_id = sanitizeString(value)
+            } else if (key === 'session_id') {
+                result.session_id = sanitizeString(value)
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {
@@ -913,6 +917,13 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.uuid = value
             } else if (key === 'force_disable_person_processing') {
                 result.force_disable_person_processing = value === 'true'
+            } else if (key === 'now') {
+                const parsed = new Date(value)
+                if (!isNaN(parsed.getTime())) {
+                    result.now = parsed
+                }
+            } else if (key === 'historical_migration') {
+                result.historical_migration = value === 'true'
             }
         })
     })
@@ -921,10 +932,13 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const trackedHeaders = [
         'token',
         'distinct_id',
+        'session_id',
         'timestamp',
         'event',
         'uuid',
+        'now',
         'force_disable_person_processing',
+        'historical_migration',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

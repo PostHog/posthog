@@ -71,6 +71,7 @@ export interface PersonsStoreForBatch extends BatchWritingStore {
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        forceUpdate?: boolean,
         tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]>
 

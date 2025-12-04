@@ -57,6 +57,7 @@ export const EventSchema = z.object({
 export const ParsedMessageDataSchema = z.object({
     distinct_id: z.string(),
     session_id: z.string(),
+    token: z.string().nullable(),
     eventsByWindowId: z.record(z.string(), z.array(SnapshotEventSchema)),
     eventsRange: EventsRangeSchema,
     snapshot_source: z.string().nullable(),

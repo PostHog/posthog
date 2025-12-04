@@ -6,11 +6,13 @@ from unittest.mock import AsyncMock, patch
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
     AssistantMessage,
     AssistantTool,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from ee.hogai.chat_agent.schema_generator.nodes import SchemaGenerationException
@@ -21,7 +23,8 @@ from ee.hogai.tools.create_and_query_insight import (
     CreateAndQueryInsightTool,
 )
 from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import NodePath
+from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
+from ee.models import AgentArtifact
 from ee.models.assistant import Conversation
 
 
@@ -55,14 +58,30 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
     async def test_successful_insight_creation_returns_messages(self):
-        """Test successful insight creation returns visualization and tool call messages."""
+        """Test successful insight creation returns artifact ref and tool call messages.
+
+        Note: Due to the validator, VisualizationMessage gets converted to ArtifactRefMessage
+        when AssistantState.model_validate() is called after graph.ainvoke().
+        """
         tool = self._create_tool()
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results are here", tool_call_id=self.tool_call_id)
 
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
@@ -74,7 +93,10 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(result_text, "")
         self.assertIsNotNone(artifact)
         self.assertEqual(len(artifact.messages), 2)
-        self.assertIsInstance(artifact.messages[0], VisualizationMessage)
+        # First message is ArtifactRefMessage (converted from VisualizationMessage by validator)
+        self.assertIsInstance(artifact.messages[0], ArtifactRefMessage)
+        self.assertEqual(artifact.messages[0].content_type, ArtifactContentType.VISUALIZATION)
+        self.assertEqual(artifact.messages[0].source, ArtifactSource.ARTIFACT)
         self.assertIsInstance(artifact.messages[1], AssistantToolCallMessage)
 
     async def test_schema_generation_exception_returns_formatted_error(self):
@@ -102,11 +124,13 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         """Test when the last message is not AssistantToolCallMessage, raises MaxToolRetryableError."""
         tool = self._create_tool()
 
-        viz_message = VisualizationMessage(query="test query", answer=AssistantTrendsQuery(series=[]), plan="test plan")
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION, source=ArtifactSource.ARTIFACT, artifact_id="123", id="123"
+        )
         # Last message is AssistantMessage instead of AssistantToolCallMessage
         invalid_message = AssistantMessage(content="Not a tool call message")
 
-        mock_state = AssistantState(messages=[viz_message, invalid_message])
+        mock_state = AssistantState(messages=[artifact_message, invalid_message])
 
         with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
@@ -149,10 +173,22 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = self._create_tool(contextual_tools={AssistantTool.CREATE_AND_QUERY_INSIGHT.value: {}})
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results are here", tool_call_id=self.tool_call_id)
 
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
@@ -165,14 +201,13 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNotNone(artifact)
         self.assertEqual(len(artifact.messages), 2)
 
+        self.assertIsInstance(artifact.messages[0], ArtifactRefMessage)
+
         # Check that UI payload was added to tool call message
         returned_tool_call_message = artifact.messages[1]
         self.assertIsInstance(returned_tool_call_message, AssistantToolCallMessage)
         self.assertIsNotNone(returned_tool_call_message.ui_payload)
         self.assertIn("create_and_query_insight", returned_tool_call_message.ui_payload)
-        self.assertEqual(
-            returned_tool_call_message.ui_payload["create_and_query_insight"], query.model_dump(exclude_none=True)
-        )
 
     async def test_non_editing_mode_no_ui_payload(self):
         """Test that in non-editing mode, no UI payload is added to tool call message."""
@@ -180,10 +215,22 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = self._create_tool(contextual_tools={})
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results are here", tool_call_id=self.tool_call_id)
 
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         with patch("ee.hogai.chat_agent.insights_graph.graph.InsightsGraph.compile_full_graph") as mock_compile:
             mock_graph = AsyncMock()
@@ -196,11 +243,13 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsNotNone(artifact)
         self.assertEqual(len(artifact.messages), 2)
 
-        # Check that the original tool call message is returned without modification
+        # First message is ArtifactRefMessage (converted from VisualizationMessage)
+        self.assertIsInstance(artifact.messages[0], ArtifactRefMessage)
+
+        # In non-editing mode, no UI payload is added
         returned_tool_call_message = artifact.messages[1]
         self.assertIsInstance(returned_tool_call_message, AssistantToolCallMessage)
-        # In non-editing mode, the original message is returned as-is
-        self.assertEqual(returned_tool_call_message, tool_call_message)
+        self.assertIsNone(returned_tool_call_message.ui_payload)
 
     async def test_state_updates_include_tool_call_metadata(self):
         """Test that the state passed to graph includes root_tool_call_id and root_tool_insight_plan."""
@@ -208,9 +257,21 @@ class TestCreateAndQueryInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         tool = self._create_tool(state=initial_state)
 
         query = AssistantTrendsQuery(series=[])
-        viz_message = VisualizationMessage(query="test query", answer=query, plan="test plan")
+        artifact = await AgentArtifact.objects.acreate(
+            team=self.team,
+            conversation=self.conversation,
+            name="Test Artifact",
+            type=AgentArtifact.Type.VISUALIZATION,
+            data=VisualizationArtifactContent(query=query, name="Query 1", description="Plan 1").model_dump(),
+        )
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            source=ArtifactSource.ARTIFACT,
+            artifact_id=artifact.short_id,
+            id="123",
+        )
         tool_call_message = AssistantToolCallMessage(content="Results", tool_call_id=self.tool_call_id)
-        mock_state = AssistantState(messages=[viz_message, tool_call_message])
+        mock_state = AssistantState(messages=[artifact_message, tool_call_message])
 
         invoked_state = None
 

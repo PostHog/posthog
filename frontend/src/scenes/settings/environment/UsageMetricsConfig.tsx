@@ -16,6 +16,7 @@ import {
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -276,6 +277,7 @@ function UsageMetricsForm({ metric }: UsageMetricsFormProps): JSX.Element {
 export function UsageMetricsConfig(): JSX.Element {
     const { isEditing } = useValues(usageMetricsConfigLogic)
     const { setIsEditing, resetUsageMetric } = useActions(usageMetricsConfigLogic)
+    const { groupsEnabled } = useValues(groupsAccessLogic)
 
     const handleAddMetric = (): void => {
         resetUsageMetric()
@@ -285,12 +287,13 @@ export function UsageMetricsConfig(): JSX.Element {
     return (
         <>
             <p>
-                Choose which events matter for each metric: API calls, feature adoption, session frequency, error rates
-                to identify expansion opportunities and churn risk based on real customer behavior.
+                Define what usage means for your product based on one or more events.
+                <br />
+                Usage metrics are displayed in the person {groupsEnabled ? 'and group profiles' : 'profile'}.
             </p>
             <div className="flex flex-col gap-2 items-start">
                 {!isEditing && (
-                    <LemonButton type="primary" onClick={handleAddMetric} icon={<IconPlusSmall />}>
+                    <LemonButton type="primary" size="small" onClick={handleAddMetric} icon={<IconPlusSmall />}>
                         Add metric
                     </LemonButton>
                 )}

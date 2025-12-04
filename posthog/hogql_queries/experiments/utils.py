@@ -6,6 +6,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
@@ -16,7 +17,13 @@ from posthog.schema import (
     SessionData,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import HogQLQueryExecutor
+
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+from posthog.models import Team
 
 from products.experiments.stats.bayesian.enums import PriorType
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
@@ -25,6 +32,21 @@ from products.experiments.stats.shared.enums import DifferenceType
 from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
+
+
+def get_experiment_query_sql(experiment_query_ast: ast.SelectQuery, team: Team) -> str:
+    """
+    Generate raw SQL for debugging from experiment query AST
+    """
+    executor = HogQLQueryExecutor(
+        query=experiment_query_ast,
+        team=team,
+        modifiers=create_default_modifiers_for_team(team),
+    )
+    clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()
+
+    # Substitute the parameters to get the final executable query
+    return substitute_params(clickhouse_sql_with_params, clickhouse_context_with_values.values)
 
 
 def _parse_enum_config(value: Any, enum_class: type[Enum], default: Any) -> Any:
@@ -84,7 +106,7 @@ def split_baseline_and_test_variants(
 
 def get_variant_result(
     result: tuple,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> tuple[tuple[str, ...] | None, ExperimentStatsBase]:
     """
     Parse a single result row from the experiment query into a structured variant result.
@@ -169,7 +191,7 @@ def get_variant_result(
 
 def get_variant_results(
     sorted_results: list[tuple],
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
 ) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
     """
     Parse multiple result rows from experiment query into structured variant results.
@@ -299,7 +321,7 @@ def aggregate_variants_across_breakdowns(
 
 def validate_variant_result(
     variant_result: ExperimentStatsBase,
-    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric,
+    metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     is_baseline=False,
 ) -> ExperimentStatsBaseValidated:
     validation_failures = []
@@ -337,7 +359,8 @@ def validate_variant_result(
 
 
 def metric_variant_to_statistic(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric, variant: ExperimentStatsBaseValidated
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+    variant: ExperimentStatsBaseValidated,
 ) -> SampleMeanStatistic | ProportionStatistic | RatioStatistic:
     if isinstance(metric, ExperimentMeanMetric):
         return SampleMeanStatistic(
@@ -373,7 +396,7 @@ def metric_variant_to_statistic(
 
 
 def get_frequentist_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,
@@ -441,7 +464,7 @@ def get_frequentist_experiment_result(
 
 
 def get_bayesian_experiment_result(
-    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric,
+    metric: ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     control_variant: ExperimentStatsBase,
     test_variants: list[ExperimentStatsBase],
     stats_config: dict | None = None,

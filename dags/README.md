@@ -69,7 +69,7 @@ To set up a new team with their own Dagster definitions and Slack alerts, follow
 
 3. **Configure production deployment**:
 
-   For PostHog employees, add the new location to the Dagster configuration in the [charts repository](https://github.com/PostHog/charts) (see `config/dagster/`).
+   For PostHog employees, add the new location to the Dagster configuration in the [charts repository](https://github.com/PostHog/charts) (see `argocd/dagster/`).
 
    Sample PR: https://github.com/PostHog/charts/pull/6366
 
@@ -267,7 +267,7 @@ export DAGSTER_HOME=$(pwd)/.dagster_home && DAGSTER_WEB_PREAGGREGATED_MAX_PARTIT
 #### Production Configuration
 
 For production deployments, configure similar concurrency settings in your `dagster.yaml`.
-For posthog employees, it is on our charts repo: https://github.com/PostHog/charts/blob/master/config/dagster
+For PostHog employees, it is on our charts repo: https://github.com/PostHog/charts/tree/master/argocd/dagster
 
 ## Additional Resources
 

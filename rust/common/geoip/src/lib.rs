@@ -85,6 +85,7 @@ mod tests {
 
     use super::*;
     use std::path::Path;
+    use std::{collections::HashSet, iter::FromIterator};
 
     fn get_db_path() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -138,6 +139,8 @@ mod tests {
             ("187.188.10.252", "Mexico"),
         ];
 
+        let allowed_keys = HashSet::<&str>::from_iter(GEOIP_FIELDS.iter().map(|(field, _)| *field));
+
         for (ip, expected_country) in test_cases {
             let result = service.get_geoip_properties(ip).unwrap();
             println!("GeoIP lookup result for IP {ip}: {result:?}");
@@ -150,7 +153,12 @@ mod tests {
                 result.get("$geoip_country_name"),
                 Some(&expected_country.to_string())
             );
-            assert_eq!(result.len(), 7);
+            // GeoIP databases may differ in how many fields they populate; ensure we have a sensible minimum
+            assert!(result.len() >= 5);
+            assert!(result.len() <= GEOIP_FIELDS.len());
+            for key in result.keys() {
+                assert!(allowed_keys.contains(key.as_str()));
+            }
         }
     }
 

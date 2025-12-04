@@ -207,4 +207,222 @@ describe('calculations', () => {
             expect(recommendedSampleSize).toBeCloseTo(1152, 0)
         })
     })
+
+    // Ratio metric tests
+    describe('calculations for RATIO', () => {
+        const metric: ExperimentMetric = {
+            uuid: uuid(),
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RATIO,
+            numerator: {
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                math: ExperimentMetricMathType.TotalCount,
+            },
+            denominator: {
+                kind: NodeKind.EventsNode,
+                event: 'page_view',
+                math: ExperimentMetricMathType.TotalCount,
+            },
+        } as ExperimentMetric
+
+        it('calculates baseline value, variance, and recommended sample size correctly', () => {
+            /**
+             * Realistic scenario: Revenue per order
+             *
+             * Setup:
+             * - 10,000 users (sample size)
+             * - Total revenue: $500,000 (numerator sum)
+             * - Total orders: 50,000 (denominator sum)
+             * - Baseline ratio: $500,000 / 50,000 = $10 per order
+             *
+             * Variance components (calculated from sums of squares and products):
+             * - meanM = 50, varM = 500 (revenue variance per user)
+             * - meanD = 5, varD = 5 (order count variance per user)
+             * - cov = 10 (positive covariance: more orders → more revenue)
+             *
+             * Delta method variance:
+             * Var(R) = 500/25 + 2500*5/625 - 2*50*10/125
+             *        = 20 + 20 - 8
+             *        = 32
+             *
+             * Sample size for 10% MDE:
+             * d = 0.10 * 10 = 1
+             * N = (16 * 32) / 1² = 512 per variant
+             * Total = 512 * 2 = 1024
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 10000,
+                sum: 500000, // Σ revenue ($50 per user)
+                sum_squares: 30000000, // Σ revenue² (includes variance)
+                denominator_sum: 50000, // Σ orders (5 per user)
+                denominator_sum_squares: 300000, // Σ orders² (includes variance)
+                numerator_denominator_sum_product: 2600000, // Σ(revenue × orders) (includes covariance)
+                step_counts: [],
+            }
+
+            // Test baseline value calculation
+            // Backend reference: posthog/products/experiments/stats/shared/statistics.py:119-124
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeCloseTo(10, 4) // $10 per order
+
+            // Test variance calculation using delta method
+            // Backend reference: posthog/products/experiments/stats/shared/statistics.py:135-145
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+            expect(variance).not.toBeNull()
+            expect(variance).toBeCloseTo(32, 1) // Variance = 32
+
+            // Test sample size calculation
+            const numberOfVariants = 2
+            const minimumDetectableEffect = 10 // 10% increase
+
+            const recommendedSampleSize = calculateRecommendedSampleSize(
+                metric,
+                minimumDetectableEffect,
+                baselineValue!,
+                variance,
+                numberOfVariants
+            )
+
+            expect(recommendedSampleSize).not.toBeNull()
+            expect(recommendedSampleSize).toBeCloseTo(1024, 0) // 512 per variant * 2
+        })
+
+        it('calculates variance correctly with zero covariance', () => {
+            /**
+             * Test case with zero covariance (independent numerator and denominator)
+             *
+             * Setup:
+             * - 1,000 users
+             * - sum = 5,000 (5 per user), sum_squares = 30,000 (variance = 5)
+             * - denominator_sum = 10,000 (10 per user), denominator_sum_squares = 105,000 (variance = 5)
+             * - product = 50,000 (exactly sum * denominator_sum / n, so cov = 0)
+             *
+             * Expected variance with cov = 0:
+             * Var(R) = 5/100 + 25*5/10000 - 0
+             *        = 0.05 + 0.0125
+             *        = 0.0625
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 5000,
+                sum_squares: 30000,
+                denominator_sum: 10000,
+                denominator_sum_squares: 105000,
+                numerator_denominator_sum_product: 50000, // Exactly meanM * meanD * n (zero cov)
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeCloseTo(0.5, 4)
+
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+            expect(variance).toBeCloseTo(0.0625, 5)
+        })
+
+        it('calculates variance correctly with high positive covariance', () => {
+            /**
+             * Test case with high positive covariance
+             * Numerator and denominator move together strongly
+             * This should reduce variance due to the -2M*Cov term
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 5000, // meanM = 5
+                sum_squares: 30000, // varM = 5
+                denominator_sum: 10000, // meanD = 10
+                denominator_sum_squares: 105000, // varD = 5
+                numerator_denominator_sum_product: 52000, // High positive covariance
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            const variance = calculateVarianceFromResults(baselineValue!, metric, baseline)
+
+            // With positive covariance, variance should be lower than zero-cov case
+            expect(variance).not.toBeNull()
+            expect(variance!).toBeLessThan(0.0625)
+        })
+
+        it('returns null when denominator_sum is zero', () => {
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 100,
+                sum_squares: 500,
+                denominator_sum: 0, // Invalid: division by zero
+                denominator_sum_squares: 0,
+                step_counts: [],
+            }
+
+            const baselineValue = calculateBaselineValue(baseline, metric)
+            expect(baselineValue).toBeNull()
+        })
+
+        it('returns null when baseline is missing for variance calculation', () => {
+            const baselineValue = 0.05
+            const variance = calculateVarianceFromResults(baselineValue, metric, undefined)
+            expect(variance).toBeNull()
+        })
+
+        it('returns null when number_of_samples is zero', () => {
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 0,
+                sum: 100,
+                sum_squares: 500,
+                denominator_sum: 1000,
+                denominator_sum_squares: 5000,
+                step_counts: [],
+            }
+
+            const variance = calculateVarianceFromResults(10, metric, baseline)
+            expect(variance).toBeNull()
+        })
+
+        it('handles missing denominator_sum_squares gracefully', () => {
+            /**
+             * Test backward compatibility if denominator_sum_squares is missing
+             * Should default to 0, which means denominator variance = 0
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 5000,
+                sum_squares: 30000,
+                denominator_sum: 10000,
+                // denominator_sum_squares missing
+                numerator_denominator_sum_product: 50000,
+                step_counts: [],
+            }
+
+            const variance = calculateVarianceFromResults(0.5, metric, baseline)
+            expect(variance).not.toBeNull()
+            // Should still calculate, just with varD = 0
+        })
+
+        it('handles missing numerator_denominator_sum_product gracefully', () => {
+            /**
+             * Test backward compatibility if product sum is missing
+             * Should default to 0, which means covariance = -meanM * meanD
+             */
+            const baseline: CachedNewExperimentQueryResponse['baseline'] = {
+                key: 'control',
+                number_of_samples: 1000,
+                sum: 5000,
+                sum_squares: 30000,
+                denominator_sum: 10000,
+                denominator_sum_squares: 105000,
+                // numerator_denominator_sum_product missing
+                step_counts: [],
+            }
+
+            const variance = calculateVarianceFromResults(0.5, metric, baseline)
+            expect(variance).not.toBeNull()
+            // Should still calculate, covariance will be negative
+        })
+    })
 })

@@ -1,0 +1,147 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo, useRef } from 'react'
+
+import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { EventSelector } from './quick-create/components/EventSelector'
+import { FunnelSequence } from './quick-create/components/FunnelSequence'
+import { URLInput } from './quick-create/components/URLInput'
+import { VariantSelector } from './quick-create/components/VariantSelector'
+import {
+    QuickSurveyCreateMode,
+    QuickSurveyFormLogicProps,
+    quickSurveyFormLogic,
+} from './quick-create/quickSurveyFormLogic'
+import { QuickSurveyFormProps, QuickSurveyType } from './quick-create/types'
+import { buildLogicProps } from './quick-create/utils'
+
+export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProps): JSX.Element {
+    const logicProps: QuickSurveyFormLogicProps = useMemo(() => {
+        return {
+            ...buildLogicProps(context),
+            onSuccess: onCancel,
+        }
+    }, [context, onCancel])
+
+    const { surveyForm, previewSurvey, isSurveyFormSubmitting, submitDisabledReason } = useValues(
+        quickSurveyFormLogic(logicProps)
+    )
+    const { setSurveyFormValue, setCreateMode } = useActions(quickSurveyFormLogic(logicProps))
+
+    const { currentTeam } = useValues(teamLogic)
+    const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+
+    const handleSubmit = (mode: QuickSurveyCreateMode): void => {
+        setCreateMode(mode)
+    }
+
+    return (
+        <>
+            {info && <LemonBanner type="info">{info}</LemonBanner>}
+
+            <div className="grid grid-cols-2 gap-6 mt-2">
+                <div className="space-y-4">
+                    <div>
+                        <LemonLabel className="mb-2">Question for users</LemonLabel>
+                        <LemonTextArea
+                            value={surveyForm.question}
+                            onChange={(value) => setSurveyFormValue('question', value)}
+                            placeholder="What do you think?"
+                            minRows={2}
+                            data-attr="quick-survey-question-input"
+                        />
+                    </div>
+
+                    <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
+                        {context.type === QuickSurveyType.FEATURE_FLAG && (
+                            <>
+                                <VariantSelector flag={context.flag} />
+                                <EventSelector />
+                            </>
+                        )}
+
+                        {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
+
+                        <URLInput />
+                    </BindLogic>
+                </div>
+
+                <div>
+                    <div className="mt-2 p-4 bg-secondary-highlight min-h-[300px] flex items-center justify-center">
+                        <SurveyAppearancePreview survey={previewSurvey} previewPageIndex={0} />
+                    </div>
+                </div>
+            </div>
+
+            <div className="mt-6">
+                {shouldShowSurveyToggle && (
+                    <div className="mb-4 p-4 border rounded bg-warning-highlight">
+                        <SurveyPopupToggle />
+                    </div>
+                )}
+
+                <div className="flex justify-between items-end">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => handleSubmit('edit')}
+                        loading={isSurveyFormSubmitting}
+                        disabledReason={submitDisabledReason}
+                        data-attr="quick-survey-advanced"
+                    >
+                        Open in advanced editor
+                    </LemonButton>
+                    <div className="flex gap-2">
+                        {onCancel && (
+                            <LemonButton onClick={onCancel} type="secondary" data-attr="quick-survey-cancel">
+                                Cancel
+                            </LemonButton>
+                        )}
+                        <LemonButton
+                            type="primary"
+                            onClick={() => handleSubmit('launch')}
+                            loading={isSurveyFormSubmitting}
+                            disabledReason={submitDisabledReason}
+                            data-attr="quick-survey-create"
+                            sideAction={{
+                                dropdown: {
+                                    placement: 'bottom-end',
+                                    overlay: (
+                                        <LemonMenuOverlay
+                                            items={[
+                                                {
+                                                    label: 'Save as draft',
+                                                    onClick: () => handleSubmit('draft'),
+                                                },
+                                            ]}
+                                        />
+                                    ),
+                                },
+                            }}
+                        >
+                            Create & launch
+                        </LemonButton>
+                    </div>
+                </div>
+            </div>
+        </>
+    )
+}
+
+export function QuickSurveyModal({
+    context,
+    info,
+    onCancel,
+    isOpen,
+}: QuickSurveyFormProps & { isOpen: boolean }): JSX.Element {
+    return (
+        <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onCancel} width={900}>
+            <QuickSurveyForm context={context} info={info} onCancel={onCancel} />
+        </LemonModal>
+    )
+}

@@ -1,5 +1,3 @@
-import time
-import uuid
 import asyncio
 import logging
 from typing import Optional
@@ -16,12 +14,14 @@ from posthog.temporal.common.client import async_connect
 logger = logging.getLogger(__name__)
 
 
-async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> str:
-    workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"
+async def _execute_task_processing_workflow(
+    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None
+) -> str:
+    workflow_id = f"task-processing-{task_id}-{run_id}"
     workflow_name = "process-task"
-    workflow_input = task_id
+    workflow_input = run_id
 
-    logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}")
+    logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}, run {run_id}")
 
     client = await async_connect()
 
@@ -39,7 +39,7 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
     return result
 
 
-def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Optional[int] = None) -> None:
+def execute_task_processing_workflow(task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None) -> None:
     """
     Execute the task processing workflow synchronously.
     This is a fire-and-forget operation - it starts the workflow
@@ -85,9 +85,9 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
                     logger.exception(f"Error checking feature flag for task workflow: {e}")
                     return
 
-                logger.info(f"Triggering workflow for task {task_id}")
-                asyncio.run(_execute_task_processing_workflow(task_id, team_id, user_id))
-                logger.info(f"Workflow completed for task {task_id}")
+                logger.info(f"Triggering workflow for task {task_id}, run {run_id}")
+                asyncio.run(_execute_task_processing_workflow(task_id, run_id, team_id, user_id))
+                logger.info(f"Workflow completed for task {task_id}, run {run_id}")
             except Exception as e:
                 logger.exception(f"Workflow execution failed for task {task_id}: {e}")
 

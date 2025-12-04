@@ -2,6 +2,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import structlog
 from rest_framework import exceptions
 
 from posthog.models import Team
@@ -12,6 +13,8 @@ from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryCon
 from ee.hogai.session_summaries.session_group.patterns import RawSessionGroupSummaryPatternsList
 from ee.hogai.session_summaries.utils import load_custom_template
 
+logger = structlog.get_logger(__name__)
+
 
 def remove_excessive_content_from_session_summary_for_llm(
     session_summary_dict: dict[str, Any],
@@ -19,9 +22,9 @@ def remove_excessive_content_from_session_summary_for_llm(
     """Remove excessive content from session summary for LLM when using for group summaries"""
     session_summary = IntermediateSessionSummarySerializer(data=session_summary_dict)
     if not session_summary.is_valid():
-        raise ValueError(
-            f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_dict}"
-        )
+        msg = f"Caught invalid session summary when removing excessive content for group summaries ({session_summary.errors}): {session_summary_dict}"
+        logger.error(msg, signals_type="session-summaries")
+        raise ValueError(msg)
     return session_summary
 
 
@@ -116,12 +119,12 @@ def find_sessions_timestamps(session_ids: list[str], team: Team) -> tuple[dateti
     # Check for missing sessions
     if len(sessions_found) != len(session_ids):
         missing_sessions = set(session_ids) - sessions_found
-        raise exceptions.ValidationError(
-            f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
-        )
+        msg = f"Sessions not found or do not belong to this team: {', '.join(missing_sessions)}"
+        logger.error(msg, team_id=team.id, signals_type="session-summaries")
+        raise exceptions.ValidationError(msg)
     # Check for missing timestamps
     if min_timestamp is None or max_timestamp is None:
-        raise exceptions.ValidationError(
-            f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
-        )
+        msg = f"Failed to get min ({min_timestamp}) or max ({max_timestamp}) timestamps for sessions: {', '.join(session_ids)}"
+        logger.error(msg, team_id=team.id, signals_type="session-summaries")
+        raise exceptions.ValidationError(msg)
     return min_timestamp, max_timestamp

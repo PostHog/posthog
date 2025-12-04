@@ -122,7 +122,7 @@ export function PropertyGroupFilters({
                                                     </div>
                                                 </div>
                                                 <PropertyFilters
-                                                    addText="Add filter"
+                                                    addText="Filter"
                                                     propertyFilters={
                                                         isPropertyGroupFilterLike(group)
                                                             ? (group.values as AnyPropertyFilter[])

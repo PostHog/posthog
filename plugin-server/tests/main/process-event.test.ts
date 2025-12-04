@@ -119,6 +119,7 @@ describe('processEvent', () => {
             const emitEventStep = createEmitEventStep({
                 kafkaProducer: hub.kafkaProducer,
                 clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                groupId: 'test-group-id',
             })
             const emitResult = await emitEventStep(res.value)
 
@@ -242,6 +243,7 @@ describe('processEvent', () => {
             const emitEventStep = createEmitEventStep({
                 kafkaProducer: hub.kafkaProducer,
                 clickhouseJsonEventsTopic: hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                groupId: 'test-group-id',
             })
             const emitResult = await emitEventStep(res.value)
 

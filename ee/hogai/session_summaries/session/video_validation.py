@@ -196,6 +196,8 @@ class SessionSummaryVideoValidator:
             logger.error(
                 f"Milliseconds since start not found in the event {event.data['event_uuid']} for session {self.session_id}"
                 "when generating video for validating session summary",
+                session_id=self.session_id,
+                signals_type="session-summaries",
             )
             return None
         event_timestamp = floor(ms_from_start / 1000)
@@ -273,7 +275,9 @@ class SessionSummaryVideoValidator:
         updates_content = get_raw_content(updates_raw)
         if not updates_content:
             logger.exception(
-                f"No updates content found for session {self.session_id} when validating session summary with videos"
+                f"No updates content found for session {self.session_id} when validating session summary with videos",
+                session_id=self.session_id,
+                signals_type="session-summaries",
             )
             return None
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
@@ -289,7 +293,9 @@ class SessionSummaryVideoValidator:
                 find_value(target=summary_to_update, spec=field["path"])
             except PathAccessError:
                 logger.exception(
-                    f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping"
+                    f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping",
+                    session_id=self.session_id,
+                    signals_type="session-summaries",
                 )
                 continue
             # Assign the new value to the summary

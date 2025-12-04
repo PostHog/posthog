@@ -99,6 +99,7 @@ impl MixpanelEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
+                    session_id: None,
                     ip: "127.0.0.1".to_string(),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),

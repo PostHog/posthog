@@ -79,6 +79,8 @@ services:
             service: db
         ports:
             - '5432:5432'
+        volumes:
+            - postgres-15-data:/var/lib/postgresql/data
         # something in the django app when running in dev mode
         # (maybe only in Pycharm) keeps many idle transactions open
         # and eventually kills postgres, these settings aim to stop that happening.
@@ -111,7 +113,7 @@ services:
             service: clickhouse
         hostname: clickhouse
         # Development performance optimizations
-        mem_limit: 6g
+        mem_limit: 8g
         cpus: 2
         environment:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
@@ -160,6 +162,8 @@ services:
             service: kafka_ui
         ports:
             - '9093:8080'
+        environment:
+            SERVER_MAX_HTTP_REQUEST_HEADER_SIZE: 65536
         depends_on:
             - kafka
 
@@ -191,8 +195,6 @@ services:
         extends:
             file: docker-compose.base.yml
             service: echo_server
-        expose:
-            - '18081:18081'
 
     feature-flags:
         extends:
@@ -287,5 +289,6 @@ networks:
         driver: bridge
 
 volumes:
+    postgres-15-data:
     redpanda-data:
     seaweedfs-data:

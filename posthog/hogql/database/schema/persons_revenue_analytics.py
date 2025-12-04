@@ -43,8 +43,11 @@ def join_with_persons_revenue_analytics_table(
         constraint=ast.JoinConstraint(
             expr=ast.CompareOperation(
                 op=ast.CompareOperationOp.Eq,
-                left=ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field]),
-                right=ast.Field(chain=[join_to_add.to_table, "person_id"]),
+                left=ast.Call(
+                    name="toString",
+                    args=[ast.Field(chain=[join_to_add.from_table, *join_to_add.lazy_join.from_field])],
+                ),
+                right=ast.Call(name="toString", args=[ast.Field(chain=[join_to_add.to_table, "person_id"])]),
             ),
             constraint_type="ON",
         ),

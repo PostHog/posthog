@@ -96,6 +96,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: ActivationTask) => ({ id }),
         markTaskAsCompleted: (id: ActivationTask) => ({ id }),
         markTaskAsSkipped: (id: ActivationTask) => ({ id }),
+        unmarkTaskAsSkipped: (id: ActivationTask) => ({ id }),
         toggleShowHiddenSections: () => ({}),
         addIntentForSection: (section: ActivationSection) => ({ section }),
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
@@ -356,6 +357,22 @@ export const activationLogic = kea<activationLogicType>([
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
+        },
+        unmarkTaskAsSkipped: ({ id }) => {
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (!skipped) {
+                return
+            }
+
+            posthog.capture('activation sidebar task unskipped', {
+                task: id,
+            })
+
+            const onboardingTasks = { ...values.currentTeam?.onboarding_tasks }
+            delete onboardingTasks[id]
+
+            actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
         markTaskAsCompleted: ({ id }) => {
             const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED

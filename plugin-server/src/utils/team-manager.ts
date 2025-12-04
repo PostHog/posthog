@@ -149,6 +149,11 @@ export class TeamManager {
                 ...teamPartial,
                 // NOTE: The postgres lib loads the bigint as a string, so we need to cast it to a ProjectId
                 project_id: Number(teamPartial.project_id) as ProjectId,
+                // NOTE: extract('epoch' from interval) returns a numeric which can be parsed as string by postgres driver
+                drop_events_older_than_seconds:
+                    teamPartial.drop_events_older_than_seconds !== null
+                        ? Number(teamPartial.drop_events_older_than_seconds)
+                        : null,
                 available_features: available_product_features?.map((f) => f.key as OrganizationAvailableFeature) || [],
             }
             resultRecord[row.id] = team

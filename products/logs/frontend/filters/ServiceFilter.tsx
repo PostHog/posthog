@@ -19,7 +19,7 @@ export const ServiceFilter = (): JSX.Element => {
     }).url
 
     return (
-        <span className="rounded bg-surface-primary min-w-[150px]">
+        <span className="rounded bg-surface-primary min-w-[150px] flex items-stretch">
             <PropertyValue
                 size="small"
                 endpoint={endpoint}

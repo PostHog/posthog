@@ -1,0 +1,25 @@
+# � SECURITY PLACEHOLDER - DO NOT USE THIS WORKFLOW NAME �
+#
+# This workflow previously existed and was compromised. This placeholder file
+# exists to allow blocking this workflow name in GitHub's branch protection rules.
+#
+# This prevents anyone from:
+# 1. Using a cached/previous version of a workflow with this name
+# 2. Re-creating a malicious workflow using this known-compromised name
+#
+# If you need to create an auto-assign reviewers workflow, please use a
+# different name and workflow file
+
+name: 'Auto Assign Reviewers'
+
+on:
+    workflow_dispatch:
+
+jobs:
+    blocked:
+        runs-on: ubuntu-latest
+        steps:
+            - name: This workflow is blocked
+              run: |
+                  echo "� A workflow with this name was previously compromised and is now blocked."
+                  exit 1

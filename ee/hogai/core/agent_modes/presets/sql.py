@@ -64,23 +64,21 @@ The assistant used the todo list because:
 3. This approach allows for tracking progress across the entire request
 """.strip()
 
-POSITIVE_TODO_EXAMPLES: list[TodoWriteExample] = [
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
-        reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
-    ),
-    TodoWriteExample(
-        example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
-        reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
-    ),
-]
-
 
 class SQLAgentToolkit(AgentToolkit):
-    POSITIVE_TODO_EXAMPLES = POSITIVE_TODO_EXAMPLES
+    POSITIVE_TODO_EXAMPLES = [
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION,
+            reasoning=POSITIVE_EXAMPLE_INSIGHT_WITH_SEGMENTATION_REASONING,
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS, reasoning=POSITIVE_EXAMPLE_COMPANY_CHURN_ANALYSIS_REASONING
+        ),
+        TodoWriteExample(
+            example=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS,
+            reasoning=POSITIVE_EXAMPLE_MULTIPLE_METRICS_ANALYSIS_REASONING,
+        ),
+    ]
 
     @property
     def tools(self) -> list[type["MaxTool"]]:

@@ -409,6 +409,7 @@ function UrlConfigSection({
                         type="secondary"
                         icon={<IconPlus />}
                         data-attr={`session-replay-add-url-${type}`}
+                        size="small"
                     >
                         Add
                     </LemonButton>

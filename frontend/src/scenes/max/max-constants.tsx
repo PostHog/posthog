@@ -1,10 +1,12 @@
-import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
+import { IconAtSign, IconBook, IconCreditCard, IconDocument, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
@@ -29,7 +31,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
-    ) => string
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -38,6 +40,8 @@ export interface ToolDefinition<N extends string = string> {
     product?: Scene
     /** If the tool is only available if a feature flag is enabled, you can specify it here. */
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
+    /** If the tool is in beta, set this to true to display a beta badge */
+    beta?: boolean
 }
 
 /** Active instance of a tool. */
@@ -77,17 +81,34 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
+export interface RecordingsWidgetDef {
+    widget: 'recordings'
+    args: RecordingUniversalFilters
+}
+
 /** Static mode definition for display purposes. */
 export interface ModeDefinition {
     name: string
 }
 
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+    create_form: {
+        name: 'Create a form',
+        description: 'Create a form to collect information from the user',
+        icon: <IconQuestionAnswer />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a form'
+            }
+            return 'Creating a form...'
+        },
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -165,6 +186,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                     return 'Reading data warehouse schema...'
                 },
             },
+            artifacts: {
+                name: 'Read conversation artifacts',
+                description: 'Read conversation artifacts created by the agent',
+                icon: <IconDocument />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read conversation artifacts'
+                    }
+                    return 'Reading conversation artifacts...'
+                },
+            },
         },
     },
     create_and_query_insight: {
@@ -207,6 +239,24 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Searched recordings'
             }
             return 'Searching recordings...'
+        },
+    },
+    filter_session_recordings: {
+        name: 'Filter recordings',
+        description: 'Filter recordings to find the most relevant ones',
+        product: Scene.Replay,
+        icon: iconForType('session_replay'),
+        displayFormatter: (toolCall) => {
+            const widgetDef = toolCall.args?.recordings_filters
+                ? ({
+                      widget: 'recordings',
+                      args: toolCall.args.recordings_filters as RecordingUniversalFilters,
+                  } as const)
+                : null
+            if (toolCall.status === 'completed') {
+                return ['Filtered recordings', widgetDef]
+            }
+            return ['Filtering recordings...', widgetDef]
         },
     },
     generate_hogql_query: {
@@ -458,6 +508,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Summarize sessions to analyze real user behavior',
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
+        beta: true,
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -479,18 +530,23 @@ export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     },
 }
 
-export const MAX_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
+export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
     { icon: <IconAtSign />, description: 'Analyze and use attached context' },
     { icon: <IconMemory />, description: 'Remember project-level information' },
 ]
 
-export const MAX_GENERALLY_CANNOT: string[] = [
+export const AI_GENERALLY_CANNOT: string[] = [
     'Access your source code or third‑party tools',
     'Browse the web beyond PostHog documentation',
     'See data outside this PostHog project',
     'Guarantee correctness',
     'Order tungsten cubes',
 ]
+
+export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
+    const identifier = toolCall.args.kind ?? toolCall.name
+    return getToolDefinition(identifier as string)
+}
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {

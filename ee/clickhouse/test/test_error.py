@@ -49,7 +49,7 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 25.8.11.66 (official build))",
+                "Code: 439. DB::Exception: Cannot schedule a task: cannot allocate thread (threads=36, jobs=36). (CANNOT_SCHEDULE_TASK) (version 25.8.12.129 (official build))",
                 code=439,
             ),
             "ClickHouseAtCapacity",
@@ -59,7 +59,7 @@ from posthog.errors import ch_error_type, wrap_query_error
         ),
         (
             ServerException(
-                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 25.8.11.66 (official build))",
+                "Code: 159. DB::Exception: Timeout exceeded: elapsed 60.046752587 seconds, maximum: 60. (TIMEOUT_EXCEEDED) (version 25.8.12.129 (official build))",
                 code=159,
             ),
             "ClickHouseQueryTimeOut",

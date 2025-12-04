@@ -286,7 +286,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -321,7 +321,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -368,7 +368,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

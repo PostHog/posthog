@@ -461,12 +461,23 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                             )
                         except ObjectDoesNotExist:
                             try:
-                                parent_table = (
-                                    DataWarehouseTable.objects.exclude(deleted=True)
-                                    .filter(team=team, name=parent)
-                                    .get()
-                                )
-                            except ObjectDoesNotExist:
+                                table = self.get_hogql_database(team).get_table(parent)
+                                if not isinstance(table, HogQLDataWarehouseTable):
+                                    raise ObjectDoesNotExist()
+
+                                if table.table_id:
+                                    parent_table = (
+                                        DataWarehouseTable.objects.exclude(deleted=True)
+                                        .filter(team=team, id=table.table_id)
+                                        .get()
+                                    )
+                                else:
+                                    parent_table = (
+                                        DataWarehouseTable.objects.exclude(deleted=True)
+                                        .filter(team=team, name=table.name)
+                                        .get()
+                                    )
+                            except (ObjectDoesNotExist, QueryError):
                                 raise UnknownParentError(parent, query)
                             else:
                                 parent_id = parent_table.id.hex

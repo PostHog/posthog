@@ -274,7 +274,16 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
-                        globals: JSON.parse(testInvocation.globals),
+                        globals: {
+                            ...JSON.parse(testInvocation.globals),
+                            variables: values.workflow.variables?.reduce(
+                                (acc, variable) => {
+                                    acc[variable.key] = variable.default
+                                    return acc
+                                },
+                                {} as Record<string, any>
+                            ),
+                        },
                         mock_async_functions: testInvocation.mock_async_functions,
                         current_action_id: values.selectedNodeId ?? undefined,
                     })

@@ -38,6 +38,7 @@ CREATE OR REPLACE TABLE logs31
     INDEX idx_attributes_str_values mapValues(attributes_map_str) TYPE bloom_filter(0.001) GRANULARITY 1,
     INDEX idx_mat_body_ipv4_matches mat_body_ipv4_matches TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_body_ngram3 body TYPE ngrambf_v1(3, 25000, 2, 0) GRANULARITY 1,
+    INDEX idx_observed_minmax observed_timestamp TYPE minmax GRANULARITY 1,
     PROJECTION projection_aggregate_counts
     (
         SELECT
@@ -180,6 +181,33 @@ mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__float'
 mapSort(mapFilter((k, v) -> isNotNull(v), mapApply((k,v) -> (concat(k, '__datetime'), parseDateTimeBestEffortOrNull(JSONExtract(v, 'String'), 6)), attributes))) as attributes_map_datetime,
 mapSort(resource_attributes) as resource_attributes,
 toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
-FROM kafka_logs_avro;
+FROM kafka_logs_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+
+create or replace table logs_kafka_metrics
+(
+    `_partition` UInt32,
+    `_topic` String,
+    `max_offset` SimpleAggregateFunction(max, UInt64),
+    `max_observed_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_timestamp` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_created_at` SimpleAggregateFunction(max, DateTime64(9)),
+    `max_lag` SimpleAggregateFunction(max, UInt64)
+)
+ENGINE = MergeTree
+ORDER BY (_topic, _partition);
+
+drop view if exists kafka_logs_avro_kafka_metrics_mv;
+CREATE MATERIALIZED VIEW kafka_logs_avro_kafka_metrics_mv TO logs_kafka_metrics
+AS
+    SELECT
+        _partition,
+        _topic,
+        maxSimpleState(_offset) as max_offset,
+        maxSimpleState(observed_timestamp) as max_observed_timestamp,
+        maxSimpleState(timestamp) as max_timestamp,
+        maxSimpleState(now()) as max_created_at,
+        maxSimpleState(now() - observed_timestamp) as max_lag
+    FROM kafka_logs_avro
+    group by _partition, _topic;
 
 select 'clickhouse logs tables initialised successfully!';

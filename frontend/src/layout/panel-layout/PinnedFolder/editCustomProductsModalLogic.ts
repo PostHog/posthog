@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemImport } from '~/queries/schema/schema-general'
+import { UserShortcutPosition } from '~/types'
 
 import type { editCustomProductsModalLogicType } from './editCustomProductsModalLogicType'
 
@@ -25,17 +26,20 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         ],
         actions: [
             customProductsLogic,
-            ['loadCustomProducts', 'loadCustomProductsSuccess'],
+            ['loadCustomProducts', 'loadCustomProductsSuccess', 'seedSuccess'],
             userLogic,
             ['updateUser', 'loadUserSuccess'],
         ],
     })),
     actions({
         toggleProduct: (productPath: string) => ({ productPath }),
+        toggleCategory: (category: string) => ({ category }),
         setAllowSidebarSuggestions: (value: boolean) => ({ value }),
+        setShortcutPosition: (value: UserShortcutPosition, saveToUser: boolean = true) => ({ value, saveToUser }),
         setSelectedPaths: (paths: Set<string>) => ({ paths }),
         setProductLoading: (productPath: string, loading: boolean) => ({ productPath, loading }),
         setSidebarSuggestionsLoading: (loading: boolean) => ({ loading }),
+        setShortcutPositionLoading: (loading: boolean) => ({ loading }),
         toggleSidebarSuggestions: true,
         openModal: true,
         closeModal: true,
@@ -75,6 +79,18 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             {
                 setSidebarSuggestionsLoading: (_, { loading }) => loading,
                 toggleSidebarSuggestions: () => true,
+            },
+        ],
+        shortcutPosition: [
+            'above' as UserShortcutPosition,
+            {
+                setShortcutPosition: (_, { value }) => value,
+            },
+        ],
+        shortcutPositionLoading: [
+            false,
+            {
+                setShortcutPositionLoading: (_, { loading }) => loading,
             },
         ],
         productLoading: [
@@ -125,9 +141,13 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         loadCustomProductsSuccess: ({ customProducts }) => {
             actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
         },
+        seedSuccess: ({ customProducts }) => {
+            actions.setSelectedPaths(new Set(customProducts.map((item: { product_path: string }) => item.product_path)))
+        },
         loadUserSuccess: ({ user }) => {
             if (user) {
                 actions.setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
+                actions.setShortcutPosition((user.shortcut_position ?? 'above') as UserShortcutPosition, false)
             }
         },
         toggleProduct: async ({ productPath }) => {
@@ -150,6 +170,39 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
                 actions.setProductLoading(productPath, false)
             }
         },
+        toggleCategory: async ({ category }) => {
+            const products = values.productsByCategory.get(category) || []
+            const productPaths = products.map((p) => p.path)
+            const allSelected = productPaths.every((path) => values.selectedPaths.has(path))
+            const newEnabledState = !allSelected
+
+            const newSelectedPaths = new Set(values.selectedPaths)
+            if (allSelected) {
+                productPaths.forEach((path) => newSelectedPaths.delete(path))
+            } else {
+                productPaths.forEach((path) => newSelectedPaths.add(path))
+            }
+            actions.setSelectedPaths(newSelectedPaths)
+
+            const updatePromises = productPaths.map(async (productPath) => {
+                try {
+                    actions.setProductLoading(productPath, true)
+                    await api.userProductList.updateByPath({ product_path: productPath, enabled: newEnabledState })
+                } catch (error) {
+                    console.error(`Failed to toggle product ${productPath}:`, error)
+                    throw error
+                } finally {
+                    actions.setProductLoading(productPath, false)
+                }
+            })
+
+            const results = await Promise.allSettled(updatePromises)
+            if (results.some((result) => result.status === 'rejected')) {
+                lemonToast.error('Failed to toggle category. Try again?')
+            }
+
+            actions.loadCustomProducts()
+        },
         toggleSidebarSuggestions: () => {
             try {
                 actions.setSidebarSuggestionsLoading(true)
@@ -161,10 +214,26 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
                 actions.setSidebarSuggestionsLoading(false)
             }
         },
+        setShortcutPosition: async ({ value, saveToUser }) => {
+            if (!saveToUser) {
+                return
+            }
+
+            try {
+                actions.setShortcutPositionLoading(true)
+                actions.updateUser({ shortcut_position: value })
+            } catch (error) {
+                console.error('Failed to save shortcut position preference:', error)
+                lemonToast.error('Failed to save preference. Try again?')
+            } finally {
+                actions.setShortcutPositionLoading(false)
+            }
+        },
     })),
     afterMount(({ actions, values }) => {
         if (values.user) {
             actions.setAllowSidebarSuggestions(values.user.allow_sidebar_suggestions ?? false)
+            actions.setShortcutPosition((values.user.shortcut_position ?? 'above') as UserShortcutPosition, false)
         }
 
         if (values.customProducts.length > 0) {

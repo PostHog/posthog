@@ -10,6 +10,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
+import { supportLogic } from 'lib/components/Support/supportLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -194,8 +196,9 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
 }
 
 function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): JSX.Element {
-    const { isSignupSubmitting, validatedPassword } = useValues(inviteSignupLogic)
+    const { isSignupSubmitting, validatedPassword, signupManualErrors } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
+    const { openSupportForm } = useActions(supportLogic)
 
     const { precheck } = useActions(loginLogic)
     const { precheckResponse, precheckResponseLoading } = useValues(loginLogic)
@@ -230,6 +233,26 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             footer={<SupportModalButton name={invite.first_name} email={invite.target_email} />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
+            {signupManualErrors?.generic && (
+                <LemonBanner type="error" className="mb-4">
+                    {signupManualErrors.generic.detail || 'Could not complete your signup.'}{' '}
+                    {preflight?.cloud && (
+                        <Link
+                            data-attr="invite-signup-error-contact-support"
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openSupportForm({
+                                    kind: 'support',
+                                    target_area: 'login',
+                                    email: invite.target_email,
+                                })
+                            }}
+                        >
+                            Need help?
+                        </Link>
+                    )}
+                </LemonBanner>
+            )}
             <Form logic={inviteSignupLogic} formKey="signup" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />

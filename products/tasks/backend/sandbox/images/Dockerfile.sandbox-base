@@ -66,7 +66,7 @@ RUN npm install -g yarn pnpm typescript ts-node nodemon
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent
+    npm install @posthog/agent@1.25.0
 
 # Download agent runner script from GitHub
 RUN cd /scripts && \

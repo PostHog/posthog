@@ -234,6 +234,13 @@ LIMIT 1000""",
                 expected="SELECT p.id AS person_id, p.properties.email AS email, p.properties.org AS organization FROM persons p WHERE p.properties.email NOT LIKE '%@test.com' AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org) ORDER BY p.created_at DESC LIMIT 1000",
                 metadata=metadata,
             ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Show me daily event counts for 'buy_button_clicked' events from Nov 25-26 2025, formatted as YYYY-MM-DD in UTC timezone",
+                ),
+                expected="SELECT formatDateTime(toTimeZone(timestamp, 'UTC'), '%Y-%m-%d') AS day, count() FROM events WHERE event = 'buy_button_clicked' AND timestamp >= toDateTime('2025-11-25 00:00:00') AND timestamp <= toDateTime('2025-11-26 23:59:59') GROUP BY day ORDER BY day DESC",
+                metadata=metadata,
+            ),
         ],
         pytestconfig=pytestconfig,
     )

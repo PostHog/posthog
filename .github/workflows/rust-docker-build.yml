@@ -143,7 +143,10 @@ jobs:
                   tags: ${{ steps.meta.outputs.tags }}
                   labels: ${{ steps.meta.outputs.labels }}
                   platforms: linux/arm64,linux/amd64
-                  build-args: BIN=${{ matrix.image }}
+                  build-args: |
+                      SCCACHE_LOG=debug
+                      SCCACHE_NO_DAEMON=1
+                      BIN=${{ matrix.image }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}

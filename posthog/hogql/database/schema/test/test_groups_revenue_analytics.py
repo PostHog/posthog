@@ -268,6 +268,7 @@ class TestRevenueAnalytics(ClickhouseTestMixin, APIBaseTest):
             queries = [
                 "SELECT key, revenue_analytics.revenue FROM groups ORDER BY key ASC",
                 "SELECT key, $virt_revenue FROM groups ORDER BY key ASC",
+                "SELECT key, properties.$virt_revenue FROM groups ORDER BY key ASC",
             ]
 
             for query in queries:

@@ -275,6 +275,9 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
         # Add single unified conversion goals join if we have conversion goals
         if conversion_aggregator:
             join_type = "FULL OUTER JOIN" if self.query.includeAllConversions else "LEFT JOIN"
+
+            # Join on match_key - each adapter decides whether to use campaign or id based on team preferences
+            # UCG's match_key is the utm_campaign value from events
             unified_join = ast.JoinExpr(
                 join_type=join_type,
                 table=ast.Field(chain=[UNIFIED_CONVERSION_GOALS_CTE_ALIAS]),
@@ -284,11 +287,11 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
                         exprs=[
                             ast.CompareOperation(
                                 left=ast.Field(
-                                    chain=self.config.get_campaign_cost_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_campaign_cost_field_chain(self.config.match_key_field)
                                 ),
                                 op=ast.CompareOperationOp.Eq,
                                 right=ast.Field(
-                                    chain=self.config.get_unified_conversion_field_chain(self.config.campaign_field)
+                                    chain=self.config.get_unified_conversion_field_chain(self.config.match_key_field)
                                 ),
                             ),
                             self._build_flexible_source_join_condition(),

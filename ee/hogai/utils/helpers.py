@@ -30,7 +30,6 @@ from posthog.schema import (
     RetentionQuery,
     TeamTaxonomyQuery,
     TrendsQuery,
-    VisualizationMessage,
 )
 
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
@@ -38,7 +37,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
-from ee.hogai.utils.types.base import AssistantDispatcherEvent, AssistantMessageUnion
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantDispatcherEvent, AssistantMessageUnion
 
 
 def remove_line_breaks(line: str) -> str:
@@ -49,7 +48,7 @@ def filter_and_merge_messages(
     messages: Sequence[AssistantMessageUnion],
     entity_filter: Union[tuple[type[AssistantMessageUnion], ...], type[AssistantMessageUnion]] = (
         AssistantMessage,
-        VisualizationMessage,
+        ArtifactRefMessage,
     ),
 ) -> list[AssistantMessageUnion]:
     """
@@ -119,7 +118,7 @@ def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str 
     return cast(HumanMessage, messages[index])
 
 
-def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
+def should_output_assistant_message(candidate_message: Any) -> bool:
     """
     This is used to filter out messages that are not useful for the user.
     Filter out empty assistant messages and context messages.

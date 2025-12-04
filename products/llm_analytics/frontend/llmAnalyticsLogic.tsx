@@ -413,6 +413,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                 loadLLMDashboards: async () => {
                     const response = await api.dashboards.list({
                         tags: 'llm-analytics',
+                        creation_mode: 'unlisted',
                     })
                     const dashboards = response.results || []
                     return dashboards.map((d) => ({
@@ -1382,7 +1383,10 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadAIEventDefinition()
 
-        if (values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD]) {
+        if (
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOMIZABLE_DASHBOARD] ||
+            values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+        ) {
             actions.loadLLMDashboards()
         }
     }),

@@ -12,7 +12,7 @@ from django.db import connection
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, warm_caches
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats, warm_caches
 
 
 class BaseHyperCacheCommand(BaseCommand):
@@ -53,8 +53,8 @@ class BaseHyperCacheCommand(BaseCommand):
         parser.add_argument(
             "--batch-size",
             type=int,
-            default=100,
-            help="Number of teams to process at a time (default: 100)",
+            default=1000,
+            help="Number of teams to process at a time (default: 1000)",
         )
         parser.add_argument(
             "--invalidate-first",
@@ -317,6 +317,9 @@ class BaseHyperCacheCommand(BaseCommand):
 
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
+            # Update cache metrics after verification completes (even on failure)
+            get_cache_stats(self.get_hypercache_config())
+
             if not settings.TEST:
                 connection.close()
 
@@ -608,15 +611,19 @@ class BaseHyperCacheCommand(BaseCommand):
             actual_batch_size = len(teams)
             actual_invalidate_first = False  # Never invalidate for specific teams
         else:
-            # Handle all teams - show configuration and get confirmation if needed
+            # Get current cache stats for upfront reporting
+            total_teams = Team.objects.count()
+            cache_stats = get_cache_stats(config)
+
+            # Handle all teams - show configuration and current state
             self.stdout.write(
-                self.style.WARNING(
-                    f"\nStarting {cache_name} cache warm:\n"
-                    f"  Batch size: {batch_size}\n"
-                    f"  Invalidate first: {invalidate_first}\n"
-                    f"  Stagger TTL: {stagger_ttl}\n"
-                    f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
-                )
+                f"\nStarting {cache_name} cache warm:\n"
+                f"  Total teams: {total_teams:,}\n"
+                f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
+                f"  Batch size: {batch_size}\n"
+                f"  Invalidate first: {invalidate_first}\n"
+                f"  Stagger TTL: {stagger_ttl}\n"
+                f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
             )
 
             if invalidate_first and not self._confirm_invalidate(cache_name):
@@ -624,6 +631,24 @@ class BaseHyperCacheCommand(BaseCommand):
 
             actual_batch_size = batch_size
             actual_invalidate_first = invalidate_first
+
+        # Callbacks to write progress to stdout
+        last_percent_reported = [0]  # Use list to allow mutation in closure
+
+        def batch_start_callback(batch_num: int, batch_len: int):
+            self.stdout.write(f"  Processing batch {batch_num} ({batch_len:,} teams)…")
+
+        def progress_callback(processed: int, total: int, successful: int, failed: int):
+            if total == 0:
+                return
+            percent = int(100 * processed / total)
+            # Report every 5% to avoid too much output
+            if percent >= last_percent_reported[0] + 5 or processed == total:
+                self.stdout.write(
+                    f"  Progress: {processed:,}/{total:,} teams ({percent}%) "
+                    f"- {successful:,} successful, {failed:,} failed"
+                )
+                last_percent_reported[0] = percent
 
         # Warm the caches
         successful, failed = warm_caches(
@@ -634,6 +659,8 @@ class BaseHyperCacheCommand(BaseCommand):
             min_ttl_days=min_ttl_days,
             max_ttl_days=max_ttl_days,
             team_ids=team_ids,
+            progress_callback=progress_callback,
+            batch_start_callback=batch_start_callback,
         )
 
         # Display results
@@ -642,6 +669,9 @@ class BaseHyperCacheCommand(BaseCommand):
         # Warn about failures (only for all teams workflow)
         if not team_ids and failed > 0:
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
+
+        # Update cache metrics after warming completes
+        get_cache_stats(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 

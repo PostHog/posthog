@@ -100,107 +100,115 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         cohorts: list[Cohort] = await get_cohorts()
 
         cohorts_count = 0
-
-        # Initialize Kafka producer once before the loop
         kafka_producer = KafkaProducer()
 
-        # Process each cohort
+        max_retries = 3
+        retry_delay_seconds = 5
+
+        @database_sync_to_async
+        def build_query(cohort_obj):
+            realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
+            current_members_query = realtime_query.get_query()
+            hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
+            current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
+            return current_members_sql, hogql_context.values
+
         for idx, cohort in enumerate(cohorts, 1):
-            # Update heartbeat progress every 100 cohorts to minimize overhead
             if idx % 100 == 0 or idx == len(cohorts):
                 heartbeater.details = (f"Processing cohort {idx}/{len(cohorts)}",)
-
-            # Log progress periodically
-            if idx % 100 == 0 or idx == len(cohorts):
                 logger.info(f"Processed {idx}/{len(cohorts)} cohorts so far")
+            for retry_attempt in range(1, max_retries + 1):
+                try:
+                    cohort_max_execution_time = 60 * retry_attempt
+                    current_members_sql, query_params = await build_query(cohort)
+                    query_params = {
+                        **query_params,
+                        "team_id": cohort.team_id,
+                        "cohort_id": cohort.id,
+                        "max_execution_time": cohort_max_execution_time,
+                    }
 
-            try:
-                # Build query in sync context (HogQLRealtimeCohortQuery accesses team properties)
-                @database_sync_to_async
-                def build_query(cohort_obj):
-                    realtime_query = HogQLRealtimeCohortQuery(cohort=cohort_obj, team=cohort_obj.team)
-                    current_members_query = realtime_query.get_query()
-                    hogql_context = HogQLContext(team_id=cohort_obj.team_id, enable_select_queries=True)
-                    current_members_sql, _ = prepare_and_print_ast(current_members_query, hogql_context, "clickhouse")
-                    return current_members_sql, hogql_context.values
+                    final_query = f"""
+                        SELECT
+                            %(team_id)s as team_id,
+                            %(cohort_id)s as cohort_id,
+                            COALESCE(current_matches.id, previous_members.person_id) as person_id,
+                            now64() as last_updated,
+                            CASE
+                                WHEN previous_members.person_id IS NULL THEN 'entered'
+                                WHEN current_matches.id IS NULL THEN 'left'
+                                ELSE 'unchanged'
+                            END as status
+                        FROM
+                        (
+                            {current_members_sql}
+                        ) AS current_matches
+                        FULL OUTER JOIN
+                        (
+                            SELECT team_id, person_id, argMax(status, last_updated) as status
+                            FROM cohort_membership
+                            WHERE
+                                team_id = %(team_id)s
+                                AND cohort_id = %(cohort_id)s
+                            GROUP BY team_id, person_id
+                            HAVING status = 'entered'
+                        ) previous_members ON current_matches.id = previous_members.person_id
+                        WHERE status != 'unchanged'
+                        SETTINGS join_use_nulls = 1, max_execution_time = %(max_execution_time)s
+                        FORMAT JSONEachRow
+                    """
 
-                current_members_sql, query_params = await build_query(cohort)
+                    with tags_context(
+                        team_id=cohort.team_id,
+                        feature=Feature.BEHAVIORAL_COHORTS,
+                        product=Product.MESSAGING,
+                        query_type="realtime_cohort_calculation",
+                    ):
+                        async with get_client(team_id=cohort.team_id) as client:
+                            async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
+                                status = row["status"]
+                                payload = {
+                                    "team_id": row["team_id"],
+                                    "cohort_id": row["cohort_id"],
+                                    "person_id": str(row["person_id"]),
+                                    "last_updated": str(row["last_updated"]),
+                                    "status": status,
+                                }
+                                await asyncio.to_thread(
+                                    kafka_producer.produce,
+                                    topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
+                                    key=payload["person_id"],
+                                    data=payload,
+                                )
 
-                # Add cohort identifiers to query parameters
-                query_params = {**query_params, "team_id": cohort.team_id, "cohort_id": cohort.id}
+                                get_membership_changed_metric(status).add(1)
 
-                # Wrap with comparison to previous membership to detect changes
-                final_query = f"""
-                    SELECT
-                        %(team_id)s as team_id,
-                        %(cohort_id)s as cohort_id,
-                        COALESCE(current_matches.id, previous_members.person_id) as person_id,
-                        now64() as last_updated,
-                        CASE
-                            WHEN previous_members.person_id IS NULL THEN 'entered'
-                            WHEN current_matches.id IS NULL THEN 'left'
-                            ELSE 'unchanged'
-                        END as status
-                    FROM
-                    (
-                        {current_members_sql}
-                    ) AS current_matches
-                    FULL OUTER JOIN
-                    (
-                        SELECT team_id, person_id, argMax(status, last_updated) as status
-                        FROM cohort_membership
-                        WHERE
-                            team_id = %(team_id)s
-                            AND cohort_id = %(cohort_id)s
-                        GROUP BY team_id, person_id
-                        HAVING status = 'entered'
-                    ) previous_members ON current_matches.id = previous_members.person_id
-                    WHERE status != 'unchanged'
-                    SETTINGS join_use_nulls = 1
-                    FORMAT JSONEachRow
-                """
+                    get_cohort_calculation_success_metric().add(1)
+                    cohorts_count += 1
+                    break
+                except Exception as e:
+                    is_last_attempt = retry_attempt == max_retries
 
-                with tags_context(
-                    team_id=cohort.team_id,
-                    feature=Feature.BEHAVIORAL_COHORTS,
-                    product=Product.MESSAGING,
-                    query_type="realtime_cohort_calculation",
-                ):
-                    async with get_client(team_id=cohort.team_id) as client:
-                        async for row in client.stream_query_as_jsonl(final_query, query_parameters=query_params):
-                            status = row["status"]
-                            payload = {
-                                "team_id": row["team_id"],
-                                "cohort_id": row["cohort_id"],
-                                "person_id": str(row["person_id"]),
-                                "last_updated": str(row["last_updated"]),
-                                "status": status,
-                            }
-                            await asyncio.to_thread(
-                                kafka_producer.produce,
-                                topic=KAFKA_COHORT_MEMBERSHIP_CHANGED,
-                                key=payload["person_id"],
-                                data=payload,
-                            )
+                    if is_last_attempt:
+                        get_cohort_calculation_failure_metric().add(1)
 
-                            # Track membership change (entered/left)
-                            get_membership_changed_metric(status).add(1)
-
-                # Record successful cohort calculation
-                get_cohort_calculation_success_metric().add(1)
-                cohorts_count += 1
-
-            except Exception as e:
-                # Record failed cohort calculation
-                get_cohort_calculation_failure_metric().add(1)
-
-                logger.exception(
-                    f"Error calculating cohort {cohort.id}: {type(e).__name__}: {str(e)}",
-                    cohort_id=cohort.id,
-                    error_type=type(e).__name__,
-                    error_message=str(e),
-                )
-                continue
+                        logger.exception(
+                            f"Error calculating cohort {cohort.id} after {max_retries} attempts: {type(e).__name__}: {str(e)}",
+                            cohort_id=cohort.id,
+                            error_type=type(e).__name__,
+                            error_message=str(e),
+                            attempts=max_retries,
+                        )
+                    else:
+                        logger.warning(
+                            f"Error calculating cohort {cohort.id} (attempt {retry_attempt}/{max_retries}): {type(e).__name__}: {str(e)}. Retrying in {retry_delay_seconds}s with {60 * (retry_attempt + 1)}s timeout...",
+                            cohort_id=cohort.id,
+                            error_type=type(e).__name__,
+                            error_message=str(e),
+                            attempt=retry_attempt,
+                            next_timeout=60 * (retry_attempt + 1),
+                        )
+                        await asyncio.sleep(retry_delay_seconds)
 
         end_time = time.time()
         duration_seconds = end_time - start_time

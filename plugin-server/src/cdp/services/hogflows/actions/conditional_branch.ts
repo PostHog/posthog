@@ -54,7 +54,7 @@ export async function checkConditions(
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
-            filterGlobals: invocation.filterGlobals,
+            filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
         })
 
         if (filterResults.match) {

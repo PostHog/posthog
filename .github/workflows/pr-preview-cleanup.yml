@@ -41,19 +41,21 @@ jobs:
 
             - name: Delete hobby deployment
               id: cleanup
+              env:
+                  PR_NUM: ${{ github.event.number }}
+                  BRANCH_NAME: ${{ github.head_ref }}
+                  DOCKER_TAG: ${{ github.event.pull_request.head.sha }}
+                  REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
               run: |
                   aws eks update-kubeconfig --name "posthog-dev"
                   kubectl config set-cluster arn:aws:eks:us-east-1:169684386827:cluster/posthog-dev --server=https://eks-posthog-dev --tls-server-name 8BD6E1D2FEBDE47C8177E29CAC9E6C61.gr7.us-east-1.eks.amazonaws.com
 
-                  export PR_NUM=${{ github.event.number }}
-                  export BRANCH_NAME=${{ github.head_ref }}
-                  export BRANCH_NAME_HASH=$(echo -n ${{ github.head_ref }} | md5sum | cut -c 1-8)
+                  export BRANCH_NAME_HASH="$(echo -n $BRANCH_NAME | md5sum | cut -c 1-8)"
                   export HOSTNAME=pr-$PR_NUM-${BRANCH_NAME_HASH}
                   export HOSTNAME=${HOSTNAME:0:38}
                   export HOSTNAME=${HOSTNAME%%-}
                   export NAMESPACE="hobby"
-                  export REGISTRY_URL=${{ steps.aws-ecr.outputs.registry }}/pr-test
-                  export DOCKER_TAG=${{ github.event.pull_request.head.sha }}
+                  export REGISTRY_URL="$REGISTRY/pr-test"
 
                   envsubst < .github/pr-deploy/hobby.yaml.tmpl > .github/pr-deploy/hobby.yaml
 

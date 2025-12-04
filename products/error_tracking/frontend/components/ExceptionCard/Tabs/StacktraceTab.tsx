@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
@@ -19,8 +19,8 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
+import { ReleasePreviewPill } from '../../ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -42,17 +42,27 @@ export function StacktraceTab({
     ...props
 }: StacktraceTabProps): JSX.Element {
     const { loading, issueId } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType, release } =
+        useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
-    const { openMax } = useErrorTrackingExplainIssueMaxTool()
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId, exceptionType)
+
+    useEffect(() => {
+        if (!loading) {
+            if (hasStacktrace && !hasInAppFrames) {
+                setShowAllFrames(true)
+            }
+        }
+    }, [loading, hasStacktrace, hasInAppFrames, setShowAllFrames])
 
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    <ReleasePreviewPill />
+                    {release && <ReleasePreviewPill release={release} />}
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (

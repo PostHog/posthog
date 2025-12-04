@@ -79,15 +79,6 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
         pass
 
     @abc.abstractmethod
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        """Returns a tuple of (target_key, error_message)"""
-        pass
-
-    @abc.abstractmethod
-    def is_lts_enabled(self) -> bool:
-        pass
-
-    @abc.abstractmethod
     def download_file(self, key: str, filename: str) -> None:
         pass
 
@@ -158,6 +149,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -177,6 +169,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -195,6 +188,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -220,6 +214,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -239,6 +234,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -283,6 +279,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -297,6 +294,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -332,34 +330,9 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
-
-    def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        try:
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            byte_range = f"bytes=0-{len(compressed_data) - 1}"
-            target_key = f"s3://{self.bucket}/{base_key}?range={byte_range}"
-            self.write(base_key, compressed_data)
-            logger.info(
-                "Successfully stored LTS recording",
-                recording_id=recording_id,
-                uncompressed_size=len(recording_data),
-                compressed_size=len(compressed_data),
-            )
-            return target_key, None
-        except Exception as e:
-            logger.exception(
-                "session_recording_v2_object_storage.store_lts_recording_failed",
-                bucket=self.bucket,
-                recording_id=recording_id,
-                error=e,
-            )
-            return None, f"Failed to store LTS recording: {str(e)}"
-
-    def is_lts_enabled(self) -> bool:
-        return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
     def download_file(self, key: str, filename: str) -> None:
         try:
@@ -374,6 +347,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -390,6 +364,7 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
@@ -415,6 +390,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -434,6 +410,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -452,6 +429,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -476,6 +454,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -495,6 +474,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -539,6 +519,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -553,6 +534,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -588,34 +570,9 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
-
-    async def store_lts_recording(self, recording_id: str, recording_data: str) -> tuple[Optional[str], Optional[str]]:
-        try:
-            compressed_data = snappy.compress(recording_data.encode("utf-8"))
-            base_key = f"{settings.SESSION_RECORDING_V2_S3_LTS_PREFIX}/{recording_id}"
-            byte_range = f"bytes=0-{len(compressed_data) - 1}"
-            target_key = f"s3://{self.bucket}/{base_key}?range={byte_range}"
-            await self.write(base_key, compressed_data)
-            logger.info(
-                "Successfully stored LTS recording",
-                recording_id=recording_id,
-                uncompressed_size=len(recording_data),
-                compressed_size=len(compressed_data),
-            )
-            return target_key, None
-        except Exception as e:
-            logger.exception(
-                "async_session_recording_v2_object_storage.store_lts_recording_failed",
-                bucket=self.bucket,
-                recording_id=recording_id,
-                error=e,
-            )
-            return None, f"Failed to store LTS recording: {str(e)}"
-
-    def is_lts_enabled(self) -> bool:
-        return bool(settings.SESSION_RECORDING_V2_S3_LTS_PREFIX)
 
     async def download_file(self, key: str, filename: str) -> None:
         try:
@@ -630,6 +587,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -646,6 +604,7 @@ class AsyncSessionRecordingV2ObjectStorage:
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 

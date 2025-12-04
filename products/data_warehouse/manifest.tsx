@@ -17,6 +17,14 @@ export const manifest: ProductManifest = {
                 'Manage your data warehouse sources and queries. New source syncs are always free for the first 7 days',
             iconType: 'data_warehouse',
         },
+        SQLEditor: {
+            projectBased: true,
+            name: 'SQL editor',
+            defaultDocsPath: '/docs/cdp/sources',
+            layout: 'app-raw-no-header',
+            hideProjectNotice: true,
+            description: 'Write and execute SQL queries against your data warehouse',
+        },
     },
     routes: {
         '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],

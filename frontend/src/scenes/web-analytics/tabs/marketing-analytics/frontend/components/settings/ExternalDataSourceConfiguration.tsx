@@ -9,7 +9,11 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+import {
+    MarketingAnalyticsColumnsSchemaNames,
+    NativeMarketingSource,
+    VALID_NATIVE_MARKETING_SOURCES,
+} from '~/queries/schema/schema-general'
 import { ExternalDataSchemaStatus, ExternalDataSource, ManualLinkSourceType } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
@@ -23,9 +27,7 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 import {
     MAX_ITEMS_TO_SHOW,
     NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS,
-    NativeMarketingSource,
     NonNativeMarketingSource,
-    VALID_NATIVE_MARKETING_SOURCES,
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
 } from '../../logic/utils'
