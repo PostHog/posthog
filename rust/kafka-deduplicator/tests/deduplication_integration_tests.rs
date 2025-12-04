@@ -295,8 +295,14 @@ async fn test_basic_deduplication() -> Result<()> {
         .as_secs();
 
     println!("Producing 5 duplicate events for user_123...");
-    produce_duplicate_events_with_timestamp(&input_topic, "user_123", "test_event", 5, base_timestamp)
-        .await?;
+    produce_duplicate_events_with_timestamp(
+        &input_topic,
+        "user_123",
+        "test_event",
+        5,
+        base_timestamp,
+    )
+    .await?;
     println!("Produced first batch");
 
     println!("Producing 3 duplicate events for user_456...");
