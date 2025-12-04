@@ -5,6 +5,7 @@ import { IconArrowRight, IconCheck } from '@posthog/icons'
 import { LemonButton, LemonInput, Spinner } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
+import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,12 +17,11 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
-import { CampaignConfig } from './campaigns/types'
+import { campaignConfigs } from './campaigns'
 import { couponLogic } from './couponLogic'
 
 interface CouponRedemptionProps {
     campaign: string
-    config: CampaignConfig
     requiresBilling?: boolean
     showHero?: boolean
     /** Custom render for action buttons after claim/already claimed. If not provided, shows default "View in billing" buttons */
@@ -50,12 +50,14 @@ const BillingUpgradeCTAWrapper: React.FC<{ platformAndSupportProduct: BillingPro
 
 export function CouponRedemption({
     campaign,
-    config,
     requiresBilling = true,
     showHero = true,
     renderSuccessActions,
     renderFooter,
 }: CouponRedemptionProps): JSX.Element {
+    const config = campaignConfigs[campaign]
+
+    // Hooks must be called unconditionally (Rules of Hooks)
     const logic = couponLogic({ campaign })
     const {
         claimed,
@@ -66,8 +68,24 @@ export function CouponRedemption({
         getClaimedCouponForCampaign,
     } = useValues(logic)
     const { billing, billingLoading } = useValues(billingLogic)
-
     const alreadyClaimed = getClaimedCouponForCampaign(campaign)
+
+    if (!config) {
+        return (
+            <NotFound
+                object="coupon campaign"
+                caption={
+                    campaign ? (
+                        <>
+                            The campaign "{campaign}" does not exist or is not available.
+                            <br />
+                            Please check the URL and try again.
+                        </>
+                    ) : undefined
+                }
+            />
+        )
+    }
 
     const platformAndSupportProduct = billing?.products?.find(
         (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
