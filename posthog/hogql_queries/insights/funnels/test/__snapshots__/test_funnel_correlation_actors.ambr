@@ -86,9 +86,14 @@
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -190,9 +195,14 @@
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_event_with_recordings.3
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -295,9 +305,14 @@
 # ---
 # name: TestFunnelCorrelationActors.test_funnel_correlation_on_properties_with_recordings.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s2']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s2']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2021-01-02 00:00:00.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

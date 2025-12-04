@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta
 from typing import LiteralString, Optional
 
-from django.conf import settings
 from django.core.cache import cache
 
 import pytz
@@ -9,9 +8,6 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.clickhouse.client import sync_execute
-from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team import Team
 from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
 
@@ -59,7 +55,7 @@ class SessionReplayEvents:
                 count(),
                 min(min_first_timestamp) as start_time,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
             FROM
                 session_replay_events
             PREWHERE
@@ -74,7 +70,6 @@ class SessionReplayEvents:
             {
                 "team_id": team.pk,
                 "session_id": session_id,
-                "ttl_days": ttl_days(team),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
@@ -115,7 +110,7 @@ class SessionReplayEvents:
                 min(min_first_timestamp) as min_timestamp,
                 max(max_last_timestamp) as max_timestamp,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
             FROM
                 session_replay_events
             PREWHERE
@@ -130,7 +125,6 @@ class SessionReplayEvents:
             {
                 "team_id": team.pk,
                 "session_ids": session_ids,
-                "ttl_days": ttl_days(team),
                 "python_now": datetime.now(pytz.timezone("UTC")),
             },
         )
@@ -166,7 +160,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
@@ -203,7 +197,7 @@ class SessionReplayEvents:
                     groupArrayArray(block_last_timestamps) as block_last_timestamps,
                     groupArrayArray(block_urls) as block_urls,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
@@ -268,7 +262,6 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days(team),
             },
         )
         recording_metadata = self.build_recording_metadata(session_id, replay_response)
@@ -316,7 +309,7 @@ class SessionReplayEvents:
                 groupArrayArray(block_last_timestamps) as block_last_timestamps,
                 groupArrayArray(block_urls) as block_urls,
                 max(retention_period_days) as retention_period_days,
-                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                 dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
             FROM
                 session_replay_events
@@ -338,7 +331,6 @@ class SessionReplayEvents:
                 "recordings_min_timestamp": recordings_min_timestamp,
                 "recordings_max_timestamp": recordings_max_timestamp,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days(team),
             },
         )
         # Build metadata for each session
@@ -373,7 +365,6 @@ class SessionReplayEvents:
         session_id: str,
         team: Team,
         recording_start_time: Optional[datetime] = None,
-        ttl_days: Optional[int] = None,
     ) -> Optional[RecordingBlockListing]:
         query = self.get_block_listing_query(recording_start_time)
         replay_response: list[tuple] = sync_execute(
@@ -383,7 +374,6 @@ class SessionReplayEvents:
                 "session_id": session_id,
                 "recording_start_time": recording_start_time,
                 "python_now": datetime.now(pytz.timezone("UTC")),
-                "ttl_days": ttl_days or 365,
             },
         )
         recording_metadata = self.build_recording_block_listing(session_id, replay_response)
@@ -471,7 +461,7 @@ class SessionReplayEvents:
                     session_id,
                     min(min_first_timestamp) as start_time,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
@@ -501,7 +491,7 @@ class SessionReplayEvents:
                     session_id,
                     min(min_first_timestamp) as start_time,
                     max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time
+                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
                 FROM
                     session_replay_events
                 PREWHERE
@@ -533,7 +523,7 @@ class SessionReplayEvents:
                         session_id,
                         min(min_first_timestamp) as start_time,
                         max(retention_period_days) as retention_period_days,
-                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, %(ttl_days)s)) as expiry_time,
+                        dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time,
                         dateDiff('DAY', toDateTime(%(python_now)s), expiry_time) as recording_ttl
                     FROM
                         session_replay_events
@@ -556,17 +546,6 @@ class SessionReplayEvents:
             optional_format_clause=(f"FORMAT {format}" if format else ""),
         )
         return query
-
-
-def ttl_days(team: Team) -> int:
-    if is_cloud():
-        # NOTE: We use file export as a proxy to see if they are subbed to Recordings
-        is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
-        ttl_days = settings.REPLAY_RETENTION_DAYS_MAX if is_paid else settings.REPLAY_RETENTION_DAYS_MIN
-    else:
-        ttl_days = (get_instance_setting("RECORDINGS_TTL_WEEKS") or 3) * 7
-
-    return ttl_days
 
 
 def get_person_emails_for_session_ids(

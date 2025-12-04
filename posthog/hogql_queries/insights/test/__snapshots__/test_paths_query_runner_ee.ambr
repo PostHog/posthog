@@ -2554,9 +2554,14 @@
 # ---
 # name: ClickhousePathsUDF.test_recording.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -2890,9 +2895,14 @@
 # ---
 # name: ClickhousePathsUDF.test_recording_for_dropoff.2
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3065,9 +3075,14 @@
 # ---
 # name: ClickhousePathsUDF.test_recording_with_no_window_or_session_id.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -3250,9 +3265,14 @@
 # ---
 # name: ClickhousePathsUDF.test_recording_with_start_and_end.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -14042,9 +14062,14 @@
 # ---
 # name: TestClickhousePathsUDF.test_recording.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('today', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s3', 's1', 's5']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('today', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -14378,9 +14403,14 @@
 # ---
 # name: TestClickhousePathsUDF.test_recording_for_dropoff.2
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -14553,9 +14583,14 @@
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_no_window_or_session_id.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,
@@ -14738,9 +14773,14 @@
 # ---
 # name: TestClickhousePathsUDF.test_recording_with_start_and_end.1
   '''
-  SELECT DISTINCT session_replay_events.session_id AS session_id
+  SELECT session_replay_events.session_id AS session_id,
+         min(toTimeZone(session_replay_events.min_first_timestamp, 'UTC')) AS start_time,
+         max(session_replay_events.retention_period_days) AS retention_period_days,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time
   FROM session_replay_events
-  WHERE and(equals(session_replay_events.team_id, 99999), greaterOrEquals(toTimeZone(session_replay_events.min_first_timestamp, 'UTC'), minus(toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC'), toIntervalDay(21))), in(session_replay_events.session_id, ['s1']))
+  WHERE and(equals(session_replay_events.team_id, 99999), in(session_replay_events.session_id, ['s1']))
+  GROUP BY session_replay_events.session_id
+  HAVING ifNull(greaterOrEquals(expiry_time, toDateTime64('2012-01-01 03:21:34.000000', 6, 'UTC')), 0)
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
                      allow_experimental_object_type=1,

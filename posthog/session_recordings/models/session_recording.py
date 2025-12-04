@@ -10,7 +10,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
 class SessionRecording(UUIDTModel):
@@ -60,7 +60,6 @@ class SessionRecording(UUIDTModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
-    ttl_days: Optional[int] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
 
@@ -86,7 +85,6 @@ class SessionRecording(UUIDTModel):
                 return False
 
             self._metadata = metadata
-            self.ttl_days = ttl_days(self.team)
 
             # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]

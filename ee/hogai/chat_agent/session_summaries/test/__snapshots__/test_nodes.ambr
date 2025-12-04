@@ -17,7 +17,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -58,7 +58,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -99,7 +99,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -140,7 +140,7 @@
          sum(s.console_warn_count) AS console_warn_count,
          sum(s.console_error_count) AS console_error_count,
          max(s.retention_period_days) AS retention_period_days,
-         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 21))) AS expiry_time,
+         plus(dateTrunc('DAY', start_time), toIntervalDay(coalesce(retention_period_days, 30))) AS expiry_time,
          dateDiff('DAY', toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), expiry_time) AS recording_ttl,
          greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')) AS ongoing,
          round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
@@ -148,7 +148,7 @@
   WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(globalIn(s.session_id,
                                                                                                                                                                                                                                                                                       (SELECT events.`$session_id` AS session_id
                                                                                                                                                                                                                                                                                        FROM events
-                                                                                                                                                                                                                                                                                       WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                       WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
                                                                                                                                                                                                                                                                                        GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                        HAVING 1
                                                                                                                                                                                                                                                                                        ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -170,7 +170,7 @@
                                                                                                                                                                                                                                                                                                                                                                       WHERE equals(person.team_id, 99999)
                                                                                                                                                                                                                                                                                                                                                                       GROUP BY person.id
                                                                                                                                                                                                                                                                                                                                                                       HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
-                                                                                                                                                                                                                                                                                                                    WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(events__person.`properties___$os`, 'Mac OS X'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                    WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(events__person.`properties___$os`, 'Mac OS X'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
                                                                                                                                                                                                                                                                                                                     GROUP BY events.`$session_id`
                                                                                                                                                                                                                                                                                                                     HAVING 1
                                                                                                                                                                                                                                                                                                                     ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC
@@ -199,7 +199,7 @@
          min(min_first_timestamp) as min_timestamp,
          max(max_last_timestamp) as max_timestamp,
          max(retention_period_days) as retention_period_days,
-         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 21)) as expiry_time
+         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
   FROM session_replay_events PREWHERE team_id = 99999
   AND session_id IN ['nonexistent-session-1', 'nonexistent-session-2']
   AND min_first_timestamp <= '2025-09-03 12:00:00'
@@ -214,7 +214,7 @@
          min(min_first_timestamp) as min_timestamp,
          max(max_last_timestamp) as max_timestamp,
          max(retention_period_days) as retention_period_days,
-         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 21)) as expiry_time
+         dateTrunc('DAY', min_timestamp) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
   FROM session_replay_events PREWHERE team_id = 99999
   AND session_id IN ['01990f72-b600-7fa3-9a77-341582154177', '01990f72-b600-76df-a71a-f8d777d51361', 'nonexistent-session-1', 'nonexistent-session-2']
   AND min_first_timestamp <= '2025-09-03 12:00:00'
