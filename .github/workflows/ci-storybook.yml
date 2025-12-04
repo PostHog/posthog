@@ -54,8 +54,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
@@ -194,8 +194,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
 
@@ -406,8 +406,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   fetch-depth: 1
 

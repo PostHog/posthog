@@ -133,8 +133,8 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               with:
-                  ref: ${{ github.event.pull_request.head.sha }}
-                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.sha || github.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   token: ${{ secrets.POSTHOG_BOT_PAT || github.token }}
                   clean: false
             - name: Clean up data directories with container permissions

@@ -365,6 +365,8 @@ jobs:
                     sqlx migrate run --source rust/persons_migrations/
 
             - name: Check migrations
+              # Skip migration safety check on master push (no migration_files from path filter)
+              if: github.event_name != 'push'
               run: |
                   DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                     sqlx migrate info --source rust/persons_migrations/
