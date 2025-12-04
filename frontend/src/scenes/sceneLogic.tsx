@@ -40,7 +40,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, OnboardingStepKey } from '~/types'
+import { AccessControlLevel } from '~/types'
 
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
