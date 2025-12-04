@@ -148,11 +148,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 <<<<<<< HEAD
@@ -291,11 +296,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_0_disable_new_query_builder
@@ -505,11 +515,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen.1
@@ -791,11 +806,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 <<<<<<< HEAD
@@ -930,11 +950,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_first_seen_vs_last_seen_1_enable_new_query_builder.1
@@ -1066,11 +1091,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_multiple_variants_0_disable_new_query_builder
@@ -1207,11 +1237,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 <<<<<<< HEAD
@@ -1346,11 +1381,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_no_completion_events_0_disable_new_query_builder
@@ -1633,11 +1673,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 <<<<<<< HEAD
@@ -1772,11 +1817,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_window_boundaries_0_disable_new_query_builder
@@ -1913,11 +1963,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 <<<<<<< HEAD
@@ -2052,11 +2107,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_with_conversion_window_0_disable_new_query_builder
@@ -2192,11 +2252,16 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
 # name: TestExperimentRetentionMetric.test_retention_with_conversion_window_1_enable_new_query_builder
@@ -2329,10 +2394,15 @@
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
 <<<<<<< HEAD
+<<<<<<< HEAD
                      allow_experimental_join_condition=1,
                      use_hive_partitioning=0
 =======
                      allow_experimental_join_condition=1
 >>>>>>> 2e29f9f58f (fix(experiments): fixing failing tests.)
+=======
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+>>>>>>> 58348f27fe (test(experiments): updating tests and snapshots.)
   '''
 # ---
