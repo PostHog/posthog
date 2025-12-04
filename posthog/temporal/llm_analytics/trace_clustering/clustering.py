@@ -1,10 +1,11 @@
-"""Clustering utilities: k-means implementation and optimal k selection."""
+"""Clustering utilities: HDBSCAN and k-means implementations."""
 
 import numpy as np
-from sklearn.cluster import KMeans
+from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.metrics import silhouette_score
+from umap import UMAP
 
-from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, KMeansResult
+from posthog.temporal.llm_analytics.trace_clustering.models import ClusterRepresentatives, HDBSCANResult, KMeansResult
 
 
 def perform_kmeans_with_optimal_k(
@@ -121,3 +122,219 @@ def select_representatives_from_distances(
         representatives[int(cluster_id)] = closest_trace_ids
 
     return representatives
+
+
+def compute_2d_coordinates(
+    embeddings: np.ndarray,
+    centroids: np.ndarray,
+    n_neighbors: int = 15,
+    min_dist: float = 0.1,
+    random_state: int = 42,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Reduce high-dimensional embeddings and centroids to 2D coordinates using UMAP.
+
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        centroids: Array of centroid vectors, shape (n_clusters, n_features)
+        n_neighbors: Number of neighbors for UMAP (higher = more global structure)
+        min_dist: Minimum distance between points (lower = tighter clusters)
+        random_state: Random seed for reproducibility
+
+    Returns:
+        Tuple of (trace_coords, centroid_coords) where:
+        - trace_coords: 2D coordinates array of shape (n_samples, 2)
+        - centroid_coords: 2D coordinates array of shape (n_clusters, 2)
+    """
+    n_samples = len(embeddings)
+    n_clusters = len(centroids)
+
+    if n_samples < 2:
+        return np.zeros((n_samples, 2)), np.zeros((n_clusters, 2))
+
+    # Adjust n_neighbors if we have fewer samples
+    effective_n_neighbors = min(n_neighbors, n_samples - 1)
+
+    reducer = UMAP(
+        n_components=2,
+        n_neighbors=effective_n_neighbors,
+        min_dist=min_dist,
+        random_state=random_state,
+        metric="euclidean",
+    )
+
+    # Fit on trace embeddings and transform both traces and centroids
+    trace_coords = reducer.fit_transform(embeddings)
+    centroid_coords = reducer.transform(centroids)
+
+    return trace_coords, centroid_coords
+
+
+def reduce_dimensions_for_clustering(
+    embeddings: np.ndarray,
+    n_components: int = 15,
+    n_neighbors: int = 15,
+    min_dist: float = 0.0,
+    random_state: int = 42,
+) -> tuple[np.ndarray, UMAP]:
+    """
+    Reduce high-dimensional embeddings using UMAP for clustering.
+
+    Uses tighter min_dist (0.0) than visualization to better preserve
+    cluster structure for HDBSCAN.
+
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        n_components: Target dimensionality (default 15)
+        n_neighbors: Number of neighbors for UMAP
+        min_dist: Minimum distance between points (0.0 for clustering)
+        random_state: Random seed for reproducibility
+
+    Returns:
+        Tuple of (reduced_embeddings, fitted_reducer)
+    """
+    n_samples = len(embeddings)
+
+    if n_samples < 2:
+        return embeddings[:, :n_components] if embeddings.shape[1] >= n_components else embeddings, None
+
+    effective_n_neighbors = min(n_neighbors, n_samples - 1)
+    effective_n_components = min(n_components, n_samples - 1, embeddings.shape[1])
+
+    reducer = UMAP(
+        n_components=effective_n_components,
+        n_neighbors=effective_n_neighbors,
+        min_dist=min_dist,
+        random_state=random_state,
+        metric="euclidean",
+    )
+
+    reduced = reducer.fit_transform(embeddings)
+    return reduced, reducer
+
+
+def perform_hdbscan_clustering(
+    embeddings: np.ndarray,
+    min_cluster_size_fraction: float = 0.05,
+    min_samples: int = 5,
+) -> HDBSCANResult:
+    """
+    Perform HDBSCAN clustering on embeddings.
+
+    HDBSCAN automatically determines the number of clusters and identifies
+    noise points (outliers) that don't fit any cluster.
+
+    Args:
+        embeddings: Array of embedding vectors (ideally UMAP-reduced)
+        min_cluster_size_fraction: Minimum cluster size as fraction of total samples
+        min_samples: Minimum samples in neighborhood for core points
+
+    Returns:
+        HDBSCANResult with labels, centroids, probabilities, and noise count
+    """
+    n_samples = len(embeddings)
+
+    if n_samples == 0:
+        raise ValueError("Cannot cluster empty embeddings array")
+
+    # Calculate min_cluster_size from fraction, with minimum of 5
+    min_cluster_size = max(5, int(n_samples * min_cluster_size_fraction))
+
+    # Adjust min_samples if needed
+    effective_min_samples = min(min_samples, min_cluster_size)
+
+    clusterer = HDBSCAN(
+        min_cluster_size=min_cluster_size,
+        min_samples=effective_min_samples,
+        metric="euclidean",
+        cluster_selection_method="eom",  # Excess of Mass - good for varying densities
+    )
+
+    labels = clusterer.fit_predict(embeddings)
+    probabilities = clusterer.probabilities_
+
+    # Compute centroids as mean of cluster members (excluding noise)
+    unique_labels = sorted(set(labels) - {-1})  # Exclude noise cluster
+    centroids = []
+
+    for cluster_id in unique_labels:
+        cluster_mask = labels == cluster_id
+        cluster_center = embeddings[cluster_mask].mean(axis=0)
+        centroids.append(cluster_center.tolist())
+
+    num_noise_points = int((labels == -1).sum())
+
+    return HDBSCANResult(
+        labels=labels.tolist(),
+        centroids=centroids,
+        probabilities=probabilities.tolist(),
+        num_noise_points=num_noise_points,
+    )
+
+
+def select_representatives_by_probability(
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    trace_ids: list[str],
+    n_representatives: int = 5,
+) -> ClusterRepresentatives:
+    """
+    Select representative traces using HDBSCAN membership probabilities.
+
+    For each cluster, selects traces with highest membership probability.
+    For noise cluster (-1), selects traces with lowest probability (most anomalous).
+
+    Args:
+        labels: Cluster assignments, shape (n_samples,)
+        probabilities: Membership probabilities from HDBSCAN
+        trace_ids: List of trace IDs corresponding to rows
+        n_representatives: Number of representatives per cluster
+
+    Returns:
+        ClusterRepresentatives mapping cluster_id to list of representative trace_ids
+    """
+    representatives: ClusterRepresentatives = {}
+    unique_labels = np.unique(labels)
+
+    for cluster_id in unique_labels:
+        cluster_mask = labels == cluster_id
+        cluster_indices = np.where(cluster_mask)[0]
+        cluster_trace_ids = [trace_ids[i] for i in cluster_indices]
+        cluster_probs = probabilities[cluster_mask]
+
+        if cluster_id == -1:
+            # For noise cluster, select traces with lowest probability (most anomalous)
+            sorted_indices = np.argsort(cluster_probs)[:n_representatives]
+        else:
+            # For regular clusters, select traces with highest probability
+            sorted_indices = np.argsort(cluster_probs)[::-1][:n_representatives]
+
+        representative_trace_ids = [cluster_trace_ids[i] for i in sorted_indices]
+        representatives[int(cluster_id)] = representative_trace_ids
+
+    return representatives
+
+
+def calculate_distances_to_cluster_means(
+    embeddings: np.ndarray,
+    labels: np.ndarray,
+    centroids: np.ndarray,
+) -> np.ndarray:
+    """
+    Calculate distances from each trace to all cluster centroids.
+
+    For noise points (label=-1), distances are calculated to all centroids
+    to support visualization and analysis.
+
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        labels: Cluster assignments (can include -1 for noise)
+        centroids: Array of centroid vectors, shape (n_clusters, n_features)
+
+    Returns:
+        Distance matrix of shape (n_samples, n_clusters)
+    """
+    if len(centroids) == 0:
+        return np.zeros((len(embeddings), 0))
+
+    return np.sqrt(((embeddings[:, np.newaxis, :] - centroids[np.newaxis, :, :]) ** 2).sum(axis=2))

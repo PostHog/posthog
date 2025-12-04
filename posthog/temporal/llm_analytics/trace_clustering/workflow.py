@@ -99,6 +99,8 @@ class DailyTraceClusteringWorkflow:
                     centroids=compute_result.centroids,
                     distances=compute_result.distances,
                     cluster_labels=labels_result.cluster_labels,
+                    coords_2d=compute_result.coords_2d,
+                    centroid_coords_2d=compute_result.centroid_coords_2d,
                 )
             ],
             start_to_close_timeout=constants.EMIT_ACTIVITY_TIMEOUT,
