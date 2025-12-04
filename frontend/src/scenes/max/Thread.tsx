@@ -72,7 +72,6 @@ import { Region } from '~/types'
 import { ContextSummary } from './Context'
 import { FeedbackPrompt } from './FeedbackPrompt'
 import { MarkdownMessage } from './MarkdownMessage'
-import { VisualizationArtifactAnswer } from './VisualizationArtifactAnswer'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ToolRegistration, getToolDefinitionFromToolCall } from './max-constants'
 import { maxGlobalLogic } from './maxGlobalLogic'
@@ -80,7 +79,9 @@ import { ThreadMessage, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
+import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
+import { VisualizationArtifactAnswer } from './messages/VisualizationArtifactAnswer'
 import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
@@ -93,6 +94,7 @@ import {
     isHumanMessage,
     isMultiQuestionFormMessage,
     isMultiVisualizationMessage,
+    isNotebookArtifactContent,
     isNotebookUpdateMessage,
     isVisualizationArtifactContent,
 } from './utils'
@@ -425,21 +427,24 @@ function Message({
                             />
                         )
                     } else if (isArtifactMessage(message)) {
-                        if (!isVisualizationArtifactContent(message.content)) {
-                            return null
+                        if (isVisualizationArtifactContent(message.content)) {
+                            return (
+                                <VisualizationArtifactAnswer
+                                    key={key}
+                                    message={message}
+                                    content={message.content}
+                                    status={message.status}
+                                    isEditingInsight={editInsightToolRegistered}
+                                    activeTabId={activeTabId}
+                                    activeSceneId={activeSceneId}
+                                />
+                            )
+                        } else if (isNotebookArtifactContent(message.content)) {
+                            return (
+                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                            )
                         }
-
-                        return (
-                            <VisualizationArtifactAnswer
-                                key={key}
-                                message={message}
-                                content={message.content}
-                                status={message.status}
-                                isEditingInsight={editInsightToolRegistered}
-                                activeTabId={activeTabId}
-                                activeSceneId={activeSceneId}
-                            />
-                        )
+                        return null
                     } else if (isMultiVisualizationMessage(message)) {
                         return <MultiVisualizationAnswer key={key} message={message} />
                     } else if (isNotebookUpdateMessage(message)) {

@@ -4,6 +4,7 @@ import type { MaxUIContext } from 'scenes/max/maxTypes'
 import type { Category, NotebookInfo } from '~/types'
 import { InsightShortId } from '~/types'
 
+import { DocumentBlock } from './schema-assistant-artifacts'
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -278,6 +279,10 @@ export interface VisualizationArtifactContent {
 
 export interface NotebookArtifactContent {
     content_type: ArtifactContentType.Notebook
+    /** Structured blocks for the notebook content */
+    blocks: DocumentBlock[]
+    /** Title for the notebook */
+    title?: string | null
 }
 
 export type ArtifactContent = VisualizationArtifactContent | NotebookArtifactContent

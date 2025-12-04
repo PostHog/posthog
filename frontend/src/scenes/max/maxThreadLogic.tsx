@@ -174,6 +174,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         resetCancelCount: true,
         setConversation: (conversation: Conversation) => ({ conversation }),
         resetThread: true,
+        finalizeStreamingMessages: true,
         setTraceId: (traceId: string) => ({ traceId }),
         selectCommand: (command: SlashCommand) => ({ command }),
         activateCommand: (command: SlashCommand) => ({ command }),
@@ -212,6 +213,12 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     ...state.slice(index + 1),
                 ],
                 setThread: (_, { thread }) => thread,
+                // Assign temporary IDs to streaming messages so they won't be replaced on retry
+                // These messages will disappear on reload since they're not persisted
+                finalizeStreamingMessages: (state) =>
+                    state.map((msg) =>
+                        msg.status === 'loading' ? { ...msg, id: `temp-${uuid()}`, status: 'completed' as const } : msg
+                    ),
             },
         ],
 
@@ -492,11 +499,10 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     }
 
                     if (releaseException) {
-                        if (values.threadRaw[values.threadRaw.length - 1]?.status === 'loading') {
-                            actions.replaceMessage(values.threadRaw.length - 1, relevantErrorMessage)
-                        } else if (values.threadRaw[values.threadRaw.length - 1]?.status !== 'error') {
-                            actions.addMessage(relevantErrorMessage)
-                        }
+                        // Finalize any streaming messages with temporary IDs so they're preserved
+                        // but won't be replaced when the user retries
+                        actions.finalizeStreamingMessages()
+                        actions.addMessage(relevantErrorMessage)
                     }
                 }
             }
@@ -1080,19 +1086,44 @@ async function onEventImplementation(
                     ...parsedResponse,
                     status: !parsedResponse.id ? 'loading' : 'completed',
                 })
-            } else if (
-                values.threadRaw[values.threadRaw.length - 1]?.status === 'completed' ||
-                values.threadRaw.length === 0
-            ) {
-                actions.addMessage({
-                    ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
-                })
-            } else if (parsedResponse) {
-                actions.replaceMessage(values.threadRaw.length - 1, {
-                    ...parsedResponse,
-                    status: !parsedResponse.id ? 'loading' : 'completed',
-                })
+            } else if (!parsedResponse.id) {
+                // Streaming message (no ID) - find existing streaming message of same type to replace
+                const streamingMessageOfSameTypeIndex = values.threadRaw.findIndex(
+                    (msg) => msg.status === 'loading' && msg.type === parsedResponse.type
+                )
+
+                if (streamingMessageOfSameTypeIndex >= 0) {
+                    // Replace existing streaming message of same type
+                    actions.replaceMessage(streamingMessageOfSameTypeIndex, {
+                        ...parsedResponse,
+                        status: 'loading',
+                    })
+                } else {
+                    // Add new streaming message
+                    actions.addMessage({
+                        ...parsedResponse,
+                        status: 'loading',
+                    })
+                }
+            } else {
+                // New message with ID - check if it should replace a streaming message of same type
+                const streamingMessageOfSameTypeIndex = values.threadRaw.findIndex(
+                    (msg) => msg.status === 'loading' && msg.type === parsedResponse.type
+                )
+
+                if (streamingMessageOfSameTypeIndex >= 0) {
+                    // Replace streaming message with finalized version
+                    actions.replaceMessage(streamingMessageOfSameTypeIndex, {
+                        ...parsedResponse,
+                        status: 'completed',
+                    })
+                } else {
+                    // Add new message
+                    actions.addMessage({
+                        ...parsedResponse,
+                        status: 'completed',
+                    })
+                }
             }
         }
     } else if (event === AssistantEventType.Status) {
