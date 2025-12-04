@@ -15,7 +15,7 @@ class LogsTable(Table):
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
         "trace_id": StringDatabaseField(name="trace_id", nullable=False),
         "span_id": StringDatabaseField(name="span_id", nullable=False),
-        "body": StringDatabaseField(name="body", nullable=False),
+        "message": StringDatabaseField(name="body", nullable=False),
         "body": StringDatabaseField(name="body", nullable=False),
         "attributes": StringJSONDatabaseField(name="attributes", nullable=False),
         "time_bucket": DateTimeDatabaseField(name="time_bucket", nullable=False),
