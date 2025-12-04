@@ -152,4 +152,14 @@
             transform: var(--toolbar-translate) scale(0);
         }
     }
+
+    &__logomark {
+        width: 1.5rem;
+        height: 1.5rem;
+
+        svg {
+            width: 100%;
+            height: 100%;
+        }
+    }
 }
