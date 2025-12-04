@@ -7,7 +7,7 @@ import chartTrendline from 'chartjs-plugin-trendline'
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 
 import {
     ActiveElement,
@@ -293,11 +293,6 @@ export function LineGraph_({
     const hideTooltipOnScroll = isInsightVizNode(query) ? query.hideTooltipOnScroll : undefined
 
     const { hideTooltip, getTooltip } = useInsightTooltip()
-
-    const externalCanvasRef = useRef<HTMLCanvasElement | null>(null)
-
-    // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: externalCanvasRef })
 
     const colors = getGraphColors()
     const isHorizontal = type === GraphType.HorizontalBar
@@ -1042,11 +1037,8 @@ export function LineGraph_({
         ],
     })
 
-    useEffect(() => {
-        if (externalCanvasRef.current !== canvasRef.current) {
-            externalCanvasRef.current = canvasRef.current
-        }
-    }, [canvasRef.current]) // oxlint-disable-line react-hooks/exhaustive-deps
+    // Use canvasRef directly from useChart for resize observer - avoids sync issues with separate ref
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>
