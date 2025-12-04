@@ -208,7 +208,7 @@ class TestBatchDeleteFunctionality(TestCase):
         self.assertTrue(OAuthAccessToken.objects.filter(id=recent_expired_token.id).exists())
         self.assertFalse(OAuthGrant.objects.filter(id=old_grant.id).exists())
 
-    @unittest.mock.patch("posthog.dags.oauth.batch_delete_model")
+    @unittest.mock.patch("products.growth.dags.oauth.batch_delete_model")
     def test_clear_expired_oauth_tokens_metadata_output(self, mock_batch_delete):
         mock_batch_delete.return_value = 5
 
