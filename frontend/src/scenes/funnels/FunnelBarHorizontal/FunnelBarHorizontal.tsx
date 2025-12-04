@@ -216,7 +216,7 @@ export function FunnelBarHorizontal({
                                         }
                                     >
                                         <IconTrendingFlatDown
-                                            style={{ color: 'var(--danger)' }}
+                                            style={{ color: 'var(--color-destructive-foreground)' }}
                                             className="value-inspector-button-icon"
                                         />
                                         <b>

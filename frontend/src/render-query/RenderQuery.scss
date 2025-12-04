@@ -25,7 +25,7 @@ body.RenderQueryBody {
 .RenderQuery__message {
     padding: 0.75rem 1rem;
     font-weight: 500;
-    color: var(--danger);
+    color: var(--color-destructive-foreground);
     background: var(--danger-highlight-bg);
     border-radius: var(--radius);
 }

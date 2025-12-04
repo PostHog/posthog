@@ -113,12 +113,7 @@ export function PanelLayoutPanel({
             )}
             ref={containerRef}
         >
-            <div
-                className={cn(
-                    'z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-muted group/colorful-product-icons colorful-product-icons-true',
-                    'bg-background'
-                )}
-            >
+            <div className="z-main-nav flex flex-1 flex-col justify-between overflow-y-auto bg-muted group/colorful-product-icons colorful-product-icons-true">
                 {searchField || filterDropdown || sortDropdown ? (
                     <>
                         <div className="flex gap-1 p-1 items-center justify-between">

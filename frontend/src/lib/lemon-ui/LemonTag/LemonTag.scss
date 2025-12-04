@@ -49,9 +49,9 @@
     }
 
     &.LemonTag--danger {
-        color: var(--danger);
+        color: var(--color-destructive-foreground);
         background: none;
-        border-color: var(--danger);
+        border-color: var(--color-destructive-foreground);
     }
 
     &.LemonTag--success {

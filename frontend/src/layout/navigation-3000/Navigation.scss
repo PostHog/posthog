@@ -575,7 +575,7 @@
     }
 
     &.SidebarListItem--marker-status-danger {
-        --sidebar-list-item-status-color: var(--danger);
+        --sidebar-list-item-status-color: var(--color-destructive-foreground);
     }
 
     &.SidebarListItem--marker-status-completion {
@@ -660,7 +660,7 @@
         border: 1px solid var(--color-border);
 
         .SidebarListItem[aria-invalid='true'] & {
-            border-color: var(--danger);
+            border-color: var(--color-destructive-foreground);
         }
     }
 }
@@ -674,7 +674,7 @@
     line-height: 1.25rem;
     color: #fff;
     white-space: normal;
-    background: var(--danger);
+    background: var(--color-destructive-foreground);
 
     &::before {
         position: absolute;
@@ -683,8 +683,8 @@
         display: block;
         content: '';
         border: 0.25rem solid transparent;
-        border-bottom-color: var(--danger);
-        border-left-color: var(--danger);
+        border-bottom-color: var(--color-destructive-foreground);
+        border-left-color: var(--color-destructive-foreground);
     }
 }
 

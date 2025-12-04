@@ -61,7 +61,11 @@ export default function PasswordStrength({
                 <LemonProgress
                     percent={score * 20}
                     strokeColor={
-                        score <= 2 ? 'var(--danger)' : score <= 3 ? 'var(--color-warning-foreground)' : 'var(--success)'
+                        score <= 2
+                            ? 'var(--color-destructive-foreground)'
+                            : score <= 3
+                              ? 'var(--color-warning-foreground)'
+                              : 'var(--success)'
                     }
                 />
             </span>

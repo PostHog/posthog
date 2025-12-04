@@ -108,7 +108,7 @@ export function HighlightedContentWrapper({
 
                     const span = document.createElement('span')
                     span.className = 'search-highlight'
-                    span.style.backgroundColor = 'var(--danger)'
+                    span.style.backgroundColor = 'var(--color-destructive-foreground)'
                     span.style.color = 'white'
                     span.style.borderRadius = '2px'
                     span.style.padding = '0 2px'

@@ -43,7 +43,7 @@
     }
 
     &.LemonBadge--danger {
-        --lemon-badge-color: var(--danger);
+        --lemon-badge-color: var(--color-destructive-foreground);
     }
 
     &.LemonBadge--muted {

@@ -485,8 +485,8 @@
     // ***** TO REMOVE --color-bg-fill-button-panel: var(--color-bg-fill-highlight-50);
     // ***** TO REMOVE --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-100);
     // ***** TO REMOVE --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-75);
-    // ***** TO REMOVE --color-bg-fill-button-danger-hover: var(--danger-highlight);
-    // ***** TO REMOVE --color-bg-fill-button-danger-active: var(--danger-highlight);
+    // ***** TO REMOVE --color-bg-fill-button-danger-hover: var(--color-destructive);
+    // ***** TO REMOVE --color-bg-fill-button-danger-active: var(--color-destructive);
 
     // Inputs
     // ***** TO REMOVE --color-bg-fill-input: var(--color-white);
@@ -689,7 +689,7 @@
     --toastify-color-info: var(--color-blue-500);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--color-warning-foreground);
-    --toastify-color-error: var(--danger);
+    --toastify-color-error: var(--color-destructive-foreground);
     --toastify-color-progress-info: var(--toastify-color-info);
     --toastify-color-progress-success: var(--toastify-color-success);
     --toastify-color-progress-warning: var(--toastify-color-warning);
@@ -1357,7 +1357,7 @@
 
     .error-on-blur {
         &.errored:not(:focus) {
-            border-color: var(--danger) !important;
+            border-color: var(--color-destructive-foreground) !important;
         }
     }
 
@@ -1423,7 +1423,7 @@
 
         &.warning div {
             height: auto;
-            background: var(--danger);
+            background: var(--color-destructive-foreground);
         }
 
         &.tricolor {

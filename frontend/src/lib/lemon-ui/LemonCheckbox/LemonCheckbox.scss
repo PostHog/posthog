@@ -126,7 +126,7 @@
 
         .Field--error & {
             label {
-                border: 1px solid var(--danger);
+                border: 1px solid var(--color-destructive-foreground);
             }
         }
     }

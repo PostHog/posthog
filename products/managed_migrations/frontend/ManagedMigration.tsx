@@ -353,7 +353,9 @@ export function ManagedMigrations(): JSX.Element {
                                             <LemonProgress
                                                 percent={progress}
                                                 strokeColor={
-                                                    migration.status === 'paused' ? 'var(--danger)' : undefined
+                                                    migration.status === 'paused'
+                                                        ? 'var(--color-destructive-foreground)'
+                                                        : undefined
                                                 }
                                             />
                                             <span className="text-xs text-muted">

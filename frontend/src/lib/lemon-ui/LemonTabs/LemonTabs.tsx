@@ -138,7 +138,7 @@ export function LemonTabs<T extends string | number>({
                     })}
                 </div>
                 {rightSlot && (
-                    <div className="mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-card pr-4">
+                    <div className="mb-[1px] flex gap-x-2 shrink-0 items-center justify-end sticky right-0 bg-muted pr-4">
                         {rightSlot}
                     </div>
                 )}

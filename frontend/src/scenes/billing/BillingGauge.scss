@@ -33,7 +33,7 @@
     }
 
     &.BillingGaugeItem--current_usage {
-        background: var(--danger);
+        background: var(--color-destructive-foreground);
 
         &.BillingGaugeItem--within-usage-limit {
             background: var(--brand-blue);

@@ -176,7 +176,11 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                         {progress.progress_percentage && (
                             <LemonProgress
                                 percent={progress.progress_percentage}
-                                strokeColor={progress.status === ProgressStatus.FAILED ? 'var(--danger)' : undefined}
+                                strokeColor={
+                                    progress.status === ProgressStatus.FAILED
+                                        ? 'var(--color-destructive-foreground)'
+                                        : undefined
+                                }
                             />
                         )}
                     </div>
