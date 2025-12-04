@@ -550,3 +550,117 @@ class TestEventIngestionRestrictionConfig(BaseTest):
         self.assertEqual(len(data), 2)
         self.assertTrue(all("session_id" in entry for entry in data))
         self.assertTrue(all("distinct_id" not in entry for entry in data))
+
+    def test_post_save_signal_with_event_names(self):
+        """Test that post_save signal correctly updates Redis when model has event_names"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            event_names=["$pageview", "$autocapture"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "event_name": "$pageview", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_name": "$autocapture", "pipelines": ["analytics"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["event_name"]), sorted(expected_entries, key=lambda x: x["event_name"])
+        )
+
+    def test_post_save_signal_with_event_uuids(self):
+        """Test that post_save signal correctly updates Redis when model has event_uuids"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            event_uuids=["uuid-123", "uuid-456"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "event_uuid": "uuid-123", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_uuid": "uuid-456", "pipelines": ["analytics"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["event_uuid"]), sorted(expected_entries, key=lambda x: x["event_uuid"])
+        )
+
+    def test_post_save_signal_with_all_filter_types(self):
+        """Test that post_save signal correctly updates Redis when model has all filter types (OR logic)"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
+            distinct_ids=["user1"],
+            session_ids=["session1"],
+            event_names=["$pageview"],
+            event_uuids=["uuid-123"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        self.assertIsNotNone(redis_data)
+
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 4)
+
+        expected_entries = [
+            {"token": "test_token", "distinct_id": "user1", "pipelines": ["analytics"]},
+            {"token": "test_token", "session_id": "session1", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_name": "$pageview", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_uuid": "uuid-123", "pipelines": ["analytics"]},
+        ]
+
+        def sort_key(x):
+            return (
+                x.get("distinct_id", ""),
+                x.get("session_id", ""),
+                x.get("event_name", ""),
+                x.get("event_uuid", ""),
+            )
+
+        self.assertEqual(sorted(data, key=sort_key), sorted(expected_entries, key=sort_key))
+
+    def test_update_config_event_names(self):
+        """Test that updating a config's event_names correctly updates Redis cache"""
+        config = EventIngestionRestrictionConfig.objects.create(
+            token="test_token",
+            restriction_type=RestrictionType.SKIP_PERSON_PROCESSING,
+            event_names=["$pageview", "$autocapture"],
+            pipelines=["analytics"],
+        )
+
+        redis_key = config.get_redis_key()
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        config.event_names = ["$autocapture", "$click"]  # Remove $pageview, keep $autocapture, add $click
+        config.save()
+
+        redis_data = self.redis_client.get(redis_key)
+        data = json.loads(redis_data if redis_data is not None else b"[]")
+        self.assertEqual(len(data), 2)
+
+        expected_entries = [
+            {"token": "test_token", "event_name": "$autocapture", "pipelines": ["analytics"]},
+            {"token": "test_token", "event_name": "$click", "pipelines": ["analytics"]},
+        ]
+        self.assertEqual(
+            sorted(data, key=lambda x: x["event_name"]), sorted(expected_entries, key=lambda x: x["event_name"])
+        )
+        self.assertNotIn("$pageview", [entry.get("event_name") for entry in data])
