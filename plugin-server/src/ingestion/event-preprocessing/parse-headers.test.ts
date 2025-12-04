@@ -247,6 +247,7 @@ describe('createParseHeadersStep', () => {
                         distinct_id: 'test-user',
                         session_id: 'test-session-123',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -266,6 +267,7 @@ describe('createParseHeadersStep', () => {
                     headers: {
                         session_id: 'string-session-456',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
@@ -286,6 +288,7 @@ describe('createParseHeadersStep', () => {
                         token: 'test-token',
                         distinct_id: 'test-user',
                         force_disable_person_processing: false,
+                        historical_migration: false,
                     },
                 })
             )
