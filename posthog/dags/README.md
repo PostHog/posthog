@@ -173,34 +173,16 @@ When adding a new DAG:
 
 1. Create a new Python file for your DAG
 2. Define your assets, ops, and jobs
-3. Import and register them in the relevant file in `dags/locations/`
+3. Import and register them in the relevant file in `posthog/dags/locations/`
 4. Add appropriate tests in the `tests/` directory
 
 ## Running Tests
 
-Tests are implemented using pytest. The following command will run all DAG tests:
+Tests are implemented using pytest. You can use your usual `pytest` commands
 
 ```bash
 # From the project root
-pytest dags/
-```
-
-To run a specific test file:
-
-```bash
-pytest dags/tests/test_exchange_rate.py
-```
-
-To run a specific test:
-
-```bash
-pytest dags/tests/test_exchange_rate.py::test_name
-```
-
-Add `-v` for verbose output:
-
-```bash
-pytest -v dags/tests/test_exchange_rate.py
+pytest posthog/dags/ products/**/dags/
 ```
 
 ### Web Analytics Pre-Aggregated Tables

@@ -78,7 +78,7 @@ def get_insert_query(metric_date: str) -> str:
     Args:
         metric_date: The date to aggregate metrics for (YYYY-MM-DD format)
 
-    To add a new metric type, simply add a new .sql file in dags/llma/sql/.
+    To add a new metric type, simply add a new .sql file in products/llm_analytics/dags/daily_metrics/sql/.
     Each SQL file should return columns: date, team_id, metric_name, metric_value
     """
     # Discover all SQL template files

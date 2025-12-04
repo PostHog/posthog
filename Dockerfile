@@ -369,7 +369,6 @@ COPY --chown=posthog:posthog manage.py manage.py
 COPY --chown=posthog:posthog posthog posthog/
 COPY --chown=posthog:posthog ee ee/
 COPY --chown=posthog:posthog common/hogvm common/hogvm/
-COPY --chown=posthog:posthog dags dags/
 COPY --chown=posthog:posthog products products/
 
 # Setup ENV.
