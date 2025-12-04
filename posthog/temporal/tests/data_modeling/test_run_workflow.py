@@ -987,7 +987,6 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
         model_label=model_label,
         saved_query_id=str(uuid.uuid4()),
         table_uri="s3://source/table",
-        file_uris=["s3://source/table/part-0.parquet"],
     )
 
     @temporal_activity.defn
@@ -1031,7 +1030,7 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
     monkeypatch.setattr(run_workflow_module, "finish_run_activity", finish_run_stub)
     monkeypatch.setattr(run_workflow_module, "fail_jobs_activity", fail_jobs_stub)
 
-    with override_settings(DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED=True, DATA_MODELING_TASK_QUEUE="ducklake-test"):
+    with override_settings(DATA_MODELING_TASK_QUEUE="ducklake-test"):
         child_ducklake_workflow_runs.clear()
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(

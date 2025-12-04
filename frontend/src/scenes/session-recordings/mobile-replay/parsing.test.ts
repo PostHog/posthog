@@ -23,7 +23,7 @@ describe('snapshot parsing', () => {
         const results = processAllSnapshots(
             [source],
             { [keyForSource(source)]: { snapshots: parsed } } as any,
-            {},
+            { snapshots: {} },
             () => ({ width: '400', height: '800', href: 'https://example.com' }),
             sessionId
         )

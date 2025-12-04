@@ -486,6 +486,7 @@ export const productUrls = {
             timestamp?: string
             exception_ts?: string
             search?: string
+            tab?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
@@ -969,7 +970,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
@@ -1253,7 +1254,7 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {

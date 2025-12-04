@@ -126,13 +126,17 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                 autoFocus
                                 value={editDescriptionValue}
                                 onChange={setEditDescriptionValue}
+                                onFocus={(e: React.FocusEvent<HTMLTextAreaElement>) => {
+                                    const el = e.target
+                                    el.setSelectionRange(el.value.length, el.value.length)
+                                }}
                                 onBlur={(e: React.FocusEvent) => {
                                     e.stopPropagation()
                                     saveDescription()
                                 }}
                                 onKeyDown={(e: React.KeyboardEvent) => {
                                     e.stopPropagation()
-                                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                                    if (e.key === 'Enter' && !e.shiftKey) {
                                         e.preventDefault()
                                         saveDescription()
                                         ;(e.target as HTMLTextAreaElement).blur()
@@ -148,7 +152,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
+                                className={`text-[0.3rem]/1.5 text-muted line-clamp-2 rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 min-h-[0.45rem] overflow-hidden ${isSelected ? 'cursor-text hover:bg-fill-button-tertiary-hover' : ''}`}
                                 onClick={(e) => {
                                     if (isSelected) {
                                         e.stopPropagation()
