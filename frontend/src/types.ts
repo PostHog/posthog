@@ -1063,6 +1063,7 @@ export type EncodedRecordingSnapshot = {
 export const SnapshotSourceType = {
     blob_v2: 'blob_v2',
     blob_v2_lts: 'blob_v2_lts',
+    file: 'file',
 } as const
 
 export type SnapshotSourceType = (typeof SnapshotSourceType)[keyof typeof SnapshotSourceType]
