@@ -85,7 +85,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             await insertHogFunction({
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
@@ -118,7 +118,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             await insertHogFunction({
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
@@ -143,7 +143,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             await insertHogFunction({
                 team_id: team.id,
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
@@ -160,7 +160,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
             await insertHogFunction({
                 team_id: team2.id,
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
@@ -173,20 +173,20 @@ describe('CdpDatawarehouseEventsConsumer', () => {
         it('should filter for data-warehouse-table source', async () => {
             const fnWithDataWarehouseFilter = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
             await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
                 filters: { ...HOG_FILTERS_EXAMPLES.no_filters.filters, source: 'events' },
             })
 
             await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters,
             })
 
@@ -209,7 +209,7 @@ describe('CdpDatawarehouseEventsConsumer', () => {
         beforeEach(async () => {
             fnFetchNoFilters = await insertHogFunction({
                 ...HOG_EXAMPLES.simple_fetch,
-                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch_data_warehouse_table,
                 ...HOG_FILTERS_EXAMPLES.no_filters_data_warehouse_table,
             })
 
