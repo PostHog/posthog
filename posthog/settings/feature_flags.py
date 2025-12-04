@@ -4,8 +4,8 @@ from contextlib import suppress
 
 from posthog.settings.utils import get_from_env, get_list
 
-# The features here are released on the frontend, but the flags are just not yet removed from the code
-# WARNING: ONLY the frontend has feature flag overrides. Flags on the backend will NOT be affected by this setting
+# Used mostly by the hobby install to have some feature flags enabled by default
+# NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
 # Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
