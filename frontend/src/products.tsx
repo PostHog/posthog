@@ -1284,7 +1284,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Pipeline',
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
     },

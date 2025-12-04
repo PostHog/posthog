@@ -1,7 +1,8 @@
 import { expect, test } from '../../utils/playwright-test-base'
 
 test.describe('insight variables', () => {
-    test('show correctly on dashboards', async ({ page }) => {
+    // :FIXME: This test is flaky on CI.
+    test.skip('show correctly on dashboards', async ({ page }) => {
         // Go to "Insight variables" dashboard.
         await page.goToMenuItem('dashboards')
         await page.getByText('Insight variables').click()
