@@ -2009,7 +2009,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
@@ -2162,9 +2162,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.delete('compare_filter')
             }
 
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2181,7 +2178,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+            if (productTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
@@ -2238,14 +2235,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
-            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
-            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
-                productTab = ProductTab.ANALYTICS
-            }
-
             if (
                 ![
                     ProductTab.ANALYTICS,
