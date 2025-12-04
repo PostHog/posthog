@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { PipelineEvent, ProjectId, Team } from '../../types'
 import { PipelineResultType } from '../pipelines/results'
 import { EventPipelineRunnerInput } from './event-pipeline-runner-v1-step'
@@ -47,7 +48,7 @@ describe('handleClientIngestionWarningStep', () => {
         message: {} as Message,
         event: baseEvent,
         team,
-        headers: { force_disable_person_processing: false },
+        headers: createTestEventHeaders(),
         personsStoreForBatch: {} as any,
         groupStoreForBatch: {} as any,
         processPerson: true,

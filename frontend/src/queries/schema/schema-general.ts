@@ -4402,6 +4402,7 @@ export enum MarketingAnalyticsBaseColumns {
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
     ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -4507,6 +4508,12 @@ export interface SourceConfig {
      * @default []
      */
     suggestedTables?: SuggestedTable[]
+
+    /**
+     * Whether this source should be prominently displayed in onboarding flows
+     * @default false
+     */
+    featured?: boolean
 }
 
 export const externalDataSources = [
