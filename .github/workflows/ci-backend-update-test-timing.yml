@@ -21,7 +21,7 @@ jobs:
         name: Collect timing data from CI artifacts
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v4
+            - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
             - name: Find CI run to use
               id: find-run
@@ -95,7 +95,7 @@ jobs:
 
             - name: Create Pull Request
               if: steps.check-changes.outputs.changed == 'true'
-              uses: peter-evans/create-pull-request@v7
+              uses: peter-evans/create-pull-request@84ae59a2cdc2258d6fa0732dd66352dddae2a412 # v7
               with:
                   token: ${{ secrets.POSTHOG_BOT_PAT }}
                   commit-message: 'chore(ci): update backend test timings'
