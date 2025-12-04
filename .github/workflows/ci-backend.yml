@@ -118,7 +118,7 @@ jobs:
         timeout-minutes: 20
 
         name: Validate Django and CH migrations
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
 
         steps:
             - uses: actions/checkout@v4
