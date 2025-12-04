@@ -237,7 +237,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 return {
                     math: 'hogql' as any,
                     math_hogql:
-                        'SUM(toFloat(conversion_signup_total_value) + toFloat(conversion_purchase_total_items))',
+                        'SUM(ifNull(toFloat(conversion_signup_total_value), 0) + ifNull(toFloat(conversion_purchase_total_items), 0))',
                 }
             }
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
