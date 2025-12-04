@@ -1171,6 +1171,14 @@ export const sceneLogic = kea<sceneLogicType>([
                                     getRelativeNextPath(params.searchParams.next, location) ??
                                     removeProjectIdIfPresent(location.pathname)
 
+                                // Check if user is coming from a coupon campaign link
+                                const couponCampaignMatch = nextUrl?.match(/^\/coupons\/([^/?]+)/)
+                                if (couponCampaignMatch) {
+                                    const campaign = couponCampaignMatch[1]
+                                    router.actions.replace(urls.onboardingCoupon(campaign), { next: nextUrl })
+                                    return
+                                }
+
                                 // Default to false (products page) if feature flags haven't loaded yet
                                 const useUseCaseSelection =
                                     values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
