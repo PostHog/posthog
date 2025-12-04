@@ -57,7 +57,7 @@ export function ErrorDisplayContent(): JSX.Element {
                     value={
                         sentryUrl ? (
                             <Link
-                                className="text-3000 hover:underline decoration-primary-alt cursor-pointer"
+                                className="text-foreground hover:underline decoration-primary-alt cursor-pointer"
                                 to={sentryUrl}
                                 target="_blank"
                             >

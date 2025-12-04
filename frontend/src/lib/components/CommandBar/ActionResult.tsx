@@ -37,9 +37,9 @@ export const ActionResult = ({ result, focused }: SearchResultProps): JSX.Elemen
             >
                 <div className="px-2 py-3 w-full gap-y-0.5 flex items-center">
                     <result.icon className="text-muted-3000" />
-                    <span className="ml-2 text-text-3000 font-bold">{result.display}</span>
+                    <span className="ml-2 text-foreground font-bold">{result.display}</span>
                 </div>
-                {focused && <div className="shrink-0 text-foreground-3000">Run command</div>}
+                {focused && <div className="shrink-0 text-foreground">Run command</div>}
             </div>
         </div>
     )

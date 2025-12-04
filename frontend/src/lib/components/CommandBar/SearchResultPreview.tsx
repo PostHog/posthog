@@ -38,12 +38,12 @@ export const SearchResultPreview = (): JSX.Element | null => {
             <div className="deprecated-space-y-4">
                 <div>
                     <div>{tabToName[result.type as keyof typeof tabToName]}</div>
-                    <div className="text-text-3000 font-bold text-lg">
+                    <div className="text-foreground font-bold text-lg">
                         <ResultName result={result} />
                     </div>
-                    <span className="text-[var(--trace-3000)] text-xs break-all">
+                    <span className="text-muted-foreground text-xs break-all">
                         {location.host}
-                        <span className="text-muted-3000">{urlForResult(result)}</span>
+                        <span className="text-muted-foreground">{urlForResult(result)}</span>
                     </span>
                     <div className="mt-2 text-secondary">
                         <ResultDescription result={result} />

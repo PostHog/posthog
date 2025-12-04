@@ -403,7 +403,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                 callToAction={
                                                     <div
                                                         className={cn(
-                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-text-3000 deprecated-space-y-1',
+                                                            'flex flex-col items-center justify-center flex-1 cohort-csv-dragger text-foreground deprecated-space-y-1',
                                                             'text-foreground mt-0 bg-transparent border border-dashed border-border hover:border-border-strong p-8',
                                                             cohort.csv?.name && 'border-success'
                                                         )}
