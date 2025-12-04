@@ -14,7 +14,14 @@ import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
-import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    PluginsServerConfig,
+    Team,
+} from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
@@ -319,11 +326,11 @@ export class CookielessManager {
         const eventsWithStatus: EventWithStatus[] = []
         for (let i = 0; i < events.length; i++) {
             const inputEvent = events[i]
-            const { event, team, message } = inputEvent
+            const { event, team, message, headers } = inputEvent
 
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message, originalIndex: i })
+                eventsWithStatus.push({ event, team, message, headers, originalIndex: i })
                 continue
             }
 
@@ -450,6 +457,7 @@ export class CookielessManager {
                 event,
                 team,
                 message,
+                headers,
                 originalIndex: i,
                 firstPass: {
                     timestampMs,
@@ -662,8 +670,8 @@ export class CookielessManager {
         }
 
         // Update results with successfully processed events
-        for (const { event, team, message, originalIndex } of eventsWithStatus) {
-            results[originalIndex] = ok({ event, team, message })
+        for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
+            results[originalIndex] = ok({ event, team, message, headers })
         }
 
         return results
@@ -701,6 +709,7 @@ type EventWithStatus = {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
     originalIndex: number
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {

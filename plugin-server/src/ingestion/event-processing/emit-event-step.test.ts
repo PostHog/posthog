@@ -417,6 +417,7 @@ describe('emit-event-step', () => {
 
         const createHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
             force_disable_person_processing: false,
+            historical_migration: false,
             ...overrides,
         })
 

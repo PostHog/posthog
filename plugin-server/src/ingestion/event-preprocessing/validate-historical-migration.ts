@@ -1,10 +1,8 @@
-import { DateTime } from 'luxon'
-
 import { EventHeaders } from '../../types'
 import { ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
-const HISTORICAL_MIGRATION_MIN_AGE_HOURS = 48
+const HISTORICAL_MIGRATION_MIN_AGE_MS = 48 * 60 * 60 * 1000 // 48 hours in milliseconds
 
 type ValidateHistoricalMigrationInput = { headers: EventHeaders }
 type ValidateHistoricalMigrationOutput = { headers: EventHeaders }
@@ -20,20 +18,18 @@ function validateHistoricalMigrationHeader(headers: EventHeaders): EventHeaders 
         return headers
     }
 
-    // Parse the timestamp header and now timestamp
-    const headerTimestamp = DateTime.fromISO(headers.timestamp)
-    const now = DateTime.fromISO(headers.now)
+    // Parse the timestamp header
+    const headerTimestampMs = Date.parse(headers.timestamp)
+    const nowMs = headers.now.getTime()
 
     // If either timestamp is invalid, accept the flag as-is (let other validation handle it)
-    if (!headerTimestamp.isValid || !now.isValid) {
+    if (isNaN(headerTimestampMs) || isNaN(nowMs)) {
         return headers
     }
 
-    // Calculate age in hours
-    const ageInHours = now.diff(headerTimestamp, 'hours').hours
-
     // Only accept if timestamp is at least 48 hours old (historical events)
-    const historicalMigration = ageInHours >= HISTORICAL_MIGRATION_MIN_AGE_HOURS
+    const ageMs = nowMs - headerTimestampMs
+    const historicalMigration = ageMs >= HISTORICAL_MIGRATION_MIN_AGE_MS
 
     return { ...headers, historical_migration: historicalMigration }
 }

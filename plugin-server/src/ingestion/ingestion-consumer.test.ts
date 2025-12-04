@@ -97,14 +97,15 @@ type PreprocessedEvent = {
 const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): PreprocessedEvent[] => {
     return events.map((e): PreprocessedEvent => {
         const message = createKafkaMessage(e)
+        const headers = {
+            token: e.token || '',
+            distinct_id: e.distinct_id || '',
+            force_disable_person_processing: false,
+            historical_migration: false,
+        }
         return {
             message,
-            headers: {
-                token: e.token || '',
-                distinct_id: e.distinct_id || '',
-                force_disable_person_processing: false,
-                historical_migration: false,
-            },
+            headers,
             event: { event: e },
             eventWithTeam: {
                 event: {
@@ -113,6 +114,7 @@ const createIncomingEventsWithTeam = (events: PipelineEvent[], team: Team): Prep
                 },
                 team: team,
                 message,
+                headers,
             },
         }
     })
@@ -724,20 +726,23 @@ describe('IngestionConsumer', () => {
                     { timestamp: Buffer.from((Date.now() + index * 1000).toString()) },
                 ]
 
+                const headers = {
+                    token: team.api_token,
+                    distinct_id: event.distinct_id || '',
+                    timestamp: (Date.now() + index * 1000).toString(),
+                    force_disable_person_processing: false,
+                    historical_migration: false,
+                }
+
                 return {
                     message,
-                    headers: {
-                        token: team.api_token,
-                        distinct_id: event.distinct_id || '',
-                        timestamp: (Date.now() + index * 1000).toString(),
-                        force_disable_person_processing: false,
-                        historical_migration: false,
-                    },
+                    headers,
                     event: { event },
                     eventWithTeam: {
                         event: { ...event, team_id: team.id },
                         team: team,
                         message: message,
+                        headers,
                     },
                 }
             })

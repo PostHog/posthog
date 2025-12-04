@@ -1399,6 +1399,7 @@ export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

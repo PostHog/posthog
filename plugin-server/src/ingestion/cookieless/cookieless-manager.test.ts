@@ -4,6 +4,7 @@ import path from 'path'
 
 import type { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
 import { cookielessRedisErrorCounter } from '../../main/ingestion-queues/metrics'
@@ -333,7 +334,9 @@ describe('CookielessManager', () => {
         })
 
         async function processEvent(event: PipelineEvent): Promise<PipelineEvent | undefined> {
-            const response = await hub.cookielessManager.doBatch([{ event, team, message }])
+            const response = await hub.cookielessManager.doBatch([
+                { event, team, message, headers: createTestEventHeaders() },
+            ])
             expect(response.length).toBe(1)
             const result = response[0]
             if (isOkResult(result)) {
@@ -567,8 +570,8 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event, team, message, headers: { force_disable_person_processing: false } },
-                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(2)
 
@@ -595,8 +598,8 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event, team, message, headers: { force_disable_person_processing: false } },
-                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(2)
 
@@ -635,10 +638,10 @@ describe('CookielessManager', () => {
                         event: eventWithOldTimestamp,
                         team,
                         message,
-                        headers: { force_disable_person_processing: false },
+                        headers: createTestEventHeaders(),
                     },
-                    { event, team, message, headers: { force_disable_person_processing: false } },
-                    { event: nonCookielessEvent, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
+                    { event: nonCookielessEvent, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(3)
 
@@ -675,9 +678,9 @@ describe('CookielessManager', () => {
                         event: eventWithFutureTimestamp,
                         team,
                         message,
-                        headers: { force_disable_person_processing: false },
+                        headers: createTestEventHeaders(),
                     },
-                    { event, team, message, headers: { force_disable_person_processing: false } },
+                    { event, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(2)
 
@@ -706,7 +709,7 @@ describe('CookielessManager', () => {
                         event: eventWithOldTimestamp,
                         team,
                         message,
-                        headers: { force_disable_person_processing: false },
+                        headers: createTestEventHeaders(),
                     },
                 ])
                 expect(response.length).toBe(1)
@@ -756,7 +759,7 @@ describe('CookielessManager', () => {
                         event: eventWithoutTimestamp,
                         team,
                         message,
-                        headers: { force_disable_person_processing: false },
+                        headers: createTestEventHeaders(),
                     },
                 ])
                 expect(response.length).toBe(1)
@@ -787,7 +790,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutUA, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutUA, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]
@@ -818,7 +821,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutIP, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutIP, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]
@@ -849,7 +852,7 @@ describe('CookielessManager', () => {
                 })
 
                 const response = await hub.cookielessManager.doBatch([
-                    { event: eventWithoutHost, team, message, headers: { force_disable_person_processing: false } },
+                    { event: eventWithoutHost, team, message, headers: createTestEventHeaders() },
                 ])
                 expect(response.length).toBe(1)
                 const result = response[0]
