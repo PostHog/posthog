@@ -124,14 +124,14 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-3">
                     <div>
-                        <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                        <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                             Description
                         </div>
                         <div className="text-[13px] text-default">{logItem.description}</div>
                     </div>
                     {logItem.extendedDescription && (
                         <div>
-                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                                 Extended Description
                             </div>
                             <div className="text-[13px] text-default">{logItem.extendedDescription}</div>
@@ -139,7 +139,7 @@ function ExpandedRowContent({ logItem }: { logItem: HumanizedActivityLogItem }):
                     )}
                     {unprocessed.item_id && (
                         <div>
-                            <div className="text-[11px] font-medium text-muted-alt uppercase tracking-wider mb-1">
+                            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
                                 Item ID
                             </div>
                             <div className="text-[13px] text-default">{unprocessed.item_id}</div>

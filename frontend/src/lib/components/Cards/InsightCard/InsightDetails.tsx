@@ -69,9 +69,9 @@ export function InsightDetailSectionDisplay({
 }): JSX.Element {
     return (
         <section className="flex items-start gap-2 text-xs">
-            <div className="flex text-muted-alt mt-px flex-shrink-0 text-sm">{icon}</div>
+            <div className="flex text-muted-foreground mt-px flex-shrink-0 text-sm">{icon}</div>
             <div className="flex-1 min-w-0">
-                <div className="text-muted-alt mb-0.5">{label}</div>
+                <div className="text-muted-foreground mb-0.5">{label}</div>
                 <div className="leading-6">{children}</div>
             </div>
         </section>

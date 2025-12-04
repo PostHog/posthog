@@ -111,7 +111,7 @@ export function SlashCommandAutocomplete({ onClose, visible, children }: SlashCo
 
 function NavigationHint({ isArgRequired }: { isArgRequired: boolean }): JSX.Element {
     return (
-        <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-alt font-medium select-none">
+        <div className="border-t px-1 pt-1.5 pb-0.5 mt-1 text-xxs text-muted-foreground font-medium select-none">
             {MAX_SLASH_COMMANDS.length > 1 && '↑↓ to navigate • '}
             {!isArgRequired ? '⏎ to activate • → to select • Esc to close' : '⏎ or → to select • Esc to close'}
         </div>

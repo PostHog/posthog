@@ -97,7 +97,7 @@ function SessionExampleCard({
             <div className="mb-2">
                 <SessionGroupSummaryDetailsMetadata event={event} />
             </div>
-            <p className="text-xs font-normal text-muted-alt mb-0">
+            <p className="text-xs font-normal text-muted-foreground mb-0">
                 <b>Outcome:</b> {segment_outcome}
             </p>
         </div>
@@ -125,7 +125,7 @@ function FilterBar({
 }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-6 mb-4 items-center">
-            <span className="text-sm text-muted-alt">
+            <span className="text-sm text-muted-foreground">
                 Showing {filteredCount} of {totalCount} issues
             </span>
             <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ function FilterBar({
                             onChange={() => onIssueTypeFilterChange(key)}
                             label={
                                 <>
-                                    {label} <span className="text-muted-alt">({count})</span>
+                                    {label} <span className="text-muted-foreground">({count})</span>
                                 </>
                             }
                             size="small"
@@ -209,7 +209,7 @@ function PatternCard({
                     </div> */}
                 </div>
             </div>
-            <p className="text-sm text-muted-alt mb-0">{pattern.pattern_description}</p>
+            <p className="text-sm text-muted-foreground mb-0">{pattern.pattern_description}</p>
         </div>
     )
 

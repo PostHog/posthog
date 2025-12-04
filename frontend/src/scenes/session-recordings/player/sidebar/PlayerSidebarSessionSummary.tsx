@@ -293,7 +293,7 @@ function SessionSegmentView({
                                 ))}
                             </>
                         ) : (
-                            <div className="text-muted-alt">
+                            <div className="text-muted-foreground">
                                 Waiting for key actions... <Spinner />
                             </div>
                         )}
@@ -335,18 +335,18 @@ function SessionSummaryKeyActions({
                         }}
                     >
                         <div className="flex flex-row gap-2">
-                            <span className="text-muted-alt shrink-0 min-w-[4rem] font-mono text-xs">
+                            <span className="text-muted-foreground shrink-0 min-w-[4rem] font-mono text-xs">
                                 {formatMsIntoTime(event.milliseconds_since_start)}
                                 <div className="flex flex-row gap-2 mt-1">
                                     {event.current_url ? (
                                         <Link to={event.current_url} target="_blank">
                                             <Tooltip title={event.current_url} placement="top">
-                                                <span className="font-mono text-xs text-muted-alt">url</span>
+                                                <span className="font-mono text-xs text-muted-foreground">url</span>
                                             </Tooltip>
                                         </Link>
                                     ) : null}
                                     <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                        <span className="font-mono text-xs text-muted-alt">meta</span>
+                                        <span className="font-mono text-xs text-muted-foreground">meta</span>
                                     </Tooltip>
                                 </div>
                             </span>
@@ -627,7 +627,7 @@ function SessionSummary(): JSX.Element {
                     <SessionSummaryComponent.Feedback />
                 </>
             ) : (
-                <div className="text-center text-muted-alt">No summary available for this session</div>
+                <div className="text-center text-muted-foreground">No summary available for this session</div>
             )}
         </SessionSummaryComponent.Root>
     )

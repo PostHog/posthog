@@ -55,7 +55,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
     return (
         <>
             {sharePasswordsLoading ? (
-                <div className="py-3 text-center text-muted-alt text-sm">Loading passwords...</div>
+                <div className="py-3 text-center text-muted-foreground text-sm">Loading passwords...</div>
             ) : (
                 <div className="w-full">
                     <div className="mx-1 h-px bg-border mb-3" />
@@ -78,7 +78,9 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                         </div>
 
                         {sharePasswords.length === 0 ? (
-                            <div className="py-3 text-muted-alt text-sm">Add a password to enable authentication</div>
+                            <div className="py-3 text-muted-foreground text-sm">
+                                Add a password to enable authentication
+                            </div>
                         ) : (
                             <div className="space-y-1 overflow-y-auto overflow-x-hidden" style={{ maxHeight: '280px' }}>
                                 {sharePasswords.map((password) => (
@@ -162,7 +164,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                             <div className="rounded bg-bg-3000 border border-border p-3">
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="flex-1 overflow-hidden">
-                                        <div className="text-xs text-muted-alt uppercase tracking-wide font-semibold mb-1">
+                                        <div className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">
                                             Password
                                         </div>
                                         <div className="font-mono text-sm text-default break-all select-all bg-white dark:bg-gray-900 px-2 py-1.5 rounded border border-border">

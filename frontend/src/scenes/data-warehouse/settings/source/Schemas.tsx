@@ -563,7 +563,7 @@ const AnchorTime = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Eleme
                 suffix={
                     isSyncTimeSet ? (
                         <Tooltip title={syncAnchorIntervalToHumanReadable(utcTime, schema.sync_frequency)}>
-                            {schema.should_sync && <IconInfo className="text-muted-alt" />}
+                            {schema.should_sync && <IconInfo className="text-muted-foreground" />}
                         </Tooltip>
                     ) : undefined
                 }

@@ -92,7 +92,7 @@ export const VariantsPanelLinkFeatureFlag = ({
                         <IconToggle className="text-muted-foreground text-2xl" />
                         <div className="text-base font-semibold">No feature flag selected</div>
                     </div>
-                    <div className="text-sm text-muted-alt text-center">
+                    <div className="text-sm text-muted-foreground text-center">
                         Select an existing multivariate feature flag to use with this experiment
                     </div>
                     <LemonButton type="primary" size="small" onClick={setShowFeatureFlagSelector}>
@@ -147,7 +147,9 @@ export const VariantsPanelLinkFeatureFlag = ({
                 </div>
 
                 {/* Description */}
-                {linkedFeatureFlag.name && <div className="text-sm text-muted-alt">{linkedFeatureFlag.name}</div>}
+                {linkedFeatureFlag.name && (
+                    <div className="text-sm text-muted-foreground">{linkedFeatureFlag.name}</div>
+                )}
 
                 {/* Variants */}
                 <div className="space-y-2">

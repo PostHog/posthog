@@ -269,7 +269,7 @@ export function DateFilter({
                                         </>
                                     }
                                 >
-                                    <IconInfo className="text-muted-alt w-4 h-4" />
+                                    <IconInfo className="text-muted-foreground w-4 h-4" />
                                 </Tooltip>
                             </label>
                             <LemonSwitch

@@ -283,7 +283,7 @@ export function ExperimentMetricForm({
                                 </div>
                             }
                         >
-                            <IconInfo className="text-muted-alt text-base" />
+                            <IconInfo className="text-muted-foreground text-base" />
                         </Tooltip>
                     </span>
                 </LemonBanner>

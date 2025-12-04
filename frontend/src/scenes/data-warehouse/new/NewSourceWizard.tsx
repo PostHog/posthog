@@ -158,7 +158,7 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                         <DataWarehouseSourceIcon type={selectedConnector.name} size="small" disableTooltip />
                         <div>
                             <h4 className="text-lg font-semibold mb-0">{modalTitle}</h4>
-                            <p className="text-sm text-muted-alt mb-0">
+                            <p className="text-sm text-muted-foreground mb-0">
                                 Import data directly from {selectedConnector.label ?? selectedConnector.name}
                             </p>
                         </div>

@@ -46,7 +46,7 @@ export const WebAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Elemen
                     <WebAnalyticsDeviceToggle />
 
                     <div className="hidden ml-2 md:flex items-center gap-2">
-                        <span className="text-muted-alt">|</span>
+                        <span className="text-muted-foreground">|</span>
                         <WebAnalyticsLiveUserCount />
                     </div>
                 </>

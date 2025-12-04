@@ -112,11 +112,15 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 <section className="mb-3">
                     <div className="flex items-baseline gap-1">
                         {planData.pricePreface && (
-                            <span className="text-base text-muted-alt dark:text-gray-300">{planData.pricePreface}</span>
+                            <span className="text-base text-muted-foreground dark:text-gray-300">
+                                {planData.pricePreface}
+                            </span>
                         )}
                         <span className="text-xl font-extrabold text-gray-900 dark:text-white">{planData.price}</span>
                         {planData.priceSuffix && (
-                            <span className="text-base text-muted-alt dark:text-gray-300">{planData.priceSuffix}</span>
+                            <span className="text-base text-muted-foreground dark:text-gray-300">
+                                {planData.priceSuffix}
+                            </span>
                         )}
                     </div>
                     {planData.priceSubtitle && (

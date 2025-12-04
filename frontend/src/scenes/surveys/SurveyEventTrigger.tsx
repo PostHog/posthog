@@ -133,7 +133,7 @@ export function SurveyEventTrigger(): JSX.Element {
             <>
                 {events.length === 0 ? (
                     <LemonCard className="border-dashed" hoverEffect={false}>
-                        <div className="text-muted-alt text-sm mb-1">No events selected</div>
+                        <div className="text-muted-foreground text-sm mb-1">No events selected</div>
                         <div className="text-xs text-muted">
                             Add events to trigger this survey when those events are captured in the current user session
                         </div>
@@ -179,7 +179,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                             },
                                             content: (
                                                 <div>
-                                                    <div className="text-xs font-medium text-muted-alt mb-2 uppercase tracking-wide">
+                                                    <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
                                                         Property Filters
                                                     </div>
                                                     <PropertyFilters

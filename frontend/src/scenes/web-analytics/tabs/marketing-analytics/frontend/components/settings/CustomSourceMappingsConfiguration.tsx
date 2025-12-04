@@ -98,7 +98,7 @@ export function CustomSourceMappingsConfiguration(): JSX.Element {
                     Ads campaigns, add "partner_a" as a custom source for GoogleAds. This supplements the default source
                     mappings (e.g., GoogleAds automatically includes "google", "youtube", "adwords", etc.).
                 </p>
-                <p className="text-muted-alt text-xs mb-4">
+                <p className="text-muted-foreground text-xs mb-4">
                     <strong>Important:</strong> Each custom UTM source value must be unique across all integrations. You
                     cannot map the same source value (e.g., "partner_a") to multiple platforms.
                 </p>

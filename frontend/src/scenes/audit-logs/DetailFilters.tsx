@@ -355,7 +355,7 @@ export const DetailFilters = (): JSX.Element => {
             <div className="flex items-center gap-1">
                 <label className="block text-sm font-medium">Detail filters</label>
                 <Tooltip title="Filter by specific fields within the activity log details field. For example, filter by changes to specific dashboard properties, feature flag variations, or other detailed attributes logged with each activity.">
-                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                    <IconInfo className="w-4 h-4 text-muted-foreground cursor-help" />
                 </Tooltip>
             </div>
 

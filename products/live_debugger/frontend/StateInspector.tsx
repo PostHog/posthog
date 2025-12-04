@@ -18,7 +18,7 @@ function VariableDisplay({ variables }: { variables: Record<string, any> }): JSX
                         <div className="flex items-center gap-2 mb-1">
                             <div className="text-muted-foreground text-xs font-semibold">{key}</div>
                             {parsed.typeName && (
-                                <div className="text-xs text-muted-alt bg-bg-3000 px-1.5 py-0.5 rounded font-mono">
+                                <div className="text-xs text-muted-foreground bg-bg-3000 px-1.5 py-0.5 rounded font-mono">
                                     {parsed.typeName}
                                 </div>
                             )}

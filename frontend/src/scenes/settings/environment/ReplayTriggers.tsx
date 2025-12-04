@@ -158,7 +158,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-muted-alt cursor-help" />
+                                <IconInfo className="text-muted-foreground cursor-help" />
                             </Tooltip>
                         </LemonLabel>
                         <AccessControlAction

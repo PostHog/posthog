@@ -13,7 +13,7 @@ import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
         <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
-            <IconWarning className="text-muted-alt text-4xl" />
+            <IconWarning className="text-muted-foreground text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
             <div className="text-sm text-muted">{description}</div>
         </div>

@@ -143,7 +143,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         title: '# events, last 7 days',
         dataIndex: 'count',
         render: function RenderCount(_, record) {
-            return <div className="text-xs text-muted-alt">{record.count}</div>
+            return <div className="text-xs text-muted-foreground">{record.count}</div>
         },
     },
 ]

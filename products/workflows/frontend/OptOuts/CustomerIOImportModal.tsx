@@ -40,7 +40,7 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
-                        <div className="text-sm text-muted-alt">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment. Processing categories and unsubscribed users.
                         </div>
                     </div>
@@ -115,7 +115,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    <div className="text-xs text-muted-alt">
+                    <div className="text-xs text-muted-foreground">
                         You can generate an App API key in Customer.io under Settings → Account Settings → API
                         Credentials.
                     </div>
@@ -145,7 +145,9 @@ export function CustomerIOImportModal(): JSX.Element {
                                         </div>
                                     ))}
                                     {failed.length > 100 && (
-                                        <div className="text-muted-alt mt-2">... and {failed.length - 100} more</div>
+                                        <div className="text-muted-foreground mt-2">
+                                            ... and {failed.length - 100} more
+                                        </div>
                                     )}
                                 </div>
                             ),
@@ -164,10 +166,10 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Processing CSV...</div>
-                        <div className="text-sm text-muted-alt">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment for large files. Please don't close this window.
                         </div>
-                        <div className="text-xs text-muted-alt mt-2">
+                        <div className="text-xs text-muted-foreground mt-2">
                             Processing thousands of rows and updating the database...
                         </div>
                     </div>
@@ -250,7 +252,9 @@ export function CustomerIOImportModal(): JSX.Element {
                                         <div className="text-sm text-muted">
                                             Drop your CSV file here or click to browse
                                         </div>
-                                        <div className="text-xs text-muted-alt mt-1">Accepts .csv files only</div>
+                                        <div className="text-xs text-muted-foreground mt-1">
+                                            Accepts .csv files only
+                                        </div>
                                     </div>
                                 }
                             />

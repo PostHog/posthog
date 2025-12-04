@@ -89,7 +89,7 @@ function EventSelector({ filters, setFilters, title, caption }: EventSelectorPro
         <div className={`p-2 ${highlight}`}>
             <div className="ml-1">
                 <LemonLabel>{title}</LemonLabel>
-                <p className="text-xs text-muted-alt">{caption}</p>
+                <p className="text-xs text-muted-foreground">{caption}</p>
             </div>
             {filters ? (
                 <ActionFilter

@@ -195,7 +195,7 @@ export function SessionDetailsCard(): JSX.Element | null {
                                                 Ticket #{ticketId}
                                             </Link>
                                         ) : (
-                                            <span className="text-muted-alt">No ticket ID</span>
+                                            <span className="text-muted-foreground">No ticket ID</span>
                                         )}
                                     </div>
                                 </div>

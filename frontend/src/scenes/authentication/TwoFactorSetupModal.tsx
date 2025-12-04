@@ -53,11 +53,11 @@ export function TwoFactorSetupModal(): JSX.Element {
 
                 {canSwitchOrg && (
                     <div className="flex flex-col items-center gap-1 mt-4">
-                        <div className="text-muted-alt text-xs">
+                        <div className="text-muted-foreground text-xs">
                             or{' '}
                             <button
                                 type="button"
-                                className="text-muted-alt cursor-pointer underline hover:text-muted"
+                                className="text-muted-foreground cursor-pointer underline hover:text-muted"
                                 onClick={() => setShowOrgDropdown(true)}
                             >
                                 change your organization
