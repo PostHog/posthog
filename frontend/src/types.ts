@@ -309,6 +309,7 @@ export interface SceneDashboardChoice {
 }
 
 export type UserTheme = 'light' | 'dark' | 'system'
+export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -338,6 +339,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_sso_enforcement: boolean
+    shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null

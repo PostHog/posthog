@@ -311,7 +311,6 @@ class AssistantTool(StrEnum):
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
-    FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
 
@@ -2009,6 +2008,8 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CPC = "CPC"
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
+    REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -2021,6 +2022,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     IMPRESSIONS = "impressions"
     SOURCE = "source"
     REPORTED_CONVERSION = "reported_conversion"
+    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -3147,6 +3149,7 @@ class SourceMap(BaseModel):
     id: str | None = None
     impressions: str | None = None
     reported_conversion: str | None = None
+    reported_conversion_value: str | None = None
     source: str | None = None
 
 
@@ -4961,30 +4964,6 @@ class MaxExperimentSummaryContext(BaseModel):
     secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
-
-
-class MaxRecordingEventFilter(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    id: str = Field(..., description="Name of the event.")
-    name: str | None = Field(default=None, description="Optional display name for this event.")
-    properties: (
-        list[
-            AssistantGenericPropertyFilter1
-            | AssistantGenericPropertyFilter2
-            | AssistantGenericPropertyFilter3
-            | AssistantGenericPropertyFilter4
-            | AssistantGenericPropertyFilter5
-            | AssistantGroupPropertyFilter1
-            | AssistantGroupPropertyFilter2
-            | AssistantGroupPropertyFilter3
-            | AssistantGroupPropertyFilter4
-            | AssistantGroupPropertyFilter5
-        ]
-        | None
-    ) = Field(default=None, description="Optional property filters for this event only.")
-    type: Literal["events"] = "events"
 
 
 class MultiQuestionFormQuestion(BaseModel):
@@ -13383,18 +13362,7 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         | SessionPropertyFilter
         | RecordingPropertyFilter
         | GroupPropertyFilter
-        | MaxRecordingEventFilter
-    ] = Field(
-        ...,
-        description=(
-            "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties"
-            " of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties"
-            " (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g."
-            " `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`,"
-            " `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n-"
-            " 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present)."
-        ),
-    )
+    ]
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
