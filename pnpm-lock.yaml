@@ -2558,6 +2558,10 @@ importers:
       zod:
         specifier: '*'
         version: 3.25.76
+    devDependencies:
+      kea-test-utils:
+        specifier: '*'
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   rust/cyclotron-node:
     devDependencies:

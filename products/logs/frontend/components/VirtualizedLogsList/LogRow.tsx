@@ -107,19 +107,30 @@ export function LogRow({
                         </span>
                     </div>
                 )
-            case 'message':
+            case 'message': {
+                const isPrettyJson = prettifyJson && log.parsedBody
+                const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
+
+                if (isPrettyJson) {
+                    return (
+                        <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
+                            <pre className={cn('font-mono text-xs m-0', wrapBody ? '' : 'whitespace-nowrap truncate')}>
+                                {content}
+                            </pre>
+                        </div>
+                    )
+                }
+
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
                         <span
-                            className={cn(
-                                'font-mono text-xs break-all',
-                                wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
-                            )}
+                            className={cn('font-mono text-xs', wrapBody ? 'whitespace-pre-wrap break-all' : 'truncate')}
                         >
-                            {log.parsedBody && prettifyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody}
+                            {content}
                         </span>
                     </div>
                 )
+            }
             case 'actions':
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
