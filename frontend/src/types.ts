@@ -3340,6 +3340,7 @@ export interface SurveyAppearance {
     maxWidth?: string
     textSubtleColor?: string
     inputBackground?: string
+    inputTextColor?: string
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
