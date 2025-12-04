@@ -189,7 +189,7 @@ describe('processAllSnapshots - inline meta patching', () => {
             expect.objectContaining({
                 feature: 'session-recording-meta-patching',
                 sessionRecordingId: '12345',
-                sourceKey: 'blob-blob-key',
+                sourceKey: 'blob_v2-blob-key',
                 throttleCaptureKey: '12345-no-viewport-found',
             })
         )

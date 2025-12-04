@@ -1086,6 +1086,7 @@ export type SessionRecordingSnapshotParams = (
           source: 'blob_v2'
           start_blob_key?: string
           end_blob_key?: string
+          blob_key?: string
       }
 ) & {
     decompress?: false

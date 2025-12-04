@@ -235,7 +235,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             return processAllSnapshots(
                 sources,
                 {
-                    'blob-1': {
+                    'blob_v2-1': {
                         source: { source: SnapshotSourceType.blob_v2, blob_key: 'blob-1' },
                         snapshots,
                     },
