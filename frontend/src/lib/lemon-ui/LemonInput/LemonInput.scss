@@ -24,7 +24,7 @@
 
     &:hover:not([aria-disabled='true']),
     &.LemonInput--focused:not([aria-disabled='true']) {
-        border-color: var(--color-border-border-strong);
+        border-color: var(--color-border-strong);
     }
 
     &.LemonInput--transparent-background {
@@ -33,7 +33,7 @@
 
     .Field--error &:not(.ignore-error-border),
     &.LemonInput--status-danger {
-        border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
+        border-color: var(--color-border-destructive) !important; // The error border overrides hover/focus higlighting
     }
 
     .LemonInput__input {
@@ -56,7 +56,7 @@
         width: 1em;
         height: 1em;
         font-size: 1.25rem;
-        color: var(--color-text-secondary);
+        color: var(--color-muted-foreground);
         transition: color 200ms ease;
     }
 

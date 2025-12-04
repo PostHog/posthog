@@ -196,10 +196,10 @@
     }
 
     &.LemonButton--primary {
-        --lemon-button-bg-color: var(--primary-3000-button-bg);
-        --lemon-button-bg-color-active: var(--primary-3000-button-bg);
-        --button-border-color: var(--primary-3000-button-border);
-        --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
+        --lemon-button-bg-color: var(--color-card);
+        --lemon-button-bg-color-active: var(--color-card);
+        --button-border-color: var(--primary-3000-frame-bg);
+        --lemon-button-border-color-hover: var(--primary-3000-frame-bg);
         --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
         --lemon-button-color: var(--text-3000-light);
 
@@ -413,9 +413,9 @@
     // SideAction buttons are buttons next to other buttons in the DOM but layered on top. since they're on another button, we don't want them to look like buttons.
     & .LemonButtonWithSideAction__side-button {
         position: absolute;
-        top: 1px;
-        right: 1px;
-        bottom: calc(var(--lemon-button-chrome-depth) + 1px);
+        top: 0;
+        right: 0;
+        bottom: 0;
         z-index: 1; // Places button content above the main button
         background: none;
         border-top-right-radius: calc(var(--radius) - 1px);

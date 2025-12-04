@@ -370,7 +370,6 @@
         var(--color-brand-primary-saturation),
         var(--color-brand-primary-lightness)
     );
-    --color-primary-foreground: var(--color-brand-primary-foreground);
 
     /* Subdued background for less important elements */
     --color-muted: var(--color-posthog-3000-50); /* => --color-bg-surface-tertiary */
@@ -396,6 +395,7 @@
     --color-border: var(--color-posthog-3000-200);
     --color-border-muted: var(--color-posthog-3000-100);
     --color-border-strong: var(--color-posthog-3000-300);
+    --color-border-destructive: var(--color-red-900);
 
     --color-ring: var(--primary);
     --color-ring-muted: var(--primary); /* TODO: what is this? */
