@@ -987,7 +987,6 @@ async def test_run_workflow_triggers_ducklake_copy_child(monkeypatch):
         model_label=model_label,
         saved_query_id=str(uuid.uuid4()),
         table_uri="s3://source/table",
-        file_uris=["s3://source/table/part-0.parquet"],
     )
 
     @temporal_activity.defn
