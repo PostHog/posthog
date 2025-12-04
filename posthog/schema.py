@@ -3534,6 +3534,7 @@ class WebAnalyticsOrderByDirection(StrEnum):
 class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
+    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
@@ -12397,6 +12398,7 @@ class WebStatsTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None

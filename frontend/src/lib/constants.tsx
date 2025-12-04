@@ -328,6 +328,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_SCHEDULED_TRIGGERS: 'workflows-scheduled-triggers', // owner: #team-workflows
     WORKFLOWS: 'messaging', // owner @haven #team-workflows
+    AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
