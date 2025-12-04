@@ -9,6 +9,9 @@
         "posthog-js": "1.297.0",
         "use-debounce": "^9.0.3"
     },
+    "devDependencies": {
+        "kea-test-utils": "*"
+    },
     "peerDependencies": {
         "@posthog/icons": "*",
         "@types/react": "*",
