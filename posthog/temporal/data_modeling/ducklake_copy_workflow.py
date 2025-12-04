@@ -101,8 +101,20 @@ async def ducklake_copy_workflow_gate_activity(inputs: DuckLakeCopyWorkflowGateI
         return posthoganalytics.feature_enabled(
             "ducklake-data-modeling-copy-workflow",
             str(team.uuid),
-            groups={"organization": str(team.organization_id)},
+            groups={
+                "organization": str(team.organization_id),
+                "project": str(team.id),
+            },
+            group_properties={
+                "organization": {
+                    "id": str(team.organization_id),
+                },
+                "project": {
+                    "id": str(team.id),
+                },
+            },
             only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
     except Exception as error:
         await logger.awarning(
