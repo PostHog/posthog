@@ -184,6 +184,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                                     to: 'https://posthog.com/docs/advanced/proxy',
                                 },
                           docsUrl: 'https://posthog.com/docs/advanced/proxy',
+                          urgent: true,
                       }
 
                 return [

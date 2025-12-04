@@ -565,7 +565,11 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
+const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
+        return []
+    }
+
     return [
         {
             key: ProductTab.HEALTH,
@@ -613,7 +617,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
-                ...healthTab(),
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
