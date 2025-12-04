@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useMemo } from 'react'
 
 import { IconArrowRight, IconWrench } from '@posthog/icons'
@@ -180,6 +181,11 @@ export function ModeSelector(): JSX.Element {
     const modeOptions = useMemo(() => getModeOptions(deepResearchEnabled), [deepResearchEnabled])
 
     const handleChange = (value: ModeValue): void => {
+        posthog.capture('phai mode switched', {
+            previous_mode: currentValue,
+            new_mode: value,
+        })
+
         if (value === 'deep_research') {
             setDeepResearchMode(true)
             setAgentMode(null)
