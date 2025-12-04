@@ -70,7 +70,6 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.setup.outputs.matrix_data) }}
-
         env:
             TERRAFORM_VERSION: '1.13.0'
             TERRAGRUNT_VERSION: '0.93.12'
@@ -79,7 +78,6 @@ jobs:
             # Terragrunt S3 backend config (to manage .tfstate)
             POSTHOG_PROVIDER_TF_STATE_BUCKET: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_BUCKET }}
             POSTHOG_PROVIDER_TF_STATE_REGION: ${{ secrets.POSTHOG_PROVIDER_TF_STATE_REGION }}
-
         steps:
             - name: Checkout
               uses: actions/checkout@1af3b93b6815bc44a9784bd300feb67ff0d1eeb3 # v6
