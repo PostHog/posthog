@@ -900,6 +900,7 @@ class TestValidateVariantResult:
         result = validate_variant_result(variant, metric, is_baseline=False)
 
         # Should have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
 
     def test_retention_metric_with_sufficient_successes(self):
@@ -924,6 +925,7 @@ class TestValidateVariantResult:
         result = validate_variant_result(variant, metric, is_baseline=False)
 
         # Should NOT have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
 
     def test_funnel_metric_with_insufficient_successes(self):
@@ -946,6 +948,7 @@ class TestValidateVariantResult:
         result = validate_variant_result(variant, metric, is_baseline=False)
 
         # Should have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in result.validation_failures
 
     def test_mean_metric_no_minimum_success_validation(self):
@@ -965,6 +968,7 @@ class TestValidateVariantResult:
         result = validate_variant_result(variant, metric, is_baseline=False)
 
         # Mean metrics should NOT have NOT_ENOUGH_METRIC_DATA validation failure
+        assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA not in result.validation_failures
 
     def test_validation_not_enough_exposures(self):
@@ -989,4 +993,5 @@ class TestValidateVariantResult:
         result = validate_variant_result(variant, metric, is_baseline=False)
 
         # Should have NOT_ENOUGH_EXPOSURES validation failure
+        assert result.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES in result.validation_failures
