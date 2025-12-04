@@ -24,12 +24,15 @@ def perform_kmeans_with_optimal_k(
         KMeansResult with labels and centroids
 
     Raises:
-        ValueError: If there are fewer samples than min_k (cannot cluster)
+        ValueError: If min_k < 2 or there are fewer samples than min_k
     """
     n_samples = len(embeddings)
 
     if n_samples == 0:
         raise ValueError("Cannot cluster empty embeddings array")
+
+    if min_k < 2:
+        raise ValueError(f"min_k must be at least 2, got {min_k}")
 
     # silhouette_score requires 1 < n_clusters < n_samples, so cap at n_samples - 1
     effective_max_k = min(max_k, n_samples - 1)
