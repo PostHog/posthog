@@ -35,12 +35,13 @@ class IngestionPipeline(models.TextChoices):
 
 class EventIngestionRestrictionConfig(UUIDTModel):
     """
-    Configuration for various restrictions we can set by token or token:distinct_id
+    Configuration for various restrictions we can set by token, token:distinct_id, or token:session_id
     """
 
     token = models.CharField(max_length=100)
     restriction_type = models.CharField(max_length=100, choices=RestrictionType.choices)
     distinct_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
+    session_ids = ArrayField(models.CharField(max_length=450), default=list, blank=True, null=True)
     note = models.TextField(
         blank=True, null=True, help_text="Optional note explaining why this restriction was put in place"
     )
@@ -100,13 +101,23 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
             "pipelines": config.pipelines or [],
         }
 
-        if config.distinct_ids:
-            for distinct_id in config.distinct_ids:
-                entry = entry_base.copy()
-                entry["distinct_id"] = distinct_id
-                data.append(entry)
-        else:
+        if not config.distinct_ids and not config.session_ids:
+            # No specific IDs - applies to all events for this token
             data.append(entry_base)
+        else:
+            # Add entries for each distinct_id
+            if config.distinct_ids:
+                for distinct_id in config.distinct_ids:
+                    entry = entry_base.copy()
+                    entry["distinct_id"] = distinct_id
+                    data.append(entry)
+
+            # Add entries for each session_id
+            if config.session_ids:
+                for session_id in config.session_ids:
+                    entry = entry_base.copy()
+                    entry["session_id"] = session_id
+                    data.append(entry)
 
     redis_client.set(redis_key, json.dumps(data))
 

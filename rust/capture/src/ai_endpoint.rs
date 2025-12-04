@@ -393,6 +393,7 @@ fn build_kafka_event(
     let captured_event = CapturedEvent {
         uuid: parsed.event_uuid,
         distinct_id: parsed.distinct_id.clone(),
+        session_id: None,
         ip: resolved_ip,
         data,
         now: now.to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),

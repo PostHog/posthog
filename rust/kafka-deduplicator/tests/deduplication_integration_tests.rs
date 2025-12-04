@@ -90,6 +90,7 @@ fn create_test_captured_event(
     let captured_event = CapturedEvent {
         uuid,
         distinct_id: distinct_id.to_string(),
+        session_id: None,
         ip: "127.0.0.1".to_string(),
         data,
         now: format!("{timestamp}000"), // timestamp in milliseconds

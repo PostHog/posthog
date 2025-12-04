@@ -45,6 +45,7 @@ pub fn captured_parse_fn(
             let inner = CapturedEvent {
                 uuid,
                 distinct_id,
+                session_id: None,
                 ip: "127.0.0.1".to_string(),
                 data: serde_json::to_string(&raw)?,
                 now: now.to_rfc3339(), // Ingestion time
