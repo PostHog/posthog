@@ -213,7 +213,13 @@ interface MessageProps {
     isFeedbackCommandResponse?: boolean
 }
 
-function Message({ message, isLastInGroup, isFinal, isFeedbackCommandResponse }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isFeedbackCommandResponse,
+}: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
