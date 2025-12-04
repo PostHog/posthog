@@ -8,7 +8,7 @@ import { HealthCheck } from './healthCheckTypes'
 import { webAnalyticsHealthLogic } from './webAnalyticsHealthLogic'
 
 export function HealthStatusTab(): JSX.Element {
-    const { overallHealthStatus, checksByCategory, rawStatusDataLoading, urgentFailedChecks } =
+    const { overallHealthStatus, checksByCategory, webAnalyticsHealthStatusLoading, urgentFailedChecks } =
         useValues(webAnalyticsHealthLogic)
     const { refreshHealthChecks } = useActions(webAnalyticsHealthLogic)
 
@@ -22,7 +22,7 @@ export function HealthStatusTab(): JSX.Element {
                 passedCount={overallHealthStatus.passedCount}
                 totalCount={overallHealthStatus.totalCount}
                 onRefresh={refreshHealthChecks}
-                loading={rawStatusDataLoading}
+                loading={webAnalyticsHealthStatusLoading}
             />
 
             <div className="space-y-3">
