@@ -477,6 +477,62 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void> {
+        if (teamDistinctIds.length === 0) {
+            return
+        }
+
+        // Filter out entries that are already cached
+        const uncachedEntries = teamDistinctIds.filter(({ teamId, distinctId }) => {
+            // Check if already in update cache
+            const cachedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+            if (cachedPerson !== undefined) {
+                return false
+            }
+
+            // Check if already in check cache
+            const checkCachedPerson = this.getCheckCachedPerson(teamId, distinctId)
+            if (checkCachedPerson !== undefined) {
+                return false
+            }
+
+            // Check if there's already a pending fetch
+            const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+            if (this.fetchPromisesForChecking.has(cacheKey) || this.fetchPromisesForUpdate.has(cacheKey)) {
+                return false
+            }
+
+            return true
+        })
+
+        if (uncachedEntries.length === 0) {
+            return
+        }
+
+        // Fetch all uncached persons in a single batched query
+        const persons = await this.personRepository.fetchPersonsByDistinctIds(uncachedEntries)
+
+        // Track which entries were found so we can cache null for missing ones
+        const foundKeys = new Set<string>()
+
+        // Cache found persons in both caches
+        for (const person of persons) {
+            const cacheKey = this.getDistinctCacheKey(person.team_id, person.distinct_id)
+            foundKeys.add(cacheKey)
+            this.setCheckCachedPerson(person.team_id, person.distinct_id, person)
+            const personUpdate = fromInternalPerson(person, person.distinct_id)
+            this.setCachedPersonForUpdate(person.team_id, person.distinct_id, personUpdate)
+        }
+
+        // Cache null in check cache only for entries not found in DB
+        for (const { teamId, distinctId } of uncachedEntries) {
+            const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+            if (!foundKeys.has(cacheKey)) {
+                this.setCheckCachedPerson(teamId, distinctId, null)
+            }
+        }
+    }
+
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate', distinctId)
 

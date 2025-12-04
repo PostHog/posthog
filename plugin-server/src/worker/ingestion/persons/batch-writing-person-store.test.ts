@@ -2146,4 +2146,152 @@ describe('BatchWritingPersonStore', () => {
             expect(fetchedPerson?.properties).toEqual({ name: 'Batch2Person', newProp: 'value' })
         })
     })
+
+    describe('prefetchPersons', () => {
+        it('should fetch persons in a single batched query and populate both caches', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const person1 = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1, person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should have called fetchPersonsByDistinctIds once with both entries
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Both caches should be populated
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(person1)
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toEqual(person2)
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:2`)).toBeDefined()
+        })
+
+        it('should cache null in check cache only for persons not found', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const person1 = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Only return person1, not person2
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person1])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Check cache: person1 should be cached, person2 should be null
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(person1)
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toBeNull()
+
+            // Update cache: only person1 should be cached (no null for missing)
+            expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
+            expect(personStoreForBatch.getUpdateCache().has(`${teamId}:2`)).toBe(false)
+        })
+
+        it('should skip entries already in check cache', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate check cache for user-1
+            const existingPerson = { ...person, id: '1', team_id: teamId }
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-1`, existingPerson)
+
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should only fetch user-2 since user-1 was already cached
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }])
+        })
+
+        it('should skip entries already in update cache', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate by fetching for update
+            mockRepo.fetchPerson.mockResolvedValueOnce(person)
+            await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            const person2 = { ...person, id: '2', team_id: teamId, distinct_id: 'user-2' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([person2])
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            // Should only fetch user-2 since user-1 was already in update cache
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }])
+        })
+
+        it('should do nothing for empty input', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            await personStoreForBatch.prefetchPersons([])
+
+            expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('should do nothing when all entries are already cached', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            // Pre-populate cache
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-1`, person)
+            personStoreForBatch.getCheckCache().set(`${teamId}:user-2`, null)
+
+            await personStoreForBatch.prefetchPersons([
+                { teamId, distinctId: 'user-1' },
+                { teamId, distinctId: 'user-2' },
+            ])
+
+            expect(mockRepo.fetchPersonsByDistinctIds).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForChecking to use prefetched data', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
+
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now fetchForChecking should use cached data
+            const result = await personStoreForBatch.fetchForChecking(teamId, 'user-1')
+
+            // Result is InternalPerson (no distinct_id), so compare without it
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+            // fetchPerson should not have been called since data was prefetched
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForUpdate to use prefetched data', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+            mockRepo.fetchPersonsByDistinctIds.mockResolvedValueOnce([prefetchedPerson])
+
+            await personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now fetchForUpdate should use cached data
+            const result = await personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            // Result is InternalPerson (no distinct_id), so compare without it
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+            // fetchPerson should not have been called since data was prefetched
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+    })
 })
