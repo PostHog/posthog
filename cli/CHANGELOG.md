@@ -1,5 +1,9 @@
 # posthog-cli
 
+# 0.5.17
+
+- feat: add capture command
+
 # 0.5.16
 
 - fix: cut a new version for fixing compromised package
