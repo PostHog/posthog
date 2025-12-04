@@ -12,7 +12,7 @@ from django.conf import settings
 import pyarrow as pa
 import temporalio.common
 
-from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -20,6 +20,7 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.batch_exports.service import BackfillDetails
 from posthog.models import Team
@@ -951,6 +952,14 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
+class UpdatePropertiesToPersonProperties(TraversingVisitor):
+    """Update 'properties' to 'events.poe.properties' in all fields."""
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] == "properties":
+            node.chain = ["events", "poe", "properties", *node.chain[1:]]
+
+
 def compose_filters_clause(
     filters: list[dict[str, str | list[str]]],
     team_id: int,
@@ -981,13 +990,39 @@ def compose_filters_clause(
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
+    exprs = []
+    for filter in filters:
+        match filter["type"]:
+            case "event":
+                exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
+            case "person":
+                # HACK: We are trying to apply the filter to 'events.person_properties' as that would
+                # mimic workflows behavior of applying it to the person in the event but:
+                # 1. PersonPropertyFilter expects a join with the person table, so we can't use it.
+                # 2. 'persons_properties' doesn't exist in the HogQL 'EventsTable', so we can't use it.
+                # So, we treat this filter like an events property filter (for 1) and manually update
+                # the chain to point to 'events.poe.properties' which does exist in 'EventsTable' (for 2).
+                # This will get resolved to 'events.person_properties' in ClickHouse dialect. This is done
+                # using a visitor, which makes it slightly less of a hack.
+                # I attempted to add a new property filter just for us to use here, but it was a mess
+                # requiring multiple unnecessary (for us) file changes, and consistently failed type checks
+                # everywhere in hogql modules.
+                expr = property_to_expr(EventPropertyFilter(**{**filter, **{"type": "event"}}), team=team)
+                UpdatePropertiesToPersonProperties().visit(expr)
+                exprs.append(expr)
 
-    exprs = [property_to_expr(EventPropertyFilter(**filter), team=team) for filter in filters]
+            case "hogql":
+                exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
+            case s:
+                raise TypeError(f"Unknown filter type: '{s}'")
+
     and_expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.
     # TODO: Extend for other models that also wish to implement property filtering.
     select_query = ast.SelectQuery(
-        select=[parse_expr("properties as properties")],
+        select=[
+            parse_expr("properties as properties"),
+        ],
         select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=and_expr,
     )
