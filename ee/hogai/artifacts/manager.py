@@ -1,15 +1,16 @@
 from collections.abc import Sequence
-from typing import cast
+from typing import Literal, TypeVar, cast, overload
 from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from posthog.schema import (
     ArtifactContentType,
     ArtifactMessage,
     ArtifactSource,
+    NotebookArtifactContent,
     VisualizationArtifactContent,
     VisualizationMessage,
 )
@@ -21,6 +22,44 @@ from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.supported_queries import SUPPORTED_QUERY_MODEL_BY_KIND
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
 from ee.models.assistant import AgentArtifact
+
+Content = VisualizationArtifactContent | NotebookArtifactContent
+ContentT = TypeVar("ContentT", bound=Content)
+
+
+class ArtifactTypeConfig[T: BaseModel]:
+    """Configuration for an artifact type, mapping between schema, DB type, and content type."""
+
+    def __init__(
+        self,
+        content_class: type[T],
+        db_type: AgentArtifact.Type,
+        content_type: ArtifactContentType,
+    ):
+        self.content_class = content_class
+        self.db_type = db_type
+        self.content_type = content_type
+
+
+# Registry mapping content classes to their configuration
+# Add new artifact types here - no other changes needed in the manager
+ARTIFACT_TYPE_REGISTRY: dict[type[Content], ArtifactTypeConfig[Content]] = {
+    VisualizationArtifactContent: ArtifactTypeConfig(
+        content_class=VisualizationArtifactContent,
+        db_type=AgentArtifact.Type.VISUALIZATION,
+        content_type=ArtifactContentType.VISUALIZATION,
+    ),
+    NotebookArtifactContent: ArtifactTypeConfig(
+        content_class=NotebookArtifactContent,
+        db_type=AgentArtifact.Type.NOTEBOOK,
+        content_type=ArtifactContentType.NOTEBOOK,
+    ),
+}
+
+# Reverse lookup: DB type -> content class
+DB_TYPE_TO_CONTENT_CLASS: dict[AgentArtifact.Type, type[Content]] = {
+    config.db_type: config.content_class for config in ARTIFACT_TYPE_REGISTRY.values()
+}
 
 
 class ArtifactManager(AssistantContextMixin):
@@ -53,7 +92,7 @@ class ArtifactManager(AssistantContextMixin):
 
     async def create(
         self,
-        content: VisualizationArtifactContent,
+        content: Content,
         name: str,
     ) -> AgentArtifact:
         """Create and persist an artifact."""
@@ -65,9 +104,11 @@ class ArtifactManager(AssistantContextMixin):
         if conversation is None:
             raise ValueError("Conversation not found")
 
+        db_type = self._get_db_type_for_content(content)
+
         artifact = AgentArtifact(
             name=name[:400],
-            type=AgentArtifact.Type.VISUALIZATION,
+            type=db_type,
             data=content.model_dump(exclude_none=True),
             conversation=conversation,
             team=self._team,
@@ -76,16 +117,62 @@ class ArtifactManager(AssistantContextMixin):
 
         return artifact
 
+    def _get_db_type_for_content(self, content: Content) -> AgentArtifact.Type:
+        """Get the database type for a content object using the registry."""
+        for content_class, config in ARTIFACT_TYPE_REGISTRY.items():
+            if isinstance(content, content_class):
+                return config.db_type
+        raise ValueError(f"Unknown content type={type(content).__name__}")
+
+    async def update(
+        self,
+        artifact_id: str,
+        content: Content,
+    ) -> AgentArtifact:
+        """Update an existing artifact."""
+        try:
+            artifact = await AgentArtifact.objects.aget(short_id=artifact_id, team=self._team)
+        except AgentArtifact.DoesNotExist:
+            raise ValueError(f"Artifact with short_id={artifact_id} not found")
+        artifact.data = content.model_dump(exclude_none=True)
+        await artifact.asave()
+        return artifact
+
     # -------------------------------------------------------------------------
     # Content retrieval
     # -------------------------------------------------------------------------
 
-    async def aget_content_by_short_id(self, short_id: str) -> VisualizationArtifactContent:
-        """Retrieve visualization content from an artifact by short_id."""
+    @overload
+    async def aget_content_by_short_id(self, short_id: str, expected_type: type[ContentT]) -> ContentT: ...
+
+    @overload
+    async def aget_content_by_short_id(self, short_id: str, expected_type: None = None) -> Content: ...
+
+    async def aget_content_by_short_id(
+        self, short_id: str, expected_type: type[ContentT] | None = None
+    ) -> Content | ContentT:
+        """Retrieve artifact content by short_id.
+
+        Args:
+            short_id: The artifact's short ID.
+            expected_type: Optional content class to validate and narrow the return type.
+                          If provided, raises TypeError if the content doesn't match.
+
+        Returns:
+            The artifact content, narrowed to expected_type if provided.
+
+        Raises:
+            AgentArtifact.DoesNotExist: If artifact not found.
+            TypeError: If expected_type provided but content doesn't match.
+        """
         contents = await self._afetch_artifact_contents([short_id])
         content = contents.get(short_id)
         if content is None:
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
+        if expected_type is not None and not isinstance(content, expected_type):
+            raise TypeError(
+                f"Expected content type={expected_type.__name__}, got content type={type(content).__name__}"
+            )
         return content
 
     async def aget_enriched_message(
@@ -94,9 +181,10 @@ class ArtifactManager(AssistantContextMixin):
         state_messages: Sequence[AssistantMessageUnion] | None = None,
     ) -> ArtifactMessage | None:
         """
-        Convert an artifact message to a visualization artifact message.
+        Convert an artifact message to an enriched artifact message.
         Fetches content based on source: State (from messages), Artifact (from DB), or Insight (from DB).
         """
+        # Handle visualization artifacts
         if message.source == ArtifactSource.STATE:
             if state_messages is None:
                 raise ValueError("state_messages required for State source")
@@ -104,54 +192,65 @@ class ArtifactManager(AssistantContextMixin):
         else:
             messages_for_lookup = [message]
 
-        contents = await self.aget_contents_by_message_id(messages_for_lookup)
+        contents = await self.aget_contents_by_id(messages_for_lookup, aggregate_by="message_id")
         content = contents.get(message.id or "")
 
         if content is None:
             return None
 
-        return self._to_visualization_artifact_message(message, content)
+        return self._to_artifact_message(message, content)
 
-    async def aget_contents_by_message_id(
-        self, messages: Sequence[AssistantMessageUnion]
-    ) -> dict[str, VisualizationArtifactContent]:
+    async def aget_contents_by_id(
+        self,
+        messages: Sequence[AssistantMessageUnion],
+        aggregate_by: Literal["message_id", "artifact_id"] = "message_id",
+        filter_by_artifact_ids: list[str] | None = None,
+    ) -> dict[str, Content]:
         """
         Get artifact content for all artifact messages, keyed by message ID.
-        """
-        result: dict[str, VisualizationArtifactContent] = {}
 
+        If filter_by_artifact_ids is provided, only return contents for the given artifact IDs.
+        """
+        result: dict[str, Content] = {}
         # Collect IDs by source
         artifact_ids: list[str] = []
         insight_ids: list[str] = []
-        artifact_id_to_message_id: dict[str, str] = {}
-        insight_id_to_message_id: dict[str, str] = {}
+        artifact_id_to_aggregation_id: dict[str, str] = {}
+        insight_id_to_aggregation_id: dict[str, str] = {}
 
         for message in messages:
             if not isinstance(message, ArtifactRefMessage):
                 continue
             if not message.id:
                 continue
+            aggregation_id = message.id if aggregate_by == "message_id" else message.artifact_id
             if message.source == ArtifactSource.STATE:
                 content = self._content_from_state(message.artifact_id, messages)
                 if content:
-                    result[message.id] = content
+                    result[aggregation_id] = content
             elif message.source == ArtifactSource.ARTIFACT:
                 artifact_ids.append(message.artifact_id)
-                artifact_id_to_message_id[message.artifact_id] = message.id
+                artifact_id_to_aggregation_id[message.artifact_id] = aggregation_id
             elif message.source == ArtifactSource.INSIGHT:
                 insight_ids.append(message.artifact_id)
-                insight_id_to_message_id[message.artifact_id] = message.id
+                insight_id_to_aggregation_id[message.artifact_id] = aggregation_id
+
+        if filter_by_artifact_ids:
+            artifact_ids = [aid for aid in artifact_ids if aid in filter_by_artifact_ids]
+            insight_ids = [aid for aid in insight_ids if aid in filter_by_artifact_ids]
 
         # Batch fetch from DB
         artifact_contents = await self._afetch_artifact_contents(artifact_ids)
         insight_contents = await self._afetch_insight_contents(insight_ids)
 
-        for artifact_id, content in artifact_contents.items():
-            if message_id := artifact_id_to_message_id.get(artifact_id):
-                result[message_id] = content
-        for insight_id, content in insight_contents.items():
-            if message_id := insight_id_to_message_id.get(insight_id):
-                result[message_id] = content
+        for artifact_id, artifact_content in artifact_contents.items():
+            artifact_aggregation_id = artifact_id_to_aggregation_id.get(artifact_id)
+            if artifact_aggregation_id:
+                result[artifact_aggregation_id] = artifact_content
+        for insight_id, insight_content in insight_contents.items():
+            insight_aggregation_id = insight_id_to_aggregation_id.get(insight_id)
+            if insight_aggregation_id:
+                result[insight_aggregation_id] = insight_content
 
         return result
 
@@ -161,14 +260,14 @@ class ArtifactManager(AssistantContextMixin):
         """
         Enrich state messages with artifact content.
         """
-        contents_by_id = await self.aget_contents_by_message_id(messages)
+        contents_by_id = await self.aget_contents_by_id(messages, aggregate_by="message_id")
 
         result: list[AssistantMessageUnion | ArtifactMessage] = []
         for message in messages:
-            if isinstance(message, ArtifactRefMessage) and message.content_type == ArtifactContentType.VISUALIZATION:
+            if isinstance(message, ArtifactRefMessage):
                 content = contents_by_id.get(message.id or "")
                 if content:
-                    result.append(self._to_visualization_artifact_message(message, content))
+                    result.append(self._to_artifact_message(message, content))
             elif not isinstance(message, VisualizationMessage) and not artifacts_only:
                 # Pass through non-artifact messages, but skip VisualizationMessage (they are already filtered in the state, just a precaution)
                 result.append(message)
@@ -203,9 +302,7 @@ class ArtifactManager(AssistantContextMixin):
                     return None
         return None
 
-    def _to_visualization_artifact_message(
-        self, message: ArtifactRefMessage, content: VisualizationArtifactContent
-    ) -> ArtifactMessage:
+    def _to_artifact_message(self, message: ArtifactRefMessage, content: Content) -> ArtifactMessage:
         """Convert an ArtifactRefMessage to an ArtifactMessage."""
         return ArtifactMessage(
             id=message.id,
@@ -214,16 +311,18 @@ class ArtifactManager(AssistantContextMixin):
             content=content,
         )
 
-    async def _afetch_artifact_contents(self, artifact_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
+    async def _afetch_artifact_contents(self, artifact_ids: list[str]) -> dict[str, Content]:
         """Batch fetch artifact contents from the database."""
         if not artifact_ids:
             return {}
         artifacts = AgentArtifact.objects.filter(short_id__in=artifact_ids, team=self._team)
-        return {
-            artifact.short_id: VisualizationArtifactContent.model_validate(artifact.data)
-            async for artifact in artifacts
-            if artifact.type == AgentArtifact.Type.VISUALIZATION
-        }
+        result: dict[str, Content] = {}
+        async for artifact in artifacts:
+            artifact_type = cast(AgentArtifact.Type, artifact.type)
+            content_class = DB_TYPE_TO_CONTENT_CLASS.get(artifact_type)
+            if content_class:
+                result[artifact.short_id] = content_class.model_validate(artifact.data)
+        return result
 
     async def _afetch_insight_contents(self, insight_ids: list[str]) -> dict[str, VisualizationArtifactContent]:
         """Batch fetch insight contents from the database."""

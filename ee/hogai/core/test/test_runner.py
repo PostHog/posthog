@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -11,6 +12,7 @@ from parameterized import parameterized
 
 from posthog.schema import AssistantEventType, FailureMessage
 
+from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.utils.types.base import AssistantState, PartialAssistantState
 from ee.models.assistant import Conversation
 
@@ -42,6 +44,12 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
         mock_stream_processor = MagicMock()
         mock_stream_processor.mark_id_as_streamed = MagicMock()
 
+        # Create a proper mock graph class that returns a mock when instantiated
+        mock_graph_class = MagicMock()
+        mock_graph_instance = MagicMock()
+        mock_graph_instance.compile_full_graph = MagicMock(return_value=mock_graph)
+        mock_graph_class.return_value = mock_graph_instance
+
         class TestRunner(BaseAgentRunner):
             def get_initial_state(self):
                 return AssistantState(messages=[])
@@ -53,10 +61,9 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             team=self.team,
             conversation=self.conversation,
             user=self.user,
-            graph=mock_graph,
+            graph_class=cast(type[BaseAssistantGraph], mock_graph_class),
             state_type=AssistantState,
             partial_state_type=PartialAssistantState,
-            mode=MagicMock(value="assistant"),
             stream_processor=mock_stream_processor,
         )
 

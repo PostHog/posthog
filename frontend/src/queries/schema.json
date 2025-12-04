@@ -1936,7 +1936,8 @@
                 "filter_session_recordings",
                 "create_insight",
                 "create_form",
-                "agent"
+                "agent",
+                "create_notebook"
             ],
             "type": "string"
         },

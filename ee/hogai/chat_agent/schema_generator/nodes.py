@@ -205,11 +205,14 @@ class SchemaGeneratorNode(AssistantNode, Generic[Q]):
         ]
 
         # Batch fetch all artifact contents (pass full state.messages for State source lookup)
-        artifact_contents = await self.context_manager.artifacts.aget_contents_by_message_id(state.messages)
+        artifact_contents = await self.context_manager.artifacts.aget_contents_by_id(
+            state.messages, aggregate_by="message_id"
+        )
 
         for message in artifact_messages:
             content = artifact_contents.get(message.id or "")
-            if not content:
+            # Only process visualization artifacts
+            if not content or not isinstance(content, VisualizationArtifactContent):
                 continue
             plan = content.description or ""
             query = content.name or ""

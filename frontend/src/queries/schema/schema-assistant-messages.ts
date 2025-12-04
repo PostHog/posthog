@@ -378,6 +378,7 @@ export type AssistantTool =
     | 'create_insight'
     | 'create_form'
     | 'agent'
+    | 'create_notebook'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
