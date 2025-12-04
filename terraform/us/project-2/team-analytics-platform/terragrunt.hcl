@@ -4,11 +4,11 @@ include "root" {
 }
 
 include "region" {
-  path   = "../terragrunt.hcl"
+  path   = "../../terragrunt.hcl"
   expose = true
 }
 
 include "project" {
-  path   = "./terragrunt.hcl"
+  path   = "../terragrunt.hcl"
   expose = true
 }
