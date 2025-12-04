@@ -141,13 +141,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     } else {
                         const source = sources[0]
 
-                        if (source.source === SnapshotSourceType.blob) {
+                        if (source.source === SnapshotSourceType.blob_v2_lts) {
                             if (!source.blob_key) {
                                 throw new Error('Missing key')
                             }
-                            params = { blob_key: source.blob_key, source: 'blob' }
-                        } else if (source.source === SnapshotSourceType.blob_v2) {
-                            params = { source: 'blob_v2', blob_key: source.blob_key }
+                            params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
                         } else if (source.source === SnapshotSourceType.file) {
                             // no need to load a file source, it is already loaded
                             return { source }

@@ -218,7 +218,7 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
     describe('deduplicateSnapshots', () => {
         const sources: SessionRecordingSnapshotSource[] = [
             {
-                source: 'blob',
+                source: 'blob_v2',
                 start_timestamp: '2025-05-14T15:37:18.897000Z',
                 end_timestamp: '2025-05-14T15:42:18.378000Z',
                 blob_key: '1',
