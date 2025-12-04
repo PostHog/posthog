@@ -7,23 +7,8 @@ set -euo pipefail
 # services for a faster local dev inner loop
 #
 
-# set exit strategy - ensure subprocesses are killed and ports are released
-cleanup() {
-    trap - SIGINT SIGTERM EXIT
-    if [[ -n "${RS_PID:-}" ]] && kill -0 "$RS_PID" 2>/dev/null; then
-        kill "$RS_PID" 2>/dev/null || true
-        # Wait for process to fully terminate and release ports
-        for i in {1..10}; do
-            kill -0 "$RS_PID" 2>/dev/null || break
-            sleep 0.2
-        done
-        # Force kill if still running
-        kill -9 "$RS_PID" 2>/dev/null || true
-    fi
-    # Kill entire process group as backup
-    kill -- -$$ 2>/dev/null || true
-}
-trap cleanup SIGINT SIGTERM EXIT
+# set exit strategy
+trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
 
 # ensure we have a service name
 if [ -z "$1" ]; then

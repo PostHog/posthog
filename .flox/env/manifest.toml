@@ -17,7 +17,6 @@ freetds = { pkg-path = "freetds" } # For pymssql
 nodejs = { pkg-path = "nodejs_22", pkg-group = "nodejs", version = "22.17.0" } # Same maj.min ver as in Dockerfile; diverges from patch ver
 corepack = { pkg-path = "corepack_22", pkg-group = "nodejs", version = "22.17.0" } # Same maj.min as in Dockerfile; diverges from patch ver
 brotli = { pkg-path = "brotli", pkg-group = "nodejs" }
-zstd = { pkg-path = "zstd", pkg-group = "nodejs" } # For node-rdkafka (librdkafka compression)
 openssl = { pkg-path = "openssl", version = "3.4.1", pkg-group = "openssl" }
 nodemon = { pkg-path = "nodemon" }
 # Rust toolchain (based on https://flox.dev/docs/cookbook/languages/rust/)
@@ -133,6 +132,14 @@ echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv4...\033[0m"
 if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
   echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
   echo -e "    \033[32m✅ /etc/hosts amended for IPv4\033[0m"
+else
+  echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
+fi
+
+echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv6...\033[0m"
+if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
+  echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
+  echo -e "    \033[32m✅ /etc/hosts amended for IPv6\033[0m"
 else
   echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
 fi
