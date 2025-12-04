@@ -14,6 +14,7 @@ export const BLOB_SOURCE_V2: SessionRecordingSnapshotSource = {
     source: 'blob_v2',
     start_timestamp: '2023-08-11T12:03:36.097000Z',
     end_timestamp: '2023-08-11T12:04:52.268000Z',
+    blob_key: '0',
 }
 
 export const EMPTY_PAGINATED_RESPONSE = {
