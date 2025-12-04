@@ -18,7 +18,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
 import {
-    BLOB_SOURCE,
+    BLOB_SOURCE_V2,
     overrideSessionRecordingMocks,
     recordingMetaJson,
     setupSessionRecordingTest,
@@ -35,7 +35,7 @@ describe('sessionRecordingPlayerLogic', () => {
         console.warn = mockWarn
         mockWarn.mockClear()
         setupSessionRecordingTest({
-            snapshotSources: [BLOB_SOURCE],
+            snapshotSources: [BLOB_SOURCE_V2],
         })
         featureFlagLogic.mount()
         logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
