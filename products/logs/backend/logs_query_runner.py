@@ -10,8 +10,10 @@ from posthog.schema import (
     HogQLFilters,
     IntervalType,
     LogPropertyFilter,
+    LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
+    PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
 )
@@ -43,6 +45,88 @@ def parse_search_tokens(search_term: str) -> list[tuple[Literal["positive", "neg
         else:
             results.append(("positive", token))
     return results
+
+
+def _generate_resource_attribute_filters(
+    resource_attribute_filters, *, existing_filters, query_date_range, team, is_negative_filter
+):
+    """
+    Helper to generate an expression which filters resource_fingerprints, either to resource matching
+    a set of filters, or to exclude resources matching a set of filters (negative filters)
+
+    e.g. for a positive filter:
+
+        (resource_fingerprint) in (
+            SELECT ...
+            FROM log_attributes
+            WHERE attribute_key = 'k8s.container.name' and attribute_value = 'nginx'
+        )
+
+        and for a negative filter:
+
+        (resource_fingerprint) not in (
+            SELECT ...
+            FROM log_attributes
+            WHERE attribute_key = 'k8s.container.name' and attribute_value = 'nginx'
+        )
+    """
+    converted_exprs = []
+    for filter in resource_attribute_filters:
+        if is_negative_filter:
+            filter.operator = filter.operator.to_non_negative()
+
+        if filter.operator == PropertyOperator.IS_SET:
+            converted_exprs.append(
+                parse_expr(
+                    "attribute_key = {attribute_key}", placeholders={"attribute_key": ast.Constant(value=filter.key)}
+                )
+            )
+            continue
+
+        filter_expr = property_to_expr(filter, team=team)
+        converted_expr = parse_expr(
+            "attribute_key = {attribute_key} AND {value_expr}",
+            placeholders={"value_expr": filter_expr, "attribute_key": ast.Constant(value=filter.key)},
+        )
+        converted_exprs.append(converted_expr)
+
+    IN_ = "NOT IN" if is_negative_filter else "IN"
+    # AND for positive filters, OR for negative filters
+    # (if you search for k8s.container.name!='contour' AND k8s.container.name!='nginx',
+    #  we change this to k8s.container.name='contour' OR k8s.container.name='nginx')
+    groupBitmapFunc = "groupBitmapOrState" if is_negative_filter else "groupBitmapAndState"
+
+    # this query has two steps - the inner step filters for resource_fingerprints that match ANY attribute filter
+    # e.g. if you filter on k8s.container.name='contour' and k8s.container.restart_count='0'
+    #      the inner query will have two rows, one for each filter
+    #      each row will have a bitmap of resource_fingerprints that match the attribute filter
+    #      this would probably have 3 results for the container name (we run 3 contour containers) and maybe 5000 for restart_count=0
+    #      (99% of our running containers have restart count 0)
+    # The outer step then ANDs together all the inner bitmaps, which results in a list of resources which match all the filters
+    return parse_expr(
+        f"""
+        (resource_fingerprint) {IN_}
+        (
+            SELECT arrayJoin(bitmapToArray({groupBitmapFunc}(resources))) FROM (
+                SELECT
+                    groupBitmapState(resource_fingerprint) as resources,
+                    {{ops}} as ops
+                FROM log_attributes2
+                WHERE
+                    time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
+                    AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
+                    AND {{resource_attribute_filters}} AND {{existing_filters}}
+                    GROUP BY ops
+            )
+        )
+    """,
+        placeholders={
+            **query_date_range.to_placeholders(),
+            "existing_filters": ast.And(exprs=existing_filters),
+            "resource_attribute_filters": ast.Or(exprs=converted_exprs),
+            "ops": ast.Array(exprs=converted_exprs),
+        },
+    )
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
@@ -81,6 +165,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             #
             # for now we'll just check str and float as we need a decent UI for datetime filtering.
             for property_filter in self.query.filterGroup.values[0].values:
+                # we only do the type mapping for log attributes
+                if property_filter.type != LogPropertyFilterType.ATTRIBUTE:
+                    continue
+
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
                     property_type = "str"
                     if isinstance(property_filter.value, list):
@@ -103,7 +191,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     LogPropertyFilter(
                         key=filter_key,
                         operator=PropertyOperator.IS_SET,
-                        type="log",
+                        type=LogPropertyFilterType.ATTRIBUTE,
                     ),
                 )
 
@@ -197,9 +285,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         return final_query
 
     def where(self):
-        exprs: list[ast.Expr] = [
-            ast.Placeholder(expr=ast.Field(chain=["filters"])),
-        ]
+        exprs: list[ast.Expr] = []
 
         if self.query.severityLevels:
             exprs.append(
@@ -250,7 +336,69 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     )
 
         if self.query.filterGroup:
-            exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
+            # split out attribute and resource attribute filters
+            attribute_filters = []
+            log_filters = []
+            resource_attribute_positive_filters = []
+            resource_attribute_negative_filters = []
+
+            for property_group in self.query.filterGroup.values:
+                attribute_group_filters = [
+                    f for f in property_group.values if f.type == LogPropertyFilterType.ATTRIBUTE
+                ]
+                log_filters = [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                resource_attribute_group_filters = [
+                    f for f in property_group.values if f.type == LogPropertyFilterType.RESOURCE_ATTRIBUTE
+                ]
+                if attribute_group_filters:
+                    attribute_filters.append(
+                        PropertyGroupFilterValue(type=property_group.type, values=attribute_group_filters)
+                    )
+                if resource_attribute_group_filters:
+                    resource_attribute_positive_filters += [
+                        filter for filter in resource_attribute_group_filters if not filter.operator.is_negative()
+                    ]
+                    resource_attribute_negative_filters += [
+                        filter for filter in resource_attribute_group_filters if filter.operator.is_negative()
+                    ]
+
+            negative_resource_filter = ast.Constant(value=True)
+            # generate a query which excludes all the resources which match a negative filter
+            # e.g. if you filter k8s.container.name != "nginx", this will return
+            #      (resource_fingerprint) NOT IN (<query which returns resources which DO have k8s.container.name = "nginx">)
+            if resource_attribute_negative_filters:
+                negative_resource_filter = _generate_resource_attribute_filters(
+                    resource_attribute_negative_filters,
+                    team=self.team,
+                    existing_filters=exprs,
+                    query_date_range=self.query_date_range,
+                    is_negative_filter=True,
+                )
+
+            if resource_attribute_positive_filters:
+                exprs.append(
+                    _generate_resource_attribute_filters(
+                        resource_attribute_positive_filters,
+                        team=self.team,
+                        # negative resource filter is passed in here
+                        existing_filters=[*exprs, negative_resource_filter],
+                        query_date_range=self.query_date_range,
+                        is_negative_filter=False,
+                    )
+                )
+            elif resource_attribute_negative_filters:
+                # If we have both positive and negative filters, the negative filters are applied to the positive filter
+                # query, so we don't need to add them again.
+                # If we ONLY have negative filters, we have to add them to the top level query.
+                exprs.append(negative_resource_filter)
+
+            if attribute_filters:
+                exprs.append(property_to_expr(attribute_filters, team=self.team))
+
+            if log_filters:
+                exprs.append(property_to_expr(log_filters, team=self.team))
+
+        exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.liveLogsCheckpoint:
             exprs.append(

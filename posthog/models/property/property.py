@@ -102,6 +102,8 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "log_entry": ["key", "value"],
     "log": ["key", "value"],
+    "log_attribute": ["key", "value"],
+    "log_resource_attribute": ["key", "value"],
     "flag": ["key", "value"],
     "revenue_analytics": ["key", "value"],
     "behavioral": ["key", "value"],
