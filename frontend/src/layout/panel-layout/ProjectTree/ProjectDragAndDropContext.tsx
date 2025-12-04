@@ -10,7 +10,7 @@ import {
     useSensors,
 } from '@dnd-kit/core'
 import { useActions, useValues } from 'kea'
-import { createContext, useContext, useMemo, useState } from 'react'
+import { createContext, useContext, useState } from 'react'
 
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
@@ -83,7 +83,7 @@ export function useProjectDragState(): DragContextValue {
 }
 
 export function ProjectDragAndDropProvider({ children }: { children: React.ReactNode }): JSX.Element {
-    const { sortedItems } = useValues(projectTreeDataLogic)
+    const { itemsByRef, itemsByHref, itemsByPath } = useValues(projectTreeDataLogic)
     const { moveItem } = useActions(projectTreeDataLogic)
     const sensors = useSensors(
         useSensor(MouseSensor, {
@@ -95,43 +95,27 @@ export function ProjectDragAndDropProvider({ children }: { children: React.React
     )
     const [activeItem, setActiveItem] = useState<FileSystemEntry | null>(null)
 
-    const itemsByIdentifier = useMemo(() => {
-        const keyedByRef: Record<string, FileSystemEntry> = {}
-        const keyedByHref: Record<string, FileSystemEntry> = {}
-
-        for (const item of sortedItems) {
-            if (item.ref) {
-                keyedByRef[`${item.type ?? 'unknown'}::${item.ref}`] = item
-            }
-            if (item.href) {
-                keyedByHref[item.href] = item
-            }
-        }
-
-        return { keyedByRef, keyedByHref }
-    }, [sortedItems])
-
     const resolveEntry = (identifier?: ProjectDragIdentifier): FileSystemEntry | null => {
         if (!identifier) {
             return null
         }
 
         if (identifier.type && identifier.ref) {
-            const keyed = itemsByIdentifier.keyedByRef[`${identifier.type}::${identifier.ref}`]
+            const keyed = itemsByRef[`${identifier.type}::${identifier.ref}`]
             if (keyed) {
                 return keyed
             }
         }
 
         if (identifier.href) {
-            const keyed = itemsByIdentifier.keyedByHref[identifier.href]
+            const keyed = itemsByHref[identifier.href]
             if (keyed) {
                 return keyed
             }
         }
 
-        if (identifier.path) {
-            return sortedItems.find((item) => item.path === identifier.path) ?? null
+        if (identifier.path !== undefined) {
+            return itemsByPath[identifier.path] ?? null
         }
 
         return null

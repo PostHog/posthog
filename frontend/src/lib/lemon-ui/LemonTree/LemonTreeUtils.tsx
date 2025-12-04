@@ -122,7 +122,6 @@ export const TreeNodeDisplayIcon = ({
                         ICON_CLASSES,
                         'z-2 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 transition-opacity duration-150'
                     )}
-                    data-lemon-tree-expand-toggle
                 >
                     <IconChevronRight className={cn('transition-transform size-4', isOpen ? 'rotate-90' : '')} />
                 </div>
@@ -150,7 +149,6 @@ type DragAndDropProps = {
 type DraggableProps = DragAndDropProps & {
     enableDragging: boolean
     className?: string
-    data?: any
 }
 
 export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
@@ -160,7 +158,6 @@ export const TreeNodeDraggable = (props: DraggableProps): JSX.Element => {
         setNodeRef,
     } = useDraggable({
         id: props.id,
-        data: props.data,
     })
 
     // Filter out the Enter key from drag listeners

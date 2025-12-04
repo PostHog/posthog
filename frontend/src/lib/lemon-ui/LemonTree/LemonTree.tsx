@@ -1,13 +1,4 @@
-import {
-    DndContext,
-    DragEndEvent,
-    DragOverlay,
-    MouseSensor,
-    TouchSensor,
-    useDndMonitor,
-    useSensor,
-    useSensors,
-} from '@dnd-kit/core'
+import { DndContext, DragEndEvent, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors } from '@dnd-kit/core'
 import * as AccordionPrimitive from '@radix-ui/react-accordion'
 import React, {
     CSSProperties,
@@ -125,10 +116,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     showFolderActiveState?: boolean
     /** Whether to enable drag and drop of items. */
     enableDragAndDrop?: boolean
-    /** Whether to rely on an external DnD context instead of creating one internally. */
-    useExternalDndContext?: boolean
-    /** Optional drag data to attach to items when dragging. */
-    getItemDragData?: (item: TreeDataItem) => any
     /** The select mode of the tree. */
     selectMode?: LemonTreeSelectMode
     /** Whether the item is active, useful for highlighting the current item against a URL path,
@@ -138,10 +125,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     isItemDraggable?: (item: TreeDataItem) => boolean
     /** Whether the item can accept drops */
     isItemDroppable?: (item: TreeDataItem) => boolean
-    /** Optional override for the draggable id used with dnd-kit */
-    getItemDraggableId?: (item: TreeDataItem) => string
-    /** Optional override for the droppable id used with dnd-kit */
-    getItemDroppableId?: (item: TreeDataItem) => string
     /** The side action to render for the item. */
     itemSideAction?: (item: TreeDataItem) => React.ReactNode | undefined
     /** The button to render for the item's side action. */
@@ -166,8 +149,6 @@ type LemonTreeBaseProps = Omit<HTMLAttributes<HTMLDivElement>, 'onDragEnd'> & {
     renderItemIcon?: (item: TreeDataItem) => React.ReactNode | undefined
     /** Set the IDs of the expanded items. */
     onSetExpandedItemIds?: (ids: string[]) => void
-    /** Handle a click on a folder row before toggling expansion. */
-    onFolderRowClick?: (folder: TreeDataItem, event: React.MouseEvent<HTMLElement>) => void
     /** Pass true if you need to wait for async events to populate the tree.
      * If present and true will trigger: scrolling to focused item */
     isFinishedBuildingTreeData?: boolean
@@ -204,11 +185,7 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     /** Whether to expand all folders by default. Defaults to false. Disabled folders will not be expanded. */
     expandAllFolders?: boolean
     /** handler for folder clicks.*/
-    onFolderClick?: (
-        folder: TreeDataItem | undefined,
-        isExpanded: boolean,
-        event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
-    ) => void
+    onFolderClick?: (folder: TreeDataItem | undefined, isExpanded: boolean) => void
     /** handler for node clicks. */
     onItemClick?: (
         node: TreeDataItem | undefined,
@@ -218,8 +195,6 @@ export type LemonTreeProps = LemonTreeBaseProps & {
     contentRef?: React.RefObject<HTMLElement>
     /** Handler for when a drag operation completes */
     onDragEnd?: (dragEvent: DragEndEvent) => void
-    /** Custom droppable id for the root */
-    rootDroppableId?: string
     /** Whether the item is checked. */
     isItemChecked?: (item: TreeDataItem, checked: boolean) => boolean | undefined
     /** Whether to disable the scrollable shadows. */
@@ -264,21 +239,17 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
             renderItemIcon,
             expandedItemIds,
             onSetExpandedItemIds,
-            onFolderRowClick,
             defaultNodeIcon,
             showFolderActiveState,
             isItemActive,
             isItemDraggable,
             isItemDroppable,
-            getItemDraggableId,
-            getItemDroppableId,
             depth = 0,
             itemSideAction,
             itemSideActionButton,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
-            getItemDragData,
             disableKeyboardInput,
             itemContextMenu,
             selectMode = 'default',
@@ -403,13 +374,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         if (item.disabledReason) {
                                             e.preventDefault()
                                         } else {
-                                            if (isFolder && onFolderRowClick) {
-                                                onFolderRowClick(item, e)
-                                            }
-
-                                            if (e.defaultPrevented) {
-                                                return
-                                            }
                                             handleClick(item, false, e)
                                         }
                                     }}
@@ -529,15 +493,12 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         </ContextMenu>
                     )
 
-                    const draggableId = getItemDraggableId?.(item) ?? item.id
-
-                    if (enableDragAndDrop && isItemDraggable?.(item) && draggableId) {
+                    if (enableDragAndDrop && isItemDraggable?.(item) && item.id) {
                         button = (
                             <TreeNodeDraggable
-                                id={draggableId}
+                                id={item.id}
                                 enableDragging
                                 className="h-[var(--lemon-tree-button-height)]"
-                                data={getItemDragData?.(item)}
                             >
                                 {button}
                             </TreeNodeDraggable>
@@ -658,7 +619,6 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                             renderItem={renderItem}
                                             renderItemTooltip={renderItemTooltip}
                                             renderItemIcon={renderItemIcon}
-                                            onFolderRowClick={onFolderRowClick}
                                             itemSideAction={itemSideAction}
                                             depth={depth + 1}
                                             isItemActive={isItemActive}
@@ -688,11 +648,9 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     // Wrap content in Draggable/Droppable if needed
                     let wrappedContent = content
 
-                    const droppableId = getItemDroppableId?.(item) ?? item.id
-
-                    if (isItemDroppable?.(item) && droppableId) {
+                    if (isItemDroppable?.(item)) {
                         wrappedContent = (
-                            <TreeNodeDroppable id={droppableId} isDroppable={item.record?.type === 'folder'}>
+                            <TreeNodeDroppable id={item.id} isDroppable={item.record?.type === 'folder'}>
                                 {wrappedContent}
                             </TreeNodeDroppable>
                         )
@@ -724,14 +682,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             onSetExpandedItemIds,
             isItemDraggable,
             isItemDroppable,
-            getItemDraggableId,
-            getItemDroppableId,
             itemSideAction,
             isItemEditing,
             onItemNameChange,
             enableDragAndDrop = false,
-            useExternalDndContext = false,
-            getItemDragData,
             itemContextMenu,
             isFinishedBuildingTreeData,
             selectMode = 'default',
@@ -743,9 +697,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             tableModeHeader,
             tableModeRow,
             size = 'default',
-            onFolderRowClick,
             disableScroll = false,
-            rootDroppableId,
             ...props
         },
         ref: ForwardedRef<LemonTreeRef>
@@ -1001,7 +953,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             ? expandedItemIdsState.filter((id) => id !== item.id)
                             : [...expandedItemIdsState, item.id]
                         setExpandedItemIdsState(newExpandedIds)
-                        onFolderClick(item, expandedItemIdsState.includes(item.id), event)
+                        onFolderClick(item, expandedItemIdsState.includes(item.id))
                     }
                 }
                 if (item?.onClick) {
@@ -1065,7 +1017,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         ) {
                             // If folder is not expanded, expand it
                             if (!expandedItemIdsState.includes(currentItem.id)) {
-                                onFolderClick?.(currentItem, false, e)
+                                onFolderClick?.(currentItem, false)
                                 const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
                                 setExpandedItemIdsState(newExpandedIds)
                                 onSetExpandedItemIds && onSetExpandedItemIds(newExpandedIds)
@@ -1235,11 +1187,11 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             if (currentItem.children && currentItem.children?.length >= 0) {
                                 // Toggle folder expanded state
                                 if (expandedItemIdsState.includes(currentItem.id)) {
-                                    onFolderClick?.(currentItem, false, e)
+                                    onFolderClick?.(currentItem, false)
                                     // Close folder by removing from expanded IDs
                                     setExpandedItemIdsState(expandedItemIdsState.filter((id) => id !== currentItem.id))
                                 } else {
-                                    onFolderClick?.(currentItem, true, e)
+                                    onFolderClick?.(currentItem, true)
                                     // Open folder by adding to expanded IDs
                                     const newExpandedIds = [...new Set([...expandedItemIdsState, currentItem.id])]
                                     setExpandedItemIdsState(newExpandedIds)
@@ -1348,9 +1300,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
 
         const findItem = (items: TreeDataItem[], itemId: string): TreeDataItem | undefined => {
             for (const item of items) {
-                const dragId = getItemDraggableId?.(item) ?? item.id
-
-                if (dragId === itemId) {
+                if (item.id === itemId) {
                     return item
                 } else if (item.children) {
                     const found = findItem(item.children, itemId)
@@ -1362,23 +1312,17 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
             return undefined
         }
 
-        const LemonTreeDndMonitor = (): null => {
-            // eslint-disable-next-line rules-of-hooks
-            useDndMonitor({
-                onDragStart: (event) => {
-                    if (!enableDragAndDrop || !useExternalDndContext) {
-                        return
-                    }
+        return (
+            <DndContext
+                sensors={sensors}
+                onDragStart={(event) => {
                     setIsDragging(true)
                     const item = findItem(data, String(event.active?.id))
                     if (item) {
                         setActiveDragItem(item)
                     }
-                },
-                onDragEnd: (dragEvent) => {
-                    if (!enableDragAndDrop || !useExternalDndContext) {
-                        return
-                    }
+                }}
+                onDragEnd={(dragEvent) => {
                     const active = dragEvent.active?.id
                     const over = dragEvent.over?.id
                     if (active && active === over) {
@@ -1387,21 +1331,8 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         onDragEnd?.(dragEvent)
                     }
                     setIsDragging(false)
-                },
-                onDragCancel: () => {
-                    if (!enableDragAndDrop || !useExternalDndContext) {
-                        return
-                    }
-                    setIsDragging(false)
-                },
-            })
-
-            return null
-        }
-
-        const treeContent = (
-            <>
-                <LemonTreeDndMonitor />
+                }}
+            >
                 <ScrollableShadows
                     ref={containerRef}
                     direction="vertical"
@@ -1437,7 +1368,7 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                     )}
 
                     <TreeNodeDroppable
-                        id={rootDroppableId ?? ''}
+                        id=""
                         isDroppable={enableDragAndDrop}
                         isRoot
                         isDragging={isDragging}
@@ -1459,7 +1390,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                                 // Call prop callback if provided
                                 onSetExpandedItemIds?.(ids)
                             }}
-                            onFolderRowClick={onFolderRowClick}
                             defaultNodeIcon={defaultNodeIcon}
                             showFolderActiveState={showFolderActiveState}
                             itemSideAction={itemSideAction}
@@ -1471,7 +1401,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                             isItemDraggable={isItemDraggable}
                             isItemDroppable={isItemDroppable}
                             enableDragAndDrop={enableDragAndDrop}
-                            getItemDragData={getItemDragData}
                             disableKeyboardInput={(disable) => {
                                 setDisableKeyboardInput(disable)
                             }}
@@ -1525,35 +1454,6 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                         </ButtonPrimitive>
                     )}
                 </DragOverlay>
-            </>
-        )
-
-        if (useExternalDndContext) {
-            return treeContent
-        }
-
-        return (
-            <DndContext
-                sensors={sensors}
-                onDragStart={(event) => {
-                    setIsDragging(true)
-                    const item = findItem(data, String(event.active?.id))
-                    if (item) {
-                        setActiveDragItem(item)
-                    }
-                }}
-                onDragEnd={(dragEvent) => {
-                    const active = dragEvent.active?.id
-                    const over = dragEvent.over?.id
-                    if (active && active === over) {
-                        dragEvent.activatorEvent.stopPropagation()
-                    } else {
-                        onDragEnd?.(dragEvent)
-                    }
-                    setIsDragging(false)
-                }}
-            >
-                {treeContent}
             </DndContext>
         )
     }

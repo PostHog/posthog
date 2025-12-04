@@ -132,7 +132,7 @@ export interface ExplorerSearchResults {
 export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
 
 const INITIAL_SECTION_LIMIT = 5
-const SINGLE_CATEGORY_SECTION_LIMIT = 15
+const SINGLE_CATEGORY_SECTION_LIMIT = 25
 const INITIAL_RECENTS_LIMIT = 5
 const PAGINATION_LIMIT = 10
 const GROUP_SEARCH_LIMIT = 5
