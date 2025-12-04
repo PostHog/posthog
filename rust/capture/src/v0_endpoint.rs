@@ -470,6 +470,7 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
+        session_id: None,
         ip: resolved_ip,
         data,
         now: context
@@ -628,6 +629,7 @@ pub async fn process_replay_events<'a>(
     let event = CapturedEvent {
         uuid,
         distinct_id: distinct_id.clone(),
+        session_id: Some(session_id_str.to_string()),
         ip: context.client_ip.clone(),
         data: json!({
             "event": "$snapshot_items",
