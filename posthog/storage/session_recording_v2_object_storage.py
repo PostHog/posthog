@@ -144,11 +144,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             s3_response = self.aws_client.get_object(**kwargs)
             return s3_response["Body"].read()
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -163,11 +164,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             s3_response = self.aws_client.get_object(**kwargs)
             return s3_response["Body"].read()
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -181,11 +183,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 Body=data,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.write_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -206,11 +209,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
 
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.fetch_file_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -225,11 +229,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             return s3_response["Body"].read()
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.fetch_file_bytes_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -269,11 +274,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.fetch_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -283,11 +289,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.fetch_block_bytes_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -318,11 +325,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
         except BlockDeleteError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.delete_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
@@ -334,11 +342,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 Filename=filename,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.download_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -350,11 +359,12 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
                 Filename=filename,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "session_recording_v2_object_storage.upload_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
@@ -375,11 +385,12 @@ class AsyncSessionRecordingV2ObjectStorage:
             s3_response = await self.aws_client.get_object(**kwargs)
             return await s3_response["Body"].read()
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.read_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -394,11 +405,12 @@ class AsyncSessionRecordingV2ObjectStorage:
             s3_response = await self.aws_client.get_object(**kwargs)
             return await s3_response["Body"].read()
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.read_all_bytes_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             return None
@@ -412,11 +424,12 @@ class AsyncSessionRecordingV2ObjectStorage:
                 Body=data,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.write_failed",
                 bucket=self.bucket,
                 file_name=key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise Exception("Failed to write recording data") from e
@@ -436,11 +449,12 @@ class AsyncSessionRecordingV2ObjectStorage:
             return snappy.decompress(file_body).decode("utf-8")
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.fetch_file_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
                 s3_response=s3_response,
             )
             raise FileFetchError(f"Failed to read and decompress file: {str(e)}")
@@ -455,11 +469,12 @@ class AsyncSessionRecordingV2ObjectStorage:
             return await s3_response["Body"].read()
         except Exception as e:
             posthoganalytics.tag("bucket", self.bucket)
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.fetch_file_bytes_failed",
                 bucket=self.bucket,
                 file_name=blob_key,
                 error=e,
+                exc_info=False,
             )
             raise FileFetchError(f"Failed to read compressed file: {str(e)}")
 
@@ -499,11 +514,12 @@ class AsyncSessionRecordingV2ObjectStorage:
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.fetch_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read and decompress block: {str(e)}")
 
@@ -513,11 +529,12 @@ class AsyncSessionRecordingV2ObjectStorage:
         except BlockFetchError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.fetch_block_bytes_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockFetchError(f"Failed to read compressed block: {str(e)}")
 
@@ -548,11 +565,12 @@ class AsyncSessionRecordingV2ObjectStorage:
         except BlockDeleteError:
             raise
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.delete_block_failed",
                 bucket=self.bucket,
                 block_url=block_url,
                 error=e,
+                exc_info=False,
             )
             raise BlockDeleteError(f"Failed to delete block: {str(e)}")
 
@@ -564,11 +582,12 @@ class AsyncSessionRecordingV2ObjectStorage:
                 Filename=filename,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.download_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileDownloadError(f"Failed to download file: {str(e)}")
 
@@ -580,11 +599,12 @@ class AsyncSessionRecordingV2ObjectStorage:
                 Filename=filename,
             )
         except Exception as e:
-            logger.info(
+            logger.exception(
                 "async_session_recording_v2_object_storage.upload_file_failed",
                 bucket=self.bucket,
                 key=key,
                 error=e,
+                exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
