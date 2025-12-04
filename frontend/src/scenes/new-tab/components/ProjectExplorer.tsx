@@ -10,16 +10,13 @@ import {
     useCallback,
     useEffect,
     useMemo,
-    useRef,
     useState,
 } from 'react'
 
 import { IconChevronRight, IconEllipsis } from '@posthog/icons'
 import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
-import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenu, ContextMenuContent, ContextMenuGroup, ContextMenuTrigger } from 'lib/ui/ContextMenu/ContextMenu'
 import {
@@ -30,7 +27,6 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 
-import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import {
     ProjectDragData,
     projectDragDataFromEntry,
@@ -39,12 +35,12 @@ import {
 } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { MenuItems } from '~/layout/panel-layout/ProjectTree/menus/MenuItems'
-import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { getItemId, joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { ProjectTreeLogicProps } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { getItemId, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { TreeDataItem } from '~/lib/lemon-ui/LemonTree/LemonTree'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 
-import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabSceneLogic'
+import { projectExplorerLogic } from './projectExplorerLogic'
 
 const CHILD_INDENT_PX = 24
 
@@ -63,14 +59,6 @@ const convertEntryToTreeDataItem = (entry: EntryWithProtocol): TreeDataItem => {
     }
 }
 
-interface ExplorerRow {
-    entry: FileSystemEntry
-    depth: number
-    isParentNavigation?: boolean
-    navigatesToSearch?: boolean
-    isSearchResult?: boolean
-}
-
 export function ProjectExplorer({
     tabId,
     listboxRef,
@@ -78,27 +66,41 @@ export function ProjectExplorer({
     tabId: string
     listboxRef: React.RefObject<ListBoxHandle>
 }): JSX.Element | null {
-    const projectTreeLogicProps = useMemo(() => getNewTabProjectTreeLogicProps(tabId), [tabId])
-    const { checkedItems, folders, folderStates, users, editingItemId } = useValues(
-        projectTreeLogic(projectTreeLogicProps)
-    )
-    const { loadFolder, rename, setEditingItemId } = useActions(projectTreeLogic(projectTreeLogicProps))
+    const logic = useMemo(() => projectExplorerLogic({ tabId }), [tabId])
     const {
+        projectTreeLogicProps,
+        checkedItems,
+        folderStates,
+        editingItemId,
         activeExplorerFolderPath,
         explorerExpandedFolders,
         highlightedExplorerEntryPath,
-        search,
-        explorerSearchResults,
-        explorerSearchResultsLoading,
-    } = useValues(newTabSceneLogic({ tabId }))
-    const { setActiveExplorerFolderPath, toggleExplorerFolderExpansion, setHighlightedExplorerEntryPath } = useActions(
-        newTabSceneLogic({ tabId })
-    )
-    const hasActiveFolder = activeExplorerFolderPath !== null
-    const explorerFolderPath = activeExplorerFolderPath ?? ''
+        droppableScope,
+        rootDroppableId,
+        hasActiveFolder,
+        explorerFolderPath,
+        displayRows,
+        contentRows,
+        shouldUseSearchRows,
+        isLoadingRows,
+        rowGridClass,
+        isSearchActive,
+        highlightedFocusKey,
+        getEntryFolderLabel,
+        highlightSearchText,
+        getParentRowFocusKey,
+        renderCreatedBy,
+        renderCreatedAt,
+    } = useValues(logic)
+    const {
+        loadFolder,
+        rename,
+        setEditingItemId,
+        setActiveExplorerFolderPath,
+        toggleExplorerFolderExpansion,
+        setHighlightedExplorerEntryPath,
+    } = useActions(logic)
     const { activeItem } = useProjectDragState()
-    const droppableScope = useMemo(() => `project-explorer-${tabId}`, [tabId])
-    const rootDroppableId = projectDroppableId(explorerFolderPath, 'project://', `${droppableScope}-root`)
     const { setNodeRef: setRootDropZoneRef, isOver: isOverRoot } = useDroppable({ id: rootDroppableId })
     const isDragging = !!activeItem
     const [pendingFocusKey, setPendingFocusKey] = useState<string | null>(null)
@@ -111,83 +113,12 @@ export function ProjectExplorer({
         }
     }, [listboxRef])
 
-    useEffect(() => {
-        if (activeExplorerFolderPath === null) {
-            return
-        }
-        if (!folders[activeExplorerFolderPath] && folderStates[activeExplorerFolderPath] !== 'loading') {
-            loadFolder(activeExplorerFolderPath)
-        }
-    }, [activeExplorerFolderPath, folders, folderStates, loadFolder])
-
-    const currentEntries = hasActiveFolder ? folders[explorerFolderPath] || [] : []
-
-    const rows = useMemo(() => {
-        const buildRowsRecursive = (entries: FileSystemEntry[], depth: number): ExplorerRow[] => {
-            const sorted = [...entries].sort(sortFilesAndFolders)
-            const collectedRows: ExplorerRow[] = []
-            for (const entry of sorted) {
-                collectedRows.push({ entry, depth })
-                if (entry.type === 'folder' && explorerExpandedFolders[entry.path]) {
-                    const children = folders[entry.path] || []
-                    collectedRows.push(...buildRowsRecursive(children, depth + 1))
-                }
-            }
-            return collectedRows
-        }
-
-        return buildRowsRecursive(currentEntries, 0)
-    }, [currentEntries, explorerExpandedFolders, folders])
-    const trimmedSearch = search.trim()
-    const isSearchActive = trimmedSearch !== '' && hasActiveFolder
-    const searchMatchesCurrentFolder =
-        explorerSearchResults.folderPath === explorerFolderPath && explorerSearchResults.searchTerm !== ''
-    const shouldUseSearchRows = isSearchActive && searchMatchesCurrentFolder
-    const searchRows = useMemo<ExplorerRow[]>(() => {
-        if (!shouldUseSearchRows) {
-            return []
-        }
-
-        return [...(explorerSearchResults.results || [])]
-            .sort(sortFilesAndFolders)
-            .map((entry) => ({ entry, depth: 0, isSearchResult: true }))
-    }, [explorerSearchResults.results, shouldUseSearchRows])
-    const isLoadingCurrentFolder = hasActiveFolder ? folderStates[explorerFolderPath] === 'loading' : false
-
-    const breadcrumbSegments = splitPath(explorerFolderPath)
-    const parentBreadcrumbSegments = breadcrumbSegments.slice(0, -1)
-    const parentFolderPath = joinPath(parentBreadcrumbSegments)
-    const parentRow: ExplorerRow | null = useMemo(() => {
-        if (!hasActiveFolder) {
-            return null
-        }
-
-        const isAtProjectRoot = breadcrumbSegments.length === 0
-        return {
-            entry: {
-                id: `__parent-${explorerFolderPath || 'root'}`,
-                path: isAtProjectRoot ? explorerFolderPath : parentFolderPath,
-                type: 'folder',
-            },
-            depth: 0,
-            isParentNavigation: true,
-            navigatesToSearch: isAtProjectRoot,
-        }
-    }, [breadcrumbSegments.length, explorerFolderPath, hasActiveFolder, parentFolderPath])
-    const contentRows: ExplorerRow[] = shouldUseSearchRows ? searchRows : rows
-    const displayRows = useMemo<ExplorerRow[]>(
-        () => (parentRow && !shouldUseSearchRows ? [parentRow, ...contentRows] : contentRows),
-        [parentRow, contentRows, shouldUseSearchRows]
-    )
-    const isLoadingRows = isSearchActive ? explorerSearchResultsLoading : isLoadingCurrentFolder
     const handleToggleFolder = (path: string): void => {
         toggleExplorerFolderExpansion(path)
         if (!explorerExpandedFolders[path]) {
             loadFolder(path)
         }
     }
-
-    const getParentRowFocusKey = (folderPath: string): string => `__parent-${folderPath || 'root'}-row`
 
     const handleEntryActivate = (
         entry: FileSystemEntry,
@@ -212,45 +143,6 @@ export function ProjectExplorer({
         }
     }
 
-    const renderCreatedBy = (entry: FileSystemEntry): JSX.Element => {
-        const createdById = entry.meta?.created_by
-        const createdBy = createdById ? users[createdById] : undefined
-        if (!createdBy) {
-            return <span className="text-sm text-muted">—</span>
-        }
-        return (
-            <span className="flex items-center gap-2 min-w-0">
-                <ProfilePicture user={createdBy} size="sm" className="shrink-0" />
-                <span className="text-sm truncate text-primary">
-                    {createdBy.first_name || createdBy.email || 'Unknown'}
-                </span>
-            </span>
-        )
-    }
-
-    const renderCreatedAt = (entry: FileSystemEntry): string =>
-        entry.created_at ? dayjs(entry.created_at).format('MMM D, YYYY') : '—'
-
-    const highlightedFocusKey = useMemo(() => {
-        if (!highlightedExplorerEntryPath) {
-            return null
-        }
-
-        const targetIndex = displayRows.findIndex(({ entry }) => entry.path === highlightedExplorerEntryPath)
-
-        if (targetIndex === -1) {
-            return null
-        }
-
-        const entry = displayRows[targetIndex]?.entry
-        if (!entry) {
-            return null
-        }
-
-        const focusBase = String(entry.id ?? entry.path ?? targetIndex)
-        return `${focusBase}-row`
-    }, [displayRows, highlightedExplorerEntryPath])
-
     useEffect(() => {
         if (!listboxRef.current || !highlightedFocusKey) {
             return
@@ -270,28 +162,9 @@ export function ProjectExplorer({
         }
     }, [displayRows, listboxRef, pendingFocusKey])
 
-    const getEntryFolderLabel = (entry: FileSystemEntry): string => {
-        const segments = splitPath(entry.path)
-        if (segments.length <= 1) {
-            return 'Project root'
-        }
-        return joinPath(segments.slice(0, -1))
-    }
-
-    const highlightSearchText = (text: string): JSX.Element | string => {
-        if (!shouldUseSearchRows || !trimmedSearch) {
-            return text
-        }
-        return <SearchHighlightMultiple string={text} substring={trimmedSearch} />
-    }
-
     if (!hasActiveFolder) {
         return null
     }
-
-    const rowGridClass = shouldUseSearchRows
-        ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,0.85fr)_200px_160px_48px]'
-        : 'grid grid-cols-[minmax(0,1fr)_200px_160px_48px]'
 
     return (
         <div className="flex flex-col gap-3">
