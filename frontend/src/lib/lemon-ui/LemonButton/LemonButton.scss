@@ -1,8 +1,8 @@
 @mixin secondary-variables {
-    --button-border-color: var(--secondary-3000-button-border);
+    --button-border-color: var(--color-border);
     --lemon-button-bg-color-active: var(--color-card);
-    --lemon-button-border-color-hover: var(--secondary-3000-button-border-hover);
-    --lemon-button-frame-bg-color: var(--secondary-3000-frame-bg);
+    --lemon-button-border-color-hover: var(--color-border-strong);
+    --lemon-button-frame-bg-color: var(--color-border-strong);
 }
 
 @mixin size-variables {
@@ -278,7 +278,7 @@
 
             &::before {
                 position: absolute;
-                inset: -1px;
+                inset: -1px -1px 0;
                 z-index: 0;
                 content: '';
                 border: 1px solid var(--button-border-color);
@@ -287,7 +287,7 @@
 
             &::after {
                 position: absolute;
-                inset: -1px -1px calc(var(--lemon-button-chrome-depth) - 1px);
+                inset: -1px -1px 0;
                 z-index: 0;
                 content: '';
                 background: var(--lemon-button-bg-color);

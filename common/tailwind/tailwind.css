@@ -390,8 +390,8 @@
     --color-warning-foreground: var(--color-yellow-700);
 
     /* Destructive color for errors and critical actions */
-    --color-destructive: var(--color-red-50);
-    --color-destructive-foreground: var(--color-red-950);
+    --color-destructive: color-mix(in oklab, var(--color-red-500) 15%, transparent);
+    --color-destructive-foreground: var(--color-red-600);
 
     --color-border: var(--color-posthog-3000-200);
     --color-border-muted: var(--color-posthog-3000-100);

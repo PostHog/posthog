@@ -143,7 +143,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     feature_flag_off: {
         icon: <IconToggleOff className="mt-[2px]" />,
-        iconColor: ['var(--color-bg-fill-switch)'],
+        iconColor: ['var(--color-border-strong)'],
     },
     data_pipeline: {
         icon: <IconPlug />,

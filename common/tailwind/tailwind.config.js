@@ -655,7 +655,7 @@ const config = {
             //     tertiary: 'var(--color-text-tertiary)',
             //     success: 'var(--color-text-success)',
             //     warning: 'var(--color-text-warning)',
-            //     error: 'var(--color-text-error)',
+            //     error: 'var(--color-destructive-foreground)',
             // },
             // borderColor: {
             //     ...commonColors,
