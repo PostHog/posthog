@@ -27784,6 +27784,11 @@
                 "featureFlag": {
                     "type": "string"
                 },
+                "featured": {
+                    "default": false,
+                    "description": "Whether this source should be prominently displayed in onboarding flows",
+                    "type": "boolean"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
@@ -28476,6 +28481,9 @@
                     "type": "string"
                 },
                 "inputBackground": {
+                    "type": "string"
+                },
+                "inputTextColor": {
                     "type": "string"
                 },
                 "maxWidth": {

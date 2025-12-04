@@ -25,6 +25,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
+import { asDisplay } from 'scenes/persons/person-utils'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -925,7 +926,13 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
             (personSearchResults): NewTabTreeDataItem[] => {
                 return personSearchResults.map((person) => {
                     const personId = person.distinct_ids?.[0] || person.uuid || 'unknown'
-                    const displayName = person.properties?.email || personId
+
+                    let displayName: string
+                    try {
+                        displayName = asDisplay(person) || personId
+                    } catch {
+                        displayName = personId
+                    }
                     return {
                         id: `person-${person.uuid}`,
                         name: `${displayName}`,
