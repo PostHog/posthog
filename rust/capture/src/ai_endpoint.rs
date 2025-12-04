@@ -156,12 +156,16 @@ pub async fn ai_handler(
     let event_metadata = retrieve_event_metadata(decompressed_body.clone(), &boundary).await?;
 
     // Step 2: Check token dropper early - before parsing remaining parts
+    // Token dropper silently drops events (returns 200) to avoid alerting clients
     if state
         .token_dropper
         .should_drop(token, &event_metadata.distinct_id)
     {
         report_dropped_events("token_dropper", 1);
-        return Err(CaptureError::BillingLimit);
+        // Return success response with empty accepted_parts to avoid alerting clients
+        return Ok(Json(AIEndpointResponse {
+            accepted_parts: vec![],
+        }));
     }
 
     // Step 3: Check quota limiter - drop if over quota

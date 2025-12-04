@@ -2387,8 +2387,8 @@ async fn test_ai_endpoint_token_dropper_drops_matching_token() {
     // Use the dropped token
     let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
 
-    // Should return 429 Too Many Requests (billing limit)
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    // Should return 200 OK (silently drops to avoid alerting clients)
+    assert_eq!(response.status(), StatusCode::OK);
 
     // Verify no event was published to Kafka
     let events = sink.get_events().await;
@@ -2447,8 +2447,8 @@ async fn test_ai_endpoint_token_dropper_drops_matching_token_and_distinct_id() {
 
     let response = send_multipart_request(&test_client, form, Some("phc_specific_token")).await;
 
-    // Should return 429 Too Many Requests (billing limit)
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    // Should return 200 OK (silently drops to avoid alerting clients)
+    assert_eq!(response.status(), StatusCode::OK);
 
     // Verify no event was published
     let events = sink.get_events().await;
@@ -2487,7 +2487,7 @@ async fn test_ai_endpoint_token_dropper_allows_different_distinct_id() {
 }
 
 #[tokio::test]
-async fn test_ai_endpoint_token_dropper_returns_billing_limit_error_message() {
+async fn test_ai_endpoint_token_dropper_returns_success_with_empty_accepted_parts() {
     // Configure token dropper to drop all events for a specific token
     let token_dropper = TokenDropper::new("phc_dropped_token");
     let (router, _sink) = setup_ai_test_router_with_token_dropper(token_dropper);
@@ -2501,13 +2501,14 @@ async fn test_ai_endpoint_token_dropper_returns_billing_limit_error_message() {
 
     let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
 
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    // Token dropper silently drops - returns 200 OK to avoid alerting clients
+    assert_eq!(response.status(), StatusCode::OK);
 
-    // Verify response body contains billing limit error message
+    // Verify response body contains empty accepted_parts
     let response_text = response.text().await;
     assert!(
-        response_text.contains("billing limit"),
-        "Response should contain 'billing limit' error message, got: {response_text}"
+        response_text.contains(r#""accepted_parts":[]"#),
+        "Response should contain empty 'accepted_parts' field, got: {response_text}"
     );
 }
 
