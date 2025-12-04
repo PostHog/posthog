@@ -936,7 +936,6 @@ products/growth/dags/oauth.py:0: error: "type[Model]" has no attribute "objects"
 products/growth/dags/oauth.py:0: error: Argument 1 to "clear_expired_tokens_by_type" has incompatible type "object"; expected "type[Model]"  [arg-type]
 products/growth/dags/oauth.py:0: error: Argument 2 to "clear_expired_tokens_by_type" has incompatible type "object"; expected "dict[str, Q]"  [arg-type]
 products/growth/dags/oauth.py:0: error: Unsupported operand types for + ("object" and "int")  [operator]
-products/growth/dags/team_sdk_versions.py:0: error: Module "posthog.dags.common" has no attribute "redis"  [attr-defined]
 products/growth/dags/tests/test_user_product_list.py:0: error: Item "None" of "UserProductList | None" has no attribute "enabled"  [union-attr]
 products/growth/dags/tests/test_user_product_list.py:0: error: Item "None" of "UserProductList | None" has no attribute "product_path"  [union-attr]
 products/growth/dags/tests/test_user_product_list.py:0: error: Item "None" of "UserProductList | None" has no attribute "reason"  [union-attr]
