@@ -2,10 +2,7 @@ name: Terragrunt PostHog
 
 permissions:
     id-token: write
-    contents: write
-    checks: write
-    security-events: write
-    actions: write
+    contents: read
     pull-requests: write
 
 on:
