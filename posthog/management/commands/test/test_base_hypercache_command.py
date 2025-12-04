@@ -9,6 +9,7 @@ Tests cover:
 """
 
 from io import StringIO
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
@@ -51,7 +52,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe calls get_cache_stats successfully."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.return_value = {"total_keys": 100}
@@ -72,7 +73,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe catches exceptions and logs warning."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.side_effect = exception
@@ -89,7 +90,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         other_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             command._update_cache_stats_safe(other_config)
@@ -100,7 +101,7 @@ class TestUpdateCacheStatsSafe(BaseTest):
         """Test that _update_cache_stats_safe uses get_hypercache_config() when no config provided."""
         mock_config = MagicMock(spec=HyperCacheManagementConfig)
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             command._update_cache_stats_safe()
@@ -128,7 +129,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=RedisTimeoutError("Connection timed out"),
         )
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         stats = {
             "total": 0,
@@ -139,7 +140,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "fixed": 0,
             "fix_failed": 0,
         }
-        mismatches = []
+        mismatches: list[dict[str, Any]] = []
 
         command._verify_teams_batch([self.team], stats, mismatches, verbose=False, fix=False)
 
@@ -165,7 +166,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=verify_side_effect,
         )
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         # Create a second team
         from posthog.models import Team
@@ -181,7 +182,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "fixed": 0,
             "fix_failed": 0,
         }
-        mismatches = []
+        mismatches: list[dict[str, Any]] = []
 
         command._verify_teams_batch([self.team, team2], stats, mismatches, verbose=False, fix=False)
 
@@ -198,7 +199,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             mock_config=mock_config,
             verify_team_side_effect=ConnectionError("Redis unavailable"),
         )
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         from posthog.models import Team
 
@@ -213,7 +214,7 @@ class TestVerifyTeamErrorHandling(BaseTest):
             "fixed": 0,
             "fix_failed": 0,
         }
-        mismatches = []
+        mismatches: list[dict[str, Any]] = []
 
         command._verify_teams_batch([self.team, team2], stats, mismatches, verbose=False, fix=False)
 
@@ -232,7 +233,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         stats = {
             "total": 10,
@@ -257,7 +258,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         stats = {
             "total": 10,
@@ -280,7 +281,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         stats = {
             "total": 10,
@@ -305,7 +306,7 @@ class TestVerificationResultsErrorReporting(BaseTest):
         mock_config.cache_display_name = "test cache"
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         stats = {
             "total": 10,
@@ -334,7 +335,7 @@ class TestRunVerificationErrorHandling(BaseTest):
         mock_config = create_mock_config()
 
         command = ConcreteHyperCacheCommand(mock_config=mock_config)
-        command.stdout = StringIO()
+        command.stdout = StringIO()  # type: ignore[assignment]
 
         with patch("posthog.management.commands._base_hypercache_command.get_cache_stats") as mock_get_cache_stats:
             mock_get_cache_stats.side_effect = RedisTimeoutError("Connection timed out")
