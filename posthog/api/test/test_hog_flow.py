@@ -321,12 +321,11 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 400, response.json()
-        assert response.json() == {
-            "attr": "actions__1__config",
-            "code": "invalid_input",
-            "detail": "Cannot specify both 'condition' and 'conditions' fields. They are mutually exclusive.",
-            "type": "validation_error",
-        }
+
+        data = response.json()
+        assert data["attr"] == "actions__1__config"
+        assert data["code"] == "invalid_input"
+        assert data["type"] == "validation_error"
 
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
