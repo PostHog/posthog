@@ -667,3 +667,39 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
 
         if destination_cohort is not None:
             self.assertTrue(destination_cohort.groups[0]["properties"][0]["value"] == destination_cohort_prop_value)
+
+    def test_copy_remote_config_flag_preserves_type(self):
+        """Test that copying a remote config flag preserves the is_remote_configuration field."""
+        url = f"/api/organizations/{self.organization.id}/feature_flags/copy_flags"
+        target_project = self.team_2
+
+        remote_config_flag = FeatureFlag.objects.create(
+            team=self.team_1,
+            created_by=self.user,
+            key="remote-config-flag",
+            filters={"groups": [{"rollout_percentage": 100}], "payloads": {"true": '{"key": "value"}'}},
+            rollout_percentage=100,
+            is_remote_configuration=True,
+            has_encrypted_payloads=False,
+        )
+
+        data = {
+            "feature_flag_key": remote_config_flag.key,
+            "from_project": remote_config_flag.team_id,
+            "target_project_ids": [target_project.id],
+        }
+        response = self.client.post(url, data)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("success", response.json())
+        self.assertEqual(len(response.json()["success"]), 1)
+
+        flag_response = response.json()["success"][0]
+        self.assertEqual(flag_response["is_remote_configuration"], True)
+        self.assertEqual(flag_response["has_encrypted_payloads"], False)
+        self.assertEqual(flag_response["key"], remote_config_flag.key)
+
+        # Verify the flag in the database
+        copied_flag = FeatureFlag.objects.get(key=remote_config_flag.key, team=target_project)
+        self.assertTrue(copied_flag.is_remote_configuration)
+        self.assertFalse(copied_flag.has_encrypted_payloads)
