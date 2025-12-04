@@ -1,11 +1,11 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { parseTagsFilter } from 'lib/utils'
+import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
@@ -30,6 +30,7 @@ export interface Filters {
     event_type: EventDefinitionType
     ordering?: string
     tags?: string[]
+    page?: number
 }
 
 const DEFAULT_FILTERS: Filters = {
@@ -38,6 +39,23 @@ const DEFAULT_FILTERS: Filters = {
     event_type: EventDefinitionType.Event,
     ordering: 'event',
     tags: undefined,
+    page: 1,
+}
+
+function filtersToApiParams(filters: Filters): Record<string, any> {
+    const params: Record<string, any> = {
+        search: filters.event,
+        ordering: filters.ordering,
+        event_type: filters.event_type,
+    }
+    if (filters.tags && filters.tags.length > 0) {
+        params.tags = JSON.stringify(filters.tags)
+    }
+    const page = filters.page ?? 1
+    if (page > 1) {
+        params.offset = (page - 1) * EVENT_DEFINITIONS_PER_PAGE
+    }
+    return params
 }
 
 export function createDefinitionKey(event?: EventDefinition, property?: PropertyDefinition): string {
@@ -109,6 +127,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     ...state,
                     ...filters,
                     properties: convertPropertyGroupToProperties(filters.properties) ?? [],
+                    page: filters.page ?? 1,
                 }),
             },
         ],
@@ -133,7 +152,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     let url = _url
 
                     if (!url) {
-                        url = api.eventDefinitions.determineListEndpoint(values.paramsFromFilters)
+                        url = api.eventDefinitions.determineListEndpoint(filtersToApiParams(values.filters))
                     }
 
                     if (url && url in (cache.apiCache ?? {})) {
@@ -282,25 +301,14 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             },
         ],
     })),
-    selectors(() => ({
-        // Convert filters to API params
-        paramsFromFilters: [
-            (s) => [s.filters],
-            (filters: Filters) => {
-                const params: Record<string, any> = {
-                    search: filters.event,
-                    ordering: filters.ordering,
-                    event_type: filters.event_type,
-                }
-                if (filters.tags && filters.tags.length > 0) {
-                    params.tags = JSON.stringify(filters.tags)
-                }
-                return params
-            },
-        ],
-    })),
-    listeners(({ actions, values, cache }) => ({
-        setFilters: async () => {
+    listeners(({ actions, values, cache, selectors }) => ({
+        setFilters: async (_, __, ___, previousState) => {
+            const previousFilters = previousState ? selectors.filters(previousState) : null
+            const hasLoadedData = !!values.eventDefinitions.current
+            // Only skip load if filters unchanged AND we already have data
+            if (previousFilters && hasLoadedData && objectsEqual(previousFilters, values.filters)) {
+                return
+            }
             actions.loadEventDefinitions()
         },
         loadEventDefinitionsSuccess: () => {
@@ -349,7 +357,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
     })),
     urlToAction(({ actions }) => ({
         '/data-management/events': (_, searchParams) => {
-            const { event, event_type, ordering, tags } = searchParams
+            const { event, event_type, ordering, tags, page } = searchParams
 
             const filtersFromUrl: Filters = {
                 ...DEFAULT_FILTERS,
@@ -357,12 +365,28 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ...(event_type !== undefined && { event_type }),
                 ...(ordering !== undefined && { ordering }),
                 ...(parseTagsFilter(tags) !== undefined && { tags: parseTagsFilter(tags) }),
+                ...(page !== undefined
+                    ? {
+                          page: (() => {
+                              const parsed = parseInt(String(page), 10)
+                              return Number.isNaN(parsed) || parsed <= 0 ? 1 : parsed
+                          })(),
+                      }
+                    : {}),
             }
 
             actions.setFilters(filtersFromUrl)
         },
     })),
     actionToUrl(({ values }) => ({
-        setFilters: () => [router.values.location.pathname, values.filters],
+        setFilters: () => {
+            const urlParams: Record<string, any> = {
+                ...values.filters,
+            }
+            if ((values.filters.page ?? 1) <= 1) {
+                delete urlParams.page
+            }
+            return [router.values.location.pathname, urlParams]
+        },
     })),
 ])

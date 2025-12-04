@@ -43,7 +43,7 @@ const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
 
 export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
-    const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
+    const { setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
@@ -227,16 +227,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     currentPage: eventDefinitions?.page ?? 1,
                     entryCount: eventDefinitions?.count ?? 0,
                     pageSize: EVENT_DEFINITIONS_PER_PAGE,
-                    onForward: eventDefinitions.next
-                        ? () => {
-                              loadEventDefinitions(eventDefinitions.next)
-                          }
-                        : undefined,
-                    onBackward: eventDefinitions.previous
-                        ? () => {
-                              loadEventDefinitions(eventDefinitions.previous)
-                          }
-                        : undefined,
+                    // Pagination is handled via URL: PaginationControl updates URL -> urlToAction -> setFilters -> load
                 }}
                 onSort={(newSorting) =>
                     setFilters({
