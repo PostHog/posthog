@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconMegaphone, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 
@@ -75,6 +75,11 @@ export function HogFunctionTemplateList({
                                     title={
                                         <>
                                             {template.name}
+                                            {template.featured && (
+                                                <LemonTag type="primary" className="ml-2">
+                                                    Featured
+                                                </LemonTag>
+                                            )}
                                             {template.status && <HogFunctionStatusTag status={template.status} />}
                                         </>
                                     }
