@@ -5,9 +5,9 @@ generate "locals_root.tf" {
 }
 
 generate "providers.tf" {
-  path      = "providers.tf"
+  path      = "providers_root.tf"
   if_exists = "overwrite"
-  contents  = file("providers.tf.tpl")
+  contents  = file("providers_root.tf.tpl")
 }
 
 remote_state {

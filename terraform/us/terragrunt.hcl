@@ -8,16 +8,16 @@ generate "locals_region.tf" {
   contents  = file("locals_region.tf.tpl")
 }
 
-generate "variables.tf" {
-  path      = "variables.tf"
+generate "variables_region.tf" {
+  path      = "variables_region.tf"
   if_exists = "overwrite"
-  contents  = file("variables.tf.tpl")
+  contents  = file("variables_region.tf.tpl")
 }
 
 generate "provider.tf" {
-  path      = "provider.tf"
+  path      = "providers_region.tf"
   if_exists = "overwrite"
-  contents  = file("provider.tf.tpl")
+  contents  = file("providers_region.tf.tpl")
 }
 
 inputs = {

@@ -8,8 +8,8 @@ generate "locals_project.tf" {
   contents  = file("locals_project.tf.tpl")
 }
 
-generate "variables.tf" {
-  path      = "variables.tf"
+generate "variables_project.tf" {
+  path      = "variables_project.tf"
   if_exists = "overwrite"
-  contents  = file("variables.tf.tpl")
+  contents  = file("variables_project.tf.tpl")
 }
