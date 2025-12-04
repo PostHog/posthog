@@ -265,7 +265,9 @@ class SummarizeSessionsTool(MaxTool):
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
+        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+            session_ids=session_ids, team=self._team
+        )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._has_video_validation_feature_flag()
 
