@@ -276,6 +276,29 @@ describe('Feature Flags', { concurrent: false }, () => {
                 expect(flag).toHaveProperty('active')
             }
         })
+
+        it('should respect limit parameter', async () => {
+            const result = await getAllTool.handler(context, { data: { limit: 2 } })
+            const flags = parseToolResponse(result)
+            expect(flags.length).toBeLessThanOrEqual(2)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
+            const allFlags = parseToolResponse(allResult)
+
+            if (allFlags.length > 1) {
+                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+                const offsetFlags = parseToolResponse(offsetResult)
+                expect(offsetFlags[0].id).toBe(allFlags[1].id)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await getAllTool.handler(context, {})
+            const flags = parseToolResponse(result)
+            expect(flags.length).toBeLessThanOrEqual(50)
+        })
     })
 
     describe('get-feature-flag-definition tool', () => {
