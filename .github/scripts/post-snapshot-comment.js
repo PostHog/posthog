@@ -44,21 +44,30 @@ if (total === 0) {
 }
 
 const headerPrefix = workflowType === 'backend' ? 'Query snapshots' : 'Visual regression';
-const comment = `### ${headerPrefix}: ${config.label} ${config.type} updated
 
-**Mode:** \`UPDATE\` (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
+const whatThisMeans = workflowType === 'backend'
+    ? `- Query snapshots have been automatically updated to match current output
+- These changes reflect modifications to database queries or schema`
+    : `- Snapshots have been automatically updated to match current rendering
+- Next CI run will switch to CHECK mode to verify stability
+- If snapshots change again, CHECK mode will fail (indicates flapping)`;
+
+const nextSteps = workflowType === 'backend'
+    ? `- Review the query changes to ensure they're intentional
+- If unexpected, investigate what caused the query to change`
+    : `- Review the changes to ensure they're intentional
+- Approve if changes match your expectations
+- If unexpected, investigate component rendering`;
+
+const comment = `### ${headerPrefix}: ${config.label} ${config.type} updated
 
 **Changes:** ${total} snapshots (${modified} modified, ${added} added, ${deleted} deleted)
 
 **What this means:**
-- Snapshots have been automatically updated to match current rendering
-- Next CI run will switch to CHECK mode to verify stability
-- If snapshots change again, CHECK mode will fail (indicates flapping)
+${whatThisMeans}
 
 **Next steps:**
-- Review the changes to ensure they're intentional
-- Approve if changes match your expectations
-- If unexpected, investigate component rendering
+${nextSteps}
 
 [Review snapshot changes →](https://github.com/${repo}/commit/${snapshotSha || commitSha})`;
 

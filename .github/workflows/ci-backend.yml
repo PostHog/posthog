@@ -112,6 +112,32 @@ jobs:
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
 
+    detect-snapshot-mode:
+        name: Detect snapshot mode
+        runs-on: ubuntu-latest
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        outputs:
+            mode: ${{ steps.detect.outputs.mode }}
+        steps:
+            - name: Detect mode
+              id: detect
+              run: |
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=check" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  else
+                    AUTHOR="${{ github.actor }}"
+                    echo "Workflow triggered by: $AUTHOR"
+                    if [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
+                    else
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
+                    fi
+                  fi
+
     check-migrations:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true'
@@ -378,7 +404,7 @@ jobs:
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
 
     django:
-        needs: [changes]
+        needs: [changes, detect-snapshot-mode]
         if: needs.changes.outputs.backend == 'true'
         # increase for tmate testing
         timeout-minutes: 30
@@ -748,11 +774,12 @@ jobs:
                   bin/check_temporal_up
 
             - name: Determine if --snapshot-update should be on
-              # Skip on forks (due to GITHUB_TOKEN being read-only in PRs coming from them) except for persons-on-events
-              # runs, as we want to ignore snapshots diverging there
-              if: ${{ needs.changes.outputs.backend == 'true' && (github.event.pull_request.head.repo.full_name == github.repository || matrix.person-on-events) }}
+              # UPDATE mode: human commits - update snapshots
+              # CHECK mode: bot commits (after snapshot update) - verify snapshots match exactly
+              # persons-on-events: always update (we ignore snapshot divergence there)
+              if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
               shell: bash
-              run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV # We can only update snapshots within the PostHog org
+              run: echo "PYTEST_ARGS=--snapshot-update" >> $GITHUB_ENV
 
             # Tests
             - name: Run Core tests
@@ -847,14 +874,15 @@ jobs:
                   retention-days: 2
 
             - name: Verify new snapshots for flakiness
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              # Only in UPDATE mode - CHECK mode doesn't update snapshots
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               shell: bash
               run: |
                   .github/scripts/verify-new-snapshots.sh
 
             - name: Generate snapshot patch
-              # Skip for persons-on-events runs and forks
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               shell: bash
               run: |
                   mkdir -p /tmp/patches
@@ -869,7 +897,8 @@ jobs:
                   fi
 
             - name: Upload snapshot patch
-              if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
+              # Only in UPDATE mode
+              if: ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' && needs.changes.outputs.backend == 'true' && !matrix.person-on-events }}
               uses: actions/upload-artifact@v4
               with:
                   name: snapshot-patch-${{ matrix.segment }}-${{ matrix.group }}
@@ -888,10 +917,10 @@ jobs:
     # Aggregate and commit snapshot changes from all matrix jobs
     handle-snapshots:
         name: Commit snapshot changes
-        needs: [changes, django]
+        needs: [changes, detect-snapshot-mode, django]
+        # Only in UPDATE mode - CHECK mode verifies snapshots match exactly
         # Run even if some matrix jobs failed (to commit snapshots from passing jobs)
-        # Only for PostHog org PRs (forks don't have write access)
-        if: ${{ always() && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
+        if: ${{ always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.backend == 'true' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         runs-on: ubuntu-latest
         steps:
             - name: Checkout
