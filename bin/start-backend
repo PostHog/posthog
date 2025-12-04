@@ -1,6 +1,13 @@
 #!/bin/bash
 set -e
 
+# Ensure all child processes are killed when this script exits
+cleanup() {
+    # Kill entire process group
+    kill -- -$$ 2>/dev/null || true
+}
+trap cleanup EXIT SIGINT SIGTERM
+
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:8333
 
