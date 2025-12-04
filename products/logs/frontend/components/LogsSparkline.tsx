@@ -15,7 +15,7 @@ export function LogsSparkline(): JSX.Element {
 
     const isUTC = sparklineTimezone === SparklineTimezone.UTC
     const deviceTimezone = shortTimeZone()
-    const showTimezoneToggle = deviceTimezone !== 'UTC'
+    const showTimezoneToggle = deviceTimezone !== null && deviceTimezone !== 'UTC'
 
     const { timeUnit, tickFormat } = useMemo(() => {
         if (!sparklineData.dates.length) {
