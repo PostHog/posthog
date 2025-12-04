@@ -36,7 +36,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { eventToPersonProperties } from './person-property-utils'
+import { isFilteredPersonUpdateProperty } from './person-property-utils'
 import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
@@ -182,6 +182,11 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             return 'no_change'
         }
 
+        // If force_update is set (from $identify, $set events), bypass filtering and always write
+        if (update.force_update) {
+            return 'changed'
+        }
+
         // If there are properties to unset, always write
         if (update.properties_to_unset.length > 0) {
             return 'changed'
@@ -202,7 +207,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 return true
             }
 
-            const isFiltered = eventToPersonProperties.has(key) || key.startsWith('$geoip_')
+            const isFiltered = isFilteredPersonUpdateProperty(key)
             if (isFiltered) {
                 ignoredProperties.push(key)
                 return false
@@ -514,8 +519,20 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         this.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                         return person
                     } else {
-                        this.setCachedPersonForUpdate(teamId, distinctId, null)
-                        return null
+                        // Before caching null, check if another async operation populated
+                        // the cache while we were awaiting the DB query. This can happen when:
+                        // 1. This operation starts DB query for a distinct ID (cache empty)
+                        // 2. Another operation creates a person for that distinct ID and caches it
+                        // 3. This DB query returns null (person didn't exist when query started)
+                        // 4. Without this check, we would overwrite the other operation's cached person
+                        //
+                        // From this point, all operations are synchronous to avoid further race conditions.
+                        const currentCache = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+                        if (currentCache === undefined) {
+                            this.setCachedPersonForUpdate(teamId, distinctId, null)
+                            return null
+                        }
+                        return currentCache === null ? null : toInternalPerson(currentCache)
                     }
                 } finally {
                     this.fetchPromisesForUpdate.delete(cacheKey)
@@ -544,6 +561,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
@@ -551,7 +569,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             propertiesToSet,
             propertiesToUnset,
             otherUpdates,
-            distinctId
+            distinctId,
+            forceUpdate
         )
         return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
@@ -787,14 +806,16 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (result !== undefined) {
             this.cacheMetrics.updateCacheHits++
             // Return a deep copy to prevent modifications from affecting the cached object
-            return result === null
-                ? null
-                : {
-                      ...result,
-                      properties: { ...result.properties },
-                      properties_to_set: { ...result.properties_to_set },
-                      properties_to_unset: [...result.properties_to_unset],
-                  }
+            if (result === null) {
+                return null
+            }
+
+            return {
+                ...result,
+                properties: { ...result.properties },
+                properties_to_set: { ...result.properties_to_set },
+                properties_to_unset: [...result.properties_to_unset],
+            }
         } else {
             this.cacheMetrics.updateCacheMisses++
             return undefined
@@ -839,16 +860,30 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             )
 
             // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
+            // with proper conflict resolution (last write wins)
             mergedPersonUpdate.properties_to_set = {
                 ...existingPersonUpdate.properties_to_set,
                 ...person.properties_to_set,
             }
+            // Remove from properties_to_set any keys that are in the incoming properties_to_unset
+            for (const key of person.properties_to_unset) {
+                delete mergedPersonUpdate.properties_to_set[key]
+            }
+
             mergedPersonUpdate.properties_to_unset = [
                 ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
             ]
+            // Remove from properties_to_unset any keys that are in the incoming properties_to_set
+            const keysToSet = new Set(Object.keys(person.properties_to_set))
+            mergedPersonUpdate.properties_to_unset = mergedPersonUpdate.properties_to_unset.filter(
+                (key) => !keysToSet.has(key)
+            )
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
             mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
+
+            // Handle force_update with || operator - once true, stays true
+            mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -997,7 +1032,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        forceUpdate?: boolean
     ): [InternalPerson, TopicMessage[]] {
         const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
@@ -1035,6 +1071,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
 
         personUpdate.needs_write = true
+
+        // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
+        // This ensures that if any event in the batch requires forcing an update, the whole batch is written
+        if (forceUpdate !== undefined) {
+            personUpdate.force_update = personUpdate.force_update || forceUpdate
+        }
 
         this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         return [toInternalPerson(personUpdate), []]

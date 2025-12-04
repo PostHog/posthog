@@ -33,6 +33,7 @@ import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isCommentTextFilter, isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
@@ -178,30 +179,30 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     filters,
     setFilters,
     totalFiltersCount,
+    currentSessionRecordingId,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
     totalFiltersCount?: number
+    currentSessionRecordingId?: string
 }): JSX.Element => {
     const { isFiltersExpanded } = useValues(playlistLogic)
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
+    const hasAgentModesFeatureFlag = useFeatureFlag('AGENT_MODES')
 
     return (
         <>
             <MaxTool
-                identifier="search_session_recordings"
+                identifier={hasAgentModesFeatureFlag ? 'filter_session_recordings' : 'search_session_recordings'}
                 context={{
                     current_filters: filters,
-                }}
-                contextDescription={{
-                    text: 'Current filters',
-                    icon: <IconFilter />,
+                    current_session_id: currentSessionRecordingId,
                 }}
                 callback={(toolOutput: Record<string, any>) => {
                     // Improve type
-                    setFilters(toolOutput)
+                    setFilters(hasAgentModesFeatureFlag ? toolOutput.recordings_filters : toolOutput)
                     setIsFiltersExpanded(true)
                 }}
                 initialMaxPrompt="Show me recordings where "

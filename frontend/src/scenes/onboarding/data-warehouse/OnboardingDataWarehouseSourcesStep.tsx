@@ -24,7 +24,7 @@ export function OnboardingDataWarehouseSourcesStep({
         <OnboardingStep
             title="Link data"
             stepKey={stepKey}
-            continueOverride={<></>}
+            showContinue={false}
             showSkip={currentStep == 1}
             subtitle={
                 currentStep == 1

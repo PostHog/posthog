@@ -77,6 +77,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
                                 className="ph-ignore-input"
                                 data-attr="password"
                                 autoComplete="current-password"
+                                autoFocus
                             />
                         </LemonField>
                     ) : null}

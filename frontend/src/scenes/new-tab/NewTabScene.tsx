@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import {
     NEW_TAB_COMMANDS,
@@ -16,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { Results } from './components/Results'
@@ -96,7 +96,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     const handleAskAi = (question?: string): void => {
         const nextQuestion = (question ?? search).trim()
-        router.actions.push(urls.max(undefined, nextQuestion))
+        router.actions.push(urls.ai(undefined, nextQuestion))
     }
 
     // The active commands are just the items in newTabSceneDataInclude
@@ -208,7 +208,8 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         <>
             <ListBox
                 ref={listboxRef}
-                className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+                // className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+                className="w-full flex flex-col gap-4"
                 virtualFocus
                 autoSelectFirst
                 onFinishedKeyDown={handleListBoxFinishedKeyDown}
@@ -219,7 +220,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         interactive elements with the keyboard
                     </p>
                 </div>
-                <div className="flex flex-col gap-2 border-b">
+                <SceneStickyBar hasSceneTitleSection={false} className="border-b">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
                         <SearchInput
                             ref={commandInputRef}
@@ -278,19 +279,13 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             />
                         </div>
                     )}
-                </div>
+                </SceneStickyBar>
 
-                <ScrollableShadows
-                    direction="vertical"
-                    className="flex flex-col gap-4 overflow-auto h-full"
-                    styledScrollbars
-                >
-                    <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
-                        <div className="flex flex-col gap-2 mb-32">
-                            <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
-                        </div>
+                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 pt-4 group/colorful-product-icons colorful-product-icons-true">
+                    <div className="flex flex-col gap-2 mb-32">
+                        <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
                     </div>
-                </ScrollableShadows>
+                </div>
             </ListBox>
         </>
     )

@@ -49,6 +49,7 @@ import {
     FileSystemIconType,
     FileSystemImport,
     FileSystemViewLogEntry,
+    GroupsQueryResponse,
 } from '~/queries/schema/schema-general'
 import {
     ActivityTab,
@@ -128,6 +129,8 @@ export interface ExplorerSearchResults {
     hasMore: boolean
 }
 
+export type GroupQueryResult = Pick<Group, 'group_key' | 'group_properties'>
+
 const INITIAL_SECTION_LIMIT = 5
 const SINGLE_CATEGORY_SECTION_LIMIT = 15
 const INITIAL_RECENTS_LIMIT = 5
@@ -182,6 +185,15 @@ function matchesRecentsSearch(entry: FileSystemEntry, searchChunks: string[]): b
     return searchChunks.every(
         (chunk) => nameLower.includes(chunk) || typeLower.includes(chunk) || categoryLower.includes(chunk)
     )
+}
+
+function mapGroupQueryResponse(response: GroupsQueryResponse): GroupQueryResult[] {
+    return response.results.map((row) => ({
+        group_key: row[response.columns.indexOf('key')],
+        group_properties: {
+            name: row[response.columns.indexOf('group_name')],
+        },
+    }))
 }
 
 /**
@@ -513,7 +525,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const responses = await Promise.all(
                         groupTypesList.map((groupType) =>
-                            api.groups.list({
+                            api.groups.listClickhouse({
                                 group_type_index: groupType.group_type_index,
                                 search: trimmed,
                                 limit: GROUP_SEARCH_LIMIT,
@@ -525,8 +537,8 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const resultEntries = responses.map((response, index) => [
                         groupTypesList[index].group_type_index,
-                        (response.results ?? []).slice(0, GROUP_SEARCH_LIMIT),
-                    ]) as [GroupTypeIndex, Group[]][]
+                        mapGroupQueryResponse(response),
+                    ]) as [GroupTypeIndex, GroupQueryResult[]][]
 
                     const combinedResultsCount = resultEntries.reduce(
                         (count, [, groupResults]) => count + groupResults.length,
@@ -537,7 +549,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                         actions.setFirstNoResultsSearchPrefix('groups', trimmed)
                     }
 
-                    return Object.fromEntries(resultEntries) as Record<GroupTypeIndex, Group[]>
+                    return Object.fromEntries(resultEntries) as Record<GroupTypeIndex, GroupQueryResult[]>
                 },
                 loadInitialGroups: async (_, breakpoint) => {
                     const groupTypesList = Array.from(values.groupTypes.values())
@@ -549,7 +561,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
 
                     const responses = await Promise.all(
                         groupTypesList.map((groupType) =>
-                            api.groups.list({
+                            api.groups.listClickhouse({
                                 group_type_index: groupType.group_type_index,
                                 search: '',
                                 limit: GROUP_SEARCH_LIMIT,
@@ -564,9 +576,9 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     return Object.fromEntries(
                         responses.map((response, index) => [
                             groupTypesList[index].group_type_index,
-                            response.results.slice(0, GROUP_SEARCH_LIMIT),
+                            mapGroupQueryResponse(response),
                         ])
-                    ) as Record<GroupTypeIndex, Group[]>
+                    ) as Record<GroupTypeIndex, GroupQueryResult[]>
                 },
             },
         ],
@@ -894,7 +906,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     const name = splitPath(item.path).pop()
                     return {
                         id: item.path,
-                        name: name || item.path,
+                        name: name ? unescapePath(name) : item.path,
                         category: 'recents',
                         href: item.href || '#',
                         lastViewedAt: item.last_viewed_at ?? null,
@@ -1010,7 +1022,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'ask-ai',
                     name: searchTerm ? `Ask: ${searchTerm}` : 'Ask Posthog AI anything...',
                     category: 'askAI',
-                    href: urls.max(undefined, searchTerm),
+                    href: urls.ai(undefined, searchTerm),
                     icon: <IconSparkles />,
                     record: {
                         type: 'ai',
@@ -1024,7 +1036,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                     id: 'open-ai',
                     name: 'Open',
                     category: 'askAI',
-                    href: urls.max(undefined, undefined),
+                    href: urls.ai(undefined, undefined),
                     icon: <IconArrowRight />,
                     record: {
                         type: 'ai',

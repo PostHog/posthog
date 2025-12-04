@@ -25,6 +25,7 @@ import {
     IconLlmAnalytics,
     IconMegaphone,
     IconMessage,
+    IconNewspaper,
     IconNotebook,
     IconNotification,
     IconPeople,
@@ -236,6 +237,9 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     team_activity: {
         icon: <IconNotification />,
         iconColor: ['var(--color-product-activity-light)', 'var(--color-product-activity-dark)'],
+    },
+    feed: {
+        icon: <IconNewspaper />,
     },
     apps: {
         icon: <IconApps />,

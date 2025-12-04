@@ -161,6 +161,7 @@ const Search = ({
                 role="combobox"
                 size="default"
                 aria-controls="combobox-listbox"
+                showFocusPulse
             />
         </div>
     )

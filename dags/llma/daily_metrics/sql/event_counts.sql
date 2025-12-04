@@ -15,8 +15,5 @@ SELECT
     team_id,
     concat(substring(event, 2), '_count') as metric_name,
     toFloat64(count(*)) as metric_value
-FROM events
-WHERE event IN ({% for event_type in event_types %}'{{ event_type }}'{% if not loop.last %}, {% endif %}{% endfor %})
-  AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
-  AND timestamp < toDateTime('{{ date_end }}', 'UTC')
+FROM llma_events
 GROUP BY date, team_id, event

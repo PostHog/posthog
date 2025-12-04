@@ -79,13 +79,17 @@ runs:
         - name: Emit image tag
           id: emit
           shell: bash
+          env:
+              COMMIT_SHA: ${{ github.sha }}
+              REGISTRY: ${{ steps.aws-ecr.outputs.registry }}
+              PR_NUMBER: ${{ inputs.pr-number }}
           run: |
-              TAGS="posthog/posthog:${{ github.sha }}"
-              if [[ -n "${{ steps.aws-ecr.outputs.registry }}" ]]; then
-                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:${{ github.sha }}"
+              TAGS="posthog/posthog:$COMMIT_SHA"
+              if [[ -n "$REGISTRY" ]]; then
+                TAGS="$TAGS,$REGISTRY/posthog-cloud:$COMMIT_SHA"
               fi
-              if [[ "${{ inputs.pr-number }}" != "" ]]; then
-                TAGS="$TAGS,${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:pr-${{ inputs.pr-number }}"
+              if [[ "$PR_NUMBER" != "" ]]; then
+                TAGS="$TAGS,$REGISTRY/posthog-cloud:pr-$PR_NUMBER"
               fi
               echo "tag=$TAGS" >> $GITHUB_OUTPUT
 

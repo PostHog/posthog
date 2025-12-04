@@ -105,7 +105,9 @@ def _export_to_png(exported_asset: ExportedAsset, max_height_pixels: Optional[in
         wait_for_css_selector: CSSSelector
         screenshot_height: int = 600
         if exported_asset.insight is not None:
-            url_to_render = absolute_uri(f"/exporter?token={access_token}&legend")
+            show_legend = exported_asset.insight.show_legend
+            legend_param = "&legend=true" if show_legend else ""
+            url_to_render = absolute_uri(f"/exporter?token={access_token}{legend_param}")
             wait_for_css_selector = ".ExportedInsight"
             screenshot_width = 800
         elif exported_asset.dashboard is not None:
@@ -203,7 +205,7 @@ def _screenshot_asset(
 
         try:
             WebDriverWait(driver, timeout).until(lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector))
-        except TimeoutException:
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
                 try:
@@ -211,14 +213,14 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
             raise Exception(f"Timeout while waiting for the page to load")
 
         try:
             # Also wait until nothing is loading
             WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
-        except TimeoutException:
+        except TimeoutException as e:
             with posthoganalytics.new_context():
                 posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
                 try:
@@ -226,7 +228,7 @@ def _screenshot_asset(
                     posthoganalytics.tag("image_path", image_path)
                 except Exception:
                     pass
-                capture_exception()
+                capture_exception(e)
 
         # Get the height of the visualization container specifically
         height = driver.execute_script(

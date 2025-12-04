@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 
 import { generateViolinPath } from '../legacy/violinUtils'
@@ -49,6 +51,7 @@ export function ChartCell({
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+    const [isHovered, setIsHovered] = useState(false)
 
     const interval = getVariantInterval(variantResult)
     const [lower, upper] = getIntervalBounds(variantResult)
@@ -63,6 +66,8 @@ export function ChartCell({
     const x1 = scale(lower)
     const x2 = scale(upper)
     const deltaX = scale(delta)
+
+    const isClickable = !!onTimeseriesClick
 
     return (
         <td
@@ -109,30 +114,71 @@ export function ChartCell({
 
                             {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
                             {isBayesianResult(variantResult) ? (
-                                <path
-                                    d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                        variantResult.key
-                                    })`}
-                                    opacity={CHART_BAR_OPACITY}
-                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
-                                    onClick={onTimeseriesClick}
-                                />
+                                <>
+                                    <path
+                                        d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
+                                            variantResult.key
+                                        })`}
+                                        opacity={CHART_BAR_OPACITY}
+                                        style={{
+                                            cursor: isClickable ? 'pointer' : 'default',
+                                        }}
+                                        onClick={onTimeseriesClick}
+                                        onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                                        onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
+                                    />
+                                    {/* Hover overlay for clickable bars */}
+                                    {isClickable && (
+                                        <path
+                                            d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
+                                            fill="white"
+                                            opacity={isHovered ? 0.25 : 0}
+                                            pointerEvents="none"
+                                            style={{
+                                                transition: 'opacity 0.15s ease-in-out',
+                                            }}
+                                        />
+                                    )}
+                                </>
                             ) : (
-                                <rect
-                                    x={x1}
-                                    y={y}
-                                    width={x2 - x1}
-                                    height={barHeightPercent}
-                                    fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                        variantResult.key
-                                    })`}
-                                    opacity={CHART_BAR_OPACITY}
-                                    rx={3}
-                                    ry={3}
-                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
-                                    onClick={onTimeseriesClick}
-                                />
+                                <>
+                                    <rect
+                                        x={x1}
+                                        y={y}
+                                        width={x2 - x1}
+                                        height={barHeightPercent}
+                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
+                                            variantResult.key
+                                        })`}
+                                        opacity={CHART_BAR_OPACITY}
+                                        rx={3}
+                                        ry={3}
+                                        style={{
+                                            cursor: isClickable ? 'pointer' : 'default',
+                                        }}
+                                        onClick={onTimeseriesClick}
+                                        onMouseEnter={isClickable ? () => setIsHovered(true) : undefined}
+                                        onMouseLeave={isClickable ? () => setIsHovered(false) : undefined}
+                                    />
+                                    {/* Hover overlay for clickable bars */}
+                                    {isClickable && (
+                                        <rect
+                                            x={x1}
+                                            y={y}
+                                            width={x2 - x1}
+                                            height={barHeightPercent}
+                                            fill="white"
+                                            opacity={isHovered ? 0.25 : 0}
+                                            rx={3}
+                                            ry={3}
+                                            pointerEvents="none"
+                                            style={{
+                                                transition: 'opacity 0.15s ease-in-out',
+                                            }}
+                                        />
+                                    )}
+                                </>
                             )}
 
                             {/* Delta marker */}

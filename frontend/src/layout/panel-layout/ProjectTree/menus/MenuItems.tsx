@@ -8,6 +8,7 @@ import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
+    ContextMenuGroup,
     ContextMenuItem,
     ContextMenuSeparator,
     ContextMenuSub,
@@ -15,6 +16,7 @@ import {
     ContextMenuSubTrigger,
 } from 'lib/ui/ContextMenu/ContextMenu'
 import {
+    DropdownMenuGroup,
     DropdownMenuItem,
     DropdownMenuSeparator,
     DropdownMenuSub,
@@ -86,13 +88,14 @@ export function MenuItems({
     const MenuSub = type === 'context' ? ContextMenuSub : DropdownMenuSub
     const MenuSubTrigger = type === 'context' ? ContextMenuSubTrigger : DropdownMenuSubTrigger
     const MenuSubContent = type === 'context' ? ContextMenuSubContent : DropdownMenuSubContent
-
+    const MenuGroup = type === 'context' ? ContextMenuGroup : DropdownMenuGroup
     const showSelectMenuItems =
         root === 'project://' && item.record?.path && !item.disableSelect && !onlyTree && showSelectMenuOption
 
     // Show product menu items if the item is a product or shortcut (and the item is a product, products have 1 slash in the href)
     const showProductMenuItems =
         root === 'products://' ||
+        root === 'custom-products://' ||
         (root === 'shortcuts://' && item.record?.href && item.record.href.split('/').length - 1 === 1)
 
     // Note: renderMenuItems() is called often, so we're using custom components to isolate logic and network requests
@@ -101,6 +104,7 @@ export function MenuItems({
             <>
                 <ProductAnalyticsMenuItems
                     MenuItem={MenuItem}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -113,6 +117,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
@@ -125,6 +130,7 @@ export function MenuItems({
                     MenuSub={MenuSub}
                     MenuSubTrigger={MenuSubTrigger}
                     MenuSubContent={MenuSubContent}
+                    MenuGroup={MenuGroup}
                     MenuSeparator={MenuSeparator}
                     onLinkClick={(keyboardAction) => resetPanelLayout(keyboardAction ?? false)}
                 />
