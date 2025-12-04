@@ -20,6 +20,7 @@ from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.property import property_to_expr
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.batch_exports.service import BackfillDetails
 from posthog.models import Team
@@ -951,6 +952,14 @@ def generate_query_ranges(
         yield (candidate_start_at, candidate_end_at)
 
 
+class UpdatePropertiesToPersonProperties(TraversingVisitor):
+    """Update 'properties' to 'events.poe.properties' in all fields."""
+
+    def visit_field(self, node: ast.Field):
+        if node.chain and node.chain[0] == "properties":
+            node.chain = ["events", "poe", "properties", *node.chain[1:]]
+
+
 def compose_filters_clause(
     filters: list[dict[str, str | list[str]]],
     team_id: int,
@@ -993,18 +1002,13 @@ def compose_filters_clause(
                 # 2. 'persons_properties' doesn't exist in the HogQL 'EventsTable', so we can't use it.
                 # So, we treat this filter like an events property filter (for 1) and manually update
                 # the chain to point to 'events.poe.properties' which does exist in 'EventsTable' (for 2).
-                # This will get resolved to 'events.person_properties' in ClickHouse dialect, but it does
-                # mean this is as hacky as it gets, and we'll likely have to deal with edge cases not covered
-                # in unit tests.
+                # This will get resolved to 'events.person_properties' in ClickHouse dialect. This is done
+                # using a visitor, which makes it slightly less of a hack.
                 # I attempted to add a new property filter just for us to use here, but it was a mess
                 # requiring multiple unnecessary (for us) file changes, and consistently failed type checks
                 # everywhere in hogql modules.
                 expr = property_to_expr(EventPropertyFilter(**{**filter, **{"type": "event"}}), team=team)
-                if isinstance(expr, ast.CompareOperation):
-                    for field in (expr.left, expr.right):
-                        if isinstance(field, ast.Field) and field.chain[0] == "properties":
-                            field.chain = ["events", "poe", "properties", *field.chain[1:]]
-                            break
+                UpdatePropertiesToPersonProperties().visit(expr)
                 exprs.append(expr)
 
             case "hogql":

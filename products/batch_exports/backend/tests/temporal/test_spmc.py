@@ -315,6 +315,20 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
             """isNotNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'))""",
             {"hogql_val_0": "$initial_current_url"},
         ),
+        (
+            [
+                {"key": "$initial_current_url", "type": "person", "operator": "regex", "value": ["^http://.*$"]},
+            ],
+            """ifNull(match(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\')), %(hogql_val_1)s), 0)""",
+            {"hogql_val_0": "$initial_current_url", "hogql_val_1": "^http://.*$"},
+        ),
+        (
+            [
+                {"key": "$created_at", "type": "person", "operator": "between", "value": [0, 1]},
+            ],
+            """and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0))""",
+            {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at"},
+        ),
         # HogQL
         (
             [
@@ -331,6 +345,8 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
         "feature0",
         "person0",
         "person1",
+        "person2",
+        "person3",
         "hogql0",
     ],
 )
