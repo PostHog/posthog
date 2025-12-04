@@ -1,6 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { LemonDropdown } from '@posthog/lemon-ui'
 
@@ -13,12 +12,22 @@ import { universalFiltersLogic } from 'lib/components/UniversalFilters/universal
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-import { FilterLogicalOperator, PropertyFilterType, UniversalFiltersGroup } from '~/types'
+import {
+    AnyPropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+} from '~/types'
 
 import { logsLogic } from '../../../logsLogic'
 
 export const taxonomicFilterLogicKey = 'logs'
-export const taxonomicGroupTypes = [TaxonomicFilterGroupType.LogAttributes]
+export const taxonomicGroupTypes = [
+    TaxonomicFilterGroupType.Logs,
+    TaxonomicFilterGroupType.LogResourceAttributes,
+    TaxonomicFilterGroupType.LogAttributes,
+]
 
 export const LogsFilterGroup = (): JSX.Element => {
     const { filterGroup } = useValues(logsLogic)
@@ -29,7 +38,9 @@ export const LogsFilterGroup = (): JSX.Element => {
             rootKey={taxonomicFilterLogicKey}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
-            onChange={(group) => setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })}
+            onChange={(group) => {
+                return setFilterGroup({ type: FilterLogicalOperator.And, values: [group] })
+            }}
         >
             <UniversalSearch />
         </UniversalFilters>
@@ -39,8 +50,8 @@ export const LogsFilterGroup = (): JSX.Element => {
 const UniversalSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { searchTerm } = useValues(logsLogic)
-    const { setSearchTerm } = useActions(logsLogic)
-    const { addGroupFilter } = useActions(universalFiltersLogic)
+    const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
+    const { filterGroup } = useValues(universalFiltersLogic)
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const floatingRef = useRef<HTMLDivElement | null>(null)
@@ -54,17 +65,27 @@ const UniversalSearch = (): JSX.Element => {
         taxonomicFilterLogicKey,
         taxonomicGroupTypes,
         onChange: (taxonomicGroup, value, item, originalQuery) => {
-            searchInputRef.current?.blur()
             setVisible(false)
-            setSearchTerm('')
-            addGroupFilter(taxonomicGroup, value, item, originalQuery)
+            if (item.value === undefined) {
+                addGroupFilter(taxonomicGroup, value, item, originalQuery)
+                return
+            }
+
+            const newValues = [...filterGroup.values]
+            const newPropertyFilter: AnyPropertyFilter = {
+                key: item.key,
+                value: item.value,
+                operator: PropertyOperator.IContains,
+                type: item.propertyFilterType as AnyPropertyFilter['type'],
+            }
+            newValues.push(newPropertyFilter)
+            setGroupValues(newValues)
+            setVisible(false)
         },
         onEnter: onClose,
-        autoSelectItem: false,
+        autoSelectItem: true,
         initialSearchQuery: searchTerm,
     }
-
-    const onChange = useDebouncedCallback((value: string) => setSearchTerm(value), 250)
 
     return (
         <BindLogic logic={taxonomicFilterLogic} props={taxonomicFilterLogicProps}>
@@ -89,7 +110,6 @@ const UniversalSearch = (): JSX.Element => {
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
-                    onChange={onChange}
                     size="small"
                     fullWidth
                 />
@@ -119,7 +139,9 @@ const UniversalFilterGroup = (): JSX.Element => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        initiallyOpen={
+                            allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL && !filterOrGroup.value
+                        }
                     />
                 )
             })}
