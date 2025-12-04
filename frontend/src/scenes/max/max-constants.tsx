@@ -255,15 +255,26 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                     return 'Reading billing data...'
                 },
             },
-            datawarehouse_schema: {
-                name: 'Read your data warehouse schema',
-                description: 'Read your data warehouse schema',
+            list_tables: {
+                name: 'List data warehouse tables',
+                description: 'List data warehouse tables available in this project',
                 icon: iconForType('data_warehouse'),
                 displayFormatter: (toolCall) => {
                     if (toolCall.status === 'completed') {
-                        return 'Read data warehouse schema'
+                        return 'Listed data warehouse tables'
                     }
-                    return 'Reading data warehouse schema...'
+                    return 'Listing data warehouse tables...'
+                },
+            },
+            read_table_schema: {
+                name: 'Read table schema',
+                description: 'Read table schema for a specific table',
+                icon: iconForType('data_warehouse'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read table schema'
+                    }
+                    return 'Reading table schema...'
                 },
             },
             artifacts: {
