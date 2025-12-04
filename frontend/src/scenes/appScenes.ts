@@ -67,6 +67,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.Notebooks]: () => import('./notebooks/NotebooksScene'),
     [Scene.OAuthAuthorize]: () => import('./oauth/OAuthAuthorize'),
     [Scene.Onboarding]: () => import('./onboarding/Onboarding'),
+    [Scene.OnboardingCoupon]: () => import('./onboarding/coupon/OnboardingCouponRedemption'),
     [Scene.OrganizationCreateFirst]: () => import('./organization/Create'),
     [Scene.OrganizationCreationConfirm]: () => import('./organization/ConfirmOrganization/ConfirmOrganization'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),

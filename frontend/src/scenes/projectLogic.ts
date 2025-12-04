@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
@@ -11,9 +10,9 @@ import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
-import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export const projectLogic = kea<projectLogicType>([
@@ -137,9 +136,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                const useUseCaseSelection = values.featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
-                const redirectUrl = useUseCaseSelection ? urls.useCaseSelection() : urls.products()
-                actions.switchTeam(currentProject.id, redirectUrl)
+                actions.switchTeam(currentProject.id, getOnboardingEntryUrl(values.featureFlags))
             }
         },
 
