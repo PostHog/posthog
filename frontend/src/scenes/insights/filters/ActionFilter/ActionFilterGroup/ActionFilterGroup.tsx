@@ -344,6 +344,42 @@ export function ActionFilterGroup({
                                 />
                             )}
                         </div>
+
+                        {/* SQL selector (only shown when HogQL expression is selected) */}
+                        {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]?.category ===
+                            MathCategory.HogQLExpression && (
+                            <div className="ActionFilterGroup__hogql_selector">
+                                <div className="ActionFilterGroup__control-group">
+                                    <LemonDropdown
+                                        visible={isHogQLDropdownVisible}
+                                        closeOnClickInside={false}
+                                        onClickOutside={() => setHogQLDropdownVisible(false)}
+                                        overlay={
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
+                                                <HogQLEditor
+                                                    value={filter.math_hogql || 'count()'}
+                                                    onChange={(currentValue) => {
+                                                        handleMathHogQLSelect(currentValue)
+                                                        setHogQLDropdownVisible(false)
+                                                    }}
+                                                />
+                                            </div>
+                                        }
+                                    >
+                                        <LemonButton
+                                            fullWidth
+                                            type="secondary"
+                                            size="small"
+                                            data-attr={`math-hogql-select-${index}`}
+                                            onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
+                                        >
+                                            <code>{filter.math_hogql || 'count()'}</code>
+                                        </LemonButton>
+                                    </LemonDropdown>
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {!readOnly && (
@@ -366,42 +402,6 @@ export function ActionFilterGroup({
                                     data-attr={`group-filter-split-${index}`}
                                 />
                             </Tooltip>
-                        </div>
-                    )}
-
-                    {/* SQL selector (only shown when HogQL expression is selected) */}
-                    {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]?.category ===
-                        MathCategory.HogQLExpression && (
-                        <div className="ActionFilterGroup__hogql_selector">
-                            <div className="ActionFilterGroup__control-group">
-                                <LemonDropdown
-                                    visible={isHogQLDropdownVisible}
-                                    closeOnClickInside={false}
-                                    onClickOutside={() => setHogQLDropdownVisible(false)}
-                                    overlay={
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
-                                            <HogQLEditor
-                                                value={filter.math_hogql || 'count()'}
-                                                onChange={(currentValue) => {
-                                                    handleMathHogQLSelect(currentValue)
-                                                    setHogQLDropdownVisible(false)
-                                                }}
-                                            />
-                                        </div>
-                                    }
-                                >
-                                    <LemonButton
-                                        fullWidth
-                                        type="secondary"
-                                        size="small"
-                                        data-attr={`math-hogql-select-${index}`}
-                                        onClick={() => setHogQLDropdownVisible(!isHogQLDropdownVisible)}
-                                    >
-                                        <code>{filter.math_hogql || 'count()'}</code>
-                                    </LemonButton>
-                                </LemonDropdown>
-                            </div>
                         </div>
                     )}
                 </div>
