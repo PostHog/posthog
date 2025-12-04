@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
+import { actions, afterMount, kea, key, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
