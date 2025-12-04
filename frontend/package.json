@@ -141,6 +141,7 @@
         "chartjs-plugin-datalabels": "^2.2.0",
         "chartjs-plugin-stacked100": "^1.4.0",
         "chartjs-plugin-trendline": "^2.1.2",
+        "chartjs-plugin-zoom": "^2.2.0",
         "chokidar": "^3.5.3",
         "classnames": "^2.5.1",
         "clsx": "^1.1.1",

@@ -2,7 +2,7 @@ import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ClusterTraceList } from './ClusterTraceList'
-import { Cluster, TraceSummary } from './types'
+import { Cluster, NOISE_CLUSTER_ID, TraceSummary } from './types'
 
 interface ClusterCardProps {
     cluster: Cluster
@@ -22,15 +22,21 @@ export function ClusterCard({
     loadingTraces,
 }: ClusterCardProps): JSX.Element {
     const percentage = totalTraces > 0 ? Math.round((cluster.size / totalTraces) * 100) : 0
+    const isOutlierCluster = cluster.cluster_id === NOISE_CLUSTER_ID
+
     return (
-        <div className="border rounded-lg bg-surface-primary overflow-hidden transition-all">
+        <div
+            className={`border rounded-lg overflow-hidden transition-all ${
+                isOutlierCluster ? 'bg-surface-primary border-dashed border-warning-dark' : 'bg-surface-primary'
+            }`}
+        >
             {/* Card Header */}
             <div className="p-4 cursor-pointer hover:bg-surface-secondary transition-colors" onClick={onToggleExpand}>
                 <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                         <div className="flex items-baseline gap-2 mb-2">
                             <h3 className="font-semibold text-base truncate">{cluster.title}</h3>
-                            <LemonTag type="muted">
+                            <LemonTag type={isOutlierCluster ? 'caution' : 'muted'}>
                                 {cluster.size} traces ({percentage}%)
                             </LemonTag>
                         </div>

@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { getSeriesColor } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
@@ -10,7 +11,20 @@ import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { clustersLogicType } from './clustersLogicType'
-import { Cluster, ClusteringRun, ClusteringRunOption, TraceSummary } from './types'
+import { Cluster, ClusteringRun, ClusteringRunOption, NOISE_CLUSTER_ID, TraceSummary } from './types'
+
+// Special color for outliers cluster
+const OUTLIER_COLOR = '#888888'
+
+export interface ScatterDataset {
+    label: string
+    data: Array<{ x: number; y: number; traceId?: string }>
+    backgroundColor: string
+    borderColor: string
+    borderWidth: number
+    pointRadius: number
+    pointHoverRadius: number
+}
 
 export const clustersLogic = kea<clustersLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersLogic']),
@@ -18,8 +32,10 @@ export const clustersLogic = kea<clustersLogicType>([
     actions({
         setSelectedRunId: (runId: string | null) => ({ runId }),
         toggleClusterExpanded: (clusterId: number) => ({ clusterId }),
+        toggleScatterPlotExpanded: true,
         setTraceSummaries: (summaries: Record<string, TraceSummary>) => ({ summaries }),
         setTraceSummariesLoading: (loading: boolean) => ({ loading }),
+        loadTraceSummariesForRun: (run: ClusteringRun) => ({ run }),
     }),
 
     reducers({
@@ -53,6 +69,12 @@ export const clustersLogic = kea<clustersLogicType>([
             false,
             {
                 setTraceSummariesLoading: (_, { loading }) => loading,
+            },
+        ],
+        isScatterPlotExpanded: [
+            true,
+            {
+                toggleScatterPlotExpanded: (state) => !state,
             },
         ],
     }),
@@ -163,11 +185,121 @@ export const clustersLogic = kea<clustersLogicType>([
                 (clusterId: number): boolean =>
                     expandedIds.has(clusterId),
         ],
+
+        traceToClusterTitle: [
+            (s) => [s.sortedClusters],
+            (clusters: Cluster[]): Record<string, string> => {
+                const map: Record<string, string> = {}
+                for (const cluster of clusters) {
+                    const clusterTitle = cluster.title || `Cluster ${cluster.cluster_id}`
+                    for (const traceId of Object.keys(cluster.traces)) {
+                        map[traceId] = clusterTitle
+                    }
+                }
+                return map
+            },
+        ],
+
+        scatterPlotDatasets: [
+            (s) => [s.sortedClusters],
+            (clusters: Cluster[]): ScatterDataset[] => {
+                const traceDatasets: ScatterDataset[] = []
+                const centroidDatasets: ScatterDataset[] = []
+
+                for (const cluster of clusters) {
+                    const isOutlier = cluster.cluster_id === NOISE_CLUSTER_ID
+                    const color = isOutlier ? OUTLIER_COLOR : getSeriesColor(cluster.cluster_id)
+                    const label = cluster.title || `Cluster ${cluster.cluster_id}`
+
+                    // Trace points
+                    traceDatasets.push({
+                        label,
+                        data: Object.entries(cluster.traces).map(([traceId, traceInfo]) => ({
+                            x: traceInfo.x,
+                            y: traceInfo.y,
+                            traceId,
+                        })),
+                        backgroundColor: `${color}80`,
+                        borderColor: color,
+                        borderWidth: 1,
+                        pointRadius: isOutlier ? 3 : 4, // Smaller points for outliers
+                        pointHoverRadius: isOutlier ? 5 : 6,
+                    })
+
+                    // Centroid marker (skip for outliers - they don't have a real centroid)
+                    if (!isOutlier) {
+                        centroidDatasets.push({
+                            label: `${label} (centroid)`,
+                            data: [{ x: cluster.centroid_x, y: cluster.centroid_y }],
+                            backgroundColor: `${color}40`,
+                            borderColor: color,
+                            borderWidth: 2,
+                            pointRadius: 8,
+                            pointHoverRadius: 10,
+                        })
+                    }
+                }
+
+                return [...traceDatasets, ...centroidDatasets]
+            },
+        ],
     }),
 
     listeners(({ actions, values }) => ({
+        loadTraceSummariesForRun: async ({ run }) => {
+            // Collect all trace IDs from all clusters
+            const allTraceIds: string[] = []
+            for (const cluster of run.clusters) {
+                allTraceIds.push(...Object.keys(cluster.traces))
+            }
+
+            const missingTraceIds = allTraceIds.filter((id) => !values.traceSummaries[id])
+            if (missingTraceIds.length === 0) {
+                return
+            }
+
+            actions.setTraceSummariesLoading(true)
+
+            try {
+                const traceIdsList = missingTraceIds.map((id) => `'${id}'`).join(',')
+                const response = await api.queryHogQL(hogql`
+                    SELECT
+                        JSONExtractString(properties, '$ai_trace_id') as trace_id,
+                        argMax(JSONExtractString(properties, '$ai_summary_title'), timestamp) as title,
+                        argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
+                        argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
+                        argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
+                        max(timestamp) as timestamp
+                    FROM events
+                    WHERE event = '$ai_trace_summary'
+                        AND JSONExtractString(properties, '$ai_trace_id') IN (${hogql.raw(traceIdsList)})
+                    GROUP BY trace_id
+                    LIMIT 10000
+                `)
+
+                const summaries: Record<string, TraceSummary> = {}
+                for (const row of response.results || []) {
+                    const r = row as string[]
+                    summaries[r[0]] = {
+                        traceId: r[0],
+                        title: r[1] || 'Untitled Trace',
+                        flowDiagram: r[2] || '',
+                        bullets: r[3] || '',
+                        interestingNotes: r[4] || '',
+                        timestamp: r[5],
+                    }
+                }
+
+                actions.setTraceSummaries(summaries)
+            } catch (error) {
+                console.error('Failed to load trace summaries:', error)
+            } finally {
+                actions.setTraceSummariesLoading(false)
+            }
+        },
+
         toggleClusterExpanded: async ({ clusterId }) => {
-            // Load trace summaries when expanding a cluster
+            // Load trace summaries when expanding a cluster (fallback for lazy loading)
             if (values.expandedClusterIds.has(clusterId)) {
                 const cluster = values.currentRun?.clusters.find((c: Cluster) => c.cluster_id === clusterId)
                 if (cluster) {
@@ -177,19 +309,20 @@ export const clustersLogic = kea<clustersLogicType>([
                         actions.setTraceSummariesLoading(true)
 
                         try {
-                            // Build IN clause with escaped trace IDs using hogql template
                             const traceIdsList = missingTraceIds.map((id) => `'${id}'`).join(',')
                             const response = await api.queryHogQL(hogql`
                                 SELECT
                                     JSONExtractString(properties, '$ai_trace_id') as trace_id,
-                                    JSONExtractString(properties, '$ai_summary_title') as title,
-                                    JSONExtractString(properties, '$ai_summary_flow_diagram') as flow_diagram,
-                                    JSONExtractString(properties, '$ai_summary_bullets') as bullets,
-                                    JSONExtractString(properties, '$ai_summary_interesting_notes') as interesting_notes,
-                                    timestamp
+                                    argMax(JSONExtractString(properties, '$ai_summary_title'), timestamp) as title,
+                                    argMax(JSONExtractString(properties, '$ai_summary_flow_diagram'), timestamp) as flow_diagram,
+                                    argMax(JSONExtractString(properties, '$ai_summary_bullets'), timestamp) as bullets,
+                                    argMax(JSONExtractString(properties, '$ai_summary_interesting_notes'), timestamp) as interesting_notes,
+                                    max(timestamp) as timestamp
                                 FROM events
                                 WHERE event = '$ai_trace_summary'
                                     AND JSONExtractString(properties, '$ai_trace_id') IN (${hogql.raw(traceIdsList)})
+                                GROUP BY trace_id
+                                LIMIT 10000
                             `)
 
                             const summaries: Record<string, TraceSummary> = {}
@@ -213,6 +346,13 @@ export const clustersLogic = kea<clustersLogicType>([
                         }
                     }
                 }
+            }
+        },
+
+        loadClusteringRunSuccess: ({ currentRun }) => {
+            // Load all trace summaries when a run is loaded for scatter plot tooltips
+            if (currentRun) {
+                actions.loadTraceSummariesForRun(currentRun)
             }
         },
 
