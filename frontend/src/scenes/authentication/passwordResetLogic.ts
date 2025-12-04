@@ -1,4 +1,4 @@
-import { kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
@@ -31,6 +31,9 @@ export interface PasswordResetForm {
 
 export const passwordResetLogic = kea<passwordResetLogicType>([
     path(['scenes', 'authentication', 'passwordResetLogic']),
+    actions({
+        reset: true,
+    }),
     loaders(() => ({
         validatedResetToken: [
             null as ValidatedTokenResponseType | null,
@@ -51,12 +54,14 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             false,
             {
                 submitRequestPasswordResetSuccess: () => true,
+                reset: () => false,
             },
         ],
         passwordResetSucceeded: [
             false,
             {
                 submitPasswordResetSuccess: () => true,
+                reset: () => false,
             },
         ],
     }),
