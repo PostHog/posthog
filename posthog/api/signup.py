@@ -27,6 +27,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper
 from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
+from posthog.rate_limit import SignupIPThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -195,7 +196,7 @@ class SignupViewset(generics.CreateAPIView):
     serializer_class = SignupSerializer
     # Enables E2E testing of signup flow
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
-    throttle_classes = []  # Disabled for local development
+    throttle_classes = [] if settings.E2E_TESTING else [SignupIPThrottle]
 
 
 class InviteSignupSerializer(serializers.Serializer):
