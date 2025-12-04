@@ -14,7 +14,7 @@ export type WaitUntilTimeWindowConfig = {
     time?: TimeConfig
 }
 
-const AUTO_DESCRIPTION_REGEX = /^Wait until .+ at .+ \(.+\)\.$/
+const AUTO_DESCRIPTION_REGEX = /^Wait until .+ (at any time|between .+ and .+) \(.+\)\.$/
 const LEGACY_DEFAULT_DESCRIPTION = 'Wait until a specified time window.'
 
 function capitalize(str: string): string {
@@ -54,7 +54,9 @@ export function getWaitUntilTimeWindowDescription(day: DayConfig, time: TimeConf
     const dayDesc = getDayDescription(day)
     const timeDesc = getTimeDescription(time)
     const tz = timezone || 'UTC'
-    return `Wait until ${dayDesc} at ${timeDesc} (${tz}).`
+    // Use "at" only for "any time", otherwise use the time description directly (e.g., "between X and Y")
+    const timeClause = time === 'any' ? `at ${timeDesc}` : timeDesc
+    return `Wait until ${dayDesc} ${timeClause} (${tz}).`
 }
 
 export function shouldAutoUpdateDescription(description: string): boolean {
