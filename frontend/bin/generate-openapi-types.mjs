@@ -266,7 +266,25 @@ function reorderEnumsInSchemaFile(schemaFile) {
         }
     }
 
-    // Second pass: extract enum blocks (type + const pairs)
+    // Helper: find preceding comments (JSDoc + eslint-disable) for a declaration
+    function findPrecedingCommentStart(lines, declIdx) {
+        let startIdx = declIdx
+        // Walk backwards to find comments belonging to this declaration
+        for (let k = declIdx - 1; k >= 0; k--) {
+            const prevLine = lines[k].trim()
+            if (prevLine === '' || prevLine === '// eslint-disable-next-line @typescript-eslint/no-redeclare') {
+                startIdx = k
+            } else if (prevLine === '*/' || prevLine.startsWith('* ') || prevLine.startsWith('/*')) {
+                // Part of JSDoc comment - keep looking
+                startIdx = k
+            } else {
+                break
+            }
+        }
+        return startIdx
+    }
+
+    // Second pass: extract enum blocks (type + const pairs) including preceding comments
     let i = 0
     while (i < lines.length) {
         const line = lines[i]
@@ -274,22 +292,26 @@ function reorderEnumsInSchemaFile(schemaFile) {
         // Check for enum type declaration
         for (const enumName of enumNames) {
             if (line.startsWith(`export type ${enumName} = `)) {
-                // Single-line type
-                enumBlocks.push({ name: enumName, lines: [line], startIdx: i, endIdx: i, kind: 'type' })
+                // Single-line type - also capture preceding comments
+                const commentStart = findPrecedingCommentStart(lines, i)
+                const blockLines = lines.slice(commentStart, i + 1)
+                enumBlocks.push({ name: enumName, lines: blockLines, startIdx: commentStart, endIdx: i, kind: 'type' })
                 break
             }
             if (line.startsWith(`export const ${enumName} = `)) {
                 // Const declaration - might be single or multi-line
-                const blockLines = [line]
+                // First find where the const ends
                 let j = i
                 if (!line.includes('as const')) {
                     // Multi-line const
                     while (j < lines.length - 1 && !lines[j].includes('as const')) {
                         j++
-                        blockLines.push(lines[j])
                     }
                 }
-                enumBlocks.push({ name: enumName, lines: blockLines, startIdx: i, endIdx: j, kind: 'const' })
+                // Now capture preceding comments
+                const commentStart = findPrecedingCommentStart(lines, i)
+                const blockLines = lines.slice(commentStart, j + 1)
+                enumBlocks.push({ name: enumName, lines: blockLines, startIdx: commentStart, endIdx: j, kind: 'const' })
                 break
             }
         }
@@ -455,7 +477,7 @@ const results = await Promise.allSettled(
     jobs.map(async ({ tempFile, outputDir, label }) => {
         const { execSync } = await import('node:child_process')
         const configFile = path.join(tmpDir, `orval-${label}.config.mjs`)
-        const outputFile = path.join(outputDir, 'index.ts')
+        const outputFile = path.join(outputDir, 'api.ts')
         const mutatorPath = path.resolve(frontendRoot, 'src', 'lib', 'api-orval-mutator.ts')
 
         fs.mkdirSync(outputDir, { recursive: true })
@@ -487,7 +509,7 @@ export default defineConfig({
         execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
 
         // Post-process: reorder enums
-        const schemaOutputFile = path.join(outputDir, 'index.schemas.ts')
+        const schemaOutputFile = path.join(outputDir, 'api.schemas.ts')
         reorderEnumsInSchemaFile(schemaOutputFile)
 
         return { label, outputDir, schemaOutputFile }

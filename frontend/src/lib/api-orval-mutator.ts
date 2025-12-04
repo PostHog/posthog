@@ -9,10 +9,12 @@ import api from 'lib/api'
 type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
 
 export const apiMutator = async <T>(url: string, options: RequestInit & { method: HttpMethod }): Promise<T> => {
-    const { method, body, signal } = options
+    const { method, body, signal, headers } = options
     // Handle both JSON strings and FormData bodies
     const data = body ? (typeof body === 'string' ? JSON.parse(body) : body) : undefined
-    const apiOptions = signal ? { signal } : undefined
+    // Convert Headers object to plain object if needed
+    const headersObj = headers instanceof Headers ? Object.fromEntries(headers.entries()) : headers
+    const apiOptions = { signal, headers: headersObj }
 
     switch (method) {
         case 'GET':
