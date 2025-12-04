@@ -17,6 +17,7 @@ import {
     FailureMessage,
     HumanMessage,
     MultiVisualizationMessage,
+    NotebookArtifactContent,
     NotebookUpdateMessage,
     RootAssistantMessage,
     SubagentUpdateEvent,
@@ -51,6 +52,10 @@ export function isArtifactMessage(message: RootAssistantMessage | undefined | nu
 
 export function isVisualizationArtifactContent(content: ArtifactContent): content is VisualizationArtifactContent {
     return content.content_type === ArtifactContentType.Visualization
+}
+
+export function isNotebookArtifactContent(content: ArtifactContent): content is NotebookArtifactContent {
+    return content.content_type === ArtifactContentType.Notebook
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {

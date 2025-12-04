@@ -27,9 +27,9 @@ import { DataVisualizationNode, InsightVizNode, NodeKind } from '~/queries/schem
 import { isFunnelsQuery, isHogQLQuery, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
-import { MessageStatus } from './maxLogic'
-import { MessageTemplate } from './messages/MessageTemplate'
-import { castAssistantQuery } from './utils'
+import { MessageStatus } from '../maxLogic'
+import { castAssistantQuery } from '../utils'
+import { MessageTemplate } from './MessageTemplate'
 
 interface VisualizationArtifactAnswerProps {
     message: ArtifactMessage & { status?: MessageStatus }
