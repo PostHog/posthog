@@ -1,7 +1,7 @@
 {
     "type": "ai/artifact",
     "content": {
-        "type": "visualization",
+        "content_type": "visualization",
         "query": {
             "aggregation_group_type_index": null,
             "breakdownFilter": {
@@ -64,5 +64,7 @@
         "name": "Test Artifact",
         "description": "Test plan"
     },
+    "artifact_id": "test-visualization-artifact-message",
+    "source": "artifact",
     "id": "test-visualization-message"
 }
