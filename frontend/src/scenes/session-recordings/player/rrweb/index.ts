@@ -12,6 +12,7 @@ export const CorsPlugin: ReplayPlugin & {
     _replaceFontCssUrls: (value: string | null) => string | null
     _replaceFontUrl: (value: string) => string
     _replaceJSUrl: (value: string) => string
+    _replaceCSSUrl: (value: string) => string
 } = {
     _replaceFontCssUrls: (value: string | null): string | null => {
         return (
@@ -28,6 +29,10 @@ export const CorsPlugin: ReplayPlugin & {
 
     _replaceJSUrl: (value: string): string => {
         return value.replace(/^(https:\/\/\S*(?:\.js)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
+    },
+
+    _replaceCSSUrl: (value: string): string => {
+        return value.replace(/^(https:\/\/\S*(?:\.css)\S*)$/i, `${PROXY_URL}/proxy?url=$1`)
     },
 
     onBuild: (node) => {
@@ -55,8 +60,11 @@ export const CorsPlugin: ReplayPlugin & {
             if (!href) {
                 return
             }
-            if (linkElement.getAttribute('rel') == 'modulepreload') {
+            const rel = linkElement.getAttribute('rel')
+            if (rel === 'modulepreload') {
                 linkElement.href = CorsPlugin._replaceJSUrl(href)
+            } else if (rel === 'stylesheet') {
+                linkElement.href = CorsPlugin._replaceCSSUrl(href)
             } else {
                 linkElement.href = CorsPlugin._replaceFontUrl(href)
             }
