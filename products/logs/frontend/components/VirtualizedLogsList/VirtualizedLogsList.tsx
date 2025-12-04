@@ -43,13 +43,12 @@ export function VirtualizedLogsList({
     hasMoreLogsToLoad = false,
     onLoadMore,
 }: VirtualizedLogsListProps): JSX.Element {
-    const { togglePinLog, setCursorIndex } = useActions(logsViewerLogic)
+    const { togglePinLog, userSetCursorIndex } = useActions(logsViewerLogic)
     const { pinnedLogs, cursorIndex } = useValues(logsViewerLogic)
     const { shouldLoadMore, containerWidth } = useValues(virtualizedLogsListLogic)
     const { setContainerWidth } = useActions(virtualizedLogsListLogic)
     const listRef = useRef<List>(null)
     const scrollTopRef = useRef<number>(0)
-    const prevDataLengthRef = useRef<number>(0)
     const autosizerWidthRef = useRef<number>(0)
 
     const minRowWidth = useMemo(() => getMinRowWidth(), [])
@@ -70,17 +69,7 @@ export function VirtualizedLogsList({
             cache.clearAll()
             listRef.current?.recomputeRowHeights()
         }
-    }, [containerWidth, cache])
-
-    // Preserve scroll position when new data is appended
-    useEffect(() => {
-        if (dataSource.length > prevDataLengthRef.current && prevDataLengthRef.current > 0) {
-            requestAnimationFrame(() => {
-                listRef.current?.scrollToPosition(scrollTopRef.current)
-            })
-        }
-        prevDataLengthRef.current = dataSource.length
-    }, [dataSource.length])
+    }, [containerWidth, cache, wrapBody, prettifyJson])
 
     // Clear cache when display options change or when a fresh query starts
     useEffect(() => {
@@ -90,15 +79,15 @@ export function VirtualizedLogsList({
     }, [loading, dataSource.length, cache])
 
     useEffect(() => {
-        cache.clearAll()
-        listRef.current?.recomputeRowHeights()
-    }, [wrapBody, prettifyJson, cache])
-
-    useEffect(() => {
-        if (cursorIndex !== null) {
+        if (cursorIndex !== null && dataSource.length > 0) {
             listRef.current?.scrollToRow(cursorIndex)
+            // Double scroll with delay to ensure row measurement is complete
+            const timer = setTimeout(() => {
+                listRef.current?.scrollToRow(cursorIndex)
+            }, 100)
+            return () => clearTimeout(timer)
         }
-    }, [cursorIndex])
+    }, [cursorIndex, dataSource.length])
 
     const handleRowsRendered = ({ stopIndex }: { stopIndex: number }): void => {
         if (disableInfiniteScroll) {
@@ -131,7 +120,7 @@ export function VirtualizedLogsList({
                                     prettifyJson={prettifyJson}
                                     tzLabelFormat={tzLabelFormat}
                                     onTogglePin={togglePinLog}
-                                    onSetCursor={() => setCursorIndex(index)}
+                                    onSetCursor={() => userSetCursorIndex(index)}
                                     rowWidth={rowWidth}
                                 />
                             </div>
@@ -149,7 +138,7 @@ export function VirtualizedLogsList({
             prettifyJson,
             tzLabelFormat,
             togglePinLog,
-            setCursorIndex,
+            userSetCursorIndex,
         ]
     )
 

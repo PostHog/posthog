@@ -9,7 +9,7 @@ import { VirtualizedLogsList } from 'products/logs/frontend/components/Virtualiz
 import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import { LogsViewerToolbar } from './LogsViewerToolbar'
-import { LogsViewerLogicProps, logsViewerLogic } from './logsViewerLogic'
+import { logsViewerLogic } from './logsViewerLogic'
 
 export interface LogsViewerProps {
     tabId: string
@@ -34,10 +34,8 @@ export function LogsViewer({
     onRefresh,
     onLoadMore,
 }: LogsViewerProps): JSX.Element {
-    const logicProps: LogsViewerLogicProps = { tabId }
-
     return (
-        <BindLogic logic={logsViewerLogic} props={logicProps}>
+        <BindLogic logic={logsViewerLogic} props={{ tabId, logs, orderBy }}>
             <LogsViewerContent
                 logs={logs}
                 loading={loading}
@@ -73,8 +71,10 @@ function LogsViewerContent({
     onRefresh,
     onLoadMore,
 }: LogsViewerContentProps): JSX.Element {
-    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, getCursorLogId } = useValues(logsViewerLogic)
-    const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor } = useActions(logsViewerLogic)
+    const { wrapBody, prettifyJson, pinnedLogsArray, isFocused, getCursorLogId, linkToLogId } =
+        useValues(logsViewerLogic)
+    const { setFocused, moveCursorDown, moveCursorUp, toggleExpandLog, resetCursor, setCursorToLogId } =
+        useActions(logsViewerLogic)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const cursorLogId = getCursorLogId(logs)
@@ -85,6 +85,17 @@ function LogsViewerContent({
             resetCursor()
         }
     }, [logs.length, resetCursor])
+
+    // Position cursor at linked log when deep linking (URL -> cursor)
+    useEffect(() => {
+        if (linkToLogId && logs.length > 0) {
+            const index = logs.findIndex((l) => l.uuid === linkToLogId)
+            setCursorToLogId(linkToLogId, logs)
+            if (index !== -1) {
+                containerRef.current?.focus()
+            }
+        }
+    }, [linkToLogId, logs, setCursorToLogId])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
         formatDate: 'YYYY-MM-DD',

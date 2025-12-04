@@ -6,7 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -146,7 +146,7 @@ export function LogRow({
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                         />
                         <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                            <LogsTableRowActions log={log} />
+                            <LogsViewerRowActions log={log} />
                         </div>
                     </div>
                 )

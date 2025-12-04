@@ -1,11 +1,23 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
-import { ParsedLogMessage } from 'products/logs/frontend/types'
+import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
+import { LogsOrderBy, ParsedLogMessage } from 'products/logs/frontend/types'
 
 import type { logsViewerLogicType } from './logsViewerLogicType'
 
+export interface VisibleLogsTimeRange {
+    date_from: string
+    date_to: string
+}
+
 export interface LogsViewerLogicProps {
     tabId: string
+    logs: ParsedLogMessage[]
+    orderBy: LogsOrderBy
 }
 
 export const logsViewerLogic = kea<logsViewerLogicType>([
@@ -26,12 +38,20 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
 
         // Cursor (vim-style navigation position)
         setCursorIndex: (index: number | null) => ({ index }),
+        userSetCursorIndex: (index: number | null) => ({ index }), // User-initiated (click)
         resetCursor: true,
         moveCursorDown: (logsLength: number) => ({ logsLength }),
         moveCursorUp: (logsLength: number) => ({ logsLength }),
 
         // Expansion
         toggleExpandLog: (logId: string) => ({ logId }),
+
+        // Deep linking - position cursor at a specific log by ID
+        setLinkToLogId: (linkToLogId: string | null) => ({ linkToLogId }),
+        setCursorToLogId: (logId: string, logs: ParsedLogMessage[]) => ({ logId, logs }),
+
+        // Copy link to log
+        copyLinkToLog: (logId: string) => ({ logId }),
     }),
 
     reducers({
@@ -77,6 +97,7 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
             { persist: true },
             {
                 setCursorIndex: (_, { index }) => index,
+                userSetCursorIndex: (_, { index }) => index,
                 resetCursor: () => null,
             },
         ],
@@ -93,6 +114,17 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 },
             },
         ],
+
+        linkToLogId: [
+            null as string | null,
+            {
+                setLinkToLogId: (_, { linkToLogId }) => linkToLogId,
+                // Clear when user actively navigates
+                moveCursorDown: () => null,
+                moveCursorUp: () => null,
+                userSetCursorIndex: () => null, // User clicked a row
+            },
+        ],
     }),
 
     selectors({
@@ -106,6 +138,30 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                         ? logs[cursorIndex].uuid
                         : null,
         ],
+
+        visibleLogsTimeRange: [
+            (_, p) => [p.logs, p.orderBy],
+            (logs: ParsedLogMessage[], orderBy: LogsOrderBy): VisibleLogsTimeRange | null => {
+                if (logs.length === 0) {
+                    return null
+                }
+                const firstTimestamp = logs[0].timestamp
+                const lastTimestamp = logs[logs.length - 1].timestamp
+
+                if (orderBy === 'latest') {
+                    return {
+                        date_from: dayjs(lastTimestamp).toISOString(),
+                        date_to: dayjs(firstTimestamp).toISOString(),
+                    }
+                }
+                return {
+                    date_from: dayjs(firstTimestamp).toISOString(),
+                    date_to: dayjs(lastTimestamp).toISOString(),
+                }
+            },
+        ],
+
+        logsCount: [(_, p) => [p.logs], (logs: ParsedLogMessage[]): number => logs.length],
     }),
 
     listeners(({ actions, values }) => ({
@@ -137,5 +193,59 @@ export const logsViewerLogic = kea<logsViewerLogicType>([
                 actions.setCursorIndex(values.cursorIndex - 1)
             }
         },
+        setCursorToLogId: ({ logId, logs }) => {
+            const index = logs.findIndex((log) => log.uuid === logId)
+            if (index !== -1) {
+                actions.setCursorIndex(index)
+            }
+        },
+        copyLinkToLog: ({ logId }) => {
+            const url = new URL(window.location.href)
+            url.searchParams.set('linkToLogId', logId)
+            if (values.visibleLogsTimeRange) {
+                url.searchParams.set(
+                    'dateRange',
+                    JSON.stringify({
+                        date_from: values.visibleLogsTimeRange.date_from,
+                        date_to: values.visibleLogsTimeRange.date_to,
+                        explicitDate: true,
+                    })
+                )
+            }
+            if (values.logsCount > 0) {
+                url.searchParams.set('initialLogsLimit', String(values.logsCount))
+            }
+            void copyToClipboard(url.toString(), 'link to log')
+        },
     })),
+
+    tabAwareUrlToAction(({ actions, values }) => ({
+        '*': (_, searchParams) => {
+            // Support both new (linkToLogId) and legacy (highlightedLogId) URL params
+            const linkToLogId = (searchParams.linkToLogId ?? searchParams.highlightedLogId) as string | undefined
+            if (linkToLogId && linkToLogId !== values.linkToLogId) {
+                actions.setLinkToLogId(linkToLogId)
+            }
+        },
+    })),
+
+    tabAwareActionToUrl(() => {
+        const clearLinkToLogIdFromUrl = ():
+            | [string, Record<string, any>, Record<string, any>, { replace: boolean }]
+            | void => {
+            const url = new URL(window.location.href)
+            const hasLinkParam = url.searchParams.has('linkToLogId') || url.searchParams.has('highlightedLogId')
+            if (hasLinkParam) {
+                url.searchParams.delete('linkToLogId')
+                url.searchParams.delete('highlightedLogId')
+                return [url.pathname, Object.fromEntries(url.searchParams), {}, { replace: true }]
+            }
+        }
+        return {
+            // Clear URL param when user actively navigates
+            moveCursorDown: clearLinkToLogIdFromUrl,
+            moveCursorUp: clearLinkToLogIdFromUrl,
+            userSetCursorIndex: clearLinkToLogIdFromUrl,
+        }
+    }),
 ])
