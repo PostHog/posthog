@@ -23,6 +23,7 @@ const createMessage = (token?: string, overrides = {}): ParsedMessageData => ({
     headers: token ? [{ token }] : undefined,
     distinct_id: 'distinct_id',
     session_id: 'session_id',
+    token: token ?? null,
     eventsByWindowId: {},
     eventsRange: {
         start: DateTime.fromMillis(0),

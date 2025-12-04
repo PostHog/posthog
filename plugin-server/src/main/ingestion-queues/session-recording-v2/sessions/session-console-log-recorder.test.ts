@@ -56,6 +56,7 @@ describe('SessionConsoleLogRecorder', () => {
         message: {
             distinct_id: distinctId,
             session_id: sessionId,
+            token: null,
             eventsByWindowId: {
                 [windowId]: events,
             },
