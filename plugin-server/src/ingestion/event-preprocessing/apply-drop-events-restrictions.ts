@@ -8,9 +8,10 @@ function applyDropEventsRestrictions(
     headers?: EventHeaders
 ): boolean {
     const distinctId = headers?.distinct_id
+    const sessionId = headers?.session_id
     const token = headers?.token
 
-    return eventIngestionRestrictionManager.shouldDropEvent(token, distinctId)
+    return eventIngestionRestrictionManager.shouldDropEvent(token, distinctId, sessionId)
 }
 
 export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
