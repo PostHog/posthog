@@ -34,12 +34,12 @@ const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     )
 }
 
-interface CreateExperimentProps {
+interface ExperimentFormProps {
     draftExperiment?: Experiment
     tabId?: string
 }
 
-export const CreateExperiment = ({ draftExperiment, tabId }: CreateExperimentProps): JSX.Element => {
+export const ExperimentForm = ({ draftExperiment, tabId }: ExperimentFormProps): JSX.Element => {
     const logic = createExperimentLogic({ experiment: draftExperiment, tabId })
     useAttachedLogic(logic, tabId ? experimentSceneLogic({ tabId }) : undefined)
 
