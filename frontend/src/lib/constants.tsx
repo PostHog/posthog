@@ -273,6 +273,7 @@ export const FEATURE_FLAGS = {
     USAGE_SPEND_DASHBOARDS: 'usage-spend-dashboards', // owner: @pawel-cebula #team-billing
     CDP_HOG_SOURCES: 'cdp-hog-sources', // owner #team-workflows-cdp
     CDP_PERSON_UPDATES: 'cdp-person-updates', // owner: #team-workflows-cdp
+    CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     ACTIVITY_OR_EXPLORE: 'activity-or-explore', // owner: @pauldambra #team-replay
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: @phixMe #team-data-stack
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay

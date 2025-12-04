@@ -1,15 +1,14 @@
 import { Message } from 'node-rdkafka'
-import { Counter } from 'prom-client'
 
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 
-import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
+import { convertToDataWarehouseEventToHogFunctionInvocationGlobals } from '../../cdp/utils'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, Hub } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { captureException } from '../../utils/posthog'
+import { CdpDataWarehouseEventSchema } from '../schema'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { HogRateLimiterService } from '../services/monitoring/hog-rate-limiter.service'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -22,42 +21,28 @@ import {
     MinimalAppMetric,
 } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
+import {
+    counterHogFunctionStateOnEvent,
+    counterParseError,
+    counterQuotaLimited,
+    counterRateLimited,
+} from './cdp-events.consumer'
 
-export const counterParseError = new Counter({
-    name: 'cdp_function_parse_error',
-    help: 'A function invocation was parsed with an error',
-    labelNames: ['error'],
-})
-
-export const counterQuotaLimited = new Counter({
-    name: 'cdp_function_quota_limited',
-    help: 'A function invocation was quota limited',
-    labelNames: ['team_id'],
-})
-
-export const counterRateLimited = new Counter({
-    name: 'cdp_function_rate_limited',
-    help: 'A function invocation was rate limited',
-    labelNames: ['kind'],
-})
-
-export const counterHogFunctionStateOnEvent = new Counter({
-    name: 'cdp_hog_function_state_on_event',
-    help: 'Metric the state of a hog function that matched an event',
-    labelNames: ['state', 'kind'],
-})
-
-export class CdpEventsConsumer extends CdpConsumerBase {
-    protected name = 'CdpEventsConsumer'
+export class CdpDatawarehouseEventsConsumer extends CdpConsumerBase {
+    protected name = 'CdpDatawarehouseEventsConsumer'
     protected hogTypes: HogFunctionTypeType[] = ['destination']
     private cyclotronJobQueue: CyclotronJobQueue
     protected kafkaConsumer: KafkaConsumer
 
     private hogRateLimiter: HogRateLimiterService
 
-    constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
+    constructor(
+        hub: Hub,
+        topic: string = 'cdp_data_warehouse_source_table',
+        groupId: string = 'cdp-data-warehouse-events-consumer'
+    ) {
         super(hub)
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'hog')
+        this.cyclotronJobQueue = new CyclotronJobQueue(hub, 'datawarehouse_table')
         this.kafkaConsumer = new KafkaConsumer({ groupId, topic })
         this.hogRateLimiter = new HogRateLimiterService(hub, this.redis)
     }
@@ -89,7 +74,7 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     protected filterHogFunction(hogFunction: HogFunctionType): boolean {
         // By default we filter for those with no filters or filters specifically for events
-        return (hogFunction.filters?.source ?? 'events') === 'events'
+        return (hogFunction.filters?.source ?? 'events') === 'data-warehouse-table'
     }
 
     /**
@@ -100,9 +85,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
-        await this.groupsManager.enrichGroups(invocationGlobals)
-
         const teamsToLoad = [...new Set(invocationGlobals.map((x) => x.project.id))]
         const [hogFunctionsByTeam, teamsById] = await Promise.all([
             this.hogFunctionManager.getHogFunctionsForTeams(teamsToLoad, this.hogTypes, this.filterHogFunction),
@@ -375,6 +357,14 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 metric_name: 'triggered',
                 count: 1,
             })
+
+            triggeredInvocationsMetrics.push({
+                team_id: item.teamId,
+                app_source_id: item.functionId,
+                metric_kind: 'billing',
+                metric_name: 'billable_invocation',
+                count: 1,
+            })
         })
 
         this.hogFunctionMonitoringService.queueAppMetrics(triggeredInvocationsMetrics, 'hog_flow')
@@ -389,19 +379,23 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         await Promise.all(
             messages.map(async (message) => {
                 try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                    const kafkaEvent = parseJSON(message.value!.toString()) as unknown
+                    // This is the input stream from elsewhere so we want to do some proper validation
+                    const event = CdpDataWarehouseEventSchema.parse(kafkaEvent)
 
                     const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                        this.hub.teamManager.getTeam(clickHouseEvent.team_id),
+                        this.hogFunctionManager.getHogFunctionsForTeam(event.team_id, this.hogTypes),
+                        this.hogFlowManager.getHogFlowsForTeam(event.team_id),
+                        this.hub.teamManager.getTeam(event.team_id),
                     ])
 
                     if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
                         return
                     }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                    events.push(
+                        convertToDataWarehouseEventToHogFunctionInvocationGlobals(event, team, this.hub.SITE_URL)
+                    )
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

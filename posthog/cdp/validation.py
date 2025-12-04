@@ -283,9 +283,12 @@ class InputsSerializer(serializers.DictField):
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
-    source = serializers.ChoiceField(choices=["events", "person-updates"], required=False, default="events")  # type: ignore
+    source = serializers.ChoiceField(
+        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+    )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
+    data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
     properties = serializers.ListField(child=serializers.DictField(), required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
@@ -304,10 +307,25 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
         # Ensure data is initialized as an empty dict if it's None
         data = data or {}
 
+        if data.get("source") == "events":
+            # Don't allow events or actions for person-updates
+            data.pop("data_warehouse", None)
+
         if data.get("source") == "person-updates":
             # Don't allow events or actions for person-updates
             data.pop("events", None)
             data.pop("actions", None)
+            data.pop("data_warehouse", None)
+
+        if data.get("source") == "data-warehouse-table":
+            # Don't allow events or actions for data-warehouse-table
+            data.pop("events", None)
+            data.pop("actions", None)
+
+        if "data_warehouse" in data and isinstance(data["data_warehouse"], list):
+            data["data_warehouse"] = [
+                entry for entry in data["data_warehouse"] if entry.get("name") != "Select a table"
+            ]
 
         # If we have a bytecode, we need to validate the transpiled
         if function_type in TYPES_WITH_TRANSPILED_FILTERS:
