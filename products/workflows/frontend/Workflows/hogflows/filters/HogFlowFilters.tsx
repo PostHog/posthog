@@ -59,6 +59,7 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
                 type: 'secondary',
             }}
             buttonCopy={buttonCopy ?? 'Add filter'}
+            allowNonCapturedEvents
         />
     )
 }
