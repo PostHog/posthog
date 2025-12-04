@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, path, props } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -29,9 +29,10 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
             payload: Partial<Pick<QuickFilter, 'name' | 'property_name' | 'type' | 'options'>>
         ) => ({ id, payload }),
         deleteFilter: (id: string) => ({ id }),
+        filterUpdated: (filter: QuickFilter) => ({ filter }),
     }),
 
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         quickFilters: [
             [] as QuickFilter[],
             {
@@ -65,6 +66,7 @@ export const quickFiltersLogic = kea<quickFiltersLogicType>([
                         ...(payload.options && { options: payload.options }),
                         context: props.context,
                     })
+                    actions.filterUpdated(updatedFilter)
                     return values.quickFilters.map((f: QuickFilter) => (f.id === id ? updatedFilter : f))
                 },
                 deleteFilter: async ({ id }) => {
