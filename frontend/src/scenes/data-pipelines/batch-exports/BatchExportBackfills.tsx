@@ -85,7 +85,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                                 success: 'border-success text-success-dark',
                                 accent: 'border-primary text-foreground-dark',
                                 warning: 'border-warning text-warning-foreground-dark',
-                                danger: 'border-danger text-danger-dark',
+                                danger: 'border-danger text-destructive-foreground-dark',
                                 default: 'border-default text-default-dark',
                             } as const
                             return (

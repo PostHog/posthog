@@ -221,7 +221,7 @@ export function StartupProgram(): JSX.Element {
                                         </>
                                     )}
                                 </h4>
-                                <p className="text-muted text-sm">
+                                <p className="text-muted-foreground text-sm">
                                     {isYC
                                         ? 'Valid to use across all products'
                                         : 'Valid for 1 year to use across all products'}
@@ -235,7 +235,7 @@ export function StartupProgram(): JSX.Element {
                                     Exclusive founder merch
                                     {isYC && <span className="text-[0.66em] align-super text-muted"> 2</span>}
                                 </h4>
-                                <p className="text-muted text-sm">
+                                <p className="text-muted-foreground text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
                                 </p>
                             </div>
@@ -244,21 +244,21 @@ export function StartupProgram(): JSX.Element {
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">50% off Mintlify for 6 months</h4>
-                                <p className="text-muted text-sm">So you can build better documentation</p>
+                                <p className="text-muted-foreground text-sm">So you can build better documentation</p>
                             </div>
                         </div>
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">50% off Speakeasy for 6 months</h4>
-                                <p className="text-muted text-sm">So you can build better APIs, faster</p>
+                                <p className="text-muted-foreground text-sm">So you can build better APIs, faster</p>
                             </div>
                         </div>
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
                                 <h4 className="font-semibold">$5,000 in Chroma credit</h4>
-                                <p className="text-muted text-sm">Great for building better AI agents</p>
+                                <p className="text-muted-foreground text-sm">Great for building better AI agents</p>
                             </div>
                         </div>
                         {isYC && (
@@ -266,7 +266,7 @@ export function StartupProgram(): JSX.Element {
                                 <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                                 <div>
                                     <h4 className="font-semibold">Priority support</h4>
-                                    <p className="text-muted text-sm">
+                                    <p className="text-muted-foreground text-sm">
                                         Direct access to our engineering team for technical support
                                     </p>
                                 </div>
@@ -279,11 +279,11 @@ export function StartupProgram(): JSX.Element {
                             <h3 className="text-lg mb-3">As long as</h3>
                             <ul className="space-y-2">
                                 <li className="flex items-center text-sm">
-                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    <IconArrowRight className="text-muted-foreground shrink-0 mr-2" />
                                     Your company was founded less than 2 years ago
                                 </li>
                                 <li className="flex items-center text-sm">
-                                    <IconArrowRight className="text-muted shrink-0 mr-2" />
+                                    <IconArrowRight className="text-muted-foreground shrink-0 mr-2" />
                                     You've raised less than $5 million in funding
                                 </li>
                             </ul>
@@ -292,7 +292,7 @@ export function StartupProgram(): JSX.Element {
 
                     {isYC && (
                         <div className="mt-4">
-                            <div className="text-xs text-muted space-y-1">
+                            <div className="text-xs text-muted-foreground space-y-1">
                                 <div className="flex gap-1">
                                     <span className="text-xxs align-super">1</span>
                                     Credits renew automatically each year. If you've previously been in the program and
@@ -326,14 +326,14 @@ export function StartupProgram(): JSX.Element {
                             </div>
                         ) : (
                             <div className="flex flex-col items-start gap-2">
-                                <p className="text-muted mb-2">
+                                <p className="text-muted-foreground mb-2">
                                     To be eligible for the startup program, you need to be on a paid plan.
                                 </p>
-                                <p className="text-muted mb-2">
+                                <p className="text-muted-foreground mb-2">
                                     Don't worry - you'll only pay for what you use and can set billing limits as low as
                                     $0 to control your spend.
                                 </p>
-                                <p className="text-muted mb-2 italic">
+                                <p className="text-muted-foreground mb-2 italic">
                                     P.S. You still keep the monthly free allowance for every product!
                                 </p>
                                 {platformAndSupportProduct && (
@@ -418,7 +418,7 @@ export function StartupProgram(): JSX.Element {
                                             name="raised"
                                             label="How much in total funding have you raised (USD)"
                                         >
-                                            <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
+                                            <LemonSelect options={RAISED_OPTIONS} className="bg-card" />
                                         </LemonField>
 
                                         <LemonField
@@ -428,7 +428,7 @@ export function StartupProgram(): JSX.Element {
                                             <LemonCalendarSelectInput
                                                 clearable={false}
                                                 format="YYYY-MM-DD"
-                                                buttonProps={{ className: 'bg-bg-light' }}
+                                                buttonProps={{ className: 'bg-card' }}
                                                 placeholder=" "
                                                 selectionPeriod="past"
                                             />
@@ -439,7 +439,7 @@ export function StartupProgram(): JSX.Element {
                                 {isYC && (
                                     <>
                                         <LemonField name="yc_batch" label="Which YC batch are you?">
-                                            <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
+                                            <LemonSelect options={ycBatchOptions} className="bg-card" />
                                         </LemonField>
 
                                         <LemonField
@@ -488,7 +488,7 @@ export function StartupProgram(): JSX.Element {
                                                                             )
                                                                         }}
                                                                         tooltip="Remove screenshot"
-                                                                        className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                        className="absolute -top-1 -right-1 p-0.5 !bg-card rounded-full"
                                                                         noPadding
                                                                     />
                                                                 </div>

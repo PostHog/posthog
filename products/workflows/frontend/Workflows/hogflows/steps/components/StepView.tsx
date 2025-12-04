@@ -141,13 +141,13 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                                         ;(e.target as HTMLTextAreaElement).blur()
                                     }
                                 }}
-                                className="text-[0.3rem] text-muted !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden focus-within:!ring-1 focus-within:!ring-primary !rounded"
+                                className="text-[0.3rem] text-muted-foreground !bg-transparent !border-0 !shadow-none !p-0 !pl-1 !m-0 !min-h-0 !max-h-[0.9rem] !leading-[0.45rem] !resize-none !overflow-hidden focus-within:!ring-1 focus-within:!ring-primary !rounded"
                             />
                         </div>
                     ) : (
                         <Tooltip title={action.description || ''}>
                             <div
-                                className="text-[0.3rem]/1.5 text-muted line-clamp-2 cursor-text hover:bg-accent rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
+                                className="text-[0.3rem]/1.5 text-muted-foreground line-clamp-2 cursor-text hover:bg-accent rounded px-0.5 -mx-0.5 transition-colors pl-1 min-w-0 overflow-hidden"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     startEditingDescription()

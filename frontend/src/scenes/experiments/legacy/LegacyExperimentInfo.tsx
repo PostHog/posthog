@@ -44,7 +44,7 @@ export const ExperimentLastRefresh = ({
                     className={`${
                         lastRefresh
                             ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                ? 'text-danger'
+                                ? 'text-destructive-foreground'
                                 : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
                                   ? 'text-warning-foreground'
                                   : ''
@@ -127,7 +127,7 @@ export function LegacyExperimentInfo(): JSX.Element | null {
                                     >
                                         <IconWarning
                                             style={{ transform: 'translateY(2px)' }}
-                                            className="mr-1 text-danger"
+                                            className="mr-1 text-destructive-foreground"
                                             fontSize="18px"
                                         />
                                     </Tooltip>

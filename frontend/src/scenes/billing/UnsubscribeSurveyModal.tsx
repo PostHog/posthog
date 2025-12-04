@@ -196,7 +196,7 @@ export const UnsubscribeSurveyModal = ({
                                 : `Why are you ${actionVerb} from ${product.name}?`}{' '}
                             <i className="text-secondary">(you can select multiple)</i>
                             <Tooltip title="Required">
-                                <span className="text-danger">*</span>
+                                <span className="text-destructive-foreground">*</span>
                             </Tooltip>
                         </LemonLabel>
                         <div className="grid grid-cols-2 gap-2">

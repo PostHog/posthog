@@ -113,7 +113,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                 </p>
 
                                 {error && (
-                                    <div className="text-danger flex items-center gap-1 text-sm">
+                                    <div className="text-destructive-foreground flex items-center gap-1 text-sm">
                                         <IconErrorOutline className="text-xl" /> {error}
                                     </div>
                                 )}

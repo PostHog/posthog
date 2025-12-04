@@ -155,10 +155,12 @@ const SupportResponseTimesTable = ({
                             <span className={`${isCompact ? '' : 'text-sm'}`}>
                                 {plan.name}
                                 {plan.legacy_product && (
-                                    <span className="text-muted text-xs font-normal"> (legacy)</span>
+                                    <span className="text-muted-foreground text-xs font-normal"> (legacy)</span>
                                 )}
                                 {isBold && ' '}
-                                {isBold && <span className="text-muted text-xs font-normal">(your plan)</span>}
+                                {isBold && (
+                                    <span className="text-muted-foreground text-xs font-normal">(your plan)</span>
+                                )}
                             </span>
                         </div>
                         <div
@@ -182,7 +184,7 @@ const SupportResponseTimesTable = ({
             {/* Display expired trial information */}
             {!(hasBoostTrial || hasScaleTrial || hasEnterpriseTrial) && hasExpiredTrial && expiredTrialDate && (
                 <>
-                    <div className="border-t text-muted col-span-2">Trial expired</div>
+                    <div className="border-t text-muted-foreground col-span-2">Trial expired</div>
                 </>
             )}
 

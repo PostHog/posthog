@@ -182,11 +182,13 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                                 pagination={undefined}
                             />
                             {propertyGroupFormValidationError && (
-                                <div className="text-danger text-sm mt-2">{propertyGroupFormValidationError}</div>
+                                <div className="text-destructive-foreground text-sm mt-2">
+                                    {propertyGroupFormValidationError}
+                                </div>
                             )}
                         </>
                     ) : (
-                        <div className="text-center text-muted py-6">
+                        <div className="text-center text-muted-foreground py-6">
                             No properties yet. Click "Add property" to get started.
                         </div>
                     )}

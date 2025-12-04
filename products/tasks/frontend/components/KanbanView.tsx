@@ -327,7 +327,7 @@ export function KanbanView(): JSX.Element {
                         const totalTasks = stages.reduce((sum, { tasks }) => sum + tasks.length, 0)
 
                         return (
-                            <div key={workflow.id} className="bg-bg-light rounded-lg border border-border">
+                            <div key={workflow.id} className="bg-card rounded-lg border border-border">
                                 {/* Workflow Header */}
                                 <div className="flex items-center justify-between p-4">
                                     <div
@@ -340,7 +340,7 @@ export function KanbanView(): JSX.Element {
                                         />
                                         <h2 className="text-lg font-semibold">{workflow.name}</h2>
                                         <span className="text-sm text-muted">({totalTasks} tasks)</span>
-                                        <div className="text-muted ml-auto">{isCollapsed ? '▶' : '▼'}</div>
+                                        <div className="text-muted-foreground ml-auto">{isCollapsed ? '▶' : '▼'}</div>
                                     </div>
                                 </div>
 
@@ -379,7 +379,7 @@ export function KanbanView(): JSX.Element {
                                                     >
                                                         {isAgentOnly && (
                                                             <div className="absolute top-2 right-2 z-10 pointer-events-none">
-                                                                <div className="bg-bg-light border border-border rounded-lg px-2 py-1 shadow-sm">
+                                                                <div className="bg-card border border-border rounded-lg px-2 py-1 shadow-sm">
                                                                     <div className="flex items-center gap-1 text-xs text-muted">
                                                                         <span className="w-2 h-2 bg-warning rounded-full" />
                                                                         Agent
@@ -395,7 +395,7 @@ export function KanbanView(): JSX.Element {
                                                                 />
                                                                 <h3 className="font-medium text-sm">{stage.name}</h3>
                                                             </div>
-                                                            <span className="text-xs text-muted bg-border rounded-full px-2 py-1">
+                                                            <span className="text-xs text-muted-foreground bg-border rounded-full px-2 py-1">
                                                                 {stageTasks.length}
                                                             </span>
                                                         </div>

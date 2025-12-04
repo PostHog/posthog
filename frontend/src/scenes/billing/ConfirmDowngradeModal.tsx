@@ -65,7 +65,7 @@ export function ConfirmDowngradeModal({ product }: { product: BillingProductV2Ad
             render: (_, row) => (
                 <div className={`py-1 ${row.isBold ? 'font-bold' : 'font-medium'}`}>
                     <div>{row.description}</div>
-                    {row.dateRange && <div className="text-muted text-xs">{row.dateRange}</div>}
+                    {row.dateRange && <div className="text-muted-foreground text-xs">{row.dateRange}</div>}
                 </div>
             ),
         },

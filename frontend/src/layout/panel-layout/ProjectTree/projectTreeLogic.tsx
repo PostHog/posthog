@@ -740,7 +740,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                         title: 'Created at',
                         formatComponent: (created_at) =>
                             created_at ? (
-                                <span className="text-muted text-xs">{dayjs(created_at).fromNow()}</span>
+                                <span className="text-muted-foreground text-xs">{dayjs(created_at).fromNow()}</span>
                             ) : (
                                 '-'
                             ),

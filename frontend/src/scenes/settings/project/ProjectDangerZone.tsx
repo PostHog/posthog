@@ -88,10 +88,10 @@ export function ProjectDangerZone(): JSX.Element {
 
     return (
         <>
-            <div className="text-danger">
+            <div className="text-destructive-foreground">
                 <div className="mt-4">
                     {!restrictedReason && (
-                        <p className="text-danger">
+                        <p className="text-destructive-foreground">
                             This is <b>irreversible</b>. Please be certain.
                         </p>
                     )}

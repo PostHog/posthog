@@ -119,7 +119,9 @@ function CustomBrackets({ insightProps }: { insightProps: EditorFilterProps['ins
                     Add another bracket
                 </LemonButton>
             </div>
-            {totalRange > MAX_RANGE && <div className="text-xs text-danger">Total range is too large.</div>}
+            {totalRange > MAX_RANGE && (
+                <div className="text-xs text-destructive-foreground">Total range is too large.</div>
+            )}
         </div>
     )
 }

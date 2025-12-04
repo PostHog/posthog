@@ -34,12 +34,12 @@ function BreakpointInstanceCard({
         <div
             className={clsx(
                 'p-2 border rounded cursor-pointer transition-colors text-xs',
-                isSelected ? 'border-border bg-card-highlight' : 'border-border hover:bg-bg-light',
+                isSelected ? 'border-border bg-card-highlight' : 'border-border hover:bg-card',
                 isNew && 'animate-pulse bg-warning-highlight border-warning'
             )}
             onClick={onClick}
         >
-            <div className="text-muted text-xs mb-0.5">{dayjs(instance.timestamp).fromNow()}</div>
+            <div className="text-muted-foreground text-xs mb-0.5">{dayjs(instance.timestamp).fromNow()}</div>
             <div
                 className="font-mono font-semibold text-xs truncate"
                 title={`${instance.functionName || 'captureEvent'}:${instance.lineNumber}`}
@@ -75,7 +75,7 @@ export function LiveDebugger(): JSX.Element {
                     <RepositoryBrowser />
 
                     {/* Middle - Breakpoint instances for selected line */}
-                    <div className="w-64 border rounded bg-bg-light overflow-hidden flex flex-col">
+                    <div className="w-64 border rounded bg-card overflow-hidden flex flex-col">
                         <div className="px-2 py-1.5 border-b bg-bg-3000 flex items-center justify-between">
                             <span className="font-semibold text-xs">
                                 {selectedLineForHits ? `Line ${selectedLineForHits}` : 'Hits'}
@@ -83,7 +83,7 @@ export function LiveDebugger(): JSX.Element {
                             {selectedLineForHits && (
                                 <button
                                     onClick={() => showHitsForLine(null)}
-                                    className="text-xs text-muted hover:text-default"
+                                    className="text-xs text-muted-foreground hover:text-default"
                                 >
                                     Clear
                                 </button>
@@ -105,12 +105,12 @@ export function LiveDebugger(): JSX.Element {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="flex-1 flex items-center justify-center text-muted p-2 text-center">
+                                    <div className="flex-1 flex items-center justify-center text-muted-foreground p-2 text-center">
                                         <p className="text-xs">No hits</p>
                                     </div>
                                 )
                             ) : (
-                                <div className="flex-1 flex items-center justify-center text-muted p-2 text-center">
+                                <div className="flex-1 flex items-center justify-center text-muted-foreground p-2 text-center">
                                     <div className="text-xs">
                                         <p>Click hit count badges</p>
                                         <p className="mt-1">to view hits</p>

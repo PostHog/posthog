@@ -181,7 +181,7 @@ export function ConversationMessagesDisplay({
                 <div className="mt-4">
                     <h4 className="flex items-center justify-between text-xs font-semibold mb-2">
                         <div className="flex items-center gap-x-1.5">
-                            <IconExclamation className="text-base text-danger" />
+                            <IconExclamation className="text-base text-destructive-foreground" />
                             Error {httpStatus ? `(${httpStatus})` : ''}
                         </div>
                     </h4>

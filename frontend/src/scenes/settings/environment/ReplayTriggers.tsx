@@ -229,10 +229,10 @@ function UrlConfigForm({
                     </LemonField>
                 </LemonLabel>
                 {type === 'trigger' && urlTriggerInputValidationWarning && (
-                    <span className="text-danger">{urlTriggerInputValidationWarning}</span>
+                    <span className="text-destructive-foreground">{urlTriggerInputValidationWarning}</span>
                 )}
                 {type === 'blocklist' && urlBlocklistInputValidationWarning && (
-                    <span className="text-danger">{urlBlocklistInputValidationWarning}</span>
+                    <span className="text-destructive-foreground">{urlBlocklistInputValidationWarning}</span>
                 )}
             </div>
             <div className="flex justify-between gap-2 w-full">
@@ -314,7 +314,7 @@ function UrlConfigRow({
                     <span
                         className={cn('ml-2 text-xs', {
                             'text-success': checkUrlResult === true,
-                            'text-danger': checkUrlResult === false,
+                            'text-destructive-foreground': checkUrlResult === false,
                         })}
                     >
                         {checkUrlResult ? (
@@ -437,7 +437,9 @@ function UrlConfigSection({
                             {Object.values(checkUrlResults).some(Boolean) ? (
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
-                                <span className="text-danger">✗ This URL doesn't match any patterns</span>
+                                <span className="text-destructive-foreground">
+                                    ✗ This URL doesn't match any patterns
+                                </span>
                             )}
                         </div>
                     )}

@@ -106,7 +106,7 @@ export function DataWarehouseManagedViewsetImpactModal({
 
                 <div>
                     <p className="font-semibold mb-2">
-                        To confirm, type <code className="px-1 py-0.5 bg-bg-light rounded">{confirmText}</code> below:
+                        To confirm, type <code className="px-1 py-0.5 bg-card rounded">{confirmText}</code> below:
                     </p>
                     <LemonInput
                         value={confirmationInput}

@@ -76,7 +76,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
         <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                    <div className="text-muted text-center">
+                    <div className="text-muted-foreground text-center">
                         <p>Generate an AI-powered summary of this {eventTypeName}.</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -136,7 +136,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
 
             {errorMessage && (
                 <div className="bg-danger-highlight border border-danger rounded p-4">
-                    <div className="font-semibold text-danger">Failed to generate summary</div>
+                    <div className="font-semibold text-destructive-foreground">Failed to generate summary</div>
                     <div className="text-sm mt-2">{errorMessage}</div>
                     {!dataProcessingAccepted ? (
                         <AIConsentPopoverWrapper
@@ -219,7 +219,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
                     </div>
 
                     <div className="flex-none">
-                        <div className="prose prose-sm max-w-none border rounded p-4 bg-bg-light overflow-x-auto">
+                        <div className="prose prose-sm max-w-none border rounded p-4 bg-card overflow-x-auto">
                             <SummaryRenderer summary={summaryData.summary} trace={trace} event={event} tree={tree} />
                         </div>
                     </div>

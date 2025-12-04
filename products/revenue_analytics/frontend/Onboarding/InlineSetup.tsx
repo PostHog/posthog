@@ -128,7 +128,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             displayConfigLink={false}
                         />
 
-                        <div className="text-sm text-muted-alt p-3 bg-bg-light rounded">
+                        <div className="text-sm text-muted-alt p-3 bg-card rounded">
                             <strong>Note:</strong> Once enabled, you'll be able to configure your revenue sources and
                             events in the next step.
                         </div>
@@ -159,7 +159,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 {/* Events Status */}
                                 <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-card border border-border">
                                         {hasEvents ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
@@ -182,7 +182,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
 
                                 {/* Sources Status */}
                                 <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-border">
+                                    <div className="flex items-center justify-center w-10 h-10 rounded-full bg-card border border-border">
                                         {hasSources ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
@@ -297,8 +297,8 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         source.isAvailable
                                             ? source.isConnected
                                                 ? 'border-border bg-card-lightest'
-                                                : 'border-border bg-bg-light'
-                                            : 'border-border bg-bg-light opacity-60',
+                                                : 'border-border bg-card'
+                                            : 'border-border bg-card opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
                                     )}
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}

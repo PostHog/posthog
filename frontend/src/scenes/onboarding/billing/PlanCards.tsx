@@ -96,18 +96,18 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
             />
             <div
                 className={clsx(
-                    'relative flex flex-col h-full p-6 bg-bg-light dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
+                    'relative flex flex-col h-full p-6 bg-card dark:bg-bg-depth rounded-xs border transition-transform transform hover:scale-[1.02] hover:shadow-lg',
                     highlight ? 'border-2 border-primary-active' : 'border-gray-200 dark:border-gray-700'
                 )}
             >
                 {planData.plan === Plan.RIDICULOUSLY_CHEAP && (
-                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-bg-light dark:bg-bg-depth rounded-xs text-xs text-accent-active font-semibold shadow-md border-primary-active border-2">
+                    <div className="absolute top-0 right-0 -mt-4 -mr-4 px-3 py-1 bg-card dark:bg-bg-depth rounded-xs text-xs text-accent-active font-semibold shadow-md border-primary-active border-2">
                         Free tier included!
                     </div>
                 )}
                 <header className="mb-0">
                     <h3 className="text-2xl font-bold mb-0 text-gray-800 dark:text-gray-100">{planData.title}</h3>
-                    <p className="text-muted dark:text-gray-400">{planData.subtitle}</p>
+                    <p className="text-muted-foreground dark:text-gray-400">{planData.subtitle}</p>
                 </header>
                 <section className="mb-3">
                     <div className="flex items-baseline gap-1">

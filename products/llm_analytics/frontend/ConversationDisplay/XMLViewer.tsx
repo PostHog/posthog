@@ -18,7 +18,7 @@ export function XMLViewer({ children: xmlContent, collapsed = 3 }: XMLViewerProp
     const parsedXML = parseXML(xmlContent)
 
     if (!parsedXML) {
-        return <span className="font-mono whitespace-pre-wrap text-danger">Invalid XML content</span>
+        return <span className="font-mono whitespace-pre-wrap text-destructive-foreground">Invalid XML content</span>
     }
 
     return (
@@ -48,7 +48,7 @@ function XMLNodeDisplay({
         }
 
         return (
-            <div className="text-muted whitespace-pre-wrap" style={{ marginLeft: `${depth * 16}px` }}>
+            <div className="text-muted-foreground whitespace-pre-wrap" style={{ marginLeft: `${depth * 16}px` }}>
                 {node.value}
             </div>
         )
@@ -78,12 +78,12 @@ function XMLNodeDisplay({
                 >
                     <span className="text-foreground">
                         {'<'}
-                        <span className="text-danger font-semibold">{node.name}</span>
+                        <span className="text-destructive-foreground font-semibold">{node.name}</span>
                         {attributeString && <span className="text-warning-foreground">{attributeString}</span>}
                         {!hasChildren ? ' />' : isCollapsed ? '>' : '>'}
                         {hasChildren && isCollapsed && (
                             <span
-                                className="text-muted hover:text-foreground cursor-pointer ml-1"
+                                className="text-muted-foreground hover:text-foreground cursor-pointer ml-1"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setIsCollapsed(false)
@@ -107,7 +107,7 @@ function XMLNodeDisplay({
                         ))}
                         <div className="text-foreground" style={{ marginLeft: `${depth * 16}px` }}>
                             {'</'}
-                            <span className="text-danger font-semibold">{node.name}</span>
+                            <span className="text-destructive-foreground font-semibold">{node.name}</span>
                             {'>'}
                         </div>
                     </>

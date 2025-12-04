@@ -12,7 +12,7 @@ export function SourceMapStatus(): JSX.Element {
     const { loadLastSymbolSet } = useActions(sourceMapsStepLogic)
 
     return (
-        <div className="mt-6 p-4 border rounded bg-bg-light">
+        <div className="mt-6 p-4 border rounded bg-card">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     {lastSymbolSetLoading ? (

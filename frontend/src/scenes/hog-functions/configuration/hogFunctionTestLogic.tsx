@@ -226,7 +226,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                         options: {
                             isWholeLine: true,
                             className: 'bg-danger-highlight',
-                            glyphMarginClassName: 'text-danger flex items-center justify-center',
+                            glyphMarginClassName: 'text-destructive-foreground flex items-center justify-center',
                             glyphMarginHoverMessage: { value: err.message },
                         },
                     },

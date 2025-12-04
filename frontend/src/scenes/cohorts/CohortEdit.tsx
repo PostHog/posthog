@@ -352,8 +352,8 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
 
                                             {cohort.errors_calculating ? (
                                                 <Tooltip title="The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation.">
-                                                    <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
+                                                    <div className="text-destructive-foreground">
+                                                        <IconErrorOutline className="text-destructive-foreground text-xl shrink-0" />
                                                     </div>
                                                 </Tooltip>
                                             ) : null}

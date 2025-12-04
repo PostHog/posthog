@@ -86,7 +86,7 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
 
     if (event.properties.$ai_is_error) {
         return (
-            <div className="flex items-center gap-1 text-danger">
+            <div className="flex items-center gap-1 text-destructive-foreground">
                 <IconExclamation />
                 <span>Error</span>
             </div>

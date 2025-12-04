@@ -157,7 +157,7 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
                         {index === visibleElementsCount && (
                             <span
                                 ref={overflowIndicatorRef}
-                                className="absolute left-0 top-0 bottom-0 text-xs text-muted flex items-center"
+                                className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center"
                             >
                                 + {childrenFlattened.length - visibleElementsCount} more
                             </span>
@@ -285,7 +285,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
                     {AI_GENERALLY_CANNOT.map((item, index) => (
                         <li key={index}>
-                            <IconX className="text-base text-danger shrink-0 ml-1 mr-2 h-[1.25em]" />
+                            <IconX className="text-base text-destructive-foreground shrink-0 ml-1 mr-2 h-[1.25em]" />
                             <span>{item}</span>
                         </li>
                     ))}

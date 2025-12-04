@@ -57,7 +57,7 @@ export function PathNodeCardMenu({
             )}
             {dropOffCount > 0 && (
                 <CardItem
-                    icon={<IconTrendingFlatDown className="text-xl shrink-0 text-danger" />}
+                    icon={<IconTrendingFlatDown className="text-xl shrink-0 text-destructive-foreground" />}
                     text="Dropping off"
                     count={
                         <CountButton

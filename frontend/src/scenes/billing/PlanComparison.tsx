@@ -33,7 +33,7 @@ export function PlanIcon({
         <div className="flex items-center text-xs text-secondary">
             {!feature ? (
                 <>
-                    <IconX className={clsx('text-danger mx-4', className)} />
+                    <IconX className={clsx('text-destructive-foreground mx-4', className)} />
                 </>
             ) : feature.limit ? (
                 <>

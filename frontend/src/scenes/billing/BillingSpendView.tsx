@@ -83,7 +83,7 @@ export function BillingSpendView(): JSX.Element {
     return (
         <div className="space-y-4">
             <BillingEarlyAccessBanner />
-            <div className="border rounded p-4 bg-bg-light space-y-4">
+            <div className="border rounded p-4 bg-card space-y-4">
                 <div className="flex gap-4 items-start flex-wrap">
                     {/* Products */}
                     <div className="flex flex-col gap-1">
@@ -140,7 +140,7 @@ export function BillingSpendView(): JSX.Element {
                     {/* Date Range */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Date range (UTC)</LemonLabel>
-                        <div className="bg-bg-light rounded-md">
+                        <div className="bg-card rounded-md">
                             <DateFilter
                                 className="h-8 flex items-center"
                                 dateFrom={dateFrom}
@@ -154,7 +154,7 @@ export function BillingSpendView(): JSX.Element {
                     {/* Interval */}
                     <div className="flex flex-col gap-1">
                         <LemonLabel>Group by</LemonLabel>
-                        <div className="bg-bg-light rounded-md">
+                        <div className="bg-card rounded-md">
                             <LemonSelect
                                 className="h-10.5 flex items-center"
                                 size="small"

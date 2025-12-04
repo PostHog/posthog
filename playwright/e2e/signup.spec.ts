@@ -38,7 +38,7 @@ test.describe('Signup', () => {
     test('Cannot signup with invalid attributes', async ({ page }) => {
         await page.locator('[data-attr=password]').fill('123')
         await expect(page.locator('[data-attr=password]')).toHaveValue('123')
-        await expect(page.locator('.text-danger')).not.toBeVisible()
+        await expect(page.locator('.text-destructive-foreground')).not.toBeVisible()
         await page.locator('[data-attr=signup-start]').click()
         await expect(page.getByText('Please enter your email to continue')).toBeVisible()
         await expect(page.getByText('Add another word or two')).toBeVisible()

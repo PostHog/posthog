@@ -116,12 +116,12 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                     {/* Event Selection */}
                     <div className="space-y-1">
                         <label className="text-sm font-semibold">
-                            Event Name <span className="text-danger">*</span>
+                            Event Name <span className="text-destructive-foreground">*</span>
                         </label>
                         {currentEvent ? (
-                            <div className="bg-bg-light rounded-lg">
+                            <div className="bg-card rounded-lg">
                                 <div className="flex items-center gap-2">
-                                    <code className="text-sm font-mono bg-bg-lighter py-1 rounded">
+                                    <code className="text-sm font-mono bg-carder py-1 rounded">
                                         {currentEvent.eventName}
                                     </code>
                                 </div>
@@ -152,7 +152,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
                     {/* Revenue Property */}
                     <div className="space-y-1">
                         <label className="text-sm font-semibold">
-                            Revenue Property <span className="text-danger">*</span>
+                            Revenue Property <span className="text-destructive-foreground">*</span>
                         </label>
                         <TaxonomicPopover
                             showNumericalPropsOnly
@@ -216,7 +216,7 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
 
                         <div className="flex items-center justify-center px-4 py-2 md:py-4">
                             <div className="bg-border-light rounded-full px-3 py-1">
-                                <span className="text-xs font-bold text-muted tracking-wider">OR</span>
+                                <span className="text-xs font-bold text-muted-foreground tracking-wider">OR</span>
                             </div>
                         </div>
 

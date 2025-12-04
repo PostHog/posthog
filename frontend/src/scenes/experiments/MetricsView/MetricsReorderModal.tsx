@@ -32,7 +32,7 @@ const MetricItem = ({
         <div
             ref={setNodeRef}
             className={clsx(
-                'relative flex items-center gap-2 p-3 border rounded cursor-move bg-bg-light',
+                'relative flex items-center gap-2 p-3 border rounded cursor-move bg-card',
                 isDragging && 'z-[999999]'
             )}
             style={{

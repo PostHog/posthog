@@ -60,7 +60,7 @@ export function CyclotronJobInputIntegrationField({
 
     if (!relatedSchemaIntegration) {
         return (
-            <div className="text-danger">
+            <div className="text-destructive-foreground">
                 Bad configuration: integration key {schema.integration_key} not found in schema
             </div>
         )
@@ -75,7 +75,7 @@ export function CyclotronJobInputIntegrationField({
 
         if (!requiresFieldSchema) {
             return (
-                <div className="text-danger">
+                <div className="text-destructive-foreground">
                     Bad configuration: required key {schema.requires_field} not found in schema
                 </div>
             )
@@ -178,7 +178,7 @@ export function CyclotronJobInputIntegrationField({
         return <ClickUpWorkspacePicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
     }
     return (
-        <div className="text-danger">
+        <div className="text-destructive-foreground">
             <p>Unsupported integration type: {schema.integration}</p>
         </div>
     )

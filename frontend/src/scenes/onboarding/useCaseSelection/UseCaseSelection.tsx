@@ -24,7 +24,7 @@ export function UseCaseSelection(): JSX.Element {
         <div className="flex flex-col items-center justify-center min-h-[calc(100vh-var(--scene-layout-header-height)-var(--scene-padding))] p-4 bg-card">
             <div className="max-w-2xl w-full">
                 <h1 className="text-4xl font-bold text-center mb-2">What do you want to do with PostHog?</h1>
-                <p className="text-center text-muted mb-8">Select your primary goal to get started:</p>
+                <p className="text-center text-muted-foreground mb-8">Select your primary goal to get started:</p>
 
                 <div className="flex flex-col gap-4">
                     {USE_CASE_OPTIONS.map((useCase) => (
@@ -40,7 +40,7 @@ export function UseCaseSelection(): JSX.Element {
                                 </div>
                                 <div className="flex-1">
                                     <h3 className="font-semibold mb-1">{useCase.title}</h3>
-                                    <p className="text-muted text-sm mb-0">{useCase.description}</p>
+                                    <p className="text-muted-foreground text-sm mb-0">{useCase.description}</p>
                                 </div>
                             </div>
                         </LemonCard>
@@ -57,7 +57,7 @@ export function UseCaseSelection(): JSX.Element {
                     )}
 
                     <button
-                        className="text-muted hover:text-default text-sm"
+                        className="text-muted-foreground hover:text-default text-sm"
                         onClick={() => selectUseCase('pick_myself')}
                     >
                         I want to pick products myself →

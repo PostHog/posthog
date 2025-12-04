@@ -65,7 +65,7 @@ export function EvaluationTriggers(): JSX.Element {
                 const percentageValue = condition.rollout_percentage || 0
 
                 return (
-                    <div key={condition.id} className="bg-bg-light border rounded p-4 space-y-4">
+                    <div key={condition.id} className="bg-card border rounded p-4 space-y-4">
                         {/* Header */}
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
@@ -98,7 +98,7 @@ export function EvaluationTriggers(): JSX.Element {
                         {/* Percentage Control */}
                         <div className="space-y-2">
                             <label className="block text-sm font-medium">
-                                Sampling percentage <span className="text-danger">*</span>
+                                Sampling percentage <span className="text-destructive-foreground">*</span>
                             </label>
                             <div className="flex items-center gap-4 max-w-md">
                                 <div className="flex-1">
@@ -127,7 +127,7 @@ export function EvaluationTriggers(): JSX.Element {
                                 </div>
                             </div>
                             {percentageValue === 0 ? (
-                                <div className="text-xs text-danger">
+                                <div className="text-xs text-destructive-foreground">
                                     Please set a sampling percentage between 0.1% and 100%
                                 </div>
                             ) : (
@@ -140,7 +140,7 @@ export function EvaluationTriggers(): JSX.Element {
                         {/* Property Filters */}
                         <div className="space-y-2">
                             <label className="block text-sm font-medium">Generation properties</label>
-                            <div className="text-sm text-muted mb-2">
+                            <div className="text-sm text-muted-foreground mb-2">
                                 Define which generation events should trigger this evaluation. Leave empty to match all
                                 generations.
                             </div>
@@ -170,9 +170,9 @@ export function EvaluationTriggers(): JSX.Element {
             </div>
 
             {/* Help Section */}
-            <div className="bg-bg-light border rounded p-3 text-sm">
+            <div className="bg-card border rounded p-3 text-sm">
                 <h4 className="font-semibold mb-2">Examples:</h4>
-                <ul className="space-y-1 text-muted list-disc list-inside">
+                <ul className="space-y-1 text-muted-foreground list-disc list-inside">
                     <li>
                         <strong>10% of all generations:</strong> Set 10% sampling with no property conditions
                     </li>

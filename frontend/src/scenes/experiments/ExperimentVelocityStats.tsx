@@ -12,7 +12,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
 
     if (experimentsStatsLoading) {
         return (
-            <div className="p-4 border rounded bg-bg-light flex items-center justify-center" style={{ minHeight: 100 }}>
+            <div className="p-4 border rounded bg-card flex items-center justify-center" style={{ minHeight: 100 }}>
                 <Spinner />
             </div>
         )
@@ -27,10 +27,10 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const isPositive = percent_change > 0
     const isNegative = percent_change < 0
     const arrow = isPositive ? <IconTrending fontSize="16" /> : isNegative ? <IconTrendingDown fontSize="16" /> : ''
-    const changeColor = isPositive ? 'text-success' : isNegative ? 'text-danger' : 'text-text-secondary'
+    const changeColor = isPositive ? 'text-success' : isNegative ? 'text-destructive-foreground' : 'text-text-secondary'
 
     return (
-        <div className="px-3 py-2 border rounded bg-bg-light flex items-center gap-3">
+        <div className="px-3 py-2 border rounded bg-card flex items-center gap-3">
             <div className="metric-cell-header font-semibold flex items-center gap-1">
                 Velocity (last 30d)
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">

@@ -82,7 +82,7 @@ function SessionExampleCard({
     const issueTags = getIssueTags(target_event)
 
     return (
-        <div className="flex flex-col gap-2 rounded border p-3 bg-bg-light">
+        <div className="flex flex-col gap-2 rounded border p-3 bg-card">
             <div className="flex items-center justify-between gap-2">
                 <Tooltip title="View details" placement="right">
                     <h4 className="mb-0 text-link hover:underline cursor-pointer" onClick={onViewDetails}>
@@ -190,7 +190,7 @@ function PatternCard({
         <div className="py-3 px-1">
             <div>
                 <h3 className="text-base font-medium mb-0">{pattern.pattern_name}</h3>
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted mb-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground mb-2">
                     <span>
                         {pattern.stats.sessions_affected} session{pattern.stats.sessions_affected > 1 ? 's' : ''}
                     </span>

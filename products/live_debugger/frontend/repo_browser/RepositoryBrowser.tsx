@@ -22,7 +22,7 @@ export function RepositoryBrowser(): JSX.Element {
 
     return (
         <>
-            <div className="flex-1 border rounded bg-bg-light overflow-hidden flex flex-col">
+            <div className="flex-1 border rounded bg-card overflow-hidden flex flex-col">
                 <div className="p-2 border-b bg-bg-3000">
                     <span className="font-semibold">Files</span>
                 </div>
@@ -57,7 +57,7 @@ export function RepositoryBrowser(): JSX.Element {
                 </div>
             </div>
 
-            <div className="flex-[2] border rounded bg-bg-light overflow-hidden flex flex-col">
+            <div className="flex-[2] border rounded bg-card overflow-hidden flex flex-col">
                 <div className="flex items-center justify-between p-2 border-b bg-bg-3000">
                     <span className="font-semibold">{selectedFilePath ? selectedFilePath : 'Code'}</span>
                     <LemonButton
@@ -71,7 +71,7 @@ export function RepositoryBrowser(): JSX.Element {
                 </div>
                 <div className="flex-1 overflow-auto font-mono text-xs">
                     {!codeLines ? (
-                        <div className="flex items-center justify-center h-full text-muted p-4 text-center">
+                        <div className="flex items-center justify-center h-full text-muted-foreground p-4 text-center">
                             <p>Select a file from the file browser to view its contents and set breakpoints</p>
                         </div>
                     ) : (

@@ -86,7 +86,7 @@ export const MarketingAnalyticsTable = ({
 
     return (
         <div className="bg-card">
-            <div className="p-4 border-b border-border bg-bg-light">
+            <div className="p-4 border-b border-border bg-card">
                 <div className="flex gap-4">
                     <div className="flex-1">
                         <DraftConversionGoalControls />

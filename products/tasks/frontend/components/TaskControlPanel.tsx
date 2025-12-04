@@ -77,7 +77,7 @@ export function TaskControlPanel(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Task Control Panel</h2>
-                    <p className="text-muted text-sm mt-1">Monitor and manage your task workflows</p>
+                    <p className="text-muted-foreground text-sm mt-1">Monitor and manage your task workflows</p>
                 </div>
             </div>
 
@@ -99,7 +99,7 @@ export function TaskControlPanel(): JSX.Element {
                     title="Need Attention"
                     value={needsAttention.length}
                     icon={<IconExclamation className="w-5 h-5" />}
-                    color="text-danger"
+                    color="text-destructive-foreground"
                 />
                 <OverviewCard
                     title="Completed"
@@ -119,7 +119,7 @@ export function TaskControlPanel(): JSX.Element {
 
                     <div className="space-y-3">
                         {needsAttention.length === 0 ? (
-                            <p className="text-muted text-sm">No tasks need attention</p>
+                            <p className="text-muted-foreground text-sm">No tasks need attention</p>
                         ) : (
                             needsAttention
                                 .slice(0, 5)
@@ -143,7 +143,7 @@ export function TaskControlPanel(): JSX.Element {
 
                     <div className="space-y-3">
                         {recentlyCompleted.length === 0 ? (
-                            <p className="text-muted text-sm">No completed tasks</p>
+                            <p className="text-muted-foreground text-sm">No completed tasks</p>
                         ) : (
                             recentlyCompleted.map((task) => (
                                 <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskDetail(task.id)} />
@@ -161,7 +161,7 @@ export function TaskControlPanel(): JSX.Element {
                     {workflowStages.map((stage) => {
                         const stageTasks = tasksByStage[stage.key] || []
                         return (
-                            <div key={stage.id} className="p-4 bg-bg-light rounded-lg">
+                            <div key={stage.id} className="p-4 bg-card rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
                                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                                     <h4 className="font-medium text-sm">{stage.name}</h4>
@@ -175,7 +175,7 @@ export function TaskControlPanel(): JSX.Element {
 
                                 {stageTasks.length > 0 && (
                                     <div className="mt-3">
-                                        <div className="text-xs text-muted mb-1">Latest:</div>
+                                        <div className="text-xs text-muted-foreground mb-1">Latest:</div>
                                         <div className="text-xs font-medium truncate">
                                             {stageTasks[stageTasks.length - 1]?.title}
                                         </div>
@@ -248,7 +248,7 @@ function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
 
     return (
         <div
-            className="flex items-center justify-between p-3 bg-bg-light rounded hover:bg-bg-3000 cursor-pointer transition-colors"
+            className="flex items-center justify-between p-3 bg-card rounded hover:bg-bg-3000 cursor-pointer transition-colors"
             onClick={onClick}
         >
             <div className="flex-1">

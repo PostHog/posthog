@@ -233,7 +233,7 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
         return (
             <div className="border rounded p-2 bg-card">
                 <div className="font-medium text-sm mb-1">{field}</div>
-                <div className="text-muted text-xs">No changes detected</div>
+                <div className="text-muted-foreground text-xs">No changes detected</div>
             </div>
         )
     }

@@ -615,7 +615,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     <div className="font-medium text-sm">
                                                                         {option.title}
                                                                     </div>
-                                                                    <div className="text-xs text-muted mt-1">
+                                                                    <div className="text-xs text-muted-foreground mt-1">
                                                                         {option.description}
                                                                     </div>
                                                                 </div>

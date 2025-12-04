@@ -105,7 +105,7 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
             case FieldStatus.Partial:
                 return <IconWarning className="text-warning-foreground text-sm" />
             case FieldStatus.Empty:
-                return <IconX className="text-muted text-sm" />
+                return <IconX className="text-muted-foreground text-sm" />
         }
     }
 

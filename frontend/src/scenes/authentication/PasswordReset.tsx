@@ -32,7 +32,7 @@ export function PasswordReset(): JSX.Element {
         <BridgePage view="password-reset" footer={<SupportModalButton />}>
             {requestPasswordResetManualErrors?.code === 'throttled' ? (
                 <div className="text-center ">
-                    <IconErrorOutline className="text-5xl text-danger" />
+                    <IconErrorOutline className="text-5xl text-destructive-foreground" />
                 </div>
             ) : (
                 requestPasswordResetSucceeded && (

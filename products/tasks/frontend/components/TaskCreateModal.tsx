@@ -131,7 +131,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
         >
             <div className="space-y-6">
                 {errors.submit && (
-                    <div className="bg-danger-3000 text-danger border border-danger rounded p-3 text-sm">
+                    <div className="bg-danger-3000 text-destructive-foreground border border-danger rounded p-3 text-sm">
                         {errors.submit}
                     </div>
                 )}
@@ -146,7 +146,9 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                             placeholder="Describe the task in detail... (A title will be auto-generated)"
                             rows={4}
                         />
-                        {errors.description && <p className="text-danger text-xs mt-1">{errors.description}</p>}
+                        {errors.description && (
+                            <p className="text-destructive-foreground text-xs mt-1">{errors.description}</p>
+                        )}
                     </div>
 
                     <div>
@@ -171,7 +173,9 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                         value={formData.repositoryConfig}
                         onChange={(config) => setFormData({ ...formData, repositoryConfig: config })}
                     />
-                    {errors.repository && <p className="text-danger text-xs mt-2">{errors.repository}</p>}
+                    {errors.repository && (
+                        <p className="text-destructive-foreground text-xs mt-2">{errors.repository}</p>
+                    )}
                 </div>
             </div>
         </LemonModal>

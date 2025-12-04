@@ -42,7 +42,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
         labelComponent: (
             <div className="flex justify-between items-center w-full">
                 <span className="truncate">{option.url}</span>
-                <span className="text-muted ml-2">{option.count.toLocaleString()}</span>
+                <span className="text-muted-foreground ml-2">{option.count.toLocaleString()}</span>
             </div>
         ),
     }))

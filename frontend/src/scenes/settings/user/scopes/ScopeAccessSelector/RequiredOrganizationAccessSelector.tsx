@@ -19,7 +19,9 @@ export const RequiredOrganizationAccessSelector = ({
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Select organization</LemonLabel>
-            <p className="text-sm text-muted mb-2">This application requires access to a specific organization.</p>
+            <p className="text-sm text-muted-foreground mb-2">
+                This application requires access to a specific organization.
+            </p>
             <LemonField name="scoped_organizations">
                 {({ value, onChange }) => {
                     const arrayValue = Array.isArray(value) ? value : []

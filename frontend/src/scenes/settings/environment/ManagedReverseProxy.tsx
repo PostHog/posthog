@@ -68,7 +68,7 @@ export function ManagedReverseProxy(): JSX.Element {
                             status === 'valid'
                                 ? 'text-success'
                                 : status == 'erroring'
-                                  ? 'text-danger'
+                                  ? 'text-destructive-foreground'
                                   : 'text-warning-foreground-dark'
                         )}
                     >

@@ -352,7 +352,7 @@ export function FeatureFlagReleaseConditions({
                                               return message.value ? (
                                                   <div
                                                       key={index}
-                                                      className="text-danger flex items-center gap-1 text-sm Field--error"
+                                                      className="text-destructive-foreground flex items-center gap-1 text-sm Field--error"
                                                   >
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>

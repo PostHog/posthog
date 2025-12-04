@@ -118,7 +118,7 @@ export function TextViewDisplay({
 
     if (textReprLoading) {
         return (
-            <div className="flex items-center justify-center p-8 bg-bg-light rounded border border-border">
+            <div className="flex items-center justify-center p-8 bg-card rounded border border-border">
                 <Spinner className="text-2xl" />
                 <span className="ml-2">Loading text representation...</span>
             </div>
@@ -148,7 +148,7 @@ export function TextViewDisplay({
                     {copied ? 'Copied!' : 'Copy text'}
                 </LemonButton>
             </div>
-            <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-bg-light rounded border border-border overflow-auto flex-1 min-h-0 max-h-[200vh]">
+            <pre className="font-mono text-xs whitespace-pre-wrap p-4 bg-card rounded border border-border overflow-auto flex-1 min-h-0 max-h-[200vh]">
                 {segments.map((segment, index) => {
                     if (segment.type === 'text') {
                         // Trim trailing whitespace if followed by gen_expandable

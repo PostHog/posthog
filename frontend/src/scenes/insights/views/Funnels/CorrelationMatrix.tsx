@@ -60,7 +60,7 @@ export function CorrelationMatrix(): JSX.Element {
         ) : correlationScoreStrength === 'moderate' ? (
             <IconCancel className="text-warning-foreground" />
         ) : (
-            <IconErrorOutline className="text-danger" />
+            <IconErrorOutline className="text-destructive-foreground" />
         )
 
     return (
@@ -196,7 +196,7 @@ export function CorrelationMatrix(): JSX.Element {
                                 <Tooltip
                                     title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
                                 >
-                                    <strong className="cursor-help text-danger">
+                                    <strong className="cursor-help text-destructive-foreground">
                                         <IconTrendingFlatDown /> negative correlation
                                     </strong>
                                 </Tooltip>
@@ -210,7 +210,7 @@ export function CorrelationMatrix(): JSX.Element {
                                             ? 'text-success'
                                             : correlationScoreStrength === 'moderate'
                                               ? 'text-warning-foreground'
-                                              : 'text-danger'
+                                              : 'text-destructive-foreground'
                                     )}
                                 >
                                     {scoreIcon} {correlationScore.toFixed(3)}

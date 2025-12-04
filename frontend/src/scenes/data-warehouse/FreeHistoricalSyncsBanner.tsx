@@ -72,7 +72,7 @@ export function FreeHistoricalSyncsBanner({ hideGetStarted }: { hideGetStarted?:
                         data and testing your pipeline at no cost.
                     </p>
 
-                    <div className="bg-bg-light rounded p-4">
+                    <div className="bg-card rounded p-4">
                         <h4 className="text-sm font-semibold mb-2">What's included?</h4>
                         <ul className="space-y-2 text-sm list-disc list-inside">
                             <li>Import historical data from your production databases</li>

@@ -53,7 +53,7 @@ export function TrendsCalendarHeatMap(_props: ChartParams): JSX.Element {
                 showColumnAggregations={true}
                 showRowAggregations={true}
             />
-            <div className="flex items-center justify-center gap-2 text-muted text-xs mt-2">
+            <div className="flex items-center justify-center gap-2 text-muted-foreground text-xs mt-2">
                 <span>Data shown in timezone: {timeZoneLabel(timezone, offset)}</span>
                 <LemonButton
                     size="xsmall"

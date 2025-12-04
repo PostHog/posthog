@@ -22,7 +22,7 @@ export function ExceptionAttributesPreview({
         <>
             {match(loading)
                 .with(true, () => (
-                    <span className="text-muted space-x-2 text-xs">
+                    <span className="text-muted-foreground space-x-2 text-xs">
                         <Spinner />
                         <span>Loading details...</span>
                     </span>

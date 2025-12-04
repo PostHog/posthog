@@ -67,8 +67,8 @@ function PropertyGroupCard({
     const insightUrl = useMemo(() => urls.insightNew({ query: linkQuery }), [linkQuery])
 
     return (
-        <div className="border rounded overflow-hidden bg-bg-light">
-            <div className="flex items-center justify-between p-4 bg-bg-light border-b">
+        <div className="border rounded overflow-hidden bg-card">
+            <div className="flex items-center justify-between p-4 bg-card border-b">
                 <div className="flex items-center gap-2">
                     <span className="font-semibold">{schema.property_group.name}</span>
                     <LemonTag type="default">
@@ -103,7 +103,7 @@ function PropertyGroupCard({
                     {schema.property_group.properties.map((property: SchemaPropertyGroupProperty) => (
                         <PropertyRow key={property.id} property={property} />
                     ))}
-                    <div className="p-4 bg-bg-light">
+                    <div className="p-4 bg-card">
                         <h4 className="font-semibold mb-2 text-sm flex items-center gap-1">
                             <Link to={insightUrl} className="text-default hover:text-link">
                                 Property Coverage Trends (90 days)
@@ -184,7 +184,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center text-muted py-8 border rounded bg-bg-light">
+                    <div className="text-center text-muted-foreground py-8 border rounded bg-card">
                         No property groups added yet. Add a property group above to define the schema for this event.
                     </div>
                 )}

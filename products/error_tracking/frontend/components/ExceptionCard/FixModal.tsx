@@ -111,7 +111,7 @@ PostHog issue: ${issueUrl}
                         ? 'Paste this prompt into your favourite coding assistant to get a detailed explanation of this error:'
                         : 'Paste this prompt into your favourite coding assistant to get help fixing this error:'}
                 </p>
-                <div className="bg-bg-light border rounded p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
+                <div className="bg-card border rounded p-4 font-mono text-sm whitespace-pre-wrap max-h-96 overflow-auto">
                     {generatePrompt()}
                 </div>
             </div>

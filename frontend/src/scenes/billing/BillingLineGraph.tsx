@@ -60,7 +60,7 @@ function useBillingTooltip(): {
             tooltipElRef.current = document.createElement('div')
             tooltipElRef.current.id = 'BillingTooltipWrapper'
             tooltipElRef.current.className =
-                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-bg-light rounded shadow-md text-xs pointer-events-none border border-border'
+                'BillingTooltipWrapper hidden absolute z-10 p-2 bg-card rounded shadow-md text-xs pointer-events-none border border-border'
             document.body.appendChild(tooltipElRef.current)
         }
         if (!tooltipRootRef.current) {
@@ -361,7 +361,7 @@ export function BillingLineGraph({
     return (
         <div className="relative h-96" onMouseLeave={hideBillingTooltip}>
             {isLoading && (
-                <div className="absolute inset-0 flex items-center justify-center bg-bg-light bg-opacity-75 z-10">
+                <div className="absolute inset-0 flex items-center justify-center bg-card bg-opacity-75 z-10">
                     <div className="text-muted">Loading...</div>
                 </div>
             )}

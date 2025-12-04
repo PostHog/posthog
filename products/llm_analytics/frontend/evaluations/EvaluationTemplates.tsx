@@ -50,7 +50,7 @@ function TemplateCard({ template }: TemplateCardProps): JSX.Element {
 
     return (
         <button
-            className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-border-3000-hover focus:border-border-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
+            className="relative flex flex-col bg-card border border-border rounded-lg hover:border-border-3000-hover focus:border-border-3000-hover focus:outline-none transition-colors text-left group p-6 cursor-pointer min-h-[180px]"
             data-attr={isBlank ? 'blank-evaluation-template' : `evaluation-template-${template.key}`}
             onClick={handleClick}
         >

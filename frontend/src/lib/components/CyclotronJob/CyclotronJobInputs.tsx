@@ -460,7 +460,7 @@ function CyclotronJobInputRenderer({
             )
         default:
             return (
-                <strong className="text-danger">
+                <strong className="text-destructive-foreground">
                     Unknown field type "<code>{schema.type}</code>".
                 </strong>
             )

@@ -80,7 +80,11 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
             dataIndex: 'samples',
             width: '200px',
             render: (samples: { type: string; value: string }[]) =>
-                samples.length > 0 ? samples[0].type : <span className="text-muted italic">No exception types</span>,
+                samples.length > 0 ? (
+                    samples[0].type
+                ) : (
+                    <span className="text-muted-foreground italic">No exception types</span>
+                ),
         },
         {
             title: 'Example message',
@@ -90,7 +94,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                 messages.length > 0 ? (
                     messages[0].value
                 ) : (
-                    <span className="text-muted italic">No exception messages</span>
+                    <span className="text-muted-foreground italic">No exception messages</span>
                 ),
         },
         { title: 'Count', dataIndex: 'count' },

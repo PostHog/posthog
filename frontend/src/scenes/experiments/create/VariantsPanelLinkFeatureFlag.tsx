@@ -79,7 +79,7 @@ export const VariantsPanelLinkFeatureFlag = ({
     if (!linkedFeatureFlag) {
         if (disabled) {
             return (
-                <div className="text-danger text-sm">
+                <div className="text-destructive-foreground text-sm">
                     You cannot change the feature flag when editing an experiment.
                 </div>
             )
@@ -87,9 +87,9 @@ export const VariantsPanelLinkFeatureFlag = ({
         return (
             <div>
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
-                <div className="mt-2 p-8 border border-dashed rounded-lg bg-bg-light flex flex-col items-center gap-3">
+                <div className="mt-2 p-8 border border-dashed rounded-lg bg-card flex flex-col items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <IconToggle className="text-muted text-2xl" />
+                        <IconToggle className="text-muted-foreground text-2xl" />
                         <div className="text-base font-semibold">No feature flag selected</div>
                     </div>
                     <div className="text-sm text-muted-alt text-center">
@@ -108,7 +108,7 @@ export const VariantsPanelLinkFeatureFlag = ({
     return (
         <div>
             <label className="text-sm font-semibold">Linked Feature Flag</label>
-            <div className="mt-2 border rounded-lg bg-bg-light p-4 space-y-2">
+            <div className="mt-2 border rounded-lg bg-card p-4 space-y-2">
                 {/* Header: Flag key + link + change button */}
                 <div className="flex flex-row gap-4">
                     <div className="flex items-center gap-2 min-w-0 flex-1">

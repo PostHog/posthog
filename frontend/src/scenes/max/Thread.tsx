@@ -508,14 +508,14 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
     if (isReportCompletion && message.conversation_notebooks) {
         return (
             <MessageTemplate type="ai">
-                <div className="bg-bg-light border border-border rounded-lg p-4 space-y-3">
+                <div className="bg-card border border-border rounded-lg p-4 space-y-3">
                     <div className="flex items-center gap-2">
                         <IconCheck className="text-success size-4" />
                         <h4 className="text-sm font-semibold m-0">Deep Research Complete</h4>
                     </div>
 
                     <div className="space-y-2">
-                        <p className="text-xs text-muted mb-3">
+                        <p className="text-xs text-muted-foreground mb-3">
                             Your research has been completed. Each notebook contains detailed analysis:
                         </p>
 
@@ -638,12 +638,12 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                 <span
                                     className={clsx(
                                         'leading-relaxed',
-                                        isCompleted && 'text-muted line-through',
+                                        isCompleted && 'text-muted-foreground line-through',
                                         isInProgress && 'font-medium'
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-muted ml-1">(in progress)</span>}
+                                    {isInProgress && <span className="text-muted-foreground ml-1">(in progress)</span>}
                                 </span>
                             </div>
                         )
@@ -755,7 +755,7 @@ function AssistantActionComponent({
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
-                    {isFailed && showCompletionIcon && <IconX className="text-danger size-3" />}
+                    {isFailed && showCompletionIcon && <IconX className="text-destructive-foreground size-3" />}
                     {showChevron && (
                         <div className="relative flex-shrink-0 flex items-start justify-center h-full pt-px">
                             <button className="inline-flex items-center hover:opacity-70 transition-opacity flex-shrink-0 cursor-pointer">
@@ -787,7 +787,7 @@ function AssistantActionComponent({
                                     id={id}
                                     className={clsx(
                                         'leading-relaxed',
-                                        isFailed && 'text-danger',
+                                        isFailed && 'text-destructive-foreground',
                                         !isFailed && isCompletedSubstep && 'text-muted',
                                         !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                                     )}
@@ -1197,7 +1197,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
         <div className="flex">
             {/* Sidebar with visualization list */}
             <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted mb-3">VISUALIZATIONS</h5>
+                <h5 className="text-xs font-semibold text-muted-foreground mb-3">VISUALIZATIONS</h5>
                 <div className="space-y-1">
                     {messages.map((item, index) => (
                         <button

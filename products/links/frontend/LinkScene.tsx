@@ -277,7 +277,7 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                                     </div>
                                 </div>
 
-                                <div className="border rounded-md p-4 mt-2 bg-bg-light flex items-center justify-center">
+                                <div className="border rounded-md p-4 mt-2 bg-card flex items-center justify-center">
                                     <div className="text-center">
                                         <QRCodeSVG
                                             size={128}

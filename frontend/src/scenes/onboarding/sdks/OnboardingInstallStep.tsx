@@ -102,7 +102,7 @@ export function SDKInstructionsModal({
                     <div className="flex-grow overflow-y-auto px-4 py-2">
                         <SDKSnippet sdk={sdk} sdkInstructions={sdkInstructions} productKey={productKey} />
                     </div>
-                    <footer className="sticky bottom-0 w-full bg-bg-light dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
+                    <footer className="sticky bottom-0 w-full bg-card dark:bg-bg-depth rounded-b-sm p-2 flex justify-between items-center gap-2 px-4">
                         <RealtimeCheckIndicator
                             teamPropertyToVerify={verifyingProperty}
                             listeningForName={verifyingName}

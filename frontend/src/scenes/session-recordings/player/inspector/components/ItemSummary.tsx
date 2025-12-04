@@ -23,8 +23,8 @@ export function ItemSummary({ item }: { item: InspectorListItemSummary }): JSX.E
             </div>
             <div
                 className={clsx(
-                    'flex text-danger items-center justify-end',
-                    (item.errorCount || 0) > 0 ? 'text-danger' : 'text-success'
+                    'flex text-destructive-foreground items-center justify-end',
+                    (item.errorCount || 0) > 0 ? 'text-destructive-foreground' : 'text-success'
                 )}
             >
                 <Tooltip

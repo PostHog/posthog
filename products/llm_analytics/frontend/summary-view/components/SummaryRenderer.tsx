@@ -48,7 +48,7 @@ export function SummaryRenderer({ summary, trace, event, tree }: SummaryRenderer
                     </button>
                 </Tooltip>
                 {isFlowExpanded && (
-                    <div className="px-3 py-2 border-t border-border bg-bg-light">
+                    <div className="px-3 py-2 border-t border-border bg-card">
                         <pre className="font-mono text-sm whitespace-pre overflow-x-auto m-0">
                             {summary.flow_diagram}
                         </pre>
@@ -70,7 +70,7 @@ export function SummaryRenderer({ summary, trace, event, tree }: SummaryRenderer
                     </button>
                 </Tooltip>
                 {isSummaryExpanded && (
-                    <div className="px-3 py-2 border-t border-border bg-bg-light">
+                    <div className="px-3 py-2 border-t border-border bg-card">
                         <ul className="list-disc list-inside space-y-1">
                             {summary.summary_bullets.map((bullet, idx) => (
                                 <li key={idx} className="text-sm">
@@ -98,7 +98,7 @@ export function SummaryRenderer({ summary, trace, event, tree }: SummaryRenderer
                         </button>
                     </Tooltip>
                     {isNotesExpanded && (
-                        <div className="px-3 py-2 border-t border-border bg-bg-light">
+                        <div className="px-3 py-2 border-t border-border bg-card">
                             <ul className="list-disc list-inside space-y-1">
                                 {summary.interesting_notes.map((note, idx) => (
                                     <li key={idx} className="text-sm">

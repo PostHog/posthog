@@ -172,7 +172,7 @@ function ElapsedTimeWithTimings({
         >
             <div
                 onClick={() => setPopoverVisible((visible) => !visible)}
-                className={clsx(hasError ? 'text-danger' : '', 'cursor-help')}
+                className={clsx(hasError ? 'text-destructive-foreground' : '', 'cursor-help')}
             >
                 {(elapsedTime / 1000).toFixed(elapsedTime < 1000 ? 2 : 1)}s
             </div>
@@ -209,5 +209,9 @@ export function ElapsedTime({ showTimings }: { showTimings?: boolean }): JSX.Ele
         return <ElapsedTimeWithTimings elapsedTime={elapsedTime} timings={timings} hasError={!!responseError} />
     }
 
-    return <div className={responseError ? 'text-danger' : ''}>{(time / 1000).toFixed(time < 1000 ? 2 : 1)}s</div>
+    return (
+        <div className={responseError ? 'text-destructive-foreground' : ''}>
+            {(time / 1000).toFixed(time < 1000 ? 2 : 1)}s
+        </div>
+    )
 }

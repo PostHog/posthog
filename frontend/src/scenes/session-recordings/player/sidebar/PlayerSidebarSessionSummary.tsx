@@ -170,7 +170,9 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
             <div className="flex items-center gap-1">
-                <IconWarning className={meta.failure_count && meta.failure_count > 0 ? 'text-danger' : ''} />
+                <IconWarning
+                    className={meta.failure_count && meta.failure_count > 0 ? 'text-destructive-foreground' : ''}
+                />
                 <span className="text-muted">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>

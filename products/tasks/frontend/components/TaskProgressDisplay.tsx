@@ -71,7 +71,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
             case ProgressStatus.COMPLETED:
                 return 'text-success'
             case ProgressStatus.FAILED:
-                return 'text-danger'
+                return 'text-destructive-foreground'
             default:
                 return 'text-muted'
         }
@@ -93,7 +93,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
 
     if (loading) {
         return (
-            <div className={`${className} flex items-center gap-2 p-3 bg-bg-light rounded border`}>
+            <div className={`${className} flex items-center gap-2 p-3 bg-card rounded border`}>
                 <Spinner className="w-4 h-4" />
                 <span className="text-sm text-muted">Loading execution progress...</span>
             </div>
@@ -102,9 +102,9 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
 
     if (error) {
         return (
-            <div className={`${className} p-3 bg-bg-light rounded border`}>
+            <div className={`${className} p-3 bg-card rounded border`}>
                 <div className="flex items-center justify-between">
-                    <span className="text-sm text-danger">Error: {error}</span>
+                    <span className="text-sm text-destructive-foreground">Error: {error}</span>
                     <LemonButton icon={<IconRefresh />} size="xsmall" onClick={fetchProgress}>
                         Retry
                     </LemonButton>
@@ -115,7 +115,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
 
     if (!progress?.has_progress) {
         return (
-            <div className={`${className} p-3 bg-bg-light rounded border`}>
+            <div className={`${className} p-3 bg-card rounded border`}>
                 <span className="text-sm text-muted">No Claude Code execution found for this task</span>
             </div>
         )
@@ -125,7 +125,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
         <div className={`${className} space-y-3`}>
             {/* GitHub Integration */}
             {(task.github_branch || task.github_pr_url) && (
-                <div className="p-3 bg-bg-light rounded border">
+                <div className="p-3 bg-card rounded border">
                     <h4 className="text-sm font-medium mb-2">GitHub Integration</h4>
                     <div className="space-y-2">
                         {task.github_branch && (
@@ -153,7 +153,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
             )}
 
             {/* Progress Display */}
-            <div className="p-3 bg-bg-light rounded border">
+            <div className="p-3 bg-card rounded border">
                 <div className="flex items-center justify-between mb-3">
                     <h4 className="text-sm font-medium">Claude Code Execution</h4>
                     <div className="flex items-center gap-2">
@@ -167,7 +167,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {/* Progress Bar - only show if we have meaningful progress tracking */}
                 {progress.total_steps && progress.total_steps > 0 && (
                     <div className="mb-3">
-                        <div className="flex justify-between text-xs text-muted mb-1">
+                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
                             <span>Progress</span>
                             <span>
                                 {progress.completed_steps}/{progress.total_steps} steps
@@ -197,8 +197,8 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {/* Error Message */}
                 {progress.error_message && (
                     <div className="mb-3 p-2 bg-danger-highlight rounded">
-                        <span className="text-xs text-danger font-medium">Error:</span>
-                        <div className="text-sm text-danger">{progress.error_message}</div>
+                        <span className="text-xs text-destructive-foreground font-medium">Error:</span>
+                        <div className="text-sm text-destructive-foreground">{progress.error_message}</div>
                     </div>
                 )}
 

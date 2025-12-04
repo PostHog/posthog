@@ -52,7 +52,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                             </code>
                         </pre>
                         {exceptionEvent?.uuid && (
-                            <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
+                            <div className="text-muted-foreground text-xs mb-2">
+                                Exception ID: {exceptionEvent.uuid}
+                            </div>
                         )}
                         Please help us resolve the issue by sending a screenshot of this message.
                         <LemonButton
@@ -97,7 +99,7 @@ export function LightErrorBoundary({ children, exceptionProps = {}, className }:
                         : new Error(typeof rawError === 'string' ? rawError : 'Unknown error')
                 const { stack, name, message } = normalizedError
                 return (
-                    <div className={clsx('text-danger', className)}>
+                    <div className={clsx('text-destructive-foreground', className)}>
                         {stack || (name || message ? `${name}: ${message}` : 'Error')}
                     </div>
                 )

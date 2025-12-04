@@ -127,7 +127,7 @@ const TZLabelPopoverRow = React.memo(function TZLabelPopoverRow({
             {icon}
             <div>{label}</div>
             <div className="text-xs">{caption}</div>
-            <div className={clsx('text-muted text-xs', monospace && 'font-mono')}>{value}</div>
+            <div className={clsx('text-muted-foreground text-xs', monospace && 'font-mono')}>{value}</div>
             <IconCopy fontSize="xsmall" />
         </div>
     )

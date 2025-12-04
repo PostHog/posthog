@@ -21,7 +21,7 @@ export function SelectorCount({ selector }: SelectorCountProps): JSX.Element | n
 
     return selector === null ? null : (
         <>
-            <small className={`float-right ${selectorError && 'text-danger'}`}>
+            <small className={`float-right ${selectorError && 'text-destructive-foreground'}`}>
                 {selectorError ? 'Invalid selector' : `Matches ${matches} element${matches === 1 ? '' : 's'}`}
             </small>
         </>

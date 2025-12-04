@@ -103,7 +103,7 @@ const ItemCell = ({ item }: { item: Item }): JSX.Element => {
             {item.item ? (
                 formatItem(item.item, baseCurrency)
             ) : (
-                <span className="text-danger text-xs">Error loading data</span>
+                <span className="text-destructive-foreground text-xs">Error loading data</span>
             )}
         </div>
     )

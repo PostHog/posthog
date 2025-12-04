@@ -187,7 +187,9 @@ export function AttributionSettings(): JSX.Element {
                             Save
                         </LemonButton>
                     </div>
-                    <p className={`text-xs text-muted-foreground mt-1 ${hasError ? 'text-danger' : ''}`}>
+                    <p
+                        className={`text-xs text-muted-foreground mt-1 ${hasError ? 'text-destructive-foreground' : ''}`}
+                    >
                         {hasError
                             ? `Please enter a value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
                             : 'How far back to look for marketing touchpoints when attributing conversions'}

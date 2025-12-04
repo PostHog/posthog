@@ -41,14 +41,14 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="Duplicate experiment" width="max-content">
             <div className="space-y-4">
-                <div className="text-muted max-w-xl">
+                <div className="text-muted-foreground max-w-xl">
                     Select a feature flag for the duplicated experiment. You can reuse the original flag or choose a
                     different one. If the flag doesn't exist, create it first, then return to this page.
                 </div>
 
                 <div>
                     <div className="font-semibold mb-2">Use the same flag</div>
-                    <div className="flex items-center justify-between p-3 border rounded bg-bg-light">
+                    <div className="flex items-center justify-between p-3 border rounded bg-card">
                         <div className="flex items-center" style={{ fontSize: '13px' }}>
                             <div className="font-semibold text-secondary">{experiment.feature_flag?.key}</div>
                             <Link

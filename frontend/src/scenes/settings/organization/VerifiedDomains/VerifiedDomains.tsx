@@ -104,7 +104,7 @@ function VerifiedDomainsTable(): JSX.Element {
                                   <IconCheckCircle style={iconStyle} /> Verified
                               </div>
                           ) : verified_at ? (
-                              <div className="flex items-center text-danger">
+                              <div className="flex items-center text-destructive-foreground">
                                   <IconExclamation style={iconStyle} /> Verification expired
                               </div>
                           ) : (

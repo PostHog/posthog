@@ -122,7 +122,7 @@ export function NPSBreakdownSkeleton(): JSX.Element {
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
                 >
-                    <IconInfo className="text-muted mr-1" />
+                    <IconInfo className="text-muted-foreground mr-1" />
                     Latest NPS Score
                 </Tooltip>
             </div>
@@ -140,7 +140,7 @@ function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.
                     placement="bottom"
                     title="NPS Score is calculated by subtracting the percentage of detractors (0-6) from the percentage of promoters (9-10). Passives (7-8) are not included in the calculation. It can go from -100 to 100."
                 >
-                    <IconInfo className="text-muted mr-1" />
+                    <IconInfo className="text-muted-foreground mr-1" />
                     Latest NPS Score
                 </Tooltip>
             </div>

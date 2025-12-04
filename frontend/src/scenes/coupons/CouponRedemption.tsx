@@ -90,7 +90,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                     <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                                     <div>
                                         <h4 className="font-semibold">{benefit.title}</h4>
-                                        <p className="text-muted text-sm">{benefit.description}</p>
+                                        <p className="text-muted-foreground text-sm">{benefit.description}</p>
                                     </div>
                                 </div>
                             ))}
@@ -104,7 +104,7 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                             <ul className="space-y-2">
                                 {config.eligibilityCriteria.map((criterion, index) => (
                                     <li key={index} className="flex items-start">
-                                        <IconArrowRight className="text-muted shrink-0 mt-1 mr-2" />
+                                        <IconArrowRight className="text-muted-foreground shrink-0 mt-1 mr-2" />
                                         <span className="text-sm">{criterion}</span>
                                     </li>
                                 ))}
@@ -131,14 +131,14 @@ export function CouponRedemption({ campaign, config, requiresBilling = true }: C
                                 </div>
                             ) : (
                                 <div className="flex flex-col items-start gap-2">
-                                    <p className="text-muted mb-2">
+                                    <p className="text-muted-foreground mb-2">
                                         To claim this coupon, you need to be on a paid plan.
                                     </p>
-                                    <p className="text-muted mb-2">
+                                    <p className="text-muted-foreground mb-2">
                                         Don't worry - you'll only pay for what you use and can set billing limits as low
                                         as $0 to control your spend.
                                     </p>
-                                    <p className="text-muted mb-2 italic">
+                                    <p className="text-muted-foreground mb-2 italic">
                                         P.S. You still keep the monthly free allowance for every product!
                                     </p>
                                     {platformAndSupportProduct && (

@@ -40,7 +40,7 @@ export function EventConfigModal(): JSX.Element {
                         Configure the events or actions that define different user behaviors for your customer analytics
                         dashboard
                     </p>
-                    <div className="flex items-center gap-1 text-muted text-xs">
+                    <div className="flex items-center gap-1 text-muted-foreground text-xs">
                         <IconInfo className="text-base" />
                         <span>
                             To track multiple events as activity, you can{' '}

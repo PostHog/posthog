@@ -56,7 +56,9 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
                 <div className="flex items-center gap-1 flex-wrap text-xs text-muted">
                     {steps.map((step, index) => (
                         <div key={index} className="flex items-center gap-1">
-                            {index > 0 && <IconArrowRight className="text-muted flex-shrink-0" fontSize="14" />}
+                            {index > 0 && (
+                                <IconArrowRight className="text-muted-foreground flex-shrink-0" fontSize="14" />
+                            )}
                             <span className="truncate max-w-[150px]">{getSourceName(step)}</span>
                         </div>
                     ))}

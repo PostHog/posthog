@@ -25,7 +25,7 @@ export function PreLaunchChecklist(): JSX.Element {
                 <h2 className="mb-0 font-semibold text-lg leading-6">Pre-launch checklist</h2>
             </div>
 
-            <div className="bg-bg-light rounded p-4 border">
+            <div className="bg-card rounded p-4 border">
                 <div>
                     {/* Step 1 - Hypothesis */}
                     <div className="flex gap-3 mb-6">
@@ -42,14 +42,14 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            experiment.description ? 'text-muted line-through' : ''
+                                            experiment.description ? 'text-muted-foreground line-through' : ''
                                         }`}
                                     >
                                         Add hypothesis
                                     </div>
                                     <div
                                         className={`text-sm ${
-                                            experiment.description ? 'text-muted line-through' : 'text-muted'
+                                            experiment.description ? 'text-muted-foreground line-through' : 'text-muted'
                                         }`}
                                     >
                                         Document what you expect to learn from this experiment
@@ -85,14 +85,14 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            hasPrimaryMetrics ? 'text-muted line-through' : ''
+                                            hasPrimaryMetrics ? 'text-muted-foreground line-through' : ''
                                         }`}
                                     >
                                         Add first metric
                                     </div>
                                     <div
                                         className={`text-sm ${
-                                            hasPrimaryMetrics ? 'text-muted line-through' : 'text-muted'
+                                            hasPrimaryMetrics ? 'text-muted-foreground line-through' : 'text-muted'
                                         }`}
                                     >
                                         Define your experiment's primary success metric

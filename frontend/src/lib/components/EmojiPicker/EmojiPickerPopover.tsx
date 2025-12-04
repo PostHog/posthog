@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 
 const EmojiPickerCategoryHeader = ({ category, ...props }: EmojiPickerListCategoryHeaderProps): JSX.Element => (
-    <div className="bg-bg-light px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
+    <div className="bg-card px-3 pt-3 pb-1.5 font-medium text-neutral-600 text-sm" {...props}>
         {category.label}
     </div>
 )
@@ -65,7 +65,7 @@ export function EmojiPickerPopover({
             visible={emojiPickerOpen}
             overlay={
                 <EmojiPicker.Root
-                    className="isolate flex h-[368px] w-fit flex-col bg-bg-light"
+                    className="isolate flex h-[368px] w-fit flex-col bg-card"
                     onEmojiSelect={({ emoji }) => {
                         onSelect(emoji)
                         setEmojiPickerOpen(false)

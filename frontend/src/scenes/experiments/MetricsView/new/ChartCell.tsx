@@ -73,7 +73,7 @@ export function ChartCell({
         <td
             data-table-cell="chart"
             className={`p-0 align-top text-center relative overflow-hidden ${
-                isAlternatingRow ? 'bg-bg-table' : 'bg-bg-light'
+                isAlternatingRow ? 'bg-bg-table' : 'bg-card'
             } ${isLastRow ? 'border-b' : ''}`}
             style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
         >
@@ -201,7 +201,7 @@ export function ChartCell({
                         <div
                             className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
                                 validationFailureType === 'error'
-                                    ? 'bg-danger-highlight text-danger'
+                                    ? 'bg-danger-highlight text-destructive-foreground'
                                     : 'bg-border-light text-muted'
                             }`}
                         >

@@ -25,7 +25,7 @@ const convertSlashCommandToMenuItem = (
                 {command.name}
                 {command.arg && ` ${command.arg}`}
             </div>
-            <div className="text-muted text-xs">{command.description}</div>
+            <div className="text-muted-foreground text-xs">{command.description}</div>
         </div>
     ),
     icon: command.icon,

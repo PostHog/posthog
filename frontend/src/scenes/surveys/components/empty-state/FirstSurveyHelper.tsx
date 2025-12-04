@@ -25,7 +25,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
     }
 
     return (
-        <div className="bg-bg-light border border-border rounded-lg p-6">
+        <div className="bg-card border border-border rounded-lg p-6">
             <div className="flex items-center gap-6">
                 <div className="hidden sm:block flex-shrink-0">
                     <ProfessorHog width={180} height={180} className="scale-x-[-1]" />
@@ -46,7 +46,7 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
                             </div>
                             <div className="flex-1 min-w-0">
                                 <h4 className="font-semibold text-default mb-0">Launch your survey</h4>
-                                <p className="text-sm text-muted mb-0">
+                                <p className="text-sm text-muted-foreground mb-0">
                                     Start collecting feedback from your users right away.
                                 </p>
                             </div>
@@ -58,19 +58,19 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
 
                     {/* Secondary Actions - Grouped */}
                     <div className="space-y-3">
-                        <h5 className="text-sm font-medium text-muted uppercase tracking-wide">
+                        <h5 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
                             Optional improvements
                         </h5>
 
                         <div className="grid gap-3 sm:grid-cols-3">
                             <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
                                 <div className="flex items-start gap-3">
-                                    <IconTarget className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <IconTarget className="w-4 h-4 text-muted-foreground mt-1 flex-shrink-0" />
                                     <div className="min-w-0 flex-1">
                                         <h4 className="font-medium text-default text-sm mb-1">
                                             Add display conditions
                                         </h4>
-                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                        <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
                                             Show to specific users.{' '}
                                             <Link
                                                 to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
@@ -99,10 +99,10 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
 
                             <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
                                 <div className="flex items-start gap-3">
-                                    <IconGraph className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <IconGraph className="w-4 h-4 text-muted-foreground mt-1 flex-shrink-0" />
                                     <div className="min-w-0 flex-1">
                                         <h4 className="font-medium text-default text-sm mb-1">Preview results</h4>
-                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                        <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
                                             See sample analytics.{' '}
                                             <Link
                                                 to="https://posthog.com/docs/surveys/viewing-results#1-on-the-survey-page"
@@ -125,12 +125,12 @@ export function FirstSurveyHelper({ onTabChange }: FirstSurveyHelperProps): JSX.
 
                             <div className="border border-border rounded-lg p-3 hover:border-border-bold transition-colors">
                                 <div className="flex items-start gap-3">
-                                    <IconBell className="w-4 h-4 text-muted mt-1 flex-shrink-0" />
+                                    <IconBell className="w-4 h-4 text-muted-foreground mt-1 flex-shrink-0" />
                                     <div className="min-w-0 flex-1">
                                         <h4 className="font-medium text-default text-sm mb-1">
                                             Get notified on responses
                                         </h4>
-                                        <p className="text-xs text-muted mb-2 leading-relaxed">
+                                        <p className="text-xs text-muted-foreground mb-2 leading-relaxed">
                                             Slack notifications.{' '}
                                             <Link
                                                 to="https://posthog.com/tutorials/slack-surveys"

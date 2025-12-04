@@ -162,7 +162,11 @@ export function SummaryTable({
                 return (
                     <div
                         className={`font-semibold ${
-                            deltaResult.isPositive ? 'text-success' : deltaResult.deltaPercent < 0 ? 'text-danger' : ''
+                            deltaResult.isPositive
+                                ? 'text-success'
+                                : deltaResult.deltaPercent < 0
+                                  ? 'text-destructive-foreground'
+                                  : ''
                         }`}
                     >
                         {`${deltaResult.isPositive ? '+' : ''}${deltaResult.deltaPercent.toFixed(2)}%`}
@@ -271,9 +275,9 @@ export function SummaryTable({
                 const delta = ((variantConversionRate - controlConversionRate) / controlConversionRate) * 100
 
                 return (
-                    <div className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : ''}`}>{`${
-                        delta > 0 ? '+' : ''
-                    }${delta.toFixed(2)}%`}</div>
+                    <div
+                        className={`font-semibold ${delta > 0 ? 'text-success' : delta < 0 ? 'text-destructive-foreground' : ''}`}
+                    >{`${delta > 0 ? '+' : ''}${delta.toFixed(2)}%`}</div>
                 )
             },
         })

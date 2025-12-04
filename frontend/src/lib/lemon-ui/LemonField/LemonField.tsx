@@ -36,7 +36,7 @@ export type LemonPureFieldProps = {
 
 const LemonFieldError = ({ error }: { error: string }): JSX.Element => {
     return (
-        <div className="text-danger flex items-center gap-1 text-sm">
+        <div className="text-destructive-foreground flex items-center gap-1 text-sm">
             <IconErrorOutline className="text-xl shrink-0" /> {error}
         </div>
     )

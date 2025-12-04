@@ -139,7 +139,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
             </div>
             {questionWithFiltersAvailable.length > 0 && (
                 <div className="border rounded overflow-hidden">
-                    <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-bg-light">
+                    <div className="grid grid-cols-6 gap-2 px-2 py-2 border-b bg-card">
                         <div className="col-span-3 font-semibold">Question</div>
                         <div className="font-semibold">Filter type</div>
                         <div className="col-span-2 font-semibold">Value</div>
@@ -156,10 +156,10 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                             return (
                                 <React.Fragment key={question.id}>
                                     {index > 0 && <LemonDivider className="my-0" label={FilterLogicalOperator.And} />}
-                                    <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-bg-light transition-all">
+                                    <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-card transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
-                                            <div className="text-muted text-xs flex gap-4">
+                                            <div className="text-muted-foreground text-xs flex gap-4">
                                                 <span className="flex items-center gap-1">
                                                     {QUESTION_TYPE_ICON_MAP[question.type]}
                                                     {SurveyQuestionLabel[question.type]}

@@ -62,7 +62,7 @@ export const renderTooltipContent = (variantResult: ExperimentVariantResult, met
                     {variantResult.key === 'control' ? (
                         <em className="text-muted-alt">Baseline</em>
                     ) : (
-                        <span className={winning ? 'text-success' : 'text-danger'}>
+                        <span className={winning ? 'text-success' : 'text-destructive-foreground'}>
                             {formatDeltaPercent(variantResult)}
                         </span>
                     )}

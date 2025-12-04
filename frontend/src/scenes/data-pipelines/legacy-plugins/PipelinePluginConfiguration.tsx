@@ -94,7 +94,7 @@ export function PipelinePluginConfiguration({
             ) : (
                 <>
                     {fieldConfig.type ? (
-                        <p className="text-danger">
+                        <p className="text-destructive-foreground">
                             Invalid config field <i>{fieldConfig.name || fieldConfig.key}</i>.
                         </p>
                     ) : null}
@@ -299,7 +299,7 @@ function PluginField({
             disabled={disabled}
         />
     ) : (
-        <strong className="text-danger">
+        <strong className="text-destructive-foreground">
             Unknown field type "<code>{fieldConfig.type}</code>".
             <br />
             You may need to upgrade PostHog!

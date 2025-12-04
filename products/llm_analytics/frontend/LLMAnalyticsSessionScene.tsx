@@ -147,7 +147,7 @@ function SessionSceneWrapper(): JSX.Element {
                                             </div>
                                         </div>
                                         {isTraceExpanded && (
-                                            <div className="border-t bg-bg-light">
+                                            <div className="border-t bg-card">
                                                 <div className="p-3 space-y-2">
                                                     <LLMAnalyticsTraceEvents
                                                         trace={fullTraces[trace.id]}

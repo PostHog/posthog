@@ -197,7 +197,7 @@ const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
                         status={fieldPathError ? 'danger' : undefined}
                         size="small"
                     />
-                    {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
+                    {fieldPathError && <div className="text-xs text-destructive-foreground mt-1">{fieldPathError}</div>}
                 </div>
             ) : (
                 <LemonSelect

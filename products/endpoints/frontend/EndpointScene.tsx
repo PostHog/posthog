@@ -155,7 +155,7 @@ export function EndpointScene({ tabId }: EndpointProps = {}): JSX.Element {
                             {endpoint.is_active ? 'Deactivate' : 'Activate'}
                         </ButtonPrimitive>
                         <LemonDivider />
-                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-danger">
+                        <ButtonPrimitive menuItem onClick={handleDelete} className="text-destructive-foreground">
                             <IconTrash />
                             Delete endpoint
                         </ButtonPrimitive>

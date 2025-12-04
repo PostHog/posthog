@@ -84,7 +84,7 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
 
     return (
         <div
-            className="bg-bg-light border border-border rounded-md p-3 min-w-[300px] shadow-sm"
+            className="bg-card border border-border rounded-md p-3 min-w-[300px] shadow-sm"
             style={{ minHeight: nodeHeight }}
         >
             {hasIncoming && <Handle type="target" position={Position.Left} className="w-2 h-2 bg-card" />}
@@ -125,7 +125,9 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
             </div>
 
             {data.last_run_at && (
-                <div className="text-xs text-muted mt-2">Last run: {humanFriendlyDetailedTime(data.last_run_at)}</div>
+                <div className="text-xs text-muted-foreground mt-2">
+                    Last run: {humanFriendlyDetailedTime(data.last_run_at)}
+                </div>
             )}
 
             {hasOutgoing && <Handle type="source" position={Position.Right} className="w-2 h-2 bg-card" />}

@@ -95,7 +95,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </span>
                     </LemonBanner>
                     <div>
-                        <p className="text-sm text-muted mb-4">
+                        <p className="text-sm text-muted-foreground mb-4">
                             Step 1: Import categories and globally unsubscribed users from Customer.io API.
                         </p>
                     </div>
@@ -138,7 +138,7 @@ export function CustomerIOImportModal(): JSX.Element {
                             key: 'failed-imports',
                             header: <div className="font-semibold text-sm">Failed imports ({failed.length})</div>,
                             content: (
-                                <div className="max-h-32 overflow-y-auto bg-bg-light rounded p-2 text-xs font-mono">
+                                <div className="max-h-32 overflow-y-auto bg-card rounded p-2 text-xs font-mono">
                                     {failed.slice(0, 100).map((item, idx) => (
                                         <div key={idx} className="py-0.5">
                                             {item.email}: {item.error}
@@ -226,7 +226,7 @@ export function CustomerIOImportModal(): JSX.Element {
                 <LemonDivider />
                 <div>
                     <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
-                    <p className="text-sm text-muted mb-3">
+                    <p className="text-sm text-muted-foreground mb-3">
                         Export a CSV from Customer.io with users who have subscription preferences set.{' '}
                         <Link
                             to="https://posthog.com/docs/workflows/import-customerio-optouts"
@@ -259,7 +259,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="font-medium text-sm">{csvFile.name}</div>
-                                        <div className="text-xs text-muted mt-1">
+                                        <div className="text-xs text-muted-foreground mt-1">
                                             Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
                                         </div>
                                     </div>

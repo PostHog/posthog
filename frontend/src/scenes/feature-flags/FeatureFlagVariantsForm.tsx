@@ -245,7 +245,7 @@ export function FeatureFlagVariantsForm({
                 </div>
             ))}
             {variants.length > 0 && !areVariantRolloutsValid && (
-                <p className="text-danger">
+                <p className="text-destructive-foreground">
                     Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}).
                 </p>
             )}

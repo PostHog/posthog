@@ -115,7 +115,7 @@ export function BillingDataTable({
     )
 
     return (
-        <div className="overflow-x-auto border rounded bg-bg-light">
+        <div className="overflow-x-auto border rounded bg-card">
             <LemonTable
                 data-attr="billing-data-table"
                 dataSource={series}

@@ -77,7 +77,7 @@ const DeleteFolderDialogContent = ({
             </p>
             {relativeEntries.length ? (
                 <>
-                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-bg-light">
+                    <div className="max-h-64 overflow-y-auto rounded border border-border bg-card">
                         <ul>
                             {relativeEntries.map(({ entry, relativePath }) => {
                                 const IconComponent = entry.type === 'folder' ? IconFolder : IconDocument

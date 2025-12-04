@@ -30,7 +30,7 @@ export function LogLevelDisplay(level: LogEntryLevel): JSX.Element {
             color = 'text-warning-foreground'
             break
         case 'ERROR':
-            color = 'text-danger'
+            color = 'text-destructive-foreground'
             break
         default:
             break

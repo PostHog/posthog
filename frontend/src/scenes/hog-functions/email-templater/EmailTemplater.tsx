@@ -83,7 +83,7 @@ function DestinationEmailTemplaterForm({ mode }: { mode: EmailEditorMode }): JSX
                         {({ value, onChange, error }) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
-                                    className={error ? 'text-danger' : ''}
+                                    className={error ? 'text-destructive-foreground' : ''}
                                     info={field.helpText}
                                     showOptional={field.optional}
                                 >
@@ -288,7 +288,7 @@ function NativeEmailTemplaterForm({
                         {({ value, onChange, error }) => (
                             <div className="flex gap-2 items-center">
                                 <LemonLabel
-                                    className={error ? 'text-danger' : ''}
+                                    className={error ? 'text-destructive-foreground' : ''}
                                     info={field.helpText}
                                     showOptional={field.optional}
                                 >
@@ -337,7 +337,7 @@ function NativeEmailTemplaterForm({
                                                     <div className="flex items-center justify-between w-full gap-2">
                                                         <span className="flex-1">{template.name}</span>
                                                         <span
-                                                            className="cursor-pointer text-muted hover:text-default"
+                                                            className="cursor-pointer text-muted-foreground hover:text-default"
                                                             onClick={() => {
                                                                 isPreviewClick.current = true
                                                                 setPreviewTemplate(template)

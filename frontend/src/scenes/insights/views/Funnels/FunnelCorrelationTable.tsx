@@ -89,7 +89,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                     {is_success ? (
                         <IconTrending className="text-success" />
                     ) : (
-                        <IconTrendingDown className="text-danger" />
+                        <IconTrendingDown className="text-destructive-foreground" />
                     )}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (

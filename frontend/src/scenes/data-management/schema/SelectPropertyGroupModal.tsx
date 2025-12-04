@@ -149,7 +149,9 @@ export function SelectPropertyGroupModal({
                                             ))}
                                         </>
                                     ) : (
-                                        <div className="text-center text-muted py-4">No properties defined</div>
+                                        <div className="text-center text-muted-foreground py-4">
+                                            No properties defined
+                                        </div>
                                     )}
                                 </div>
                             ),

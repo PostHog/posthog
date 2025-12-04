@@ -68,7 +68,7 @@ export const ProductIntroduction = ({
     return (
         <div
             className={cn(
-                'border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4',
+                'border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4 bg-background',
                 className
             )}
             data-attr={`product-introduction-${thingName}`}

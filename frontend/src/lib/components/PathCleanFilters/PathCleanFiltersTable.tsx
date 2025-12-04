@@ -70,7 +70,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
             <tr
                 ref={setNodeRef}
                 style={style}
-                className={clsx('border-b border-border hover:bg-bg-light transition-colors duration-150 bg-bg-light', {
+                className={clsx('border-b border-border hover:bg-card transition-colors duration-150 bg-card', {
                     'border-warning': isInvalidRegex,
                     'bg-bg-3000': isDragging,
                     'shadow-lg': isDragging,
@@ -85,14 +85,14 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                         <SortableDragIcon className="text-muted-alt h-3 w-3" />
                     </div>
                 </td>
-                <td className="py-1 px-2 w-12 text-center text-muted font-medium text-sm">{index + 1}</td>
+                <td className="py-1 px-2 w-12 text-center text-muted-foreground font-medium text-sm">{index + 1}</td>
                 <td className="py-1 px-2 min-w-0">
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : regex}>
                         <code
                             className={clsx(
                                 'font-mono text-xs px-1 py-0.5 rounded bg-accent-light text-accent block truncate',
                                 {
-                                    'text-danger border border-danger bg-danger-light': isInvalidRegex,
+                                    'text-destructive-foreground border border-danger bg-danger-light': isInvalidRegex,
                                 }
                             )}
                         >
@@ -193,7 +193,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
     }
 
     return (
-        <div className="border border-border rounded-lg overflow-hidden bg-bg-light">
+        <div className="border border-border rounded-lg overflow-hidden bg-card">
             <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -201,7 +201,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 onDragEnd={handleDragEnd}
                 modifiers={[restrictToVerticalAxis]}
             >
-                <table className="w-full bg-bg-light table-fixed">
+                <table className="w-full bg-card table-fixed">
                     <thead className="bg-bg-3000">
                         <tr>
                             <th className="py-2 px-2 w-8" />

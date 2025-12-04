@@ -129,7 +129,7 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
 
     return (
         <>
-            <div className="border rounded-lg p-4 bg-bg-light">
+            <div className="border rounded-lg p-4 bg-card">
                 <div className="space-y-4">
                     <div className="flex justify-between items-center">
                         <div className="text-sm font-medium">Saved Filters</div>
@@ -168,10 +168,10 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                     </div>
 
                     {savedFilters.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-8 border rounded-lg bg-bg-light">
-                            <IconBookmark className="text-4xl text-muted mb-4" />
+                        <div className="flex flex-col items-center justify-center py-8 border rounded-lg bg-card">
+                            <IconBookmark className="text-4xl text-muted-foreground mb-4" />
                             <h3 className="text-lg font-medium mb-2">No saved filters yet</h3>
-                            <p className="text-muted text-center max-w-md">
+                            <p className="text-muted-foreground text-center max-w-md">
                                 Save your frequently used filter combinations to quickly access them later
                             </p>
                         </div>

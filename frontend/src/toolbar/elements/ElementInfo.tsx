@@ -26,7 +26,7 @@ export function ElementInfo(): JSX.Element | null {
 
     return (
         <>
-            <div className="p-3 border-l-[5px] border-l-warning bg-bg-light">
+            <div className="p-3 border-l-[5px] border-l-warning bg-card">
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
             </div>

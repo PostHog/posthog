@@ -143,7 +143,7 @@ export function SampledSessionsModal(): JSX.Element {
                     />
                 </div>
 
-                <div className="text-xs text-muted border-t pt-2">
+                <div className="text-xs text-muted-foreground border-t pt-2">
                     <strong>Note:</strong> This shows a sample of up to 100 persons per step. Session recordings are
                     only available for sessions that have been captured and not deleted.
                 </div>

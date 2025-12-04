@@ -102,7 +102,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
             title: 'Status',
             render: (_, record) => {
                 if (record.error) {
-                    return <span className="text-danger">Error</span>
+                    return <span className="text-destructive-foreground">Error</span>
                 }
                 if (!record.finished_at) {
                     return <span className="text-warning-foreground">In Progress</span>
@@ -150,10 +150,10 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                     }}
                     expandable={{
                         expandedRowRender: (record) => (
-                            <div className="p-4 bg-bg-light">
+                            <div className="p-4 bg-card">
                                 {record.error && (
                                     <div className="mb-4">
-                                        <h4 className="text-danger">Error</h4>
+                                        <h4 className="text-destructive-foreground">Error</h4>
                                         <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto">
                                             {record.error}
                                         </pre>

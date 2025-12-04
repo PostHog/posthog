@@ -40,7 +40,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     <IconGear className="mx-auto text-4xl text-muted" />
                     <div>
                         <h3 className="font-medium">No GitHub Integration</h3>
-                        <p className="text-muted text-sm">
+                        <p className="text-muted-foreground text-sm">
                             Connect a GitHub integration to enable repository selection.
                         </p>
                     </div>

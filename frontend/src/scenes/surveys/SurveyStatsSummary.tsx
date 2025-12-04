@@ -21,7 +21,7 @@ interface StatCardProps {
 
 function StatCard({ title, value, description, isLoading }: StatCardProps): JSX.Element {
     return (
-        <div className="p-4 border rounded bg-bg-light flex-1 min-w-[180px] flex flex-col gap-1">
+        <div className="p-4 border rounded bg-card flex-1 min-w-[180px] flex flex-col gap-1">
             <div className="text-xs font-semibold uppercase text-text-secondary">{title}</div>
             {isLoading ? (
                 <>

@@ -59,7 +59,7 @@ function TablePreview({
                               <div className="font-medium text-xs truncate" title={column.name}>
                                   {column.name}
                               </div>
-                              <div className="text-muted text-xxs">{column.type}</div>
+                              <div className="text-muted-foreground text-xxs">{column.type}</div>
                           </div>
                       ),
                       dataIndex: column.name,
@@ -87,14 +87,16 @@ function TablePreview({
                         rowKey={(_, index) => index}
                         emptyState={
                             loading ? null : (
-                                <div className="text-muted text-sm text-center p-4">
+                                <div className="text-muted-foreground text-sm text-center p-4">
                                     {previewData.length === 0 ? 'No data available' : 'Loading...'}
                                 </div>
                             )
                         }
                     />
                 ) : (
-                    <div className="h-full flex items-center justify-center text-muted text-sm">{emptyMessage}</div>
+                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                        {emptyMessage}
+                    </div>
                 )}
             </div>
         </div>
@@ -369,7 +371,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                 )}
                 {error && (
                     <div className="flex w-full">
-                        <div className="text-danger flex text-sm overflow-auto">
+                        <div className="text-destructive-foreground flex text-sm overflow-auto">
                             <span>{error}</span>
                         </div>
                     </div>
@@ -665,7 +667,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                 )}
                 {error && (
                     <div className="flex w-full">
-                        <div className="text-danger flex text-sm overflow-auto">
+                        <div className="text-destructive-foreground flex text-sm overflow-auto">
                             <span>{error}</span>
                         </div>
                     </div>

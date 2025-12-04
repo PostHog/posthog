@@ -207,7 +207,7 @@ export function SegmentRenderer({
                                 e.stopPropagation()
                                 onTogglePopout(index)
                             }}
-                            className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted hover:text-default transition-colors"
+                            className="inline-flex items-center justify-center w-4 h-4 ml-1 text-muted-foreground hover:text-default transition-colors"
                             title="Preview truncated content"
                         >
                             <IconExternal className="w-3 h-3" />

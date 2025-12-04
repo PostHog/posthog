@@ -47,7 +47,7 @@ export function LineWithNumber({
             <Tooltip title="Click to copy permalink to this line">
                 <button
                     type="button"
-                    className="text-muted hover:text-link cursor-pointer"
+                    className="text-muted-foreground hover:text-link cursor-pointer"
                     onClick={handleCopyPermalink}
                 >
                     L{paddedLineNumber}:

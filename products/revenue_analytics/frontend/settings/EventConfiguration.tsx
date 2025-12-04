@@ -88,7 +88,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         dataIndex: 'eventName',
                         render: (_, item) => (
                             <div className="flex items-center gap-2">
-                                <code className="text-sm font-mono bg-bg-lighter py-1 rounded">{item.eventName}</code>
+                                <code className="text-sm font-mono bg-carder py-1 rounded">{item.eventName}</code>
                             </div>
                         ),
                     },
@@ -99,7 +99,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                         render: (_, item) => (
                             <div className="text-sm">
                                 {item.revenueProperty ? (
-                                    <code className="bg-bg-lighter py-1 rounded text-xs">{item.revenueProperty}</code>
+                                    <code className="bg-carder py-1 rounded text-xs">{item.revenueProperty}</code>
                                 ) : (
                                     <span className="text-muted-alt">Not set</span>
                                 )}
@@ -114,7 +114,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                 {item.revenueCurrencyProperty.property && (
                                     <div>
                                         <span className="text-muted-alt">Property: </span>
-                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                        <code className="bg-carder px-1 rounded text-xs">
                                             {item.revenueCurrencyProperty.property}
                                         </code>
                                     </div>
@@ -144,23 +144,19 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                 {item.productProperty && (
                                     <div>
                                         <span className="text-muted-alt">Product: </span>
-                                        <code className="bg-bg-lighter px-1 rounded text-xs">
-                                            {item.productProperty}
-                                        </code>
+                                        <code className="bg-carder px-1 rounded text-xs">{item.productProperty}</code>
                                     </div>
                                 )}
                                 {item.couponProperty && (
                                     <div>
                                         <span className="text-muted-alt">Coupon: </span>
-                                        <code className="bg-bg-lighter px-1 rounded text-xs">
-                                            {item.couponProperty}
-                                        </code>
+                                        <code className="bg-carder px-1 rounded text-xs">{item.couponProperty}</code>
                                     </div>
                                 )}
                                 {item.subscriptionProperty && (
                                     <div>
                                         <span className="text-muted-alt">Subscription: </span>
-                                        <code className="bg-bg-lighter px-1 rounded text-xs">
+                                        <code className="bg-carder px-1 rounded text-xs">
                                             {item.subscriptionProperty}
                                         </code>
                                         <div className="text-xs text-muted-alt">

@@ -95,7 +95,7 @@ const SymbolSetTable = (): JSX.Element => {
                 return (
                     <Tooltip title={failure_reason} placement="top">
                         {failure_reason ? (
-                            <span className="text-danger cursor-pointer">
+                            <span className="text-destructive-foreground cursor-pointer">
                                 <IconWarning /> Missing
                             </span>
                         ) : (

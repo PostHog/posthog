@@ -90,7 +90,7 @@ export function TemplateLinkSection({
                 ))}
             {contentVisible && (
                 <>
-                    {piiWarning && <p className="text-muted mb-1">{piiWarning}</p>}
+                    {piiWarning && <p className="text-muted-foreground mb-1">{piiWarning}</p>}
                     <div className="flex items-start gap-2">
                         <div className="flex-1">
                             {isMultiline ? (
@@ -102,7 +102,7 @@ export function TemplateLinkSection({
                                     type="text"
                                     value={templateLink}
                                     readOnly
-                                    className="w-full px-3 py-2 text-sm border rounded bg-bg-light"
+                                    className="w-full px-3 py-2 text-sm border rounded bg-card"
                                     onClick={(e) => (e.target as HTMLInputElement).select()}
                                 />
                             )}

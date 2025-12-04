@@ -123,7 +123,7 @@ export function LogsScene(): JSX.Element {
                         onSelectionChange={onSelectionChange}
                     />
                 ) : !sparklineLoading ? (
-                    <div className="flex-1 text-muted flex items-center justify-center">
+                    <div className="flex-1 text-muted-foreground flex items-center justify-center">
                         No results matching filters
                     </div>
                 ) : null}
@@ -136,7 +136,7 @@ export function LogsScene(): JSX.Element {
                         <DisplayOptions />
                     </div>
                     {pinnedParsedLogs.length > 0 && (
-                        <div className="border rounded-t bg-bg-light shadow-sm">
+                        <div className="border rounded-t bg-card shadow-sm">
                             <LogsTable
                                 dataSource={pinnedParsedLogs}
                                 loading={false}
@@ -148,7 +148,7 @@ export function LogsScene(): JSX.Element {
                         </div>
                     )}
                 </div>
-                <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+                <div className={cn('flex-1 border bg-card', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
                     <LogsTable
                         showHeader={!pinnedParsedLogs.length}
                         dataSource={parsedLogs}
@@ -234,7 +234,7 @@ function LogsTable({
                                             'transition-opacity',
                                             pinned
                                                 ? 'text-foreground opacity-100'
-                                                : 'text-muted opacity-0 group-hover:opacity-100'
+                                                : 'text-muted-foreground opacity-0 group-hover:opacity-100'
                                         )}
                                     />
                                     <LogsTableRowActions log={record} />

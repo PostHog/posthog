@@ -373,7 +373,7 @@
 
     /* Subdued background for less important elements */
     --color-muted: var(--color-posthog-3000-50); /* => --color-bg-surface-tertiary */
-    --color-muted-foreground: var(--color-neutral-950);
+    --color-muted-foreground: var(--color-neutral-700);
 
     /* Highlight color for active or focused elements */
     --color-accent: color-mix(in oklab, var(--color-black) 5%, transparent);

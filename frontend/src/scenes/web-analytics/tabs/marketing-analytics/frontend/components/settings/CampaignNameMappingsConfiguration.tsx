@@ -77,7 +77,7 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
         <div className="space-y-4">
             <div>
                 <h3 className="text-lg font-semibold mb-1">Campaign name mappings</h3>
-                <p className="text-muted mb-4">
+                <p className="text-muted-foreground mb-4">
                     Map UTM campaign values to your ad platform campaign names for proper conversion attribution. Ad
                     platforms (LinkedIn, Google, TikTok, etc.) don't store UTM parameters—they only have campaign names.
                     PostHog joins conversions to paid campaigns by matching{' '}
@@ -96,10 +96,7 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
                         <div key={source} className="space-y-2">
                             <div className="font-medium text-sm text-muted">{source}</div>
                             {Object.entries(sourceMappings).map(([cleanName, rawValues]) => (
-                                <div
-                                    key={cleanName}
-                                    className="flex items-start justify-between bg-bg-light rounded p-3"
-                                >
+                                <div key={cleanName} className="flex items-start justify-between bg-card rounded p-3">
                                     <div className="flex-1">
                                         <div className="font-medium mb-2">{cleanName}</div>
                                         <div className="flex flex-wrap gap-1">
@@ -147,7 +144,7 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
                             placeholder="e.g., campaign name from the Data Warehouse table (e.g., TOFU Video Views | LinkedIn | Global)"
                             fullWidth
                         />
-                        <div className="text-xs text-muted mt-1">
+                        <div className="text-xs text-muted-foreground mt-1">
                             The exact campaign name from your ad platform (LinkedIn, Google, etc.)
                         </div>
                     </div>
@@ -160,7 +157,7 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
                             placeholder="e.g., utm campaign from the url (e.g., 2025q3_paid_social_linkedin)"
                             fullWidth
                         />
-                        <div className="text-xs text-muted mt-1">
+                        <div className="text-xs text-muted-foreground mt-1">
                             Comma-separated list of utm_campaign values that should map to this campaign
                         </div>
                     </div>

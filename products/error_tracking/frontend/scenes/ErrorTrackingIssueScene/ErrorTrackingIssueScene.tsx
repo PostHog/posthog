@@ -139,7 +139,7 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-bg-light"
+            className="flex flex-col relative bg-card"
         >
             <TabsPrimitive
                 value={category}

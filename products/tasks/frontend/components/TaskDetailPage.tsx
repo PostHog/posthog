@@ -130,7 +130,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                     {/* Description */}
                     <div>
                         <h3 className="text-sm font-medium text-default mb-2">Description</h3>
-                        <p className="text-sm text-muted leading-relaxed">{task.description}</p>
+                        <p className="text-sm text-muted-foreground leading-relaxed">{task.description}</p>
                     </div>
 
                     {/* Repository Configuration */}
@@ -167,7 +167,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                                 </div>
                             </div>
                         ) : (
-                            <div className="bg-bg-light p-3 rounded border">
+                            <div className="bg-card p-3 rounded border">
                                 {task.repository_config?.organization && task.repository_config?.repository ? (
                                     <div className="flex items-center gap-2">
                                         <span className="text-xs font-medium text-muted">Repository:</span>
@@ -176,7 +176,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                                         </span>
                                     </div>
                                 ) : (
-                                    <div className="text-sm text-muted italic">
+                                    <div className="text-sm text-muted-foreground italic">
                                         No repository configured - click Edit to add one
                                     </div>
                                 )}

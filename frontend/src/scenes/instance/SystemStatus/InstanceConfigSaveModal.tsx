@@ -46,7 +46,9 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
                     {RenderMetricValue(null, { key: metricKey, value, emptyNullLabel: 'Unset' })}
                 </span>
                 {isSecret && (
-                    <div className="text-danger">This field is secret - you won't see its value once saved</div>
+                    <div className="text-destructive-foreground">
+                        This field is secret - you won't see its value once saved
+                    </div>
                 )}
             </div>
         </div>

@@ -106,12 +106,12 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                         {hasValidReplayIframeData ? (
                             <>
                                 <LemonLabel>Display URL</LemonLabel>
-                                <div className="text-xs text-muted mb-1">
+                                <div className="text-xs text-muted-foreground mb-1">
                                     You're using session recording data as the background for this heatmap.
                                 </div>
                                 <div className="mt-2">
                                     <LemonLabel>Heatmap data URL</LemonLabel>
-                                    <div className="text-xs text-muted mb-1">
+                                    <div className="text-xs text-muted-foreground mb-1">
                                         Same as display URL by default - add * for wildcards to aggregate data from
                                         multiple pages
                                     </div>
@@ -127,7 +127,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                             <>
                                 <div className="relative">
                                     <LemonLabel>Display URL</LemonLabel>
-                                    <div className="text-xs text-muted mb-1">
+                                    <div className="text-xs text-muted-foreground mb-1">
                                         Enter a working URL from your site for iframe preview
                                     </div>
                                     <div className="flex gap-2">
@@ -174,7 +174,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                     </div>
                                     {/* Show suggestions when there are options and user has typed something */}
                                     {!!(browserUrlSearchOptions?.length && browserSearchTerm?.length) && (
-                                        <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-bg-light border border-border rounded shadow-lg max-h-48 overflow-y-auto">
+                                        <div className="absolute top-full left-0 right-0 z-10 mt-1 bg-card border border-border rounded shadow-lg max-h-48 overflow-y-auto">
                                             {browserUrlSearchOptions.slice(0, 5).map((url) => (
                                                 <button
                                                     key={url}
@@ -195,7 +195,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                 </div>
                                 <div className="mt-2">
                                     <LemonLabel>Heatmap data URL</LemonLabel>
-                                    <div className="text-xs text-muted mb-1">
+                                    <div className="text-xs text-muted-foreground mb-1">
                                         Same as display URL by default - add * for wildcards to aggregate data from
                                         multiple pages
                                     </div>

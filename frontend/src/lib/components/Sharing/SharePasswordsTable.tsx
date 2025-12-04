@@ -62,7 +62,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
 
                     <div className="mx-2">
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs text-muted uppercase font-semibold">
+                            <span className="text-xs text-muted-foreground uppercase font-semibold">
                                 {sharePasswords.length === 0
                                     ? 'No passwords'
                                     : `${sharePasswords.length} active ${sharePasswords.length === 1 ? 'password' : 'passwords'}`}
@@ -84,13 +84,13 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                                 {sharePasswords.map((password) => (
                                     <div
                                         key={password.id}
-                                        className="group flex items-start gap-3 py-2 hover:bg-bg-light rounded"
+                                        className="group flex items-start gap-3 py-2 hover:bg-card rounded"
                                     >
                                         <div className="flex-1 min-w-0 overflow-hidden">
                                             <div className="text-sm font-medium break-words">
                                                 {password.note || 'Untitled password'}
                                             </div>
-                                            <div className="text-xs text-muted mt-0.5 break-words">
+                                            <div className="text-xs text-muted-foreground mt-0.5 break-words">
                                                 <span>Created by: </span>
                                                 <span className="break-all">{password.created_by_email}</span>
                                                 <span className="mx-1">•</span>
@@ -156,7 +156,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                 {createdPasswordResult ? (
                     <div className="space-y-4">
                         <div>
-                            <div className="text-sm text-muted mb-3">
+                            <div className="text-sm text-muted-foreground mb-3">
                                 Save this password - it won't be shown again for security reasons.
                             </div>
                             <div className="rounded bg-bg-3000 border border-border p-3">
@@ -210,7 +210,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                                 value={newPasswordData.password}
                                 onChange={(value) => setNewPasswordData((prev) => ({ ...prev, password: value }))}
                             />
-                            <div className="text-xs text-muted mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                                 If left empty, a secure random password will be generated for you.
                             </div>
                         </div>
@@ -222,7 +222,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                                 onChange={(value) => setNewPasswordData((prev) => ({ ...prev, note: value }))}
                                 maxLength={100}
                             />
-                            <div className="text-xs text-muted mt-1">
+                            <div className="text-xs text-muted-foreground mt-1">
                                 Add a note to help identify this password later.
                             </div>
                         </div>

@@ -105,7 +105,7 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
     }
 
     return (
-        <div className="text-muted text-xs">
+        <div className="text-muted-foreground text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -550,7 +550,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted max-w-120">{detail}</p>
+            <p className="text-sm text-muted-foreground max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -602,7 +602,7 @@ export function InsightErrorState({
         >
             <IconErrorOutline className="text-5xl shrink-0" />
 
-            <h2 className="text-xl text-danger leading-tight mb-6" data-attr="insight-loading-too-long">
+            <h2 className="text-xl text-destructive-foreground leading-tight mb-6" data-attr="insight-loading-too-long">
                 {/* Note that this default phrasing signals the issue is intermittent, */}
                 {/* and that perhaps the query will complete on retry */}
                 {title || <span>There was a problem completing this query</span>}
@@ -661,7 +661,7 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 items-center justify-center text-center text-balance"
         >
-            <div className="text-5xl text-muted mb-2">
+            <div className="text-5xl text-muted-foreground mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>

@@ -71,7 +71,7 @@ function renderTimeBenchmark(milliseconds: number | null): JSX.Element | null {
     return milliseconds === null ? null : (
         <span
             className={clsx('font-semibold', {
-                'text-danger-dark': milliseconds >= 2000,
+                'text-destructive-foreground-dark': milliseconds >= 2000,
                 'text-warning-foreground-dark': milliseconds >= 500 && milliseconds < 2000,
             })}
         >
@@ -209,7 +209,7 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                                     otherProps.response_status >= 400 &&
                                         otherProps.response_status < 500 &&
                                         'text-warning-foreground-dark',
-                                    otherProps.response_status >= 500 && 'text-danger-dark'
+                                    otherProps.response_status >= 500 && 'text-destructive-foreground-dark'
                                 )}
                             >
                                 {otherProps.response_status}

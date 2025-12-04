@@ -156,7 +156,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-sm">{event.name}</span>
                                                             {hasPropertyFilters && (
-                                                                <span className="text-xs text-muted bg-border px-1.5 py-0.5 rounded">
+                                                                <span className="text-xs text-muted-foreground bg-border px-1.5 py-0.5 rounded">
                                                                     {Object.keys(event.propertyFilters!).length} filter
                                                                     {Object.keys(event.propertyFilters!).length !== 1
                                                                         ? 's'

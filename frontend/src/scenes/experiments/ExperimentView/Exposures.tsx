@@ -376,7 +376,7 @@ export function Exposures(): JSX.Element {
                     key: 'cumulative-exposures',
                     header: headerContent,
                     content: (
-                        <div className="space-y-4 bg-bg-light -m-4 p-4">
+                        <div className="space-y-4 bg-card -m-4 p-4">
                             {/* Chart Section */}
                             {exposuresLoading ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">

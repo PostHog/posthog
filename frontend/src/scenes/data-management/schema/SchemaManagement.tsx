@@ -169,7 +169,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Events Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Events</h3>
-                                    <div className="border rounded overflow-hidden bg-bg-light">
+                                    <div className="border rounded overflow-hidden bg-card">
                                         {propertyGroup.events && propertyGroup.events.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
@@ -180,7 +180,7 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted py-4">
+                                            <div className="text-center text-muted-foreground py-4">
                                                 No events using this property group
                                             </div>
                                         )}
@@ -190,7 +190,7 @@ export function SchemaManagement(): JSX.Element {
                                 {/* Properties Section */}
                                 <div>
                                     <h3 className="text-sm font-semibold mb-2">Properties</h3>
-                                    <div className="border rounded overflow-hidden bg-bg-light">
+                                    <div className="border rounded overflow-hidden bg-card">
                                         {propertyGroup.properties && propertyGroup.properties.length > 0 ? (
                                             <>
                                                 <div className="flex gap-4 py-2 px-4 bg-accent-3000 border-b text-xs font-semibold uppercase tracking-wider">
@@ -204,7 +204,9 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted py-4">No properties defined</div>
+                                            <div className="text-center text-muted-foreground py-4">
+                                                No properties defined
+                                            </div>
                                         )}
                                     </div>
                                 </div>

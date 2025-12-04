@@ -290,7 +290,9 @@ export function SourceFormComponent({
                                     onChange={onChange}
                                     status={validationError ? 'danger' : undefined}
                                 />
-                                {validationError && <p className="text-danger text-xs mt-1">{validationError}</p>}
+                                {validationError && (
+                                    <p className="text-destructive-foreground text-xs mt-1">{validationError}</p>
+                                )}
                                 <p className="mb-0">
                                     Table name will look like:&nbsp;
                                     <strong>{tableName}</strong>

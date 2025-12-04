@@ -51,7 +51,7 @@ export function TaskCard({
                 <h4 className="font-medium text-sm leading-tight">{task.title}</h4>
             </div>
 
-            <p className="text-xs text-muted mb-3 line-clamp-2">{task.description}</p>
+            <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{task.description}</p>
 
             {/* GitHub Integration Status */}
             {(task.github_branch || task.github_pr_url) && (

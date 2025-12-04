@@ -48,7 +48,7 @@ export function HeatmapsUrlsList(): JSX.Element {
                         </LemonBanner>
                     ) : (
                         <>
-                            <span className="text-sm font-medium text-muted ml-2">Most viewed pages:</span>
+                            <span className="text-sm font-medium text-muted-foreground ml-2">Most viewed pages:</span>
                             {topUrls?.map(({ url }) => (
                                 <LemonButton
                                     key={url}

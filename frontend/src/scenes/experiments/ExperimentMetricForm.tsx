@@ -306,7 +306,7 @@ export function ExperimentMetricForm({
                             {...commonActionFilterProps}
                         />
                         {metric.source.math === ExperimentMetricMathType.HogQL && (
-                            <div className="text-muted text-sm mt-2">
+                            <div className="text-muted-foreground text-sm mt-2">
                                 SQL expressions allow you to write custom computations and aggregations. The expression
                                 should return a numeric value and will be evaluated for each user in the experiment.{' '}
                                 <Link
@@ -419,7 +419,7 @@ export function ExperimentMetricForm({
                             { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                         ]}
                     />
-                    <div className="text-muted text-sm">
+                    <div className="text-muted-foreground text-sm">
                         For example, conversion rates should increase, while bounce rates should decrease.
                     </div>
                 </div>
@@ -461,7 +461,7 @@ export function ExperimentMetricForm({
                     </div>
                 }
             >
-                <div className="border rounded p-4 bg-bg-light">
+                <div className="border rounded p-4 bg-card">
                     {isLoading ? (
                         <div className="flex items-center gap-2">
                             <Spinner />

@@ -12,7 +12,7 @@ export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.
     }
 
     if (status === ExternalDataJobStatus.Failed) {
-        return <IconCancel className="text-danger" />
+        return <IconCancel className="text-destructive-foreground" />
     }
     if (status === ExternalDataJobStatus.BillingLimits || status === ExternalDataJobStatus.BillingLimitTooLow) {
         return <IconExclamation className="text-warning-foreground" />

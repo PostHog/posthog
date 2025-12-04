@@ -215,13 +215,13 @@ export function FlagsSecureApiKeys(): JSX.Element {
                     >
                         {currentTeam.secret_api_token_backup}
                     </CodeSnippet>
-                    <p className="text-xs text-muted mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                         This key is still active to support deployments using the previous key. Delete it once you've
                         fully migrated.
                     </p>
                 </>
             ) : (
-                <p className="text-xs text-muted mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                     Rotating the key will move this primary key to backup so you can migrate safely.
                 </p>
             )}

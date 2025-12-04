@@ -69,7 +69,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeUsageMetricsAtt
     }
 
     if (responseError) {
-        return <div className="text-danger text-center p-4">Failed to load usage metrics</div>
+        return <div className="text-destructive-foreground text-center p-4">Failed to load usage metrics</div>
     }
 
     const queryResponse = response as UsageMetricsQueryResponse | undefined

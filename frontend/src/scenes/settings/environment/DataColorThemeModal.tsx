@@ -82,7 +82,7 @@ export function DataColorThemeModal(): JSX.Element {
                                             <IconCopy className="text-lg" />
                                         </LemonButton>
                                         <LemonButton onClick={() => removeColor(index)}>
-                                            <IconTrash className="text-danger text-lg" />
+                                            <IconTrash className="text-destructive-foreground text-lg" />
                                         </LemonButton>
                                     </div>
                                 ),

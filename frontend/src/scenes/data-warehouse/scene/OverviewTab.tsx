@@ -101,7 +101,7 @@ export function OverviewTab(): JSX.Element {
                             title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"
                         >
-                            <IconInfo className="text-muted mt-0.5" />
+                            <IconInfo className="text-muted-foreground mt-0.5" />
                         </Tooltip>
                     </div>
                     <div className="text-2xl font-semibold mt-1 flex items-center gap-2">

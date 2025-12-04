@@ -100,7 +100,7 @@ export function PathCleaningRulesDebugger({
                                                 className={`font-mono text-xs px-2 py-1 rounded flex-shrink-0 max-w-32 overflow-hidden text-ellipsis whitespace-nowrap ${
                                                     step.isValidRegex
                                                         ? 'bg-accent-light text-accent'
-                                                        : 'bg-danger-light text-danger'
+                                                        : 'bg-danger-light text-destructive-foreground'
                                                 }`}
                                                 title={step.filter.regex || '(Empty)'}
                                             >

@@ -62,7 +62,7 @@ export function QueryTabs<Q extends Node>({
                   label: 'Error',
                   content: (
                       <>
-                          <h2 className="text-danger">Error Running Query!</h2>
+                          <h2 className="text-destructive-foreground">Error Running Query!</h2>
                           <CodeSnippet language={Language.Text} wrap>
                               {response.error}
                           </CodeSnippet>

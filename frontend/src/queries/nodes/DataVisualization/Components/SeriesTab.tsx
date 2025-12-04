@@ -440,7 +440,7 @@ export const SeriesBreakdownSelector = (): JSX.Element => {
             </div>
             <div className="ml-4 mt-2">
                 {seriesBreakdownData.error ? (
-                    <div className="text-danger font-bold mt-1">{seriesBreakdownData.error}</div>
+                    <div className="text-destructive-foreground font-bold mt-1">{seriesBreakdownData.error}</div>
                 ) : (
                     seriesBreakdownData.seriesData.map((series, index) => (
                         <BreakdownSeries series={series} index={index} key={`${series.name}-${index}`} />
