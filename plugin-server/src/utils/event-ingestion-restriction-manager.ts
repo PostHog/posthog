@@ -151,101 +151,85 @@ export class EventIngestionRestrictionManager {
     }
 
     shouldDropEvent(token?: string, distinctId?: string, sessionId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
-        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
-        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
-
-        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
-        if (
-            this.staticDropEventList.has(token) ||
-            (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey)) ||
-            (tokenDistinctIdKeyLegacy && this.staticDropEventList.has(tokenDistinctIdKeyLegacy))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.DROP_EVENT_FROM_INGESTION]
-
-        if (!dropSet) {
-            return false
-        }
-
-        return (
-            dropSet.has(token) ||
-            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
-            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            this.staticDropEventList,
+            RestrictionType.DROP_EVENT_FROM_INGESTION
         )
     }
 
     shouldSkipPerson(token?: string, distinctId?: string, sessionId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
-        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
-        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
-
-        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
-        if (
-            this.staticSkipPersonList.has(token) ||
-            (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey)) ||
-            (tokenDistinctIdKeyLegacy && this.staticSkipPersonList.has(tokenDistinctIdKeyLegacy))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.SKIP_PERSON_PROCESSING]
-
-        if (!dropSet) {
-            return false
-        }
-
-        return (
-            dropSet.has(token) ||
-            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
-            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            this.staticSkipPersonList,
+            RestrictionType.SKIP_PERSON_PROCESSING
         )
     }
 
     shouldForceOverflow(token?: string, distinctId?: string, sessionId?: string): boolean {
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            this.staticForceOverflowList,
+            RestrictionType.FORCE_OVERFLOW_FROM_INGESTION
+        )
+    }
+
+    private checkRestriction(
+        token: string | undefined,
+        distinctId: string | undefined,
+        sessionId: string | undefined,
+        staticList: Set<string>,
+        restrictionType: RestrictionType
+    ): boolean {
         if (!token) {
             return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:distinct_id:${distinctId}` : undefined
-        const tokenSessionIdKey = sessionId ? `${token}:session_id:${sessionId}` : undefined
-        const tokenDistinctIdKeyLegacy = distinctId ? `${token}:${distinctId}` : undefined
+        const keys = this.buildLookupKeys(token, distinctId, sessionId)
 
-        // Check static config (only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id)
-        if (
-            this.staticForceOverflowList.has(token) ||
-            (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey)) ||
-            (tokenDistinctIdKeyLegacy && this.staticForceOverflowList.has(tokenDistinctIdKeyLegacy))
-        ) {
+        if (this.matchesStaticList(token, keys, staticList)) {
             return true
         }
 
+        return this.matchesDynamicConfig(token, keys, restrictionType)
+    }
+
+    private buildLookupKeys(
+        token: string,
+        distinctId?: string,
+        sessionId?: string
+    ): { tokenDistinctIdKey?: string; tokenSessionIdKey?: string; tokenDistinctIdKeyLegacy?: string } {
+        return {
+            tokenDistinctIdKey: distinctId ? `${token}:distinct_id:${distinctId}` : undefined,
+            tokenSessionIdKey: sessionId ? `${token}:session_id:${sessionId}` : undefined,
+            tokenDistinctIdKeyLegacy: distinctId ? `${token}:${distinctId}` : undefined,
+        }
+    }
+
+    private matchesStaticList(
+        token: string,
+        keys: { tokenDistinctIdKey?: string; tokenSessionIdKey?: string; tokenDistinctIdKeyLegacy?: string },
+        staticList: Set<string>
+    ): boolean {
+        // Static config only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id
+        return (
+            staticList.has(token) ||
+            (!!keys.tokenDistinctIdKey && staticList.has(keys.tokenDistinctIdKey)) ||
+            (!!keys.tokenDistinctIdKeyLegacy && staticList.has(keys.tokenDistinctIdKeyLegacy))
+        )
+    }
+
+    private matchesDynamicConfig(
+        token: string,
+        keys: { tokenDistinctIdKey?: string; tokenSessionIdKey?: string },
+        restrictionType: RestrictionType
+    ): boolean {
         if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
@@ -254,16 +238,15 @@ export class EventIngestionRestrictionManager {
             logger.warn('Error triggering background refresh for dynamic config', { error })
         })
 
-        const dropSet = this.latestDynamicConfig[RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]
-
-        if (!dropSet) {
+        const configSet = this.latestDynamicConfig[restrictionType]
+        if (!configSet) {
             return false
         }
 
         return (
-            dropSet.has(token) ||
-            (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey)) ||
-            (!!tokenSessionIdKey && dropSet.has(tokenSessionIdKey))
+            configSet.has(token) ||
+            (!!keys.tokenDistinctIdKey && configSet.has(keys.tokenDistinctIdKey)) ||
+            (!!keys.tokenSessionIdKey && configSet.has(keys.tokenSessionIdKey))
         )
     }
 }
