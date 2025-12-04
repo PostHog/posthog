@@ -3,7 +3,6 @@ import uuid
 import pytest
 
 import temporalio.converter
-from parameterized import parameterized
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
@@ -20,7 +19,8 @@ from products.data_warehouse.backend.models.external_data_source import External
 from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 
-def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
+@pytest.mark.asyncio
+async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     model_input = DuckLakeCopyDataImportsModelInput(
         schema_id=uuid.uuid4(),
         schema_name="customers",
@@ -33,26 +33,36 @@ def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
     inputs = DataImportsDuckLakeCopyInputs(team_id=1, job_id="job-123", models=[model_input])
 
     data_converter = temporalio.converter.default()
-    encoded = data_converter.encode(inputs)
-    decoded = data_converter.decode(encoded, DataImportsDuckLakeCopyInputs)
+    encoded = await data_converter.encode([inputs])
+    decoded = await data_converter.decode(encoded, [DataImportsDuckLakeCopyInputs])
 
-    assert decoded.team_id == inputs.team_id
-    assert decoded.job_id == inputs.job_id
-    assert decoded.models[0].normalized_name == model_input.normalized_name
-    assert str(decoded.models[0].schema_id) == str(model_input.schema_id)
+    assert decoded[0].team_id == inputs.team_id
+    assert decoded[0].job_id == inputs.job_id
+    assert decoded[0].models[0].normalized_name == model_input.normalized_name
+    assert str(decoded[0].models[0].schema_id) == str(model_input.schema_id)
 
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-@parameterized.expand([(True,), (False,)])
+@pytest.mark.parametrize("flag_enabled", [True, False])
 async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch, ateam, flag_enabled):
     captured = {}
 
-    def fake_feature_enabled(key, distinct_id, *, groups=None, only_evaluate_locally=False):
+    def fake_feature_enabled(
+        key,
+        distinct_id,
+        *,
+        groups=None,
+        group_properties=None,
+        only_evaluate_locally=False,
+        send_feature_flag_events=True,
+    ):
         captured["key"] = key
         captured["distinct_id"] = distinct_id
         captured["groups"] = groups
+        captured["group_properties"] = group_properties
         captured["only_evaluate_locally"] = only_evaluate_locally
+        captured["send_feature_flag_events"] = send_feature_flag_events
         return flag_enabled
 
     monkeypatch.setattr(
@@ -65,8 +75,9 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
     assert result is flag_enabled
     assert captured["key"] == "ducklake-copy-data-imports"
     assert captured["distinct_id"] == str(ateam.uuid)
-    assert captured["groups"] == {"organization": str(ateam.organization_id)}
+    assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is True
+    assert captured["send_feature_flag_events"] is False
 
 
 @pytest.mark.asyncio
