@@ -20,6 +20,11 @@ const config = workflowType === 'storybook' ? {
     type: 'UI snapshots',
     filesFilter: 'frontend/__snapshots__/',
     localCmd: '`pnpm storybook`',
+} : workflowType === 'backend' ? {
+    label: 'Backend',
+    type: 'query snapshots',
+    filesFilter: '**/*.ambr',
+    localCmd: '`pytest <test_file> --snapshot-update`',
 } : {
     label: 'Playwright E2E',
     type: 'E2E screenshots',
@@ -38,7 +43,8 @@ if (total === 0) {
     process.exit(0);
 }
 
-const comment = `### Visual regression: ${config.label} ${config.type} updated
+const headerPrefix = workflowType === 'backend' ? 'Query snapshots' : 'Visual regression';
+const comment = `### ${headerPrefix}: ${config.label} ${config.type} updated
 
 **Mode:** \`UPDATE\` (triggered by human commit [${commitSha.substring(0, 7)}](https://github.com/${repo}/commit/${commitSha}))
 
