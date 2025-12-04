@@ -597,7 +597,21 @@ export const productUrls = {
             ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
+    replaySingle: (
+        id: string,
+        options?: {
+            secondsOffsetFromStart?: number
+            unixTimestampMillis?: number
+        }
+    ): string => {
+        if (options?.unixTimestampMillis) {
+            return `/replay/${id}?timestamp=${options.unixTimestampMillis}`
+        }
+        if (options?.secondsOffsetFromStart) {
+            return `/replay/${id}?t=${options.secondsOffsetFromStart}`
+        }
+        return `/replay/${id}`
+    },
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
