@@ -1,11 +1,11 @@
 import { z } from 'zod'
 
 import { ErrorCode } from '@/lib/errors'
-import { withPagination } from '@/lib/utils/api'
 import { getSearchParamsFromRecord } from '@/lib/utils/helper-functions'
 import {
     type ApiEventDefinition,
     ApiEventDefinitionSchema,
+    ApiListResponseSchema,
     type ApiOAuthIntrospection,
     ApiOAuthIntrospectionSchema,
     type ApiPropertyDefinition,
@@ -260,7 +260,7 @@ export class ApiClient {
                         exclude_core_properties: excludeCoreProperties,
                         filter_by_event_names: filterByEventNames,
                         is_feature_flag: isFeatureFlag,
-                        limit: limit ?? 100,
+                        limit: limit ?? 50,
                         offset: offset ?? 0,
                         type: type ?? 'event',
                         exclude_hidden: true,
@@ -268,17 +268,25 @@ export class ApiClient {
 
                     const searchParams = getSearchParamsFromRecord(params)
 
-                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/${
-                        searchParams.toString() ? `?${searchParams}` : ''
-                    }`
+                    const url = `${this.baseUrl}/api/projects/${projectId}/property_definitions/?${searchParams}`
 
-                    const propertyDefinitions = await withPagination(
-                        url,
-                        this.config.apiToken,
-                        ApiPropertyDefinitionSchema
+                    const response = await fetch(url, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
+
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch property definitions: ${response.statusText}`)
+                    }
+
+                    const data = await response.json()
+                    const responseSchema = ApiListResponseSchema(ApiPropertyDefinitionSchema)
+                    const parsedData = responseSchema.parse(data)
+
+                    const propertyDefinitionsWithoutHidden = parsedData.results.filter(
+                        (def: ApiPropertyDefinition) => !def.hidden
                     )
-
-                    const propertyDefinitionsWithoutHidden = propertyDefinitions.filter((def) => !def.hidden)
 
                     return { success: true, data: propertyDefinitionsWithoutHidden }
                 } catch (error) {
@@ -289,22 +297,38 @@ export class ApiClient {
             eventDefinitions: async ({
                 projectId,
                 search,
+                limit,
+                offset,
             }: {
                 projectId: string
                 search?: string | undefined
+                limit?: number
+                offset?: number
             }): Promise<Result<ApiEventDefinition[]>> => {
                 try {
-                    const searchParams = getSearchParamsFromRecord({ search })
+                    const searchParams = getSearchParamsFromRecord({
+                        search,
+                        limit: limit ?? 50,
+                        offset: offset ?? 0,
+                    })
 
-                    const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/${searchParams.toString() ? `?${searchParams}` : ''}`
+                    const requestUrl = `${this.baseUrl}/api/projects/${projectId}/event_definitions/?${searchParams}`
 
-                    const eventDefinitions = await withPagination(
-                        requestUrl,
-                        this.config.apiToken,
-                        ApiEventDefinitionSchema
-                    )
+                    const response = await fetch(requestUrl, {
+                        headers: {
+                            Authorization: `Bearer ${this.config.apiToken}`,
+                        },
+                    })
 
-                    return { success: true, data: eventDefinitions }
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch event definitions: ${response.statusText}`)
+                    }
+
+                    const data = await response.json()
+                    const responseSchema = ApiListResponseSchema(ApiEventDefinitionSchema)
+                    const parsedData = responseSchema.parse(data)
+
+                    return { success: true, data: parsedData.results }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -314,15 +338,19 @@ export class ApiClient {
 
     experiments({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async (): Promise<Result<Experiment[]>> => {
+            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
+                Result<Experiment[]>
+            > => {
                 try {
-                    const response = await withPagination(
-                        `${this.baseUrl}/api/projects/${projectId}/experiments/`,
-                        this.config.apiToken,
-                        ExperimentSchema
-                    )
+                    const limit = params?.limit ?? 50
+                    const offset = params?.offset ?? 0
 
-                    return { success: true, data: response }
+                    const response = await this.generated.get('/api/projects/{project_id}/experiments/', {
+                        path: { project_id: projectId },
+                        query: { limit, offset },
+                    })
+
+                    return { success: true, data: response.results as Experiment[] }
                 } catch (error) {
                     return { success: false, error: error as Error }
                 }
@@ -625,29 +653,26 @@ export class ApiClient {
 
     featureFlags({ projectId }: { projectId: string }): Endpoint {
         return {
-            list: async (): Promise<Result<Array<{ id: number; key: string; name: string; active: boolean }>>> => {
+            list: async ({ params }: { params?: { limit?: number; offset?: number } } = {}): Promise<
+                Result<Array<{ id: number; key: string; name: string; active: boolean }>>
+            > => {
                 try {
-                    const schema = FeatureFlagSchema.pick({
-                        id: true,
-                        key: true,
-                        name: true,
-                        active: true,
-                    })
+                    const limit = params?.limit ?? 50
+                    const offset = params?.offset ?? 0
 
-                    const response = await withPagination(
-                        `${this.baseUrl}/api/projects/${projectId}/feature_flags/`,
-                        this.config.apiToken,
-                        schema
-                    )
+                    const response = await this.generated.get('/api/projects/{project_id}/feature_flags/', {
+                        path: { project_id: projectId },
+                        query: { limit, offset },
+                    })
 
                     return {
                         success: true,
-                        data: response as Array<{
-                            id: number
-                            key: string
-                            name: string
-                            active: boolean
-                        }>,
+                        data: response.results.map((f) => ({
+                            id: f.id,
+                            key: f.key,
+                            name: f.name ?? '',
+                            active: f.active ?? false,
+                        })),
                     }
                 } catch (error) {
                     return { success: false, error: error as Error }

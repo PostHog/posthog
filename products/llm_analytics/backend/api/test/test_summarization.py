@@ -259,3 +259,69 @@ class TestSummarizationAPI(APIBaseTest):
 
         # Verify they're different
         self.assertNotEqual(response_a.data["summary"]["title"], response_b.data["summary"]["title"])
+
+    def test_batch_check_unauthenticated(self):
+        """Should require authentication to access batch_check endpoint."""
+        self.client.logout()
+        response = self.client.post(f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
+    def test_batch_check_empty_traces(self, mock_feature_enabled):
+        """Should return empty list when no traces have cached summaries."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["trace1", "trace2"], "mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["summaries"], [])
+
+    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.llm_analytics.backend.api.summarization.async_to_sync")
+    def test_batch_check_returns_cached_summaries(self, mock_async_to_sync, mock_feature_enabled):
+        """Should return cached summaries for traces that have been summarized."""
+        mock_summary = SummarizationResponse(
+            title="Cached Summary",
+            flow_diagram="Flow",
+            summary_bullets=[SummaryBullet(text="Step", line_refs="L1")],
+            interesting_notes=[],
+        )
+        mock_async_to_sync.return_value = lambda *args, **kwargs: mock_summary
+
+        # First, summarize a trace to populate the cache
+        summarize_request = {
+            "summarize_type": "trace",
+            "mode": "minimal",
+            "data": {
+                "trace": {"id": "cached_trace", "properties": {"$ai_span_name": "test"}},
+                "hierarchy": [],
+            },
+        }
+        self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/",
+            summarize_request,
+            format="json",
+        )
+
+        # Now check batch - should return the cached summary
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"trace_ids": ["cached_trace", "not_cached"], "mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["summaries"]), 1)
+        self.assertEqual(response.data["summaries"][0]["trace_id"], "cached_trace")
+        self.assertEqual(response.data["summaries"][0]["title"], "Cached Summary")
+
+    @patch("products.llm_analytics.backend.api.summarization.posthoganalytics.feature_enabled", return_value=True)
+    def test_batch_check_requires_trace_ids(self, mock_feature_enabled):
+        """Should return 400 when trace_ids is missing."""
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/summarization/batch_check/",
+            {"mode": "minimal"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("trace_ids", str(response.data).lower())

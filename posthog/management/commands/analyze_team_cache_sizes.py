@@ -168,3 +168,6 @@ class Command(BaseHyperCacheCommand):
                 "\nS3 storage will be similar to compressed sizes shown above."
             )
         )
+
+        # Update cache metrics
+        self._update_cache_stats_safe()

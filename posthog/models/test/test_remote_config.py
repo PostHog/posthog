@@ -344,6 +344,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
                                             "text": None,
                                             "event": "$pageview",
                                             "selector": None,
+                                            "selector_regex": None,
                                             "tag_name": None,
                                             "properties": None,
                                             "url_matching": "contains",
