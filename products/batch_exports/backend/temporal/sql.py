@@ -91,7 +91,8 @@ FROM (
     latest_person_versions AS (
         SELECT
             id,
-            max(version) AS version
+            max(version) AS version,
+            max(_timestamp) AS _timestamp
         FROM
             person
         WHERE
@@ -142,7 +143,7 @@ FROM (
             ON p.id = pd.person_id2
     WHERE
         p.team_id = {team_id}::Int64
-        AND (p.id, p.version) in latest_person_versions
+        AND (p.id, p.version, p._timestamp) in latest_person_versions
     ORDER BY
         _inserted_at
 ) AS persons
@@ -886,7 +887,8 @@ FROM (
     latest_person_versions AS (
         SELECT
             id,
-            max(version) AS version
+            max(version) AS version,
+            max(_timestamp) AS _timestamp
         FROM
             person
         WHERE
@@ -937,7 +939,7 @@ FROM (
             ON p.id = pd.person_id2
     WHERE
         p.team_id = {team_id}::Int64
-        AND (p.id, p.version) in latest_person_versions
+        AND (p.id, p.version, p._timestamp) in latest_person_versions
 ) AS persons
 SETTINGS
     max_bytes_before_external_group_by=50000000000,
