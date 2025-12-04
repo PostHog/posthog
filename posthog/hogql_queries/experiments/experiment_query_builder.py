@@ -1382,6 +1382,15 @@ class ExperimentQueryBuilder:
         Retention measures the proportion of users who performed a "completion event"
         within a specified time window after performing a "start event".
 
+        Statistical Treatment:
+        This metric is treated as a binomial outcome (0 or 1 per entity), similar to
+        funnel conversion rates. Each entity is assigned:
+        - 1 if they completed the event within the retention window after starting
+        - 0 if they did not complete or completed outside the window
+
+        The collected statistics (sum, sum_squares, num_users) are processed using
+        ProportionStatistic for both frequentist and Bayesian analysis.
+
         Structure:
         - exposures: all exposures with variant assignment
         - start_events: when each entity performed the start_event (with start_handling logic)
@@ -1389,6 +1398,12 @@ class ExperimentQueryBuilder:
         - entity_metrics: join exposures + start_events + completion_events
                           Calculate retention per entity (1 if retained, 0 if not)
         - Final SELECT: aggregated statistics per variant
+
+        Key Design Decision:
+        Uses INNER JOIN between exposures and start_events, meaning only users who
+        performed the start event are included in the retention calculation. This
+        measures "Of users who did X, how many came back to do Y?" rather than
+        "Of all exposed users, how many did X and then Y?"
         """
         assert isinstance(self.metric, ExperimentRetentionMetric)
 

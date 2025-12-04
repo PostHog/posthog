@@ -183,6 +183,8 @@ def get_variant_result(
             base_stats["denominator_sum"] = result[metric_fields_start_idx]
             base_stats["denominator_sum_squares"] = result[metric_fields_start_idx + 1]
             base_stats["numerator_denominator_sum_product"] = result[metric_fields_start_idx + 2]
+        case ExperimentRetentionMetric():
+            pass  # No additional fields beyond base_stats (binary outcome: sum/sum_squares only)
         case ExperimentMeanMetric():
             pass  # No additional fields beyond base_stats
 
@@ -329,7 +331,7 @@ def validate_variant_result(
     if variant_result.number_of_samples < 50:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_EXPOSURES)
 
-    if isinstance(metric, ExperimentFunnelMetric) and variant_result.sum < 5:
+    if isinstance(metric, (ExperimentFunnelMetric | ExperimentRetentionMetric)) and variant_result.sum < 5:
         validation_failures.append(ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA)
 
     if is_baseline and variant_result.sum == 0:
