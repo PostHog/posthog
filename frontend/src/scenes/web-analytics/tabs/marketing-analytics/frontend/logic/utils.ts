@@ -464,7 +464,7 @@ export function createMarketingTile(
 
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
-        const mappings = config.columnMappings
+        const mappings = tileConfig.columnMappings
         const costColumn = mappings.cost
         const conversionValueColumn = mappings.reportedConversionValue
         const needsDivision = mappings.costNeedsDivision
@@ -479,11 +479,11 @@ export function createMarketingTile(
             return {
                 kind: NodeKind.DataWarehouseNode,
                 id: table.id,
-                name: config.displayName,
+                name: integrationConfig.primarySource,
                 custom_name: `${table.name} roas`,
-                id_field: config.idField,
-                distinct_id_field: config.idField,
-                timestamp_field: config.timestampField,
+                id_field: tileConfig.idField,
+                distinct_id_field: tileConfig.idField,
+                timestamp_field: tileConfig.timestampField,
                 table_name: table.name,
                 math: 'hogql' as any,
                 math_hogql: '0',
@@ -495,11 +495,11 @@ export function createMarketingTile(
         return {
             kind: NodeKind.DataWarehouseNode,
             id: table.id,
-            name: config.displayName,
+            name: integrationConfig.primarySource,
             custom_name: `${table.name} roas`,
-            id_field: config.idField,
-            distinct_id_field: config.idField,
-            timestamp_field: config.timestampField,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
             table_name: table.name,
             math: 'hogql' as any,
             math_hogql: mathHogql,
