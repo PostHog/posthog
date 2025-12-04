@@ -1933,6 +1933,7 @@
                 "execute_sql",
                 "switch_mode",
                 "summarize_sessions",
+                "filter_session_recordings",
                 "create_insight",
                 "create_form"
             ],
@@ -19421,6 +19422,7 @@
                     "$ref": "#/definitions/FilterLogicalOperator"
                 },
                 "values": {
+                    "description": "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g. `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`, `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n- 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present).",
                     "items": {
                         "$ref": "#/definitions/MaxUniversalFilterValue"
                     },
@@ -19530,6 +19532,28 @@
             "required": ["type", "name", "description", "is_used", "has_exceeded_limit", "percentage_usage", "addons"],
             "type": "object"
         },
+        "MaxRecordingEventFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "Name of the event.",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Optional property filters for this event only.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "type": {
+                    "const": "events",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "id"],
+            "type": "object"
+        },
         "MaxRecordingUniversalFilters": {
             "additionalProperties": false,
             "properties": {
@@ -19620,6 +19644,9 @@
                 },
                 {
                     "$ref": "#/definitions/GroupPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/MaxRecordingEventFilter"
                 }
             ]
         },

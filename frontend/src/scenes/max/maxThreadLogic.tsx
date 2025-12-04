@@ -111,7 +111,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
     connect(({ tabId }: MaxThreadLogicProps) => ({
         values: [
             maxGlobalLogic,
-            ['dataProcessingAccepted', 'toolMap', 'tools'],
+            ['dataProcessingAccepted', 'toolMap', 'tools', 'availableStaticTools'],
             maxLogic({ tabId }),
             ['question', 'autoRun', 'conversationId as selectedConversationId', 'activeStreamingThreads'],
             maxContextLogic,
@@ -966,6 +966,9 @@ async function onEventImplementation(
             }
         } else if (isAssistantToolCallMessage(parsedResponse)) {
             for (const [toolName, toolResult] of Object.entries(parsedResponse.ui_payload)) {
+                if (values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                    continue // Static tools (mode-level) don't operate via ui_payload
+                }
                 await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
             }
             actions.addMessage({
@@ -978,6 +981,15 @@ async function onEventImplementation(
                 if (!parsedResponse.id) {
                     // we do not want to show partial notebook update messages
                     return
+                }
+            }
+
+            if (isAssistantMessage(parsedResponse) && parsedResponse.id && parsedResponse.tool_calls?.length) {
+                for (const { name: toolName, args: toolResult } of parsedResponse.tool_calls) {
+                    if (!values.availableStaticTools.some((tool) => tool.identifier === toolName)) {
+                        continue // Non-static tools (contextual) operate via ui_payload instead
+                    }
+                    await values.toolMap[toolName]?.callback?.(toolResult, props.conversationId)
                 }
             }
             // Check if a message with the same ID already exists
