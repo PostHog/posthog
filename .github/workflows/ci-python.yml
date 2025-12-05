@@ -184,6 +184,7 @@ jobs:
                     echo "ts=$(jq -r '.ts' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "since=$(jq -r '.since' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "failCount=$(jq -r '.failCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
+                    echo "commitCount=$(jq -r '.commitCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "Incident state:"
                     cat .master-ci-incident
                   else
@@ -211,12 +212,12 @@ jobs:
                   errors: true
                   payload: |
                       channel: "U063CTHPZF0"
-                      text: ":red_circle: Master is red (1 workflow failing) [TEST]"
+                      text: ":red_circle: Master is red (1 commit, 1 workflow failing) [TEST]"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master is red* (1 workflow failing) [TEST]"
+                            text: ":red_circle: *Master is red* (1 commit, 1 workflow failing) [TEST]"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
@@ -250,8 +251,10 @@ jobs:
                     --arg ts "${{ steps.slack_new.outputs.ts }}" \
                     --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                     --arg firstFailure "Python CI (TEST)" \
+                    --arg firstCommit "$(git rev-parse HEAD)" \
                     --argjson failCount 1 \
-                    '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount}' > .master-ci-incident
+                    --argjson commitCount 1 \
+                    '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount, commitCount: $commitCount, commits: [$firstCommit]}' > .master-ci-incident
                   echo "Saved incident:"
                   cat .master-ci-incident
 
@@ -271,12 +274,24 @@ jobs:
                   key: master-ci-incident
 
             # Existing incident - update count and add thread reply
-            - name: Calculate new count
+            - name: Calculate new counts
               if: steps.incident.outputs.exists == 'true'
               id: new_count
               run: |
-                  count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
-                  echo "count=$count" >> $GITHUB_OUTPUT
+                  # Always increment workflow fail count
+                  fail_count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
+                  echo "failCount=$fail_count" >> $GITHUB_OUTPUT
+
+                  # Check if this commit is new
+                  current_sha="$(git rev-parse HEAD)"
+                  if jq -e --arg sha "$current_sha" '.commits | index($sha)' .master-ci-incident > /dev/null 2>&1; then
+                    # Commit already tracked
+                    echo "commitCount=${{ steps.incident.outputs.commitCount }}" >> $GITHUB_OUTPUT
+                  else
+                    # New commit
+                    commit_count=$(( ${{ steps.incident.outputs.commitCount }} + 1 ))
+                    echo "commitCount=$commit_count" >> $GITHUB_OUTPUT
+                  fi
 
             - name: Update Slack message with new count (TEST)
               if: steps.incident.outputs.exists == 'true'
@@ -288,12 +303,12 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       ts: "${{ steps.incident.outputs.ts }}"
-                      text: ":red_circle: Master is red (${{ steps.new_count.outputs.count }} workflows failing) [TEST]"
+                      text: ":red_circle: Master is red (${{ steps.new_count.outputs.commitCount }} commits, ${{ steps.new_count.outputs.failCount }} workflows failing) [TEST]"
                       blocks:
                         - type: "section"
                           text:
                             type: "mrkdwn"
-                            text: ":red_circle: *Master is red* (${{ steps.new_count.outputs.count }} workflows failing) [TEST]"
+                            text: ":red_circle: *Master is red* (${{ steps.new_count.outputs.commitCount }} commits, ${{ steps.new_count.outputs.failCount }} workflows failing) [TEST]"
                         - type: "section"
                           fields:
                             - type: "mrkdwn"
@@ -323,10 +338,16 @@ jobs:
                       thread_ts: "${{ steps.incident.outputs.ts }}"
                       text: "Also failing: *Python CI*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run →>"
 
-            - name: Update incident state with new count (TEST)
+            - name: Update incident state with new counts (TEST)
               if: steps.incident.outputs.exists == 'true'
               run: |
-                  jq --argjson count ${{ steps.new_count.outputs.count }} '.failCount = $count' .master-ci-incident > .master-ci-incident.tmp
+                  current_sha="$(git rev-parse HEAD)"
+                  jq \
+                    --argjson failCount ${{ steps.new_count.outputs.failCount }} \
+                    --argjson commitCount ${{ steps.new_count.outputs.commitCount }} \
+                    --arg newCommit "$current_sha" \
+                    '.failCount = $failCount | .commitCount = $commitCount | if (.commits | index($newCommit)) then . else .commits += [$newCommit] end' \
+                    .master-ci-incident > .master-ci-incident.tmp
                   mv .master-ci-incident.tmp .master-ci-incident
                   cat .master-ci-incident
 
