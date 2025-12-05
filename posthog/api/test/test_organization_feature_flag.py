@@ -748,5 +748,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
         copied_flag = FeatureFlag.objects.get(key=encrypted_flag.key, team=target_project)
         self.assertTrue(copied_flag.is_remote_configuration)
         self.assertTrue(copied_flag.has_encrypted_payloads)
-        # The payload should be encrypted in the database (different from original since it was decrypted and re-encrypted)
-        self.assertIsNotNone(copied_flag.filters.get("payloads", {}).get("true"))
+
+        # Verify the encrypted payload can be decrypted back to the original value
+        from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payload
+
+        decrypted_payload = get_decrypted_flag_payload(copied_flag.filters["payloads"]["true"], should_decrypt=True)
+        self.assertEqual(decrypted_payload, '{"key": "secret_value"}')
