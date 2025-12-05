@@ -437,7 +437,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Marketing analytics',
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/marketing-analytics',
-        description: 'Analyze your marketing performance across channels with ad spend, conversions, and ROI metrics.',
+        description:
+            'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
         iconType: 'marketing_analytics',
     },
     [Scene.SavedInsights]: {
