@@ -25,6 +25,7 @@ import {
     FunnelPathsFilter,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
@@ -52,6 +53,7 @@ import {
     BaseMathType,
     CalendarHeatmapMathType,
     DataWarehouseFilter,
+    EntityTypes,
     FilterType,
     FunnelExclusionLegacy,
     FunnelMathType,
@@ -64,6 +66,7 @@ import {
     RetentionFilterType,
     TrendsFilterType,
     isDataWarehouseFilter,
+    isGroupFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
@@ -97,14 +100,15 @@ export type FilterTypeActionsAndEvents = {
     actions?: ActionFilter[]
     data_warehouse?: DataWarehouseFilter[]
     new_entity?: ActionFilter[]
+    groups?: ActionFilter[]
 }
 
 export const legacyEntityToNode = (
     entity: ActionFilter | DataWarehouseFilter,
     includeProperties: boolean,
     mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode> = {
+): EventsNode | ActionsNode | DataWarehouseNode | GroupNode => {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | GroupNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -117,6 +121,16 @@ export const legacyEntityToNode = (
             distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
         } as DataWarehouseNode
+    }
+
+    if (isGroupFilter(entity)) {
+        shared = {
+            ...shared,
+            operator: entity.operator || undefined,
+            values: (entity.values || []).map((v) =>
+                legacyEntityToNode(v as ActionFilter, includeProperties, mathAvailability)
+            ),
+        } as GroupNode
     }
 
     if (includeProperties) {
@@ -179,6 +193,13 @@ export const legacyEntityToNode = (
                 ...shared,
             })
         ) as any
+    } else if (entity.type === EntityTypes.GROUPS) {
+        return setLatestVersionsOnQuery(
+            objectCleanWithEmpty({
+                kind: NodeKind.GroupNode,
+                ...shared,
+            })
+        ) as any
     }
     return setLatestVersionsOnQuery(
         objectCleanWithEmpty({
@@ -203,11 +224,17 @@ export const exlusionEntityToNode = (
 }
 
 export const actionsAndEventsToSeries = (
-    { actions, events, data_warehouse, new_entity }: FilterTypeActionsAndEvents,
+    { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
     includeMath: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
-    const series: any = [...(actions || []), ...(events || []), ...(data_warehouse || []), ...(new_entity || [])]
+): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] => {
+    const series: any = [
+        ...(actions || []),
+        ...(events || []),
+        ...(data_warehouse || []),
+        ...(new_entity || []),
+        ...(groups || []),
+    ]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
 
@@ -320,9 +347,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             includeMath = MathAvailability.FunnelsOnly
         }
 
-        const { events, actions, data_warehouse } = filters
+        const { events, actions, data_warehouse, groups } = filters
         query.series = actionsAndEventsToSeries(
-            { actions, events, data_warehouse } as any,
+            { actions, events, data_warehouse, groups } as any,
             includeProperties,
             includeMath
         )
@@ -535,4 +562,28 @@ export const compareFilterToQuery = (filters: Record<string, any>): CompareFilte
         compare: filters.compare,
         compare_to: filters.compare_to,
     })
+}
+
+/** Expand GroupNodes into individual EventsNode/ActionsNode for insight types that don't support GroupNode */
+export const expandGroupNodes = (
+    series: (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[]
+): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+    const expanded: (EventsNode | ActionsNode | DataWarehouseNode)[] = []
+
+    for (const item of series) {
+        if (item.kind === NodeKind.GroupNode) {
+            // Expand GroupNode into its individual components
+            for (const value of item.values) {
+                if (value.kind === NodeKind.EventsNode || value.kind === NodeKind.ActionsNode) {
+                    expanded.push(value as EventsNode | ActionsNode)
+                } else if (value.kind === NodeKind.DataWarehouseNode) {
+                    expanded.push(value as DataWarehouseNode)
+                }
+            }
+        } else {
+            expanded.push(item as EventsNode | ActionsNode | DataWarehouseNode)
+        }
+    }
+
+    return expanded
 }

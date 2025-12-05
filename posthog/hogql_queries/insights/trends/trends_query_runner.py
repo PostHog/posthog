@@ -24,6 +24,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
     InCohortVia,
@@ -707,7 +708,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             exact_timerange=self.exact_timerange,
         )
 
-    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> str | None:
+    def series_event(self, series: Union[EventsNode, ActionsNode, DataWarehouseNode, GroupNode]) -> str | None:
         if isinstance(series, EventsNode):
             return series.event
         if isinstance(series, ActionsNode):
@@ -717,6 +718,20 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if isinstance(series, DataWarehouseNode):
             return series.table_name
+
+        if isinstance(series, GroupNode):
+            events = []
+            for value in series.values:
+                if isinstance(value, EventsNode):
+                    # Handle "All events" (when event is None)
+                    event_name = value.event if value.event is not None else "All events"
+                    events.append(event_name)
+                elif isinstance(value, ActionsNode):
+                    action = Action.objects.get(pk=int(value.id), team__project_id=self.team.project_id)
+                    events.append(action.name)
+                elif isinstance(value, DataWarehouseNode):
+                    events.append(value.table_name)
+            return ", ".join(events)
 
         return None  # type: ignore [unreachable]
 
