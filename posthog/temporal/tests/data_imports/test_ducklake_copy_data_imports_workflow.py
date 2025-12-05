@@ -1,17 +1,23 @@
 import uuid
+import datetime as dt
 
 import pytest
 from unittest.mock import MagicMock
 
+import temporalio.worker
 import temporalio.converter
+from temporalio import activity as temporal_activity
+from temporalio.testing import WorkflowEnvironment
 
 from posthog.ducklake.verification import DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports import ducklake_copy_data_imports_workflow as ducklake_module
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsActivityInputs,
     DuckLakeCopyDataImportsMetadata,
     DuckLakeCopyDataImportsModelInput,
+    DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyWorkflowGateInputs,
     copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
@@ -546,3 +552,181 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     assert results[0].passed is True
     assert results[1].name == "outside_tolerance"
     assert results[1].passed is False
+
+
+def test_ducklake_copy_data_imports_workflow_parse_inputs():
+    schema_id = uuid.uuid4()
+    json_input = f"""{{
+        "team_id": 1,
+        "job_id": "job-123",
+        "models": [{{
+            "schema_id": "{schema_id}",
+            "schema_name": "customers",
+            "source_type": "postgres",
+            "normalized_name": "customers",
+            "table_uri": "s3://bucket/team_1/customers",
+            "job_id": "job-123",
+            "team_id": 1
+        }}]
+    }}"""
+
+    inputs = DuckLakeCopyDataImportsWorkflow.parse_inputs([json_input])
+
+    assert inputs.team_id == 1
+    assert inputs.job_id == "job-123"
+    assert len(inputs.models) == 1
+    assert inputs.models[0].schema_id == schema_id
+    assert inputs.models[0].schema_name == "customers"
+    assert inputs.models[0].source_type == "postgres"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disabled(monkeypatch, ateam):
+    call_counts = {"metadata": 0, "copy": 0}
+
+    @temporal_activity.defn
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs):
+        call_counts["metadata"] += 1
+        return [
+            DuckLakeCopyDataImportsMetadata(
+                model_label="postgres_customers",
+                source_schema_id="schema-123",
+                source_schema_name="customers",
+                source_normalized_name="customers",
+                source_table_uri="s3://bucket/team_1/customers",
+                ducklake_schema_name="data_imports_team_1",
+                ducklake_table_name="postgres_customers_abc12345",
+            )
+        ]
+
+    @temporal_activity.defn
+    async def copy_stub(inputs: DuckLakeCopyDataImportsActivityInputs):
+        call_counts["copy"] += 1
+
+    monkeypatch.setattr(
+        ducklake_module.posthoganalytics,
+        "feature_enabled",
+        lambda *args, **kwargs: False,
+    )
+    monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
+    monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
+
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id="job",
+        models=[
+            DuckLakeCopyDataImportsModelInput(
+                schema_id=uuid.uuid4(),
+                schema_name="customers",
+                source_type="postgres",
+                normalized_name="customers",
+                table_uri="s3://bucket/team_1/customers",
+                job_id="job",
+                team_id=ateam.pk,
+            )
+        ],
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with temporalio.worker.Worker(
+            env.client,
+            task_queue="ducklake-data-imports-test",
+            workflows=[DuckLakeCopyDataImportsWorkflow],
+            activities=[
+                ducklake_copy_data_imports_gate_activity,
+                ducklake_module.prepare_data_imports_ducklake_metadata_activity,
+                ducklake_module.copy_data_imports_to_ducklake_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue="ducklake-data-imports-test",
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert call_counts["metadata"] == 0
+    assert call_counts["copy"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enabled(monkeypatch, ateam):
+    call_counts = {"metadata": 0, "copy": 0, "verify": 0}
+
+    @temporal_activity.defn
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs):
+        call_counts["metadata"] += 1
+        return [
+            DuckLakeCopyDataImportsMetadata(
+                model_label="postgres_customers",
+                source_schema_id="schema-123",
+                source_schema_name="customers",
+                source_normalized_name="customers",
+                source_table_uri="s3://bucket/team_1/customers",
+                ducklake_schema_name="data_imports_team_1",
+                ducklake_table_name="postgres_customers_abc12345",
+            )
+        ]
+
+    @temporal_activity.defn
+    async def copy_stub(inputs: DuckLakeCopyDataImportsActivityInputs):
+        call_counts["copy"] += 1
+
+    @temporal_activity.defn
+    async def verify_stub(inputs: DuckLakeCopyDataImportsActivityInputs):
+        call_counts["verify"] += 1
+        return []
+
+    monkeypatch.setattr(
+        ducklake_module.posthoganalytics,
+        "feature_enabled",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
+    monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
+    monkeypatch.setattr(ducklake_module, "verify_data_imports_ducklake_copy_activity", verify_stub)
+
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id="job",
+        models=[
+            DuckLakeCopyDataImportsModelInput(
+                schema_id=uuid.uuid4(),
+                schema_name="customers",
+                source_type="postgres",
+                normalized_name="customers",
+                table_uri="s3://bucket/team_1/customers",
+                job_id="job",
+                team_id=ateam.pk,
+            )
+        ],
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with temporalio.worker.Worker(
+            env.client,
+            task_queue="ducklake-data-imports-test",
+            workflows=[DuckLakeCopyDataImportsWorkflow],
+            activities=[
+                ducklake_copy_data_imports_gate_activity,
+                ducklake_module.prepare_data_imports_ducklake_metadata_activity,
+                ducklake_module.copy_data_imports_to_ducklake_activity,
+                ducklake_module.verify_data_imports_ducklake_copy_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue="ducklake-data-imports-test",
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert call_counts["metadata"] == 1
+    assert call_counts["copy"] == 1
+    assert call_counts["verify"] == 1

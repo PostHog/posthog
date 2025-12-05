@@ -1,6 +1,8 @@
 import re
+import json
 import uuid
 import typing
+import datetime as dt
 import dataclasses
 from urllib.parse import urlparse
 
@@ -9,7 +11,9 @@ from django.conf import settings
 import duckdb
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
-from temporalio import activity
+from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.ducklake.common import (
     attach_catalog,
@@ -25,8 +29,13 @@ from posthog.ducklake.verification import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.metrics import (
+    get_ducklake_copy_data_imports_finished_metric,
+    get_ducklake_copy_data_imports_verification_metric,
+)
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
@@ -842,3 +851,103 @@ def _quote_identifier(identifier: str) -> str:
     """Quote a SQL identifier."""
     escaped = identifier.replace('"', '""')
     return f'"{escaped}"'
+
+
+@workflow.defn(name="ducklake-copy.data-imports")
+class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
+    """Temporal workflow that copies data imports into the DuckLake bucket."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> DataImportsDuckLakeCopyInputs:
+        loaded = json.loads(inputs[0])
+        models = [
+            DuckLakeCopyDataImportsModelInput(
+                schema_id=uuid.UUID(model["schema_id"]) if isinstance(model["schema_id"], str) else model["schema_id"],
+                schema_name=model["schema_name"],
+                source_type=model["source_type"],
+                normalized_name=model["normalized_name"],
+                table_uri=model["table_uri"],
+                job_id=model["job_id"],
+                team_id=model["team_id"],
+            )
+            for model in loaded.get("models", [])
+        ]
+        loaded["models"] = models
+        return DataImportsDuckLakeCopyInputs(**loaded)
+
+    @workflow.run
+    async def run(self, inputs: DataImportsDuckLakeCopyInputs) -> None:
+        workflow.logger.info("Starting DuckLakeCopyDataImportsWorkflow", **inputs.properties_to_log)
+
+        if not inputs.models:
+            workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
+            return
+
+        should_copy = await workflow.execute_activity(
+            ducklake_copy_data_imports_gate_activity,
+            DuckLakeCopyWorkflowGateInputs(team_id=inputs.team_id),
+            start_to_close_timeout=dt.timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=1),
+        )
+
+        if not should_copy:
+            workflow.logger.info(
+                "DuckLake copy workflow disabled by feature flag",
+                **inputs.properties_to_log,
+            )
+            return
+
+        model_list: list[DuckLakeCopyDataImportsMetadata] = await workflow.execute_activity(
+            prepare_data_imports_ducklake_metadata_activity,
+            inputs,
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        if not model_list:
+            workflow.logger.info("No DuckLake copy metadata resolved - nothing to do", **inputs.properties_to_log)
+            return
+
+        try:
+            for model in model_list:
+                activity_inputs = DuckLakeCopyDataImportsActivityInputs(
+                    team_id=inputs.team_id, job_id=inputs.job_id, model=model
+                )
+                await workflow.execute_activity(
+                    copy_data_imports_to_ducklake_activity,
+                    activity_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=30),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+
+                verification_results = await workflow.execute_activity(
+                    verify_data_imports_ducklake_copy_activity,
+                    activity_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+
+                if verification_results:
+                    for result in verification_results:
+                        status = "passed" if result.passed else "failed"
+                        get_ducklake_copy_data_imports_verification_metric(result.name, status).add(1)
+
+                failed_checks = [result for result in verification_results if not result.passed]
+                if failed_checks:
+                    failure_payload = [dataclasses.asdict(result) for result in failed_checks]
+                    workflow.logger.error(
+                        "DuckLake verification failed",
+                        model_label=model.model_label,
+                        failures=failure_payload,
+                    )
+                    raise ApplicationError(
+                        f"DuckLake copy verification failed: {failure_payload}",
+                        non_retryable=True,
+                    )
+        except Exception:
+            get_ducklake_copy_data_imports_finished_metric(status="failed").add(1)
+            raise
+
+        get_ducklake_copy_data_imports_finished_metric(status="completed").add(1)
