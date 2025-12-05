@@ -438,7 +438,9 @@ export const workflowLogic = kea<workflowLogicType>([
             // Show confirmation dialog
             LemonDialog.open({
                 title: 'Delete workflow?',
-                description: `Are you sure you want to delete "${workflow.name}"? This action cannot be undone.`,
+                description: `Are you sure you want to delete "${workflow.name}"? This action cannot be undone.${
+                    workflow.status === 'active' ? ' In-progress workflows will end immediately.' : ''
+                }`,
                 primaryButton: {
                     children: 'Delete',
                     type: 'primary',
