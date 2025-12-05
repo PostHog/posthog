@@ -356,7 +356,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         is_personal_api_key = self.context.get("is_personal_api_key")
 
         if source not in ["blob_v2", "blob_v2_lts", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_ts, None]")
+            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_lts, None]")
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
