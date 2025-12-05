@@ -1,20 +1,17 @@
 from uuid import uuid4
 
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.schema import ArtifactMessage, ArtifactSource, AssistantTrendsQuery, VisualizationArtifactContent
 
-from ee.hogai.tools.read_data import (
-    ReadDataAdminAccessToolArgs,
-    ReadDataAdminAccessWithArtifactToolArgs,
-    ReadDataTool,
-    ReadDataToolArgs,
-    ReadDataWithArtifactToolArgs,
-)
+from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.read_data import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 
 
-class TestReadDataTool:
+class TestReadDataTool(BaseTest):
     async def test_create_tool_class_with_billing_access(self):
         """Test that billing prompt is included when user has billing access."""
         team = MagicMock()
@@ -29,9 +26,6 @@ class TestReadDataTool:
             state=state,
             context_manager=context_manager,
         )
-
-        # Should use the admin access args schema
-        assert tool.args_schema == ReadDataAdminAccessToolArgs
 
         # Description should include billing prompt
         assert "billing_info" in tool.description
@@ -51,9 +45,6 @@ class TestReadDataTool:
             state=state,
             context_manager=context_manager,
         )
-
-        # Should use the basic args schema
-        assert tool.args_schema == ReadDataToolArgs
 
         # Description should NOT include billing prompt
         assert "billing_info" not in tool.description
@@ -111,7 +102,7 @@ class TestReadDataTool:
             context_manager=context_manager,
         )
 
-        result, _ = await tool._arun_impl(kind="artifacts")
+        result, _ = await tool._arun_impl({"kind": "artifacts"})
 
         context_manager.artifacts.aget_conversation_artifact_messages.assert_called_once_with()
         assert "artifact-123" in result
@@ -135,7 +126,7 @@ class TestReadDataTool:
             context_manager=context_manager,
         )
 
-        result, _ = await tool._arun_impl("artifacts")
+        result, _ = await tool._arun_impl({"kind": "artifacts"})
 
         assert result == "No artifacts available"
 
@@ -153,7 +144,6 @@ class TestReadDataTool:
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert tool.args_schema == ReadDataWithArtifactToolArgs
         assert "# Artifacts" not in tool.description
         assert "billing_info" not in tool.description
 
@@ -171,7 +161,90 @@ class TestReadDataTool:
             context_manager=context_manager,
             can_read_artifacts=True,
         )
-        assert tool.args_schema == ReadDataAdminAccessWithArtifactToolArgs
         assert "# Artifacts" not in tool.description
         assert "billing_info" in tool.description
         assert "Billing information" in tool.description
+
+    async def test_read_insight_success(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        viz_content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Test Insight",
+            description="A test description",
+        )
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_insight = AsyncMock(return_value=viz_content)
+
+        with patch(
+            "ee.hogai.tools.read_data.execute_and_format_query", AsyncMock(return_value="Formatted results here")
+        ):
+            tool = await ReadDataTool.create_tool_class(
+                team=team,
+                user=user,
+                state=state,
+                context_manager=context_manager,
+            )
+
+            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": True})
+
+            assert "# Test Insight" in result
+            assert "Description: A test description" in result
+            assert "Query type: AssistantTrendsQuery" in result
+            assert "Formatted results here" in result
+            assert artifact is None
+
+    async def test_read_insight_not_found(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_insight = AsyncMock(return_value=None)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=team,
+            user=user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        with pytest.raises(MaxToolRetryableError) as exc_info:
+            await tool._arun_impl({"kind": "insight", "insight_id": "nonexistent", "execute": False})
+
+        assert "nonexistent" in str(exc_info.value)
+
+    async def test_read_insight_without_execute(self):
+        team = MagicMock()
+        user = MagicMock()
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+
+        viz_content = VisualizationArtifactContent(
+            query=AssistantTrendsQuery(series=[]),
+            name="Test Insight",
+            description="A test description",
+        )
+        context_manager.artifacts = MagicMock()
+        context_manager.artifacts.aget_insight = AsyncMock(return_value=viz_content)
+
+        tool = await ReadDataTool.create_tool_class(
+            team=team,
+            user=user,
+            state=state,
+            context_manager=context_manager,
+        )
+
+        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
+
+        assert "# Test Insight" in result
+        assert "Description: A test description" in result
+        assert "Query type: AssistantTrendsQuery" in result
+        assert "Query definition:" in result
+        assert artifact is None

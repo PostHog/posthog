@@ -88,6 +88,27 @@ class ArtifactManager(AssistantContextMixin):
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
         return content
 
+    async def aget_insight(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
+    ) -> VisualizationArtifactContent | None:
+        """
+        Retrieve artifact content by ID, checking state first then database.
+        Returns None if not found in either location.
+        """
+        # Try state first if messages provided
+        if state_messages is not None:
+            content = self._content_from_state(artifact_id, state_messages)
+            if content is not None:
+                return content
+
+        # Fall back to database (artifact, then insight)
+        artifact_contents = await self._afetch_artifact_contents([artifact_id])
+        if content := artifact_contents.get(artifact_id):
+            return content
+
+        insight_contents = await self._afetch_insight_contents([artifact_id])
+        return insight_contents.get(artifact_id)
+
     async def aget_enriched_message(
         self,
         message: ArtifactRefMessage,
@@ -243,7 +264,7 @@ class ArtifactManager(AssistantContextMixin):
         """Batch fetch insight contents from the database."""
         if not insight_ids:
             return {}
-        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team)
+        insights = Insight.objects.filter(short_id__in=insight_ids, team=self._team, deleted=False, saved=True)
         result: dict[str, VisualizationArtifactContent] = {}
         async for insight in insights:
             query = insight.query
