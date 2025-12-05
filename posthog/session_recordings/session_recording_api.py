@@ -123,6 +123,10 @@ STREAM_RESPONSE_TO_CLIENT_HISTOGRAM = Histogram(
     labelnames=["blob_version", "decompress"],
 )
 
+LOADING_V2_LTS_COUNTER = Counter(
+    "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
+)
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -356,7 +360,7 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
         is_personal_api_key = self.context.get("is_personal_api_key")
 
         if source not in ["blob_v2", "blob_v2_lts", None]:
-            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_lts, None]")
+            raise exceptions.ValidationError("Invalid source must be one of [blob_v2, blob_v2_ts, None]")
 
         # Validate blob_v2 parameters
         if source == "blob_v2":
@@ -364,15 +368,13 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Must provide both start blob key and end blob key")
 
             try:
-                min_blob_key = int(start_blob_key or blob_key)
-                max_blob_key = int(end_blob_key or blob_key)
-                data["min_blob_key"] = min_blob_key
-                data["max_blob_key"] = max_blob_key
+                data["min_blob_key"] = start_blob_key
+                data["max_blob_key"] = end_blob_key
             except (ValueError, TypeError):
                 raise serializers.ValidationError("Blob keys must be integers")
 
             max_blobs_allowed = 20 if is_personal_api_key else 100
-            if max_blob_key - min_blob_key > max_blobs_allowed:
+            if end_blob_key - start_blob_key > max_blobs_allowed:
                 raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         if source == "blob_v2_lts":
@@ -1052,6 +1054,7 @@ class SessionRecordingViewSet(
                         "blob_key": urlparse(recording.full_recording_v2_path).path.lstrip("/"),
                     }
                 )
+                LOADING_V2_LTS_COUNTER.inc()
             else:
                 with timer("list_blocks__gather_session_recording_sources"):
                     blocks = list_blocks(recording)
