@@ -142,7 +142,7 @@ describe('PersonCreateService', () => {
             const conflictResult = {
                 success: false,
                 error: 'CreationConflict',
-                primaryDistinctId: ['test-distinct-id'],
+                distinctIds: ['test-distinct-id'],
             }
 
             const existingPerson = {
