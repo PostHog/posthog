@@ -21,6 +21,8 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     table_from_py_list,
 )
 
+TEST_FIELD_NAME = "test"
+
 
 def test_table_from_py_list_uuid():
     uuid_ = uuid.uuid4()
@@ -266,7 +268,7 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     expected: pa.Decimal128Type,
 ):
     """Test whether expected PyArrow decimal type variant is returned."""
-    result = _get_max_decimal_type(decimals)
+    result = _get_max_decimal_type(TEST_FIELD_NAME, decimals)
     assert result == expected
 
 
@@ -275,7 +277,7 @@ def test_get_max_decimal_type_raises_for_precision_over_38():
     # 1 followed by 37 zeroes to go over the Decimal128 precision limit of 38
     decimals = [decimal.Decimal("10000000000000000000000000000000000000.1")]
     with pytest.raises(DecimalPrecisionExceededException, match="exceeds maximum supported precision of 38"):
-        _get_max_decimal_type(decimals)
+        _get_max_decimal_type(TEST_FIELD_NAME, decimals)
 
 
 def test_table_from_py_list_with_ipv4_address():

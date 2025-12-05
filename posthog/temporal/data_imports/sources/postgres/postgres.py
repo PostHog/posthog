@@ -476,7 +476,7 @@ class PostgreSQLColumn(Column):
                 if not self.numeric_precision or not self.numeric_scale:
                     raise TypeError("expected `numeric_precision` and `numeric_scale` to be `int`, got `NoneType`")
 
-                arrow_type = build_pyarrow_decimal_type(self.numeric_precision, self.numeric_scale)
+                arrow_type = build_pyarrow_decimal_type(self.name, self.numeric_precision, self.numeric_scale)
             case "real":
                 arrow_type = pa.float32()
             case "double precision":

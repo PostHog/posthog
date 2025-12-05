@@ -452,15 +452,15 @@ def table_from_py_list(table_data: list[Any], schema: pa.Schema | None = None) -
     return table_from_iterator(iter(table_data), schema=schema)
 
 
-def build_pyarrow_decimal_type(precision: int, scale: int) -> pa.Decimal128Type:
+def build_pyarrow_decimal_type(field_name: str, precision: int, scale: int) -> pa.Decimal128Type:
     if precision > 38:
         raise DecimalPrecisionExceededException(
-            f"Decimal precision {precision} exceeds maximum supported precision of 38"
+            f"Decimal precision exceeds maximum supported precision of 38: field={field_name} precision={precision}"
         )
     return pa.decimal128(precision, scale)
 
 
-def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type:
+def _get_max_decimal_type(field_name: str, values: list[decimal.Decimal]) -> pa.Decimal128Type:
     """Determine maximum precision and scale from all `decimal.Decimal` values.
 
     Returns:
@@ -490,17 +490,10 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type:
     if max_scale == 0:
         max_scale = 1
         max_precision += 1
-    return build_pyarrow_decimal_type(max_precision, max_scale)
+    return build_pyarrow_decimal_type(field_name, max_precision, max_scale)
 
 
-def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
-    try:
-        return pa.array(values, type=DEFAULT_PYARROW_DECIMAL_TYPE)
-    except pa.ArrowInvalid as e:
-        raise DecimalPrecisionExceededException(f"Decimal value exceeds maximum supported precision of 38: {e}") from e
-
-
-def _python_type_to_pyarrow_type(type_: type, value: Any):
+def _python_type_to_pyarrow_type(field_name: str, type_: type, value: Any):
     python_to_pa = {
         int: pa.int64(),
         float: pa.float64(),
@@ -512,17 +505,19 @@ def _python_type_to_pyarrow_type(type_: type, value: Any):
     if type_ in python_to_pa:
         return python_to_pa[type_]
     if issubclass(type_, dict) and isinstance(value, dict):
-        return pa.struct([pa.field(str(k), _python_type_to_pyarrow_type(type(v), v)) for k, v in value.items()])
+        return pa.struct(
+            [pa.field(str(k), _python_type_to_pyarrow_type(field_name, type(v), v)) for k, v in value.items()]
+        )
     if issubclass(type_, list) and isinstance(value, list):
         if len(value) == 0:
             return pa.list_(pa.null())
-        return pa.list_(_python_type_to_pyarrow_type(type(value[0]), value[0]))
+        return pa.list_(_python_type_to_pyarrow_type(field_name, type(value[0]), value[0]))
     if issubclass(type_, decimal.Decimal) and isinstance(value, decimal.Decimal):
         sign, digits, exponent = value.as_tuple()
         if isinstance(exponent, int):
             precision = len(digits)
             scale = -exponent if exponent < 0 else 0
-            return build_pyarrow_decimal_type(precision, scale)
+            return build_pyarrow_decimal_type(field_name, precision, scale)
         return DEFAULT_PYARROW_DECIMAL_TYPE
     raise ValueError(f"Python type {type_} has no pyarrow mapping")
 
@@ -579,7 +574,9 @@ def _process_batch(table_data: list[dict], schema: pa.Schema | None = None) -> p
         # If a schema is present:
         if arrow_schema:
             if field_name not in arrow_schema.names:
-                new_field = pa.field(str(field_name), _python_type_to_pyarrow_type(py_type, val), nullable=True)
+                new_field = pa.field(
+                    str(field_name), _python_type_to_pyarrow_type(field_name, py_type, val), nullable=True
+                )
                 arrow_schema = arrow_schema.append(field=new_field)
 
             field = arrow_schema.field_by_name(str(field_name))
@@ -689,7 +686,7 @@ def _process_batch(table_data: list[dict], schema: pa.Schema | None = None) -> p
                 if arrow_schema and pa.types.is_decimal(arrow_schema.field(field_index).type):
                     new_field_type = arrow_schema.field(field_index).type
                 else:
-                    new_field_type = _get_max_decimal_type([x for x in all_values if x is not None])
+                    new_field_type = _get_max_decimal_type(field_name, [x for x in all_values if x is not None])
 
                 py_type = decimal.Decimal
                 unique_types_in_column = {decimal.Decimal}
@@ -707,8 +704,8 @@ def _process_batch(table_data: list[dict], schema: pa.Schema | None = None) -> p
                     type=new_field_type,
                 )
             except pa.ArrowInvalid as e:
-                message = e.args[0] if len(e.args) else None
-                if message and "does not fit into precision" in message or "would cause data loss" in message:
+                message: str | None = e.args[0] if len(e.args) else None
+                if message and ("does not fit into precision" in message or "would cause data loss" in message):
                     # Upscale to the default decimal type if the schema type is too small
                     new_field_type = DEFAULT_PYARROW_DECIMAL_TYPE
                     number_arr = pa.array(all_values, type=new_field_type)
