@@ -244,8 +244,15 @@ impl KafkaDeduplicatorService {
         let consumer_config =
             ConsumerConfigBuilder::new(&self.config.kafka_hosts, &self.config.kafka_consumer_group)
                 .with_tls(self.config.kafka_tls)
+                .with_max_partition_fetch_bytes(
+                    self.config.kafka_consumer_max_partition_fetch_bytes,
+                )
+                .with_topic_metadata_refresh_interval_ms(
+                    self.config.kafka_topic_metadata_refresh_interval_ms,
+                )
+                .with_metadata_max_age_ms(self.config.kafka_metadata_max_age_ms)
                 .with_sticky_partition_assignment(self.config.pod_hostname.as_deref())
-                .offset_reset(&self.config.kafka_consumer_offset_reset)
+                .with_offset_reset(&self.config.kafka_consumer_offset_reset)
                 .build();
 
         // Create shutdown channel
