@@ -36,7 +36,7 @@ jobs:
         if: needs.changes.outputs.mcp == 'true'
         concurrency:
             group: ${{ github.workflow }}-unit-${{ github.head_ref || github.ref }}
-            cancel-in-progress: true
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
         steps:
             - name: Checkout code
@@ -66,7 +66,7 @@ jobs:
             contents: read
         concurrency:
             group: ${{ github.workflow }}-integration-${{ github.head_ref || github.ref }}
-            cancel-in-progress: true
+            cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
         steps:
             - name: Checkout code
