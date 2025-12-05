@@ -1,3 +1,4 @@
+import os
 import subprocess
 
 import pytest
@@ -15,6 +16,11 @@ def docker_available() -> bool:
         return False
 
 
+def is_ci() -> bool:
+    return os.environ.get("GITHUB_ACTIONS") is not None or os.environ.get("CI") is not None
+
+
+@pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestSandboxFactory:
     """Tests for sandbox factory and production safety."""
 
@@ -140,9 +146,9 @@ class TestDockerSandboxUnit:
         assert result.stderr == ""
 
 
-@pytest.mark.skipif(not docker_available(), reason="Docker not available")
+@pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestDockerSandboxIntegration:
-    """Integration tests that require Docker."""
+    """Integration tests that require Docker. Only run locally, not in CI."""
 
     def test_create_execute_destroy_lifecycle(self):
         config = SandboxConfig(
