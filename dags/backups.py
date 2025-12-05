@@ -173,6 +173,7 @@ class Backup:
             # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
             "s3_disable_checksum": "1",
             # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum
+            "s3_storage_class": "STANDARD_IA",
         }
         if self.base_backup:
             backup_settings["base_backup"] = "S3('{bucket_base_path}/{path}')".format(
