@@ -567,6 +567,7 @@ class ClickHouseClient:
         )
 
         if not resp:
+            self.logger.info("Query not found in query log", query_id=query_id)
             raise ClickHouseQueryNotFound(query, query_id)
 
         lines = resp.split(b"\n")
@@ -598,6 +599,7 @@ class ClickHouseClient:
         elif "QueryStart" in events:
             return ClickHouseQueryStatus.RUNNING
         else:
+            self.logger.info("Expected event not found in query log", query_id=query_id, events=events)
             raise ClickHouseQueryNotFound(query, query_id)
 
     async def stream_query_as_jsonl(
