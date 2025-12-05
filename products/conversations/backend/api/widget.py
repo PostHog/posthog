@@ -160,7 +160,7 @@ def validate_origin(request: Request, team: Team) -> bool:
 # API Views
 class WidgetMessageView(APIView):
     """
-    POST /api/conversations/widget/message
+    POST /api/conversations/v1/widget/message
     Create a new message in a ticket (or create ticket if first message).
     """
 
@@ -245,7 +245,7 @@ class WidgetMessageView(APIView):
 
 class WidgetMessagesView(APIView):
     """
-    GET /api/conversations/widget/messages/<ticket_id>
+    GET /api/conversations/v1/widget/messages/<ticket_id>
     Fetch messages for a specific ticket.
     """
 
@@ -331,7 +331,7 @@ class WidgetMessagesView(APIView):
 
 class WidgetTicketsView(APIView):
     """
-    GET /api/conversations/widget/tickets
+    GET /api/conversations/v1/widget/tickets
     List all tickets for current distinct_id (for conversation history).
     """
 

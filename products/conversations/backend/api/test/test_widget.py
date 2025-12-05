@@ -20,7 +20,7 @@ class TestWidgetAuthentication(APIBaseTest):
     def test_missing_token_header(self):
         """Request without X-Conversations-Token should fail."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
             content_type="application/json",
         )
@@ -30,7 +30,7 @@ class TestWidgetAuthentication(APIBaseTest):
     def test_invalid_token(self):
         """Request with invalid token should fail."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
             content_type="application/json",
             headers={"X-Conversations-Token": "invalid_token_123"},
@@ -44,7 +44,7 @@ class TestWidgetAuthentication(APIBaseTest):
         self.team.save()
 
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
             content_type="application/json",
             headers={"X-Conversations-Token": "test_token_123"},
@@ -58,7 +58,7 @@ class TestWidgetAuthentication(APIBaseTest):
         self.team.save()
 
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
             content_type="application/json",
             headers={"X-Conversations-Token": "test_token_123"},
@@ -79,7 +79,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_create_first_message_creates_ticket(self):
         """First message from a distinct_id should create a new ticket."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": "Hello, I need help"}),
             content_type="application/json",
             headers=self.headers,
@@ -107,7 +107,7 @@ class TestWidgetMessageView(APIBaseTest):
         """Adding a message with ticket_id should add to existing ticket."""
         # Create initial ticket
         response1 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": "First message"}),
             content_type="application/json",
             headers=self.headers,
@@ -116,7 +116,7 @@ class TestWidgetMessageView(APIBaseTest):
 
         # Add second message
         response2 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": "Second message", "ticket_id": ticket_id}),
             content_type="application/json",
             headers=self.headers,
@@ -133,7 +133,7 @@ class TestWidgetMessageView(APIBaseTest):
         """User should not be able to add messages to another user's ticket."""
         # Create ticket for user_1
         response1 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_1", "message": "User 1 message"}),
             content_type="application/json",
             headers=self.headers,
@@ -142,7 +142,7 @@ class TestWidgetMessageView(APIBaseTest):
 
         # Try to add message as user_2
         response2 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_2", "message": "User 2 message", "ticket_id": ticket_id}),
             content_type="application/json",
             headers=self.headers,
@@ -153,7 +153,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_honeypot_field_blocks_bots(self):
         """Request with _hp field (honeypot) should be rejected."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "bot_123", "message": "spam", "_hp": "filled"}),
             content_type="application/json",
             headers=self.headers,
@@ -164,7 +164,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_missing_distinct_id(self):
         """Request without distinct_id should fail."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"message": "Hello"}),
             content_type="application/json",
             headers=self.headers,
@@ -176,7 +176,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_missing_message(self):
         """Request without message should fail."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123"}),
             content_type="application/json",
             headers=self.headers,
@@ -188,7 +188,7 @@ class TestWidgetMessageView(APIBaseTest):
         """Message over 5000 chars should be rejected."""
         long_message = "x" * 5001
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": long_message}),
             content_type="application/json",
             headers=self.headers,
@@ -200,7 +200,7 @@ class TestWidgetMessageView(APIBaseTest):
         """distinct_id over 200 chars should be rejected."""
         long_id = "x" * 201
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": long_id, "message": "Hello"}),
             content_type="application/json",
             headers=self.headers,
@@ -211,7 +211,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_html_in_message_is_escaped(self):
         """HTML in message should be escaped for security."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": "<script>alert('xss')</script>"}),
             content_type="application/json",
             headers=self.headers,
@@ -226,7 +226,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_traits_are_stored(self):
         """Customer traits should be stored on ticket."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps(
                 {
                     "distinct_id": "user_123",
@@ -248,7 +248,7 @@ class TestWidgetMessageView(APIBaseTest):
         """Traits should be updated on subsequent messages."""
         # First message
         response1 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"distinct_id": "user_123", "message": "Hello", "traits": {"name": "John"}}),
             content_type="application/json",
             headers=self.headers,
@@ -257,7 +257,7 @@ class TestWidgetMessageView(APIBaseTest):
 
         # Second message with updated traits
         response2 = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps(
                 {
                     "distinct_id": "user_123",
@@ -279,7 +279,7 @@ class TestWidgetMessageView(APIBaseTest):
     def test_validation_error_is_logged(self, mock_logger):
         """Validation errors should be logged internally."""
         response = self.client.post(
-            "/api/conversations/widget/message",
+            "/api/conversations/v1/widget/message",
             data=json.dumps({"message": "Hello"}),  # Missing distinct_id
             content_type="application/json",
             headers=self.headers,
@@ -324,7 +324,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_get_messages_for_ticket(self):
         """Should return all messages for a ticket."""
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}?distinct_id=user_123",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123",
             headers=self.headers,
         )
 
@@ -336,7 +336,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_cannot_get_another_users_messages(self):
         """User should not be able to access another user's ticket messages."""
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}?distinct_id=user_456",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_456",
             headers=self.headers,
         )
 
@@ -345,7 +345,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_missing_distinct_id(self):
         """Request without distinct_id should fail."""
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}",
             headers=self.headers,
         )
 
@@ -354,7 +354,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_ticket_not_found(self):
         """Request for non-existent ticket should return 404."""
         response = self.client.get(
-            "/api/conversations/widget/messages/00000000-0000-0000-0000-000000000000?distinct_id=user_123",
+            "/api/conversations/v1/widget/messages/00000000-0000-0000-0000-000000000000?distinct_id=user_123",
             headers=self.headers,
         )
 
@@ -373,7 +373,7 @@ class TestWidgetMessagesView(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}?distinct_id=user_123",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123",
             headers=self.headers,
         )
 
@@ -396,7 +396,7 @@ class TestWidgetMessagesView(APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=5",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=5",
             headers=self.headers,
         )
 
@@ -407,7 +407,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_max_limit_is_500(self):
         """Limit should be capped at 500."""
         response = self.client.get(
-            f"/api/conversations/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=1000",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=1000",
             headers=self.headers,
         )
 
@@ -437,7 +437,7 @@ class TestWidgetTicketsView(APIBaseTest):
         Ticket.objects.create(team=self.team, distinct_id="user_456", channel_source="widget", status="new")
 
         response = self.client.get(
-            "/api/conversations/widget/tickets?distinct_id=user_123",
+            "/api/conversations/v1/widget/tickets?distinct_id=user_123",
             headers=self.headers,
         )
 
@@ -454,7 +454,7 @@ class TestWidgetTicketsView(APIBaseTest):
         Ticket.objects.create(team=self.team, distinct_id="user_123", channel_source="widget", status="resolved")
 
         response = self.client.get(
-            "/api/conversations/widget/tickets?distinct_id=user_123&status=new",
+            "/api/conversations/v1/widget/tickets?distinct_id=user_123&status=new",
             headers=self.headers,
         )
 
@@ -466,7 +466,7 @@ class TestWidgetTicketsView(APIBaseTest):
     def test_missing_distinct_id(self):
         """Request without distinct_id should fail."""
         response = self.client.get(
-            "/api/conversations/widget/tickets",
+            "/api/conversations/v1/widget/tickets",
             headers=self.headers,
         )
 
@@ -522,7 +522,7 @@ class TestWidgetRateLimiting(APIBaseTest):
         # Note: In practice, this test might need adjustment based on actual rate limit configuration
         for i in range(35):
             response = self.client.post(
-                "/api/conversations/widget/message",
+                "/api/conversations/v1/widget/message",
                 data=json.dumps({"distinct_id": f"user_{i}", "message": f"Message {i}"}),
                 content_type="application/json",
                 headers=self.headers,
