@@ -200,6 +200,7 @@ import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/mes
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
+import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -4580,6 +4581,7 @@ const api = {
                 billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
+                agent_mode?: AgentMode | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
