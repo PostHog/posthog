@@ -244,6 +244,11 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
+        // TODOdin: Remove this log, it's for local testing
+        logger.info(
+            'info',
+            `Event captured at: ${now ? castTimestampToClickhouseFormat(DateTime.fromJSDate(now), TimestampFormat.ClickHouse) : null}`
+        )
         const rawEvent: RawKafkaEvent = {
             uuid,
             event: safeClickhouseString(event),

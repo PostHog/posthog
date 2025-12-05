@@ -169,6 +169,8 @@ export class HogFlowExecutorService {
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
+
+                // TODOdin: Consider this location for tracking e2e lag
             }
 
             logs.push(...result.logs)

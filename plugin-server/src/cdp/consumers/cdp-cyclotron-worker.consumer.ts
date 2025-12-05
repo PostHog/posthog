@@ -37,6 +37,16 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
+        // const trackE2eLag = (invocation: CyclotronJobInvocation) => {
+        //     const capturedAt = invocation.state?.event?.captured_at
+        //     if (capturedAt) {
+        //         logger.info('🦔', `-----> Workflow E2E lag: ${capturedAt}`)
+        //         const e2eLag = Date.now() - new Date(capturedAt).getTime()
+        //         workflowE2eLagSummary.observe(e2eLag)
+        //     }
+        // }
+
+        // TODOdin: Consider this location for tracking e2e lag / or in each individual execute function
         return await Promise.all(
             loadedInvocations.map((item) => {
                 if (isNativeHogFunction(item.hogFunction)) {

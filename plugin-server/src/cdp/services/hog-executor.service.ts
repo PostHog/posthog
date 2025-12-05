@@ -319,6 +319,8 @@ export class HogExecutorService {
         result.logs = logs
         result.metrics = metrics
 
+        // TODOdin: Consider this location for tracking e2e lag (if result.finished is true)
+
         return result
     }
 
@@ -337,6 +339,12 @@ export class HogExecutorService {
             hogFunctionName: invocation.hogFunction.name,
             hogFunctionUrl: invocation.state.globals.source?.url,
         }
+
+        // TODOdin: Remove this log, it's for local testing
+        logger.error(
+            'EXECUTING HOG Function I think? from hog-executor.service.ts',
+            invocation.state?.globals?.event?.captured_at
+        )
 
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
