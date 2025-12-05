@@ -185,7 +185,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
 
     try:
         return posthoganalytics.feature_enabled(
-            "ducklake-copy-data-imports",
+            "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={
                 "organization": str(team.organization_id),
