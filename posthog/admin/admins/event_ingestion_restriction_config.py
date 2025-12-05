@@ -92,7 +92,8 @@ class EventIngestionRestrictionConfigAdmin(admin.ModelAdmin):
             restriction_type_field.help_text = (
                 f"{RestrictionType.SKIP_PERSON_PROCESSING.label}: Skip person processing for specified filters. "
                 f"{RestrictionType.DROP_EVENT_FROM_INGESTION.label}: Drop events from ingestion for specified filters. "
-                f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified filters."
+                f"{RestrictionType.FORCE_OVERFLOW_FROM_INGESTION.label}: Force overflow from ingestion for specified filters. "
+                f"{RestrictionType.REDIRECT_TO_DLQ.label}: Redirect events to dead letter queue for specified filters."
             )
 
         return form
