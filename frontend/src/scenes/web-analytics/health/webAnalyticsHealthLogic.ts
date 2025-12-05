@@ -174,7 +174,7 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
                           category: 'configuration',
                           title: 'Reverse proxy',
                           description: hasReverseProxy
-                              ? "Reverse proxy is configured! You're tracking requests are routed through your own domain."
+                              ? "Reverse proxy is configured! Your tracking requests are routed through your own domain."
                               : 'A reverse proxy routes PostHog requests through your own domain and helps prevent ad blockers from blocking tracking. Some metrics may not be accurate until this is configured.',
                           status: hasReverseProxy ? 'success' : 'warning',
                           action: hasReverseProxy
