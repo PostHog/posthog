@@ -73,7 +73,8 @@ export const logsRecordsDroppedCounter = new Counter({
 export class LogsIngestionConsumer {
     protected name = 'LogsIngestionConsumer'
     protected kafkaConsumer: KafkaConsumer
-    private kafkaProducer?: KafkaProducerWrapper
+    private kafkaProducer?: KafkaProducerWrapper // Warpstream - for logs data
+    private mskProducer?: KafkaProducerWrapper // MSK - for app_metrics
     private redis: RedisV2
     private rateLimiter: LogsRateLimiterService
 
@@ -224,7 +225,8 @@ export class LogsIngestionConsumer {
         if (count === 0) {
             return Promise.resolve()
         }
-        return this.kafkaProducer!.produce({
+        // Use MSK producer for app_metrics, not the Warpstream producer used for logs
+        return this.mskProducer!.produce({
             topic: KAFKA_APP_METRICS_2,
             value: Buffer.from(
                 JSON.stringify({
@@ -301,9 +303,16 @@ export class LogsIngestionConsumer {
     }
 
     public async start(): Promise<void> {
-        await KafkaProducerWrapper.create(this.hub).then((producer) => {
-            this.kafkaProducer = producer
-        })
+        await Promise.all([
+            // Warpstream producer for logs data (uses KAFKA_PRODUCER_* env vars)
+            KafkaProducerWrapper.create(this.hub).then((producer) => {
+                this.kafkaProducer = producer
+            }),
+            // MSK producer for app_metrics (uses KAFKA_MSK_PRODUCER_* env vars)
+            KafkaProducerWrapper.create(this.hub, 'MSK_PRODUCER').then((producer) => {
+                this.mskProducer = producer
+            }),
+        ])
 
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
@@ -320,7 +329,7 @@ export class LogsIngestionConsumer {
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
-        await this.kafkaProducer?.disconnect()
+        await Promise.all([this.kafkaProducer?.disconnect(), this.mskProducer?.disconnect()])
         logger.info('💤', 'Consumer stopped!')
     }
 
