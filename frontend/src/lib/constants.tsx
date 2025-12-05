@@ -296,6 +296,7 @@ export const FEATURE_FLAGS = {
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
     REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
     REPLAY_DECOMPRESSION_WORKER: 'replay-decompression-worker', // owner: @pauldambra #team-replay
+    REPLAY_DISCARD_RAW_SNAPSHOTS: 'replay-discard-raw-snapshots', // owner: @pauldambra #team-replay
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate
     REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
