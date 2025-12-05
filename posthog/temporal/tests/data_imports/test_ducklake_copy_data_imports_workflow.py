@@ -87,7 +87,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
     result = await ducklake_copy_data_imports_gate_activity(DuckLakeCopyWorkflowGateInputs(team_id=ateam.id))
 
     assert result is flag_enabled
-    assert captured["key"] == "ducklake-copy-data-imports"
+    assert captured["key"] == "ducklake-data-imports-copy-workflow"
     assert captured["distinct_id"] == str(ateam.uuid)
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is True

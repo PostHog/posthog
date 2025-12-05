@@ -42,7 +42,7 @@ Each workflow is gated by its own feature flag (evaluated via `feature_enabled`)
 | Workflow | Feature Flag |
 |----------|--------------|
 | Data Modeling | `ducklake-data-modeling-copy-workflow` |
-| Data Imports | `ducklake-copy-data-imports` |
+| Data Imports | `ducklake-data-imports-copy-workflow` |
 
 ## Target bucket layout
 
@@ -119,7 +119,7 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 ### Testing Data Imports workflow
 
 1. **Start the dev stack**
-   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-copy-data-imports` feature flag is enabled for the team you plan to use.
+   Run `hogli start` (or `bin/start`) so Postgres, MinIO, Temporal, and all DuckLake defaults are up. Make sure the `ducklake-data-imports-copy-workflow` feature flag is enabled for the team you plan to use.
 
 2. **Trigger a data import sync from the app**
    In the PostHog UI, open Data Warehouse → Sources, connect a source (e.g., Stripe, Hubspot), select the schemas to sync, and click **Sync**. This schedules the `external-data-job` workflow.

@@ -951,6 +951,7 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                 await workflow.execute_activity(
                     copy_data_imports_to_ducklake_activity,
                     activity_inputs,
+                    # TODO: Adjust timeouts based on table size?
                     start_to_close_timeout=dt.timedelta(minutes=30),
                     heartbeat_timeout=dt.timedelta(minutes=2),
                     retry_policy=RetryPolicy(maximum_attempts=2),
