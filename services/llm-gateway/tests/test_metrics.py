@@ -18,7 +18,9 @@ class TestMetricsConfiguration:
     @pytest.mark.parametrize(
         "metric,expected_labels",
         [
-            pytest.param(REQUEST_COUNT, {"endpoint", "provider", "model", "status_code", "auth_method"}, id="request_count"),
+            pytest.param(
+                REQUEST_COUNT, {"endpoint", "provider", "model", "status_code", "auth_method"}, id="request_count"
+            ),
             pytest.param(REQUEST_LATENCY, {"endpoint", "provider", "streaming"}, id="request_latency"),
             pytest.param(TOKENS_INPUT, {"provider", "model"}, id="tokens_input"),
             pytest.param(TOKENS_OUTPUT, {"provider", "model"}, id="tokens_output"),
