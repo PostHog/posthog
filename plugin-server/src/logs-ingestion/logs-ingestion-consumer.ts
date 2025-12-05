@@ -222,7 +222,7 @@ export class LogsIngestionConsumer {
         const results = await Promise.allSettled(metricsPromises)
         const failures = results.filter((r) => r.status === 'rejected')
         if (failures.length > 0) {
-            logger.warn('⚠️', 'Failed to emit some usage metrics', {
+            logger.error('🔴', 'Failed to emit usage metrics - billing data may be lost', {
                 failureCount: failures.length,
                 totalCount: metricsPromises.length,
             })
