@@ -1223,7 +1223,15 @@ class SessionRecordingViewSet(
         has_openai_api_key = bool(os.environ.get("OPENAI_API_KEY"))
         if not environment_is_allowed or not has_openai_api_key:
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
-        if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
+        if not posthoganalytics.feature_enabled(
+            "ai-session-summary", str(user.distinct_id)
+        ) and not posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
             raise exceptions.ValidationError("session summary is not enabled for this user")
         session_id = str(recording.session_id)
         # Track streaming summary start (no completion tracking for streaming)
