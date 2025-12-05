@@ -100,13 +100,11 @@ class SummarizeSessionsTool(MaxTool):
             llm_provided_session_ids = await database_sync_to_async(
                 self._get_session_ids_with_filters, thread_sensitive=False
             )(recordings_query)
-            llm_provided_session_ids_source = "filters"
+            llm_provided_session_ids_source: Literal["filters", "explicit"] = "filters"
         # If explicit session IDs - use them directly
         elif isinstance(recordings_filters_or_explicit_session_ids, list):
-            llm_provided_session_ids, llm_provided_session_ids_source = (
-                recordings_filters_or_explicit_session_ids,
-                "explicit",
-            )
+            llm_provided_session_ids = recordings_filters_or_explicit_session_ids
+            llm_provided_session_ids_source = "explicit"
         # If unexpected type - raise an error
         else:
             msg = (  # type: ignore[unreachable]
