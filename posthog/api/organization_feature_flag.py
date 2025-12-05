@@ -173,7 +173,7 @@ class OrganizationFeatureFlagView(
                 # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
                 # that will be re-encrypted by the serializer if needed
                 encrypted_payloads = filters.get("payloads", {})
-                filters["payloads"] = get_decrypted_flag_payloads(request, encrypted_payloads)
+                filters["payloads"] = get_decrypted_flag_payloads(encrypted_payloads, should_decrypt=True)
 
             flag_data = {
                 "key": flag_to_copy.key,
