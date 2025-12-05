@@ -100,6 +100,26 @@ updates:
                   - 'minor'
                   - 'patch'
 
+          # Testing packages (pytest, mocking, fixtures) - include major since dev-only
+          testing:
+              patterns:
+                  - 'pytest*'
+                  - 'aioresponses'
+                  - 'faker'
+                  - 'fakeredis'
+                  - 'freezegun'
+                  - 'requests-mock'
+                  - 'responses'
+                  - 'inline-snapshot'
+                  - 'syrupy'
+                  - 'flaky'
+                  - 'parameterized'
+                  - 'deepdiff'
+              update-types:
+                  - 'major'
+                  - 'minor'
+                  - 'patch'
+
           # All other minor and patch updates
           other-dependencies:
               patterns:
@@ -108,10 +128,10 @@ updates:
                   - 'minor'
                   - 'patch'
 
+      # Cooldown period - avoid packages released in last 7 days
+      cooldown:
+          default-days: 7
+
       ignore:
           # Exclude Django core from updates
           - dependency-name: 'django'
-          # Cooldown period - avoid packages released in last 7 days
-          - update-types: ['version-update:semver-minor', 'version-update:semver-patch']
-            minimum-age:
-                days: 7
