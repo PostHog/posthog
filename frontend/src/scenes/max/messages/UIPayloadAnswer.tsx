@@ -15,7 +15,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
-export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings']
+export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings', 'create_form']
 
 export function UIPayloadAnswer({
     toolCallId,
@@ -35,7 +35,7 @@ export function UIPayloadAnswer({
     return null
 }
 
-function RecordingsWidget({
+export function RecordingsWidget({
     toolCallId,
     filters,
 }: {
@@ -66,7 +66,7 @@ function RecordingsListContent(): JSX.Element {
     const hasRecordings = otherRecordings.length > 0
 
     return (
-        <div className="*:border-t max-h-80 overflow-y-auto">
+        <div className="border-t *:not-first:border-t max-h-80 overflow-y-auto">
             {sessionRecordingsResponseLoading && !hasRecordings ? (
                 <div className="flex items-center justify-center gap-2 py-12 text-muted">
                     <Spinner textColored />
@@ -84,7 +84,7 @@ function RecordingsListContent(): JSX.Element {
                         </div>
                     ))}
                     {hasNext && (
-                        <div className="p-3">
+                        <div className="p-2">
                             <LemonButton
                                 fullWidth
                                 type="secondary"

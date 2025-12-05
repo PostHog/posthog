@@ -147,6 +147,7 @@ class HobbyTester:
                 # verify is set False here because we are hitting the staging endpoint for Let's Encrypt
                 # This endpoint doesn't have the strict rate limiting that the production endpoint has
                 # This mitigates the chances of getting throttled or banned
+                # nosemgrep: python.requests.security.disabled-cert-validation.disabled-cert-validation
                 r = requests.get(url, verify=False, timeout=10)
             except Exception as e:
                 print(f"Connection failed: {type(e).__name__}")

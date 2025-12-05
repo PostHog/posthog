@@ -707,6 +707,12 @@ class ConversionGoalProcessor:
                 expr=self._build_attribution_expr("conversion_campaign", "fallback_campaign"),
             ),
             ast.Alias(
+                alias="campaign_id",
+                # Campaign IDs don't exist in event data, only in marketing platform data
+                # Use "-" as placeholder to indicate not applicable
+                expr=ast.Constant(value="-"),
+            ),
+            ast.Alias(
                 alias="source_name",
                 expr=self._build_attribution_expr("conversion_source", "fallback_source"),
             ),
@@ -791,10 +797,23 @@ class ConversionGoalProcessor:
 
     def _build_final_aggregation_query(self, attribution_query: ast.SelectQuery) -> ast.SelectQuery:
         """Build final aggregation query with organic defaults"""
+        campaign_expr = self._build_organic_default_expr("campaign_name", self.config.organic_campaign)
+
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         select_columns: list[ast.Expr] = [
+            # match_key is the utm_campaign value used for joining with campaign costs
+            # Users put either campaign name or ID in utm_campaign depending on their integration config
+            ast.Alias(
+                alias=self.config.match_key_field,
+                expr=campaign_expr,
+            ),
             ast.Alias(
                 alias=self.config.campaign_field,
-                expr=self._build_organic_default_expr("campaign_name", self.config.organic_campaign),
+                expr=campaign_expr,
+            ),
+            ast.Alias(
+                alias=self.config.id_field,
+                expr=self._build_organic_default_expr("campaign_id", "-"),
             ),
             ast.Alias(
                 alias=self.config.source_field,
@@ -851,13 +870,27 @@ class ConversionGoalProcessor:
         where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
         where_conditions.extend(additional_conditions)
 
+        # Campaign expression with organic default
+        campaign_expr = ast.Call(
+            name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
+        )
+
         # Build SELECT columns with organic defaults
+        # Schema: [0]=match_key, [1]=campaign, [2]=id, [3]=source, [4]=conversion
         select_columns: list[ast.Expr] = [
             ast.Alias(
+                alias=self.config.match_key_field,
+                expr=campaign_expr,  # match_key is the utm_campaign value
+            ),
+            ast.Alias(
                 alias=self.config.campaign_field,
-                expr=ast.Call(
-                    name="coalesce", args=[utm_campaign_expr, ast.Constant(value=self.config.organic_campaign)]
-                ),
+                expr=campaign_expr,
+            ),
+            ast.Alias(
+                alias=self.config.id_field,
+                # Events only have UTM parameters - campaign IDs are platform-specific (Meta, Google, etc.)
+                # and don't flow through UTM tracking, so we use a placeholder for schema consistency
+                expr=ast.Constant(value="-"),
             ),
             ast.Alias(
                 alias=self.config.source_field,

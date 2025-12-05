@@ -918,7 +918,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_a,
             distinct_id="deleted_user",
             version=0,
@@ -951,7 +951,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Manually add the deleted distinct_id to person B (simulating a merge scenario)
         # This would happen in a real scenario where events come in for the deleted distinct_id
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_b,
             distinct_id="deleted_user",
             version=2,
@@ -1241,13 +1241,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id",
             version=0,
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_linked_to_after,
             distinct_id="distinct_id-2",
             version=0,
@@ -1314,7 +1314,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         # distinct id no update
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_not_changed_1,
             distinct_id="distinct_id-1",
             version=0,
@@ -1325,7 +1325,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
         PersonDistinctId.objects.create(
-            team=self.team,
+            team_id=self.team.pk,
             person=person_deleted_1,
             distinct_id="distinct_id-del-1",
             version=16,

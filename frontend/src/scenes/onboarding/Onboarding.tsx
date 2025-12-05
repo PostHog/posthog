@@ -4,9 +4,8 @@ import { useEffect, useState } from 'react'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
+import { OrganizationMembershipLevel, SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { WebAnalyticsSDKInstructions } from 'scenes/onboarding/sdks/web-analytics/WebAnalyticsSDKInstructions'
@@ -29,6 +28,7 @@ import {
 import { OnboardingAIConsent } from './OnboardingAIConsent'
 import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
+import { OnboardingProjectData } from './OnboardingProjectData'
 import { OnboardingReverseProxy } from './OnboardingReverseProxy'
 import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
@@ -37,15 +37,12 @@ import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingEr
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import { OnboardingLogicProps, onboardingLogic } from './onboardingLogic'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingDashboardTemplateConfigureStep } from './productAnalyticsSteps/DashboardTemplateConfigureStep'
-import { OnboardingDashboardTemplateSelectStep } from './productAnalyticsSteps/DashboardTemplateSelectStep'
 import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
 import { LLMAnalyticsSDKInstructions } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
 import { ProductAnalyticsSDKInstructions } from './sdks/product-analytics/ProductAnalyticsSDKInstructions'
-import { sdksLogic } from './sdks/sdksLogic'
 import { SessionReplaySDKInstructions } from './sdks/session-replay/SessionReplaySDKInstructions'
 import { SurveysSDKInstructions } from './sdks/surveys/SurveysSDKInstructions'
 import { OnboardingWebAnalyticsAuthorizedDomainsStep } from './web-analytics/OnboardingWebAnalyticsAuthorizedDomainsStep'
@@ -81,7 +78,9 @@ const OnboardingWrapper = ({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
         scope: RestrictionScope.Organization,
     })
-    const showAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
+
+    const shouldShowAIConsentStep = useFeatureFlag('ONBOARDING_AI_CONSENT_STEP', 'test')
+    const shouldShowTellUsMoreStep = useFeatureFlag('ONBOARDING_TELL_US_MORE_STEP', 'test')
 
     useEffect(() => {
         let steps = []
@@ -108,21 +107,33 @@ const OnboardingWrapper = ({
             steps = [...steps, BillingStep]
         }
 
+        if (shouldShowAIConsentStep) {
+            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
+            steps = [...steps, aiConsentStep]
+        }
+
         const userCannotInvite = minAdminRestrictionReason && !currentOrganization?.members_can_invite
         if (!userCannotInvite) {
             const inviteTeammatesStep = <OnboardingInviteTeammates stepKey={OnboardingStepKey.INVITE_TEAMMATES} />
             steps = [...steps, inviteTeammatesStep]
         }
 
-        if (showAIConsentStep) {
-            const aiConsentStep = <OnboardingAIConsent stepKey={OnboardingStepKey.AI_CONSENT} />
-            steps = [...steps, aiConsentStep]
+        if (shouldShowTellUsMoreStep) {
+            const tellUsMoreStep = <OnboardingProjectData stepKey={OnboardingStepKey.TELL_US_MORE} />
+            steps = [...steps, tellUsMoreStep]
         }
 
         steps = steps.filter(Boolean)
 
         setAllSteps(steps)
-    }, [children, billingLoading, minAdminRestrictionReason, currentOrganization, showAIConsentStep]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [
+        children,
+        billingLoading,
+        minAdminRestrictionReason,
+        currentOrganization,
+        shouldShowAIConsentStep,
+        shouldShowTellUsMoreStep,
+    ]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (!allSteps.length || (billingLoading && waitForBilling)) {
@@ -169,21 +180,11 @@ const sessionReplayOnboardingToggle = (
 }
 const ProductAnalyticsOnboarding = (): JSX.Element => {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { combinedSnippetAndLiveEventsHosts } = useValues(sdksLogic)
     const { selectedProducts } = useValues(productsLogic)
+
     // mount the logic here so that it stays mounted for the entire onboarding flow
     // not sure if there is a better way to do this
     useValues(newDashboardLogic)
-
-    const showTemplateSteps =
-        featureFlags[FEATURE_FLAGS.ONBOARDING_DASHBOARD_TEMPLATES] == 'test' &&
-        window.innerWidth > 1000 &&
-        combinedSnippetAndLiveEventsHosts.length > 0
-
-    const showSessionReplayStep =
-        useFeatureFlag('ONBOARDING_SESSION_REPLAY_SEPARATE_STEP', 'test') &&
-        !selectedProducts.includes(ProductKey.SESSION_REPLAY)
 
     const options: ProductConfigOption[] = [
         {
@@ -234,9 +235,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
         },
     ]
 
-    const filteredOptions = showSessionReplayStep
-        ? options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
-        : options
+    const filteredOptions = options.filter((option) => option.teamProperty !== 'session_recording_opt_in')
 
     return (
         <OnboardingWrapper>
@@ -250,17 +249,7 @@ const ProductAnalyticsOnboarding = (): JSX.Element => {
                 options={filteredOptions}
             />
 
-            {showSessionReplayStep && (
-                <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
-            )}
-
-            {/* this is two conditionals because they need to be direct children of the wrapper */}
-            {showTemplateSteps ? (
-                <OnboardingDashboardTemplateSelectStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE} />
-            ) : null}
-            {showTemplateSteps ? (
-                <OnboardingDashboardTemplateConfigureStep stepKey={OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE} />
-            ) : null}
+            <OnboardingSessionReplayConfiguration stepKey={OnboardingStepKey.SESSION_REPLAY} />
         </OnboardingWrapper>
     )
 }

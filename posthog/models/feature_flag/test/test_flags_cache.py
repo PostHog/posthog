@@ -404,7 +404,7 @@ class TestCacheStats(BaseTest):
     @patch("posthog.storage.hypercache_manager.get_client")
     def test_get_cache_stats_basic(self, mock_get_client):
         """Test basic cache stats gathering with Redis pipelining."""
-        from posthog.models.feature_flag.flags_cache import get_flags_cache_stats
+        from posthog.models.feature_flag.flags_cache import get_cache_stats
 
         # Mock Redis client with pipelining support
         mock_redis = MagicMock()
@@ -435,11 +435,15 @@ class TestCacheStats(BaseTest):
             [1024, 2048],  # Memory usage results
         ]
 
+        # Mock zcard for expiry tracking count
+        mock_redis.zcard.return_value = 2
+
         with patch("posthog.models.team.team.Team.objects.count", return_value=5):
-            stats = get_flags_cache_stats()
+            stats = get_cache_stats()
 
         self.assertEqual(stats["total_cached"], 2)
         self.assertEqual(stats["total_teams"], 5)
+        self.assertEqual(stats["expiry_tracked"], 2)
         self.assertEqual(stats["ttl_distribution"]["expires_1h"], 1)
         self.assertEqual(stats["ttl_distribution"]["expires_24h"], 1)
         self.assertEqual(stats["size_statistics"]["sample_count"], 2)

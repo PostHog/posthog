@@ -2,11 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { NEW_TAB_COMMANDS, NEW_TAB_COMMANDS_ITEMS, newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 
 import { Results } from './components/Results'
 import { SearchInput, SearchInputCommand, SearchInputHandle } from './components/SearchInput'
@@ -48,19 +49,14 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
     return (
         <>
-            <ListBox
-                ref={listboxRef}
-                className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
-                virtualFocus
-                autoSelectFirst
-            >
+            <ListBox ref={listboxRef} className="w-full flex flex-col gap-4" virtualFocus autoSelectFirst>
                 <div className="sr-only">
                     <p>
                         Welcome to the new tab, type / to see commands... or type a search term, you can navigate all
                         interactive elements with the keyboard
                     </p>
                 </div>
-                <div className="flex flex-col gap-2 border-b">
+                <SceneStickyBar hasSceneTitleSection={false} className="border-b">
                     <div className="px-2 @lg/main-content:px-8 pt-2 @lg/main-content:py-4 mx-auto w-full max-w-[1200px]">
                         <SearchInput
                             ref={commandInputRef}
@@ -103,20 +99,13 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             }}
                         />
                     </div>
-                </div>
+                </SceneStickyBar>
 
-                <ScrollableShadows
-                    direction="vertical"
-                    className="flex flex-col gap-4 overflow-auto h-full"
-                    innerClassName="pt-4"
-                    styledScrollbars
-                >
-                    <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 group/colorful-product-icons colorful-product-icons-true">
-                        <div className="flex flex-col gap-2 mb-32">
-                            <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
-                        </div>
+                <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-4 @lg/main-content:px-8 pt-4 group/colorful-product-icons colorful-product-icons-true">
+                    <div className="flex flex-col gap-2 mb-32">
+                        <Results tabId={tabId || ''} listboxRef={listboxRef} handleAskAi={handleAskAi} />
                     </div>
-                </ScrollableShadows>
+                </div>
             </ListBox>
         </>
     )

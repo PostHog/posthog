@@ -6,11 +6,8 @@ import { LemonInput, Link } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PathCleanFilterAddItemButton } from 'lib/components/PathCleanFilters/PathCleanFilterAddItemButton'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
-import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { PathCleanFiltersTable } from 'lib/components/PathCleanFilters/PathCleanFiltersTable'
 import { PathCleaningRulesDebugger } from 'lib/components/PathCleanFilters/PathCleaningRulesDebugger'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isValidRegexp } from 'lib/utils/regexp'
 import { INSIGHT_TYPE_URLS } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -41,7 +38,6 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const hasAdvancedPaths = hasAvailableFeature(AvailableFeature.PATHS_ADVANCED)
 
     if (!currentTeam) {
@@ -62,8 +58,6 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
 
     const cleanedTestPath = cleanPathWithRegexes(testValue, currentTeam.path_cleaning_filters ?? [])
     const readableTestPath = parseAliasToReadable(cleanedTestPath)
-
-    const useTableUI = featureFlags[FEATURE_FLAGS.PATH_CLEANING_FILTER_TABLE_UI]
 
     const updateFilters = (filters: PathCleaningFilter[]): void => {
         updateCurrentTeam({ path_cleaning_filters: filters })
@@ -115,19 +109,15 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 resourceType={AccessControlResourceType.WebAnalytics}
                 minAccessLevel={AccessControlLevel.Editor}
             >
-                {useTableUI ? (
-                    <div className="flex flex-col gap-4">
-                        <PathCleanFiltersTable
-                            filters={currentTeam.path_cleaning_filters || []}
-                            setFilters={updateFilters}
-                        />
-                        <div>
-                            <PathCleanFilterAddItemButton onAdd={onAddFilter} />
-                        </div>
+                <div className="flex flex-col gap-4">
+                    <PathCleanFiltersTable
+                        filters={currentTeam.path_cleaning_filters || []}
+                        setFilters={updateFilters}
+                    />
+                    <div>
+                        <PathCleanFilterAddItemButton onAdd={onAddFilter} />
                     </div>
-                ) : (
-                    <PathCleanFilters filters={currentTeam.path_cleaning_filters} setFilters={updateFilters} />
-                )}
+                </div>
             </AccessControlAction>
 
             <p className="mt-4">Wanna test what your cleaned path will look like? Try them out here.</p>
@@ -145,13 +135,11 @@ export function PathCleaningFiltersConfig(): JSX.Element | null {
                 </span>
             </div>
 
-            {useTableUI && (
-                <PathCleaningRulesDebugger
-                    testPath={testValue}
-                    filters={currentTeam.path_cleaning_filters ?? []}
-                    finalResult={readableTestPath}
-                />
-            )}
+            <PathCleaningRulesDebugger
+                testPath={testValue}
+                filters={currentTeam.path_cleaning_filters ?? []}
+                finalResult={readableTestPath}
+            />
         </>
     )
 }

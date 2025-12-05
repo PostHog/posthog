@@ -25,15 +25,7 @@ FROM (
             {% endfor %}
             ELSE NULL
         END as page_type
-    FROM events
-    WHERE event = '$pageview'
-      AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
-      AND timestamp < toDateTime('{{ date_end }}', 'UTC')
-      AND (
-        {% for url_path, metric_suffix in pageview_mappings %}
-        JSONExtractString(properties, '$current_url') LIKE '%{{ url_path }}%'{% if not loop.last %} OR {% endif %}
-        {% endfor %}
-      )
+    FROM llma_pageview_events
 )
 WHERE page_type IS NOT NULL
 GROUP BY date, team_id, page_type

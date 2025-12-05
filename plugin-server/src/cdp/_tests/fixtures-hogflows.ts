@@ -65,6 +65,7 @@ export const createExampleHogFlowInvocation = (
             event: context.event,
             person,
             groups: {},
+            variables: context.variables || {},
         }),
         queue: 'hogflow',
         queuePriority: 0,

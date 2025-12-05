@@ -316,7 +316,6 @@ const config = {
     content: [
         // Starting all paths with '../.." to share this between frontend/, playwright/ and common/storybook/
         '../../frontend/src/**/*.{ts,tsx}',
-        '../../ee/frontend/**/*.{ts,tsx}',
         '../../frontend/src/index.html',
         '../../products/**/frontend/**/*.{ts,tsx}',
         '!../../frontend/src/**/*Type.ts',
@@ -615,6 +614,22 @@ const config = {
             white: 'var(--color-white)',
         },
         extend: {
+            animation: {
+                // Default pulse animation but run for only 5 iterations
+                'pulse-5': 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5',
+                // Pulsing glow effect for highlighting UI elements
+                'pulse-glow': 'pulse-glow 2s ease-in-out infinite',
+            },
+            keyframes: {
+                'pulse-glow': {
+                    '0%, 100%': {
+                        boxShadow: '0 0 2px 1px var(--color-accent)',
+                    },
+                    '50%': {
+                        boxShadow: '0 0 6px 2px var(--color-accent)',
+                    },
+                },
+            },
             colors: {
                 ...deprecatedColors,
                 // TODO: Move all colors over to Tailwind

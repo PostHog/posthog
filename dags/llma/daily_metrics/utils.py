@@ -16,12 +16,67 @@ SQL_DIR = Path(__file__).parent / "sql"
 ENABLED_METRICS: list[str] | None = None  # or ["event_counts", "error_rates"]
 
 
-def get_insert_query(date_start: str, date_end: str) -> str:
+def get_llma_events_cte(metric_date: str) -> str:
     """
-    Generate SQL to aggregate AI event counts by team and metric type.
+    Generate CTEs that pre-filter events to only relevant teams for a single day.
+
+    This two-step approach (first find teams, then filter events) allows ClickHouse
+    to use the sorting key (team_id, toDate(timestamp)) more efficiently.
+
+    Uses SAMPLE 0.1 (10%) as a safety mechanism to limit query scope.
+    TODO: Remove SAMPLE once query performance is validated in production.
+
+    Args:
+        metric_date: The date to aggregate metrics for (YYYY-MM-DD format)
+
+    Provides:
+    - llma_events: AI events filtered to teams with AI activity
+    - llma_pageview_events: Pageview events filtered to teams viewing LLM analytics pages
+    """
+    event_types_sql = ", ".join(f"'{et}'" for et in config.ai_event_types)
+    url_patterns_sql = " OR ".join(
+        f"JSONExtractString(properties, '$current_url') LIKE '%{url_path}%'" for url_path, _ in config.pageview_mappings
+    )
+
+    return f"""teams_with_ai_events AS (
+    SELECT DISTINCT team_id
+    FROM events SAMPLE 0.1
+    WHERE event IN ({event_types_sql})
+      AND toDate(timestamp) = '{metric_date}'
+),
+llma_events AS (
+    SELECT *
+    FROM events SAMPLE 0.1
+    WHERE team_id IN (SELECT team_id FROM teams_with_ai_events)
+      AND event IN ({event_types_sql})
+      AND toDate(timestamp) = '{metric_date}'
+),
+teams_with_llma_pageviews AS (
+    SELECT DISTINCT team_id
+    FROM events SAMPLE 0.1
+    WHERE event = '$pageview'
+      AND toDate(timestamp) = '{metric_date}'
+      AND ({url_patterns_sql})
+),
+llma_pageview_events AS (
+    SELECT *
+    FROM events SAMPLE 0.1
+    WHERE team_id IN (SELECT team_id FROM teams_with_llma_pageviews)
+      AND event = '$pageview'
+      AND toDate(timestamp) = '{metric_date}'
+      AND ({url_patterns_sql})
+)"""
+
+
+def get_insert_query(metric_date: str) -> str:
+    """
+    Generate SQL to aggregate AI event counts by team and metric type for a single day.
 
     Uses long format: each metric_name is a separate row for easy schema evolution.
     Automatically discovers and combines all SQL templates in the sql/ directory.
+
+    Args:
+        metric_date: The date to aggregate metrics for (YYYY-MM-DD format)
 
     To add a new metric type, simply add a new .sql file in dags/llma/sql/.
     Each SQL file should return columns: date, team_id, metric_name, metric_value
@@ -41,8 +96,7 @@ def get_insert_query(date_start: str, date_end: str) -> str:
     template_context = {
         "event_types": config.ai_event_types,
         "pageview_mappings": config.pageview_mappings,
-        "date_start": date_start,
-        "date_end": date_end,
+        "metric_date": metric_date,
         "include_error_rates": config.include_error_rates,
     }
 
@@ -56,10 +110,17 @@ def get_insert_query(date_start: str, date_end: str) -> str:
     # Combine all queries with UNION ALL
     combined_query = "\n\nUNION ALL\n\n".join(rendered_queries)
 
-    # Wrap in INSERT INTO statement
-    return f"INSERT INTO {config.table_name} (date, team_id, metric_name, metric_value)\n\n{combined_query}"
+    # Generate the llma_events CTE
+    llma_events_cte = get_llma_events_cte(metric_date)
+
+    # Wrap in INSERT INTO statement with CTE
+    return f"""INSERT INTO {config.table_name} (date, team_id, metric_name, metric_value)
+
+WITH {llma_events_cte}
+
+{combined_query}"""
 
 
-def get_delete_query(date_start: str, date_end: str) -> str:
-    """Generate SQL to delete existing data for the date range."""
-    return f"ALTER TABLE {config.table_name} DELETE WHERE date >= '{date_start}' AND date < '{date_end}'"
+def get_delete_query(metric_date: str) -> str:
+    """Generate SQL to delete existing data for the given date."""
+    return f"ALTER TABLE {config.table_name} DELETE WHERE date = '{metric_date}'"

@@ -28,8 +28,8 @@ from products.llm_analytics.backend.providers.gemini import GeminiProvider
 from ee.hogai.session_summaries.constants import (
     DEFAULT_VIDEO_EXPORT_MIME_TYPE,
     DEFAULT_VIDEO_UNDERSTANDING_MODEL,
+    SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_DURATION,
-    VALIDATION_VIDEO_PLAYBACK_SPEED,
     VALIDATION_VIDEO_RENDERING_DELAY,
 )
 
@@ -155,7 +155,7 @@ class SessionMomentsLLMAnalyzer:
                     "filename": moment_filename,
                     "duration": moment.duration_s,
                     # Speed up to reduce the rendering time
-                    "playback_speed": VALIDATION_VIDEO_PLAYBACK_SPEED,
+                    "playback_speed": SHORT_VALIDATION_VIDEO_PLAYBACK_SPEED,
                     # Keeping default values
                     "mode": "screenshot",
                 },

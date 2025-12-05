@@ -313,7 +313,7 @@ def test_snapshot_actors_property_taxonomy_can_be_skipped(
 
 @patch("dags.max_ai.snapshot_team_data.check_dump_exists")
 @patch("dags.max_ai.snapshot_team_data.call_query_runner")
-@pytest.mark.django_db
+@pytest.mark.django_db(databases=["default", "persons_db_writer"])
 def test_snapshot_actors_property_taxonomy_dumps_with_group_type_mapping(
     mock_call_query_runner, mock_check_dump_exists, mock_context, mock_s3, team, mock_dump
 ):

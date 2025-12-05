@@ -37,15 +37,11 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         if not request.path.startswith("/scim/"):
             return None
 
-        auth_header = request.headers.get("authorization", "")
-
-        if not auth_header.startswith("Bearer "):
-            raise exceptions.AuthenticationFailed("Bearer token required for SCIM endpoints")
-
-        token = auth_header[7:]
+        auth_header = request.META.get("HTTP_AUTHORIZATION", "")
+        token = auth_header[7:] if auth_header.startswith("Bearer ") else ""
 
         if not token:
-            raise exceptions.AuthenticationFailed("No bearer token provided")
+            raise exceptions.NotAuthenticated("Bearer token required for SCIM endpoints")
 
         # Extract domain_id from URL path (e.g., /scim/v2/{domain_id}/Users)
         domain_id = self._extract_domain_id_from_path(request.path)

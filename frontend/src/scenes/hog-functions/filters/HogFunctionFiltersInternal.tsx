@@ -65,6 +65,7 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 'activity',
                 'item_id',
                 'scope',
+                'detail',
                 'detail.name',
                 'detail.changes',
                 'created_at',

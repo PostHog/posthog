@@ -11,6 +11,8 @@ import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollec
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { AddIntegrationButton } from './AddIntegrationButton'
+import { ConversionGoalFilterButton } from './ConversionGoalFilterButton'
+import { ConversionGoalModal } from './ConversionGoalModal'
 import { IntegrationFilter } from './IntegrationFilter'
 
 export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
@@ -21,7 +23,12 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <FilterBar
                 top={tabs}
-                left={<ReloadAll />}
+                left={
+                    <div className="flex items-center gap-4">
+                        <ReloadAll />
+                        <ConversionGoalFilterButton />
+                    </div>
+                }
                 right={
                     <>
                         <AddIntegrationButton />
@@ -36,6 +43,7 @@ export const MarketingAnalyticsFilters = ({ tabs }: { tabs: JSX.Element }): JSX.
                     </>
                 }
             />
+            <ConversionGoalModal />
         </BindLogic>
     )
 }

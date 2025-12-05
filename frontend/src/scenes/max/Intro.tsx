@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand/Logomark'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { maxLogic } from './maxLogic'
@@ -14,10 +16,14 @@ const LOGOMARK_AIRTIME_MS = 400 // Sync with --logomark-airtime in base.scss
 export function Intro(): JSX.Element {
     const { headline } = useValues(maxLogic)
     const { user } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const [hedgehogLastJumped, setHedgehogLastJumped] = useState<number | null>(Date.now())
     const [hedgehogJumpIteration, setHedgehogJumpIteration] = useState(0)
 
-    const shouldShowMaxRebrandMessage: boolean = !!user && dayjs(user.date_joined).isBefore('2025-10-21')
+    const shouldShowMaxRebrandMessage: boolean =
+        !featureFlags[FEATURE_FLAGS.POSTHOG_AI_GENERAL_AVAILABILITY] &&
+        !!user &&
+        dayjs(user.date_joined).isBefore('2025-10-21')
 
     const handleLogomarkClick = (): void => {
         const now = Date.now()

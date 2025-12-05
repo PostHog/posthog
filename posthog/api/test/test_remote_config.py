@@ -17,6 +17,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         self.team.recording_domains = ["https://*.example.com"]
         self.team.session_recording_opt_in = True
         self.team.surveys_opt_in = True
+        self.team.extra_settings = {"recorder_script": "posthog-recorder"}
         self.team.save()
 
         # Force synchronous RemoteConfig creation for tests since signals are async now

@@ -98,7 +98,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                             <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
                         </div>
                     </div>
-                    {question.scale === 10 && <NPSBreakdownSkeleton />}
+                    {question.isNpsQuestion !== false && <NPSBreakdownSkeleton />}
                     <LemonSkeleton className="h-9 w-full" />
                 </>
             )

@@ -25,7 +25,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-10-10', // To stabilize relative dates
         pageUrl: urls.dashboards(),
-        featureFlags: [FEATURE_FLAGS.SDK_DOCTOR_BETA, FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
+        featureFlags: [FEATURE_FLAGS.INCIDENT_IO_STATUS_PAGE],
         testOptions: {
             includeNavigationInSnapshot: true,
         },

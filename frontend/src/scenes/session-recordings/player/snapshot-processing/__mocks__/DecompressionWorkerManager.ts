@@ -1,10 +1,10 @@
-export type DecompressionMode = 'worker' | 'yielding' | 'blocking'
+export type DecompressionMode = 'worker' | 'yielding' | 'blocking' | 'worker_and_yielding'
 
 export function normalizeMode(mode?: string | boolean): DecompressionMode {
-    if (mode === 'worker' || mode === 'yielding') {
+    if (mode === 'worker' || mode === 'yielding' || mode === 'worker_and_yielding' || mode === 'blocking') {
         return mode
     }
-    return 'blocking'
+    return 'worker'
 }
 
 export class DecompressionWorkerManager {

@@ -35,19 +35,17 @@ DELETED=$(grep '^D' /tmp/snapshot-diff.txt | wc -l | xargs)
 # Track which file to read from for JSON building
 DIFF_FILE="/tmp/snapshot-diff.txt"
 
-# Run Oxipng if there are added or modified files
-if [ "$ADDED" -gt 0 ] || [ "$MODIFIED" -gt 0 ]; then
-    echo "Running Oxipng optimization on $((ADDED + MODIFIED)) PNG files..." >&2
+# Run Oxipng if there are added or modified PNG files
+PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ' || true)
+if [ -n "$PNG_FILES" ]; then
+    echo "Running Oxipng optimization on PNG files..." >&2
 
     echo "::group::Oxipng optimization" >&2
     # Optimize changed PNGs using Oxipng via npx
     # Oxipng auto-detects CPU cores and parallelizes internally
     # --opt max for best compression, --strip safe for deterministic output
     # --alpha to optimize transparent pixels, oxipng is deterministic by default
-    PNG_FILES=$(grep -E '^[AM].*\.png$' /tmp/snapshot-diff.txt | awk '{print $2}' | tr '\n' ' ')
-    if [ -n "$PNG_FILES" ]; then
-        npx --yes oxipng@latest --opt max --strip safe --alpha $PNG_FILES
-    fi
+    npx --yes oxipng@latest --opt max --strip safe --alpha $PNG_FILES
     echo "::endgroup::" >&2
 
     # Re-count after Oxipng (may have eliminated some diffs)

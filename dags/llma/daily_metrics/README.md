@@ -27,15 +27,22 @@ SELECT
     team_id,
     'metric_name' as metric_name,
     toFloat64(value) as metric_value
-FROM events
-WHERE ...
+FROM llma_events
+GROUP BY ...
 ```
+
+The following CTEs are automatically provided:
+
+- `llma_events`: AI events pre-filtered to teams with AI activity
+- `llma_pageview_events`: Pageview events pre-filtered to teams viewing LLM analytics pages
+
+This two-step filtering (first find teams, then filter events) allows ClickHouse to
+use the sorting key (team_id, timestamp) efficiently.
 
 Templates have access to these Jinja2 variables:
 
 - `event_types`: List of AI event types to aggregate
-- `date_start`: Start date for aggregation (YYYY-MM-DD)
-- `date_end`: End date for aggregation (YYYY-MM-DD)
+- `metric_date`: The date being aggregated (YYYY-MM-DD)
 - `pageview_mappings`: List of (url_path, metric_suffix) tuples for pageview categorization
 - `include_error_rates`: Boolean flag for error rate calculation (default: true)
 
@@ -178,7 +185,7 @@ Test file location: `dags/tests/llma/daily_metrics/test_sql_metrics.py`
 ## Adding New Metrics
 
 1. Create a new SQL file in `sql/` (e.g., `sql/token_counts.sql`)
-2. Use Jinja2 template syntax with `event_types`, `date_start`, `date_end`
+2. Query from `llma_events` (pre-filtered CTE) for AI event metrics
 3. Return columns: `date`, `team_id`, `metric_name`, `metric_value`
 4. The pipeline will automatically discover and include it
 5. Add test coverage in `dags/tests/llma/daily_metrics/test_sql_metrics.py` with mock data and expected output
@@ -186,21 +193,12 @@ Test file location: `dags/tests/llma/daily_metrics/test_sql_metrics.py`
 Example:
 
 ```sql
-{% for event_type in event_types %}
-{% set metric_name = event_type.lstrip('$') + '_tokens' %}
 SELECT
     date(timestamp) as date,
     team_id,
-    '{{ metric_name }}' as metric_name,
+    concat(substring(event, 2), '_tokens') as metric_name,
     toFloat64(sum(JSONExtractInt(properties, '$ai_total_tokens'))) as metric_value
-FROM events
-WHERE event = '{{ event_type }}'
-  AND timestamp >= toDateTime('{{ date_start }}', 'UTC')
-  AND timestamp < toDateTime('{{ date_end }}', 'UTC')
-GROUP BY date, team_id
+FROM llma_events
+GROUP BY date, team_id, event
 HAVING metric_value > 0
-{% if not loop.last %}
-UNION ALL
-{% endif %}
-{% endfor %}
 ```

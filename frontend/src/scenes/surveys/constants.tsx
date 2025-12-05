@@ -119,6 +119,7 @@ export const defaultSurveyFieldValues = {
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 buttonText: 'Submit',
             },
         ],
@@ -273,6 +274,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 skipSubmitButton: true,
             },
             {
@@ -633,11 +635,7 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
-}
-
-export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
-    TEST = 'test', // new experience
-    CONTROL = 'control', // current state
+    CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

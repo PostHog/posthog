@@ -28,7 +28,7 @@ export class SessionRecordingRestrictionHandler {
 
         for (const message of messages) {
             const headers = parseEventHeaders(message.headers)
-            const { token, distinct_id } = headers
+            const { token, distinct_id, session_id } = headers
 
             if (!token) {
                 // If there's no token, we can't check restrictions, so keep the message
@@ -37,10 +37,11 @@ export class SessionRecordingRestrictionHandler {
             }
 
             // Check if this message should be dropped
-            if (this.restrictionManager.shouldDropEvent(token, distinct_id)) {
+            if (this.restrictionManager.shouldDropEvent(token, distinct_id, session_id)) {
                 logger.info('🚫', 'session_recording_dropped_by_restriction', {
                     token,
                     distinct_id,
+                    session_id,
                     partition: message.partition,
                     offset: message.offset,
                 })
@@ -49,7 +50,7 @@ export class SessionRecordingRestrictionHandler {
             }
 
             // Check if this message should be forced to overflow
-            if (!this.consumeOverflow && this.restrictionManager.shouldForceOverflow(token, distinct_id)) {
+            if (!this.consumeOverflow && this.restrictionManager.shouldForceOverflow(token, distinct_id, session_id)) {
                 overflowMessages.push(message)
                 continue
             }

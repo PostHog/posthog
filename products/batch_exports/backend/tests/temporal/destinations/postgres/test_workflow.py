@@ -1,12 +1,4 @@
-"""Test module covering the workflow used for batch exporting to Postgres.
-
-The tests are parametrized with `use_internal_stage` to cover both usage of
-`insert_into_postgres_activity` or `insert_into_postgres_activity_from_stage` as the
-main activities of the workflow.
-
-NOTE: Once all batch exports have been moved to use the internal stage, the
-`use_internal_stage` parameter can be dropped with only the `True` case remaining.
-"""
+"""Test module covering the workflow used for batch exporting to Postgres."""
 
 import uuid
 import asyncio
@@ -32,7 +24,6 @@ from products.batch_exports.backend.temporal.destinations.postgres_batch_export 
     PostgresBatchExportInputs,
     PostgresBatchExportWorkflow,
     PostgresInsertInputs,
-    insert_into_postgres_activity,
     insert_into_postgres_activity_from_stage,
 )
 from products.batch_exports.backend.temporal.pipeline.internal_stage import insert_into_internal_stage_activity
@@ -45,8 +36,6 @@ from products.batch_exports.backend.tests.temporal.utils.workflow import mocked_
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.django_db,
-    # TODO - clean up when we remove the old activity
-    pytest.mark.parametrize("use_internal_stage", [True]),
 ]
 
 
@@ -66,7 +55,6 @@ async def test_postgres_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
-    use_internal_stage,
 ):
     """Test Postgres Export Workflow end-to-end by using a local PG database.
 
@@ -105,32 +93,28 @@ async def test_postgres_export_workflow(
         elif batch_export_model.name == "sessions":
             sort_key = "session_id"
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                    await activity_environment.client.execute_workflow(
-                        PostgresBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=10),
-                    )
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_postgres_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -176,7 +160,6 @@ async def test_postgres_export_workflow_without_events(
     model: BatchExportModel | BatchExportSchema | None,
     data_interval_start,
     data_interval_end,
-    use_internal_stage,
 ):
     """Test Postgres Export Workflow end-to-end without any events to export.
 
@@ -207,32 +190,28 @@ async def test_postgres_export_workflow_without_events(
         **postgres_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
-                    await activity_environment.client.execute_workflow(
-                        PostgresBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(seconds=10),
-                    )
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_postgres_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -264,7 +243,6 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
     model,
     generate_test_data,
     table_name,
-    use_internal_stage,
 ):
     """Test a `PostgresBatchExportWorkflow` backfilling the persons model.
 
@@ -294,31 +272,27 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
         data_interval_end - person["_timestamp"].replace(tzinfo=dt.UTC) > dt.timedelta(hours=12) for person in persons
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_postgres_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await activity_environment.client.execute_workflow(
+                PostgresBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                await activity_environment.client.execute_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                    execution_timeout=dt.timedelta(minutes=10),
-                )
+                retry_policy=RetryPolicy(maximum_attempts=1),
+                execution_timeout=dt.timedelta(minutes=10),
+            )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -343,7 +317,7 @@ async def test_postgres_export_workflow_backfill_earliest_persons(
 
 
 async def test_postgres_export_workflow_handles_unexpected_insert_activity_errors(
-    ateam, postgres_batch_export, interval, use_internal_stage
+    ateam, postgres_batch_export, interval
 ):
     """Test that Postgres Export Workflow can gracefully handle unexpected errors when inserting Postgres data.
 
@@ -363,41 +337,31 @@ async def test_postgres_export_workflow_handles_unexpected_insert_activity_error
         **postgres_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_postgres_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
+                side_effect=ValueError("A useful error message"),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
-                        side_effect=ValueError("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.postgres_batch_export.ProducerFromInternalStage.start",
-                        side_effect=ValueError("A useful error message"),
-                    ),
-                ):
-                    with pytest.raises(WorkflowFailureError):
-                        await activity_environment.client.execute_workflow(
-                            PostgresBatchExportWorkflow.run,
-                            inputs,
-                            id=workflow_id,
-                            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                            retry_policy=RetryPolicy(maximum_attempts=1),
-                        )
+                with pytest.raises(WorkflowFailureError):
+                    await activity_environment.client.execute_workflow(
+                        PostgresBatchExportWorkflow.run,
+                        inputs,
+                        id=workflow_id,
+                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                        retry_policy=RetryPolicy(maximum_attempts=1),
+                    )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -409,7 +373,7 @@ async def test_postgres_export_workflow_handles_unexpected_insert_activity_error
 
 
 async def test_postgres_export_workflow_handles_insert_activity_non_retryable_errors(
-    ateam, postgres_batch_export, interval, use_internal_stage
+    ateam, postgres_batch_export, interval
 ):
     """Test that Postgres Export Workflow can gracefully handle non-retryable errors when inserting Postgres data.
 
@@ -432,40 +396,30 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     class InsufficientPrivilege(Exception):
         pass
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                insert_into_postgres_activity_from_stage,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with unittest.mock.patch(
+                "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
+                side_effect=InsufficientPrivilege("A useful error message"),
             ):
-                with (
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.postgres_batch_export.Producer.start",
-                        side_effect=InsufficientPrivilege("A useful error message"),
-                    ),
-                    unittest.mock.patch(
-                        "products.batch_exports.backend.temporal.destinations.postgres_batch_export.ProducerFromInternalStage.start",
-                        side_effect=InsufficientPrivilege("A useful error message"),
-                    ),
-                ):
-                    await activity_environment.client.execute_workflow(
-                        PostgresBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                    )
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -476,9 +430,7 @@ async def test_postgres_export_workflow_handles_insert_activity_non_retryable_er
     assert run.records_completed is None
 
 
-async def test_postgres_export_workflow_handles_cancellation(
-    ateam, postgres_batch_export, interval, use_internal_stage
-):
+async def test_postgres_export_workflow_handles_cancellation(ateam, postgres_batch_export, interval):
     """Test that Postgres Export Workflow can gracefully handle cancellations when inserting Postgres data."""
     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
 
@@ -491,42 +443,37 @@ async def test_postgres_export_workflow_handles_cancellation(
         **postgres_batch_export.destination.config,
     )
 
-    @activity.defn(
-        name="insert_into_postgres_activity_from_stage" if use_internal_stage else "insert_into_postgres_activity"
-    )
+    @activity.defn(name="insert_into_postgres_activity_from_stage")
     async def never_finish_activity(_: PostgresInsertInputs) -> str:
         while True:
             activity.heartbeat()
             await asyncio.sleep(1)
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                mocked_start_batch_export_run,
+                never_finish_activity,
+                insert_into_internal_stage_activity,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await activity_environment.client.start_workflow(
+                PostgresBatchExportWorkflow.run,
+                inputs,
+                id=workflow_id,
                 task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    mocked_start_batch_export_run,
-                    never_finish_activity,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
-            ):
-                handle = await activity_environment.client.start_workflow(
-                    PostgresBatchExportWorkflow.run,
-                    inputs,
-                    id=workflow_id,
-                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                    retry_policy=RetryPolicy(maximum_attempts=1),
-                )
-                await asyncio.sleep(5)
-                await handle.cancel()
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+            await asyncio.sleep(5)
+            await handle.cancel()
 
-                with pytest.raises(WorkflowFailureError):
-                    await handle.result()
+            with pytest.raises(WorkflowFailureError):
+                await handle.result()
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1
@@ -548,7 +495,6 @@ async def test_postgres_export_workflow_with_many_files(
     data_interval_start,
     data_interval_end,
     postgres_config,
-    use_internal_stage,
 ):
     """Test Postgres Export Workflow end-to-end with multiple file uploads.
 
@@ -570,34 +516,30 @@ async def test_postgres_export_workflow_with_many_files(
         **postgres_batch_export.destination.config,
     )
 
-    use_stage_team_ids = [str(ateam.pk)] if use_internal_stage else []
-
-    with override_settings(BATCH_EXPORT_POSTGRES_USE_STAGE_TEAM_IDS=use_stage_team_ids):
-        async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-            async with Worker(
-                activity_environment.client,
-                task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                workflows=[PostgresBatchExportWorkflow],
-                activities=[
-                    start_batch_export_run,
-                    insert_into_postgres_activity,
-                    insert_into_postgres_activity_from_stage,
-                    insert_into_internal_stage_activity,
-                    finish_batch_export_run,
-                ],
-                workflow_runner=UnsandboxedWorkflowRunner(),
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_postgres_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(
+                BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=10, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=10
             ):
-                with override_settings(
-                    BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=10, CLICKHOUSE_MAX_BLOCK_SIZE_DEFAULT=10
-                ):
-                    await activity_environment.client.execute_workflow(
-                        PostgresBatchExportWorkflow.run,
-                        inputs,
-                        id=workflow_id,
-                        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=1),
-                        execution_timeout=dt.timedelta(minutes=2),
-                    )
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(minutes=2),
+                )
 
     runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
     assert len(runs) == 1

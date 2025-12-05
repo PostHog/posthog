@@ -14,7 +14,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
 import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
 import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
@@ -31,6 +30,8 @@ import { urls } from 'scenes/urls'
 
 import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
+
+import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -71,6 +72,7 @@ import { TeamDangerZone } from './environment/TeamDangerZone'
 import {
     Bookmarklet,
     TeamAuthorizedURLs,
+    TeamBusinessModel,
     TeamDisplayName,
     TeamTimezone,
     TeamVariables,
@@ -137,6 +139,17 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Project ID',
                 component: <TeamVariables />,
             },
+
+            {
+                id: 'date-and-time',
+                title: 'Date & time',
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'business-model',
+                title: 'Business model',
+                component: <TeamBusinessModel />,
+            },
         ],
     },
     {
@@ -184,10 +197,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <GroupAnalyticsConfig />,
             },
             {
-                id: 'crm-usage-metrics',
+                id: 'customer-analytics-usage-metrics',
                 title: 'Usage metrics',
                 component: <UsageMetricsConfig />,
-                flag: 'CRM_USAGE_METRICS',
+                flag: 'CUSTOMER_ANALYTICS',
+            },
+            {
+                id: 'customer-analytics-dashboard-events',
+                title: 'Dashboard events',
+                component: <CustomerAnalyticsDashboardEvents />,
+                flag: 'CUSTOMER_ANALYTICS',
             },
         ],
     },
@@ -196,11 +215,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
-            {
-                id: 'date-and-time',
-                title: 'Date & time',
-                component: <TeamTimezone />,
-            },
             {
                 id: 'base-currency',
                 title: 'Base currency',
@@ -300,7 +314,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'revenue-analytics-filter-test-accounts',
-                title: 'Filter test accounts out of revenue analytics',
+                title: 'Filter out internal and test users from revenue analytics',
                 component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
             },
             {
@@ -519,7 +533,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         level: 'environment',
         id: 'environment-max',
         title: 'AI',
-        flag: 'ARTIFICIAL_HOG',
         settings: [
             {
                 id: 'core-memory',
@@ -589,7 +602,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'activity-log-org-level-settings',
                 title: 'Settings',
                 component: <ActivityLogOrgLevelSettings />,
-                flag: 'CDP_ACTIVITY_LOG_NOTIFICATIONS',
             },
             {
                 id: 'activity-log-notifications',
@@ -622,8 +634,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Move project',
                 flag: '!ENVIRONMENTS',
                 component: <ProjectMove />, // There isn't EnvironmentMove yet
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
             {
                 id: 'environment-delete',
@@ -655,8 +665,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'project-move',
                 title: 'Move project',
                 component: <ProjectMove />,
-                allowForTeam: () =>
-                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
             },
             {
                 id: 'project-delete',

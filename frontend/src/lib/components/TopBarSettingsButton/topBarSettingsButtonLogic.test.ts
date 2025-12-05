@@ -86,7 +86,7 @@ describe('topBarSettingsButtonLogic', () => {
         it('returns other setting section IDs regardless of CRM feature flag state', async () => {
             router.actions.push(urls.persons())
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: false,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: false,
             })
 
             await expectLogic(logic).toMatchValues({
@@ -94,7 +94,7 @@ describe('topBarSettingsButtonLogic', () => {
             })
 
             featureFlagLogic.actions.setFeatureFlags([], {
-                [FEATURE_FLAGS.CRM_ITERATION_ONE]: true,
+                [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true,
             })
 
             await expectLogic(logic).toMatchValues({

@@ -682,7 +682,14 @@ Jane Smith,user456,jane@example.com
         )
 
         self.assertEqual(response.status_code, 201)
-        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        response_data = response.json()
+        cohort = Cohort.objects.get(pk=response_data["id"])
+
+        # Verify the response contains a valid count (not a CombinedExpression or None)
+        self.assertIn("count", response_data)
+        self.assertIsInstance(response_data["count"], int)
+        self.assertEqual(response_data["count"], 2)
 
         # Verify the persons were actually added to the cohort
         people_in_cohort = Person.objects.filter(cohort__id=cohort.pk, team_id=cohort.team_id)
@@ -1523,6 +1530,86 @@ email@example.org,
                     },
                     "created_at": mock.ANY,
                 }
+            ],
+        )
+
+    def test_update_static_cohort_activity_log(self):
+        """
+        Test that updating a static cohort with people does not load all people into memory.
+        Previously, updating cohorts called to_dict() which loaded all people, causing timeouts
+        and database connection errors for large cohorts.
+        """
+        num_people = 10
+        person_uuids = []
+        for i in range(num_people):
+            person = Person.objects.create(
+                team=self.team, distinct_ids=[f"user_{i}"], properties={"email": f"user{i}@example.com"}
+            )
+            person_uuids.append(str(person.uuid))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "my large cohort", "is_static": True, "_create_static_person_ids": person_uuids},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Update the cohort - this should not load all people into memory
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            {"name": "renamed large cohort", "description": "A cohort with many people"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+
+        # Verify the activity log was created with changes tracked
+        self.assert_cohort_activity(
+            cohort_id=cohort_id,
+            expected=[
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "updated",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": [
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "name",
+                                "before": "my large cohort",
+                                "after": "renamed large cohort",
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "description",
+                                "before": "",
+                                "after": "A cohort with many people",
+                            },
+                        ],
+                        "name": "renamed large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
+                {
+                    "user": {"first_name": "", "email": "user1@posthog.com"},
+                    "activity": "created",
+                    "scope": "Cohort",
+                    "item_id": str(cohort_id),
+                    "detail": {
+                        "trigger": None,
+                        "changes": None,
+                        "name": "my large cohort",
+                        "short_id": None,
+                        "type": None,
+                    },
+                    "created_at": mock.ANY,
+                },
             ],
         )
 

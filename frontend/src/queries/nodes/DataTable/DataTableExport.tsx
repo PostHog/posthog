@@ -244,7 +244,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                 },
             ].filter(Boolean)}
         >
-            <LemonButton type="secondary" icon={<IconDownload />} data-attr="data-table-export-menu">
+            <LemonButton type="secondary" icon={<IconDownload />} data-attr="data-table-export-menu" size="small">
                 Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
             </LemonButton>
         </LemonMenu>

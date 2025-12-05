@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconGear, IconHourglass } from '@posthog/icons'
+import { IconCheck, IconClock, IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LemonProgressCircle } from 'lib/lemon-ui/LemonProgressCircle/LemonProgressCircle'
@@ -92,7 +92,7 @@ export const RunningTimeNew = ({
                         <span>Loading...</span>
                     ) : estimatedRemainingDays === null ? (
                         <span className="inline-flex items-center gap-1">
-                            <IconHourglass />
+                            <IconClock />
                             Pending
                         </span>
                     ) : estimatedRemainingDays === 0 ? (

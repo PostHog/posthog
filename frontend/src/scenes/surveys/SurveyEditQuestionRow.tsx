@@ -146,6 +146,8 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
     }
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
+    const shouldShowNpsCheckbox =
+        question.type === SurveyQuestionType.Rating && question.scale === SURVEY_RATING_SCALE.NPS_10_POINT
 
     const confirmQuestionTypeChange = (
         index: number,
@@ -303,6 +305,18 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                 <LemonInput value={question.upperBoundLabel || ''} />
                             </LemonField>
                         </div>
+                        {shouldShowNpsCheckbox && (
+                            <LemonField name="isNpsQuestion">
+                                {({ value: isNpsQuestion, onChange: toggleIsNpsQuestion }) => (
+                                    <LemonCheckbox
+                                        label="This is an NPS question"
+                                        info="If checked, we'll calculate and display NPS on the survey results page."
+                                        checked={isNpsQuestion !== false}
+                                        onChange={toggleIsNpsQuestion}
+                                    />
+                                )}
+                            </LemonField>
+                        )}
                     </div>
                 )}
                 {(question.type === SurveyQuestionType.SingleChoice ||

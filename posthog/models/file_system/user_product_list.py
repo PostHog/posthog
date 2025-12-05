@@ -1,3 +1,4 @@
+import random
 from typing import TYPE_CHECKING, Any, cast
 
 from django.conf import settings
@@ -9,16 +10,16 @@ from django.dispatch.dispatcher import receiver
 
 from posthog.schema import ProductIntentContext, ProductKey
 
-from posthog.models.team import Team
-from posthog.models.user import User
 from posthog.models.utils import UpdatedMetaFields, UUIDModel, uuid7
 from posthog.products import Products
 
 if TYPE_CHECKING:
     from posthog.models.product_intent.product_intent import ProductIntent
+    from posthog.models.team import Team
+    from posthog.models.user import User
 
 
-def get_user_product_list_count(team: Team) -> list[dict[str, Any]]:
+def get_user_product_list_count(team: "Team") -> list[dict[str, Any]]:
     """
     Get product counts for all items in a team, ranked by popularity.
     Returns a list of dicts with 'product_path' and 'colleague_count' keys, ordered by count descending.
@@ -31,6 +32,15 @@ def get_user_product_list_count(team: Team) -> list[dict[str, Any]]:
     )
 
 
+def backfill_user_product_list_for_new_user(user: "User", team: "Team") -> None:
+    """
+    Backfill UserProductList entries for a new user in a new team based on what
+    they have enabled in other teams they belong to.
+    """
+    UserProductList.backfill_from_other_teams(user, team)
+    UserProductList.sync_from_team_colleagues(user, team, count=3)
+
+
 class UserProductList(UUIDModel, UpdatedMetaFields):
     """
     Stores a user's custom list of products they care about.
@@ -38,8 +48,8 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
     """
 
     id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
-    team = models.ForeignKey(Team, on_delete=models.CASCADE)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+    user = models.ForeignKey("User", on_delete=models.CASCADE)
     product_path = models.CharField(max_length=200)
 
     # Not using `CreatedMetaFields` because of the clashing `user` reference with `created_by`
@@ -89,11 +99,8 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         verbose_name = "User Product List"
         verbose_name_plural = "User Product Lists"
 
-    def __str__(self) -> str:
-        return f"{self.team_id}:{self.user_id} - {self.product_path} ({"Enabled" if self.enabled else "Disabled"}) - {self.reason}"
-
     @staticmethod
-    def create_from_product_intent(product_intent: "ProductIntent", user: User) -> "list[UserProductList]":
+    def create_from_product_intent(product_intent: "ProductIntent", user: "User") -> "list[UserProductList]":
         if user.allow_sidebar_suggestions is False:
             return []
 
@@ -126,8 +133,8 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
     @staticmethod
     def sync_from_team_colleagues(
-        user: User,
-        team: Team,
+        user: "User",
+        team: "Team",
         count: int = 1,
         colleague_product_counts: list[dict[str, Any]] | None = None,
     ) -> "list[UserProductList]":
@@ -181,23 +188,19 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
         return created_items
 
     @staticmethod
-    def backfill_from_other_teams(user: User, team: Team) -> "list[UserProductList]":
+    def backfill_from_other_teams(user: "User", team: "Team") -> "list[UserProductList]":
         """
         Backfill UserProductList entries for a user in a new team based on what
         they have enabled in other teams they belong to.
         """
+        from posthog.models.team import Team
+
         # We IGNORE the user's suggestion config because we want them to have
         # at least some products in their sidebar to start with when backfilling from
         # their own teams.
         #
         # if user.allow_sidebar_suggestions is False:
         #     return []
-
-        # If the user already has products in this team, we don't need to backfill
-        # from other teams since the reasoning behind the backfill is to get them
-        # started with some products in their sidebar.
-        if UserProductList.objects.filter(user=user, team=team).exists():
-            return []
 
         # Get all other teams the user belongs to (through organization membership)
         user_organizations = user.organization_memberships.values_list("organization_id", flat=True)
@@ -228,6 +231,91 @@ class UserProductList(UUIDModel, UpdatedMetaFields):
 
         return created_items
 
+    @staticmethod
+    def sync_cross_sell_products(
+        user: "User",
+        team: "Team",
+        max_products: int = 1,
+        ignored_categories: list[str] | None = None,
+    ) -> "list[UserProductList]":
+        """
+        Sync cross-sell products for a user based on products they already have enabled.
+        For each enabled product, finds other products from the same category.
+        Randomly selects up to max_products from all cross-sell candidates across all categories.
+
+        Args:
+            user: The user to sync products for
+            team: The team to sync products in
+            max_products: Maximum number of cross-sell products to suggest (across all categories)
+            ignored_categories: List of category names to ignore when suggesting cross-sell products.
+                               Defaults to ["Tools", "Unreleased"]
+
+        Returns:
+            List of newly created UserProductList entries
+        """
+        if user.allow_sidebar_suggestions is False:
+            return []
+
+        # By default we don't want to add new items from the Tools and Unreleased categories since:
+        # - Tools aren't relevant to cross-sell
+        # - Unreleased products are not yet ready for cross-sell and aren't correlated one to another
+        if ignored_categories is None:
+            ignored_categories = ["Tools", "Unreleased"]
+
+        ignored_categories_set = set(ignored_categories)
+
+        user_enabled_products = UserProductList.objects.filter(user=user, team=team, enabled=True).values_list(
+            "product_path", flat=True
+        )
+
+        user_existing_products = set(
+            UserProductList.objects.filter(user=user, team=team).values_list("product_path", flat=True)
+        )
+
+        products_by_category = Products.get_products_by_category()
+        product_to_category: dict[str, str] = {}
+        for product in Products.products():
+            if product.category:
+                product_to_category[product.path] = product.category
+
+        all_cross_sell_candidates: set[str] = set()
+        for product_path in user_enabled_products:
+            category = product_to_category.get(product_path)
+            if not category or category in ignored_categories_set:
+                continue
+
+            category_products = set(products_by_category.get(category, []))
+            cross_sell_options = category_products - user_existing_products - {product_path}
+
+            filtered_options = {
+                opt for opt in cross_sell_options if product_to_category.get(opt) not in ignored_categories_set
+            }
+            all_cross_sell_candidates.update(filtered_options)
+
+        if not all_cross_sell_candidates:
+            return []
+
+        candidates_list = list(all_cross_sell_candidates)
+        random.shuffle(candidates_list)
+        selected = candidates_list[:max_products]
+
+        created_items = []
+        for product_path in selected:
+            item, created = UserProductList.objects.get_or_create(
+                user=user,
+                team=team,
+                product_path=product_path,
+                defaults={
+                    "enabled": True,
+                    "reason": UserProductList.Reason.USED_SIMILAR_PRODUCTS,
+                },
+            )
+
+            if created:
+                created_items.append(item)
+
+        return created_items
+
 
 @receiver(post_save, sender="ee.AccessControl")
 def access_control_created(sender, instance, created, **kwargs):
@@ -241,11 +329,7 @@ def access_control_created(sender, instance, created, **kwargs):
         user = instance.organization_member.user
         team = instance.team
 
-        def create_user_product_lists():
-            UserProductList.backfill_from_other_teams(user, team)
-            UserProductList.sync_from_team_colleagues(user, team, count=3)
-
         if settings.TEST:
-            create_user_product_lists()
+            backfill_user_product_list_for_new_user(user, team)
         else:
-            transaction.on_commit(lambda: create_user_product_lists())
+            transaction.on_commit(lambda: backfill_user_product_list_for_new_user(user, team))

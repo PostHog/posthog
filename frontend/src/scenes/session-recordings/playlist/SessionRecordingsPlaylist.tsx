@@ -57,7 +57,6 @@ export function SessionRecordingsPlaylist({
         activeSessionRecordingId,
         hasNext,
         allowHogQLFilters,
-        allowReplayGroupsFilters,
         totalFiltersCount,
     } = useValues(playlistLogic)
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
@@ -189,7 +188,6 @@ export function SessionRecordingsPlaylist({
                             setFilters={setFilters}
                             totalFiltersCount={totalFiltersCount}
                             allowReplayHogQLFilters={allowHogQLFilters}
-                            allowReplayGroupsFilters={allowReplayGroupsFilters}
                         />
                     }
                 />

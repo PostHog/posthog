@@ -141,6 +141,7 @@ class TestQueryRunner(BaseTest):
                     "base_currency": "USD",
                     "campaign_name_mappings": {},
                     "custom_source_mappings": {},
+                    "campaign_field_preferences": {},
                     "sources_map": {
                         "01977f7b-7f29-0000-a028-7275d1a767a4": {
                             "cost": "cost",
@@ -210,7 +211,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_843ed5e7784cb6a33bdddfffddc7b0eae281bfbfb1de74ca4ff7d54c33fc7e58"
+        assert cache_key == "cache_42_194d1cdb3e7a4bef74e185f7339bbf1b245e4bde0316ac641969447a2daaaea3"
 
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -224,7 +225,7 @@ class TestQueryRunner(BaseTest):
         runner = TestSubclassQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_a917d9fe869f5ef977ea123b42665f4d2f1d7e06fb26bbc92d1ca459c53e2218"
+        assert cache_key == "cache_42_84635471ca5a516c617c633dac5bd7dd717647f255f86eab09fb891a7cdbd828"
 
     def test_cache_key_different_timezone(self):
         TestQueryRunner = self.setup_test_query_runner_class()
@@ -235,7 +236,7 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=team)
 
         cache_key = runner.get_cache_key()
-        assert cache_key == "cache_42_a09146245ba4d6c8b86333fb117e2aaf1c4dd634499491a9a2128e2375ff20d6"
+        assert cache_key == "cache_42_cc74546afbbefc5454fa188e0a6146b8701f524d71f8f535c368cdaf20e220d4"
 
     @mock.patch("django.db.transaction.on_commit")
     def test_cache_response(self, mock_on_commit):

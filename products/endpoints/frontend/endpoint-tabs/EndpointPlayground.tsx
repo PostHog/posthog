@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { EndpointType } from '~/types'
@@ -266,6 +268,11 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                     onClick={handleExecute}
                     loading={endpointResultLoading}
                     tooltip="Cmd/Ctrl + Enter"
+                    disabledReason={
+                        !endpoint?.is_active
+                            ? 'This endpoint is inactive. Activate it in the actions panel on the top right to execute.'
+                            : undefined
+                    }
                 >
                     Execute endpoint
                 </LemonButton>
@@ -320,6 +327,15 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                         }}
                         value={activeCodeExampleTab}
                     />
+                    <LemonButton
+                        to={urls.settings('user', 'personal-api-keys')}
+                        type="secondary"
+                        size="small"
+                        icon={<IconExternal />}
+                        targetBlank
+                    >
+                        API keys
+                    </LemonButton>
                 </div>
                 <div>
                     <CodeSnippet language={getLanguage(activeCodeExampleTab)} wrap={true}>

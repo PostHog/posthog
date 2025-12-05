@@ -12,7 +12,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
@@ -92,7 +92,7 @@ describe('PersonState dual-write compatibility', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(repository, hub.db.kafkaProducer)
+        const personsStore = new BatchWritingPersonsStore(repository, hub.db.kafkaProducer)
 
         const context = new PersonContext(
             fullEvent as PluginEvent,
@@ -476,7 +476,7 @@ describe('PersonState dual-write compatibility', () => {
 
                 // Create a PersonMergeService with dual-write repository
                 // We need to set up the context similar to how it's done during event processing
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -569,7 +569,7 @@ describe('PersonState dual-write compatibility', () => {
                 expect(person2Before).toBeUndefined()
 
                 // Create PersonMergeService context for this scenario
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -730,7 +730,7 @@ describe('PersonState dual-write compatibility', () => {
                 await dualWriteRepository.addDistinctId(person2, person2ExtraId, 0)
 
                 // Now perform the merge using PersonMergeService
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 // The merge event would have person2's distinct ID identifying with person1's
                 const mergeEvent: PluginEvent = {
@@ -894,7 +894,7 @@ describe('PersonState dual-write compatibility', () => {
                     .mockRejectedValueOnce(new Error('Simulated secondary database failure - attempt 3'))
 
                 // Attempt the merge which should fail and rollback
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,
@@ -1021,7 +1021,7 @@ describe('PersonState dual-write compatibility', () => {
                     .mockRejectedValueOnce(new Error('duplicate key value violates unique constraint - attempt 3'))
 
                 // Try to merge with a new distinct ID
-                const personsStore = new BatchWritingPersonsStoreForBatch(dualWriteRepository, hub.db.kafkaProducer)
+                const personsStore = new BatchWritingPersonsStore(dualWriteRepository, hub.db.kafkaProducer)
 
                 const mergeEvent: PluginEvent = {
                     team_id: teamId,

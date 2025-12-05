@@ -36,6 +36,8 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebOverviewQuery,
+    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
@@ -225,6 +227,12 @@ export function summarizeInsightQuery(query: InsightQueryNode, context: SummaryC
         return `${capitalizeFirstLetter(
             context.aggregationLabel(query.aggregation_group_type_index, true).singular
         )} lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    } else if (isWebStatsTableQuery(query)) {
+        // Convert breakdown enum to human-readable label
+        const breakdownLabel = query.breakdownBy.replace(/([A-Z])/g, ' $1').trim()
+        return `${breakdownLabel} breakdown`
+    } else if (isWebOverviewQuery(query)) {
+        return 'Web Analytics Overview'
     }
     return ''
 }

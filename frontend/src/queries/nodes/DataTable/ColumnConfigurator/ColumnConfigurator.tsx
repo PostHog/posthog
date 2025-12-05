@@ -100,6 +100,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 data-attr="events-table-column-selector"
                 icon={<IconTuning />}
                 onClick={showModal}
+                size="small"
             >
                 Configure columns
             </LemonButton>
@@ -136,7 +137,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
-                ...(isEventsQuery(query.source) ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+                ...(isEventsQuery(query.source)
+                    ? [TaxonomicFilterGroupType.SessionProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    : []),
             ]
 
     const showPersistedColumnReorder =
@@ -270,6 +273,11 @@ const SelectedColumn = ({
     if (column.startsWith('properties.')) {
         columnType = PropertyFilterType.Event
         columnKey = column.substring(11)
+    }
+    if (column.startsWith('session.')) {
+        columnType = PropertyFilterType.Session
+        filterGroupType = TaxonomicFilterGroupType.SessionProperties
+        columnKey = column.substring(8)
     }
 
     columnKey = trimQuotes(extractExpressionComment(columnKey))

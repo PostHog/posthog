@@ -14,6 +14,8 @@ from temporalio import activity
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 
+from products.batch_exports.backend.temporal.utils import make_retryable_with_exponential_backoff
+
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.type_defs import ObjectIdentifierTypeDef
 
@@ -21,7 +23,12 @@ from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportField, BatchExportModel, BatchExportSchema
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClientTimeoutError, ClickHouseQueryStatus, get_client
+from posthog.temporal.common.clickhouse import (
+    ClickHouseClientTimeoutError,
+    ClickHouseQueryNotFound,
+    ClickHouseQueryStatus,
+    get_client,
+)
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -440,12 +447,19 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     "Timed-out waiting for insert into S3. Will attempt to check query status before continuing",
                     query_id=str(query_id),
                 )
+                # Sometimes we can't find the query in the query log, so make sure we retry a few times
+                check_query = make_retryable_with_exponential_backoff(
+                    client.acheck_query,
+                    max_attempts=5,
+                    max_retry_delay=1,
+                    retryable_exceptions=(ClickHouseQueryNotFound,),
+                )
 
-                status = await client.acheck_query(str(query_id), raise_on_error=True)
+                status = await check_query(str(query_id), raise_on_error=True)
 
                 while status == ClickHouseQueryStatus.RUNNING:
                     await asyncio.sleep(10)
-                    status = await client.acheck_query(str(query_id), raise_on_error=True)
+                    status = await check_query(str(query_id), raise_on_error=True)
 
             except Exception as e:
                 logger.exception(

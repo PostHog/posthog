@@ -1,3 +1,4 @@
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
@@ -39,6 +40,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_security_settings_activity_logging(self):
         organization = self.create_organization("Security Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT}]
+        )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
@@ -51,6 +55,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_member_invite_permissions_activity_logging(self):
         organization = self.create_organization("Permissions Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[
+                {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+                {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS},
+            ]
+        )
         self.update_organization(organization["id"], {"members_can_invite": False})
 
         log = (
@@ -79,6 +89,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_sharing_settings_activity_logging(self):
         organization = self.create_organization("Sharing Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}]
+        )
         self.update_organization(organization["id"], {"allow_publicly_shared_resources": False})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()
@@ -90,6 +103,12 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_multiple_changes_activity_logging(self):
         organization = self.create_organization("Multi Change Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[
+                {"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT},
+                {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            ]
+        )
         self.update_organization(
             organization["id"],
             {"name": "New Multi Change Org", "enforce_2fa": True, "members_can_invite": False},
@@ -142,6 +161,9 @@ class TestOrganizationActivityLogging(ActivityLogTestHelper):
 
     def test_organization_2fa_enforcement_logging(self):
         organization = self.create_organization("2FA Test Org")
+        Organization.objects.filter(id=organization["id"]).update(
+            available_product_features=[{"key": AvailableFeature.TWO_FACTOR_ENFORCEMENT}]
+        )
         self.update_organization(organization["id"], {"enforce_2fa": True})
 
         log = ActivityLog.objects.filter(organization_id=organization["id"], activity="updated").first()

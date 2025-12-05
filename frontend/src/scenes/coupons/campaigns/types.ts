@@ -1,6 +1,6 @@
 export interface CampaignBenefit {
     title: string
-    description: string
+    description: string | JSX.Element
 }
 
 export interface CampaignConfig {

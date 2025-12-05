@@ -45,32 +45,62 @@ class RevenueExampleEventsQueryRunner(QueryRunnerWithHogQLContext):
             queries.append(
                 ast.SelectQuery(
                     select=[
-                        ast.Call(
-                            name="tuple",
-                            args=[
-                                ast.Field(chain=["events", "uuid"]),
-                                ast.Field(chain=["events", "event"]),
-                                ast.Field(chain=["events", "distinct_id"]),
-                                ast.Field(chain=["events", "properties"]),
-                            ],
+                        ast.Alias(
+                            alias="event",
+                            expr=ast.Call(
+                                name="tuple",
+                                args=[
+                                    ast.Field(chain=["events", "uuid"]),
+                                    ast.Field(chain=["events", "event"]),
+                                    ast.Field(chain=["events", "distinct_id"]),
+                                    ast.Field(chain=["events", "properties"]),
+                                ],
+                            ),
                         ),
-                        ast.Field(chain=["view", "event_name"]),
-                        ast.Field(chain=["view", "original_amount"]),
-                        ast.Field(chain=["view", "currency_aware_amount"]),
-                        ast.Field(chain=["view", "original_currency"]),
-                        ast.Field(chain=["view", "amount"]),
-                        ast.Field(chain=["view", "currency"]),
-                        ast.Call(
-                            name="tuple",
-                            args=[
-                                ast.Field(chain=["events", "person", "id"]),
-                                ast.Field(chain=["events", "person", "created_at"]),
-                                ast.Field(chain=["events", "distinct_id"]),
-                                ast.Field(chain=["events", "person", "properties"]),
-                            ],
+                        ast.Alias(
+                            alias="event_name",
+                            expr=ast.Field(chain=["view", "event_name"]),
                         ),
-                        ast.Field(chain=["view", "session_id"]),
-                        ast.Alias(alias="timestamp", expr=ast.Field(chain=["view", "timestamp"])),
+                        ast.Alias(
+                            alias="original_amount",
+                            expr=ast.Field(chain=["view", "original_amount"]),
+                        ),
+                        ast.Alias(
+                            alias="currency_aware_amount",
+                            expr=ast.Field(chain=["view", "currency_aware_amount"]),
+                        ),
+                        ast.Alias(
+                            alias="original_currency",
+                            expr=ast.Field(chain=["view", "original_currency"]),
+                        ),
+                        ast.Alias(
+                            alias="amount",
+                            expr=ast.Field(chain=["view", "amount"]),
+                        ),
+                        ast.Alias(
+                            alias="currency",
+                            expr=ast.Field(chain=["view", "currency"]),
+                        ),
+                        ast.Alias(
+                            alias="person",
+                            expr=ast.Call(
+                                name="tuple",
+                                args=[
+                                    ast.Field(chain=["events", "person", "id"]),
+                                    ast.Field(chain=["events", "person", "created_at"]),
+                                    ast.Field(chain=["events", "distinct_id"]),
+                                    ast.Field(chain=["events", "person", "properties"]),
+                                ],
+                            ),
+                        ),
+                        ast.Alias(
+                            alias="session_id",
+                            expr=ast.Field(chain=["view", "session_id"]),
+                        ),
+                        ast.Alias(
+                            alias="timestamp",
+                            expr=ast.Field(chain=["view", "timestamp"]),
+                        ),
                     ],
                     select_from=ast.JoinExpr(
                         alias="view",

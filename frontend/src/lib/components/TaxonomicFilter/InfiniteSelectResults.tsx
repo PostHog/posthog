@@ -3,7 +3,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { IconCheck, IconSort } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
-import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -82,64 +81,62 @@ function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType })
             {openTab === TaxonomicFilterGroupType.Events ? (
                 <>
                     <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
-                    <FlaggedFeature flag="taxonomic-event-sorting" match={true}>
-                        <LemonMenu
-                            items={[
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
-                                            <span>Name</span>
-                                        </div>
-                                    ),
-                                    tooltip: 'Sort events alphabetically',
-                                    onClick: () => {
-                                        setEventOrdering('name')
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-name',
+                    <LemonMenu
+                        items={[
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
+                                        <span>Name</span>
+                                    </div>
+                                ),
+                                tooltip: 'Sort events alphabetically',
+                                onClick: () => {
+                                    setEventOrdering('name')
                                 },
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
-                                            <span>Recently seen</span>
-                                        </div>
-                                    ),
-                                    tooltip: 'Show the most recent events first',
-                                    onClick: () => {
-                                        setEventOrdering('-last_seen_at')
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-recency',
+                                'data-attr': 'taxonomic-event-sorting-by-name',
+                            },
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
+                                        <span>Recently seen</span>
+                                    </div>
+                                ),
+                                tooltip: 'Show the most recent events first',
+                                onClick: () => {
+                                    setEventOrdering('-last_seen_at')
                                 },
-                                {
-                                    label: (
-                                        <div className="flex flex-row gap-2">
-                                            {!eventOrdering ? <IconCheck /> : <IconBlank />}
-                                            <span>Both</span>
-                                        </div>
-                                    ),
-                                    tooltip:
-                                        'Sorts events by the day they were last seen, and then by name. The default option.',
-                                    onClick: () => {
-                                        setEventOrdering(null)
-                                    },
-                                    'data-attr': 'taxonomic-event-sorting-by-both',
+                                'data-attr': 'taxonomic-event-sorting-by-recency',
+                            },
+                            {
+                                label: (
+                                    <div className="flex flex-row gap-2">
+                                        {!eventOrdering ? <IconCheck /> : <IconBlank />}
+                                        <span>Both</span>
+                                    </div>
+                                ),
+                                tooltip:
+                                    'Sorts events by the day they were last seen, and then by name. The default option.',
+                                onClick: () => {
+                                    setEventOrdering(null)
                                 },
-                            ]}
-                        >
-                            <LemonButton
-                                icon={<IconSort />}
-                                size="small"
-                                tooltip={`Sorting by ${
-                                    eventOrdering === '-last_seen_at'
-                                        ? 'recently seen'
-                                        : eventOrdering === 'name'
-                                          ? 'name'
-                                          : 'recently seen and then name'
-                                }`}
-                            />
-                        </LemonMenu>
-                    </FlaggedFeature>
+                                'data-attr': 'taxonomic-event-sorting-by-both',
+                            },
+                        ]}
+                    >
+                        <LemonButton
+                            icon={<IconSort />}
+                            size="small"
+                            tooltip={`Sorting by ${
+                                eventOrdering === '-last_seen_at'
+                                    ? 'recently seen'
+                                    : eventOrdering === 'name'
+                                      ? 'name'
+                                      : 'recently seen and then name'
+                            }`}
+                        />
+                    </LemonMenu>
                 </>
             ) : (
                 <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>

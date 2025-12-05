@@ -13,6 +13,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
 import { SummaryRenderer } from './components/SummaryRenderer'
 import { TextReprDisplay } from './components/TextReprDisplay'
 import { summaryViewLogic } from './summaryViewLogic'
@@ -20,7 +21,8 @@ import { summaryViewLogic } from './summaryViewLogic'
 export interface SummaryViewDisplayProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
-    tree?: any[]
+    tree?: EnrichedTraceTreeNode[]
+    autoGenerate?: boolean
 }
 
 interface SummaryViewLogicValues {
@@ -30,8 +32,8 @@ interface SummaryViewLogicValues {
     summaryDataFailure?: Error | string | unknown
 }
 
-export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayProps): JSX.Element {
-    const logic = summaryViewLogic({ trace, event, tree })
+export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: SummaryViewDisplayProps): JSX.Element {
+    const logic = summaryViewLogic({ trace, event, tree, autoGenerate })
     const { summaryData, summaryDataLoading, summaryMode } = useValues(logic)
     const { generateSummary, setSummaryMode, regenerateSummary } = useActions(logic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)

@@ -1,7 +1,7 @@
 """
 Team metadata HyperCache - Full team object caching using existing HyperCache infrastructure.
 
-This module provides dedicated caching of complete Team objects (38 fields) using the
+This module provides dedicated caching of complete Team objects (39 fields) using the
 existing HyperCache system which handles Redis + S3 backup automatically.
 
 Memory Usage Estimation:
@@ -95,6 +95,7 @@ TEAM_METADATA_FIELDS = [
     "onboarding_tasks",
     "ingested_event",
     "person_processing_opt_out",
+    "extra_settings",
     "session_recording_opt_in",
     "session_recording_sample_rate",
     "session_recording_minimum_duration_milliseconds",
@@ -171,6 +172,44 @@ def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
         logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
 
 
+def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
+    """
+    Serialize a Team object to metadata dictionary.
+
+    Args:
+        team: Team object with organization and project already loaded
+
+    Returns:
+        Dictionary containing full team metadata
+    """
+    metadata = {}
+    for field in TEAM_METADATA_FIELDS:
+        value = getattr(team, field, None)
+        metadata[field] = _serialize_team_field(field, value)
+
+    metadata["organization_name"] = team.organization.name if team.organization else None
+    metadata["project_name"] = team.project.name if team.project else None
+
+    return metadata
+
+
+def _batch_load_team_metadata(teams: list[Team]) -> dict[int, dict[str, Any]]:
+    """
+    Load metadata for multiple teams efficiently.
+
+    Used by warm_caches() to avoid N+1 queries when warming the cache.
+    Teams are already loaded with select_related("organization", "project")
+    by the warming framework, so this just serializes them.
+
+    Args:
+        teams: List of Team objects with organization/project pre-loaded
+
+    Returns:
+        Dict mapping team_id -> metadata dict
+    """
+    return {team.id: _serialize_team_to_metadata(team) for team in teams}
+
+
 def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMissing:
     """
     Load full team metadata from the database.
@@ -188,17 +227,7 @@ def _load_team_metadata(team_key: KeyType) -> dict[str, Any] | HyperCacheStoreMi
             if isinstance(team, Team) and (not Team.organization.is_cached(team) or not Team.project.is_cached(team)):
                 team = Team.objects.select_related("organization", "project").get(id=team.id)
 
-            metadata = {}
-            for field in TEAM_METADATA_FIELDS:
-                value = getattr(team, field, None)
-                metadata[field] = _serialize_team_field(field, value)
-
-            metadata["organization_name"] = (
-                team.organization.name if hasattr(team, "organization") and team.organization else None
-            )
-            metadata["project_name"] = team.project.name if hasattr(team, "project") and team.project else None
-
-            return metadata
+            return _serialize_team_to_metadata(team)
 
     except Team.DoesNotExist:
         logger.debug("Team not found for cache lookup")
@@ -222,6 +251,7 @@ team_metadata_hypercache = HyperCache(
     value="full_metadata.json",
     token_based=True,
     load_fn=_load_team_metadata,
+    batch_load_fn=_batch_load_team_metadata,
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
@@ -344,7 +374,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.
 
-    Note: Metrics are tracked by refresh_expiring_caches() using consolidated HYPERCACHE_TEAMS_PROCESSED_COUNTER
+    Note: Metrics are pushed to Pushgateway by refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours

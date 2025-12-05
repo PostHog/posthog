@@ -3,29 +3,20 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
+    MARKETING_INTEGRATION_CONFIGS,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
+    NativeMarketingSource,
     NodeKind,
+    VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import { ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NativeMarketingSource = Extract<
-    ExternalDataSourceType,
-    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds' | 'TikTokAds'
->
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
-
-export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
-    'GoogleAds',
-    'RedditAds',
-    'LinkedinAds',
-    'MetaAds',
-    'TikTokAds',
-]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
@@ -37,28 +28,13 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 
 export const MAX_ITEMS_TO_SHOW = 3
 
-export const GOOGLE_ADS_CAMPAIGN_TABLE_NAME = 'campaign'
-export const GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
-
-export const LINKEDIN_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
-export const LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
-
-export const REDDIT_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
-export const REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_report'
-
-export const META_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
-export const META_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
-
-export const TIKTOK_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
-export const TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME = 'campaign_report'
-
-export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
-    GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
-    LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
-    RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
-    MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
-    TikTokAds: [TIKTOK_ADS_CAMPAIGN_TABLE_NAME, TIKTOK_ADS_CAMPAIGN_REPORT_TABLE_NAME],
-}
+// Derive table names from centralized config
+export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        [MARKETING_INTEGRATION_CONFIGS[source].campaignTableName, MARKETING_INTEGRATION_CONFIGS[source].statsTableName],
+    ])
+) as Record<NativeMarketingSource, string[]>
 
 export const MAX_ATTRIBUTION_WINDOW_DAYS = 90
 export const MIN_ATTRIBUTION_WINDOW_DAYS = 1
@@ -214,8 +190,6 @@ interface SourceColumnMappings {
 }
 
 interface SourceTileConfig {
-    statsTableName: string
-    displayName: string
     idField: string
     timestampField: string
     columnMappings: SourceColumnMappings
@@ -227,8 +201,6 @@ interface SourceTileConfig {
 
 const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
-        statsTableName: 'campaign_stats',
-        displayName: 'google',
         idField: 'id',
         timestampField: 'segments_date',
         columnMappings: {
@@ -242,8 +214,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     RedditAds: {
-        statsTableName: 'campaign_report',
-        displayName: 'reddit',
         idField: 'campaign_id',
         timestampField: 'date',
         columnMappings: {
@@ -266,8 +236,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     LinkedinAds: {
-        statsTableName: 'campaign_stats',
-        displayName: 'linkedin',
         idField: 'id',
         timestampField: 'date_start',
         columnMappings: {
@@ -279,8 +247,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     MetaAds: {
-        statsTableName: 'campaign_stats',
-        displayName: 'meta',
         idField: 'campaign_id',
         timestampField: 'date_stop',
         columnMappings: {
@@ -292,7 +258,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                // If meta does not return conversions it won't be in the table.fields.
                 const hasConversionsColumn = table.fields && 'conversions' in table.fields
                 if (hasConversionsColumn) {
                     return {
@@ -309,8 +274,6 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
     },
     TikTokAds: {
-        statsTableName: 'campaign_report',
-        displayName: 'tiktok',
         idField: 'campaign_id',
         timestampField: 'stat_time_day',
         columnMappings: {
@@ -322,12 +285,38 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
         },
         specialConversionLogic: (table, tileColumnSelection) => {
             if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
-                // If TikTok does not return conversion it won't be in the table.fields.
                 const hasConversionsColumn = table.fields && 'conversion' in table.fields
                 if (hasConversionsColumn) {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversion))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
+        },
+    },
+    BingAds: {
+        idField: 'campaign_id',
+        timestampField: 'time_period',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversions',
+            currencyColumn: 'currency_code',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                const hasConversionsColumn = table.fields && 'conversions' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversions))',
                     }
                 }
                 return {
@@ -383,13 +372,14 @@ export function createMarketingTile(
     baseCurrency: string
 ): DataWarehouseNode | null {
     const sourceType = source.source.source_type as NativeMarketingSource
-    const config = sourceTileConfigs[sourceType]
+    const tileConfig = sourceTileConfigs[sourceType]
+    const integrationConfig = MARKETING_INTEGRATION_CONFIGS[sourceType]
 
-    if (!config) {
+    if (!tileConfig || !integrationConfig) {
         return null
     }
 
-    const table = source.tables.find((t) => t.name.split('.').pop() === config.statsTableName)
+    const table = source.tables.find((t) => t.name.split('.').pop() === integrationConfig.statsTableName)
     if (!table) {
         return null
     }
@@ -399,18 +389,20 @@ export function createMarketingTile(
         return null
     }
 
+    const displayName = integrationConfig.primarySource
+
     // Check for special conversion logic first
-    if (config.specialConversionLogic) {
-        const specialLogic = config.specialConversionLogic(table, tileColumnSelection)
+    if (tileConfig.specialConversionLogic) {
+        const specialLogic = tileConfig.specialConversionLogic(table, tileColumnSelection)
         if (specialLogic) {
             return {
                 kind: NodeKind.DataWarehouseNode,
                 id: table.id,
-                name: config.displayName,
+                name: displayName,
                 custom_name: `${table.name} ${tileColumnSelection}`,
-                id_field: config.idField,
-                distinct_id_field: config.idField,
-                timestamp_field: config.timestampField,
+                id_field: tileConfig.idField,
+                distinct_id_field: tileConfig.idField,
+                timestamp_field: tileConfig.timestampField,
                 table_name: table.name,
                 ...specialLogic,
             }
@@ -418,7 +410,7 @@ export function createMarketingTile(
     }
 
     if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost) {
-        const mappings = config.columnMappings
+        const mappings = tileConfig.columnMappings
         const costColumn = mappings.cost
         const currencyColumn = mappings.currencyColumn
         const fallbackCurrency = mappings.fallbackCurrency
@@ -441,11 +433,11 @@ export function createMarketingTile(
         return {
             kind: NodeKind.DataWarehouseNode,
             id: table.id,
-            name: config.displayName,
+            name: displayName,
             custom_name: `${table.name} ${tileColumnSelection}`,
-            id_field: config.idField,
-            distinct_id_field: config.idField,
-            timestamp_field: config.timestampField,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
             table_name: table.name,
             math: 'hogql' as any,
             math_hogql: mathHogql,
@@ -456,11 +448,11 @@ export function createMarketingTile(
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
-        name: config.displayName,
+        name: displayName,
         custom_name: `${table.name} ${tileColumnSelection}`,
-        id_field: config.idField,
-        distinct_id_field: config.idField,
-        timestamp_field: config.timestampField,
+        id_field: tileConfig.idField,
+        distinct_id_field: tileConfig.idField,
+        timestamp_field: tileConfig.timestampField,
         table_name: table.name,
         math: PropertyMathType.Sum,
         math_property: column.name,

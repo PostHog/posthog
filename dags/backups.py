@@ -49,7 +49,6 @@ def get_max_backup_bandwidth() -> str:
 
 
 SHARDED_TABLES = [
-    "sharded_events",
     "sharded_app_metrics",
     "sharded_app_metrics2",
     "sharded_heatmaps",
@@ -60,6 +59,10 @@ SHARDED_TABLES = [
     "sharded_session_replay_events",
     "sharded_sessions",
 ]
+# Continue backing up sharded_events in EU using CH BACKUP. For US we
+# already switched to Vector based approach.
+if settings.CLOUD_DEPLOYMENT == "EU":
+    SHARDED_TABLES.append("sharded_events")
 
 NON_SHARDED_TABLES = [
     "asyncdeletion",

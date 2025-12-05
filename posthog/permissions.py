@@ -259,6 +259,23 @@ class IsStaffUser(IsAdminUser):
     message = "You are not a staff user, contact your instance admin."
 
 
+class IsStaffUserOrImpersonating(BasePermission):
+    """
+    Allows access to staff users or staff users impersonating other users.
+    """
+
+    message = "You are not a staff user, contact your instance admin."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from loginas.utils import is_impersonated_session
+
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_staff or is_impersonated_session(request))
+        )
+
+
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.

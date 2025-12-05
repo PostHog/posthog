@@ -42,6 +42,7 @@ PropertyType = Literal[
     "log",
     "revenue_analytics",
     "flag",
+    "workflow_variable",
 ]
 
 PropertyName = str
@@ -106,6 +107,7 @@ VALIDATE_PROP_TYPES = {
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
     "hogql": ["key"],
+    "workflow_variable": ["key", "value"],
 }
 
 VALIDATE_CONDITIONAL_BEHAVIORAL_PROP_TYPES = {

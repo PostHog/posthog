@@ -13,12 +13,13 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run MCP checks
         outputs:
-            mcp: ${{ steps.filter.outputs.mcp }}
+            mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
             - uses: actions/checkout@v4
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       mcp:

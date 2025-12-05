@@ -110,6 +110,9 @@ export function SharedMetric(): JSX.Element {
                             setSharedMetric({
                                 tags: tags,
                             })
+                            if (action === 'update') {
+                                updateSharedMetric(false)
+                            }
                         }}
                         canEdit
                         tags={sharedMetric.tags}

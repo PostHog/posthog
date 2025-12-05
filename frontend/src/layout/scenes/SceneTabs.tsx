@@ -37,7 +37,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     const { newTab, reorderTabs } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
-    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible } = useValues(panelLayoutLogic)
+    const { isLayoutNavbarVisibleForMobile, isLayoutPanelVisible, isLayoutPanelPinned } = useValues(panelLayoutLogic)
     // Get the focus action from the newTabSceneLogic for the active tab
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
@@ -55,7 +55,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
     }
     const gridTemplateColumns = [pinnedColumns, unpinnedColumns].filter(Boolean).join(' ') || '250px'
 
-    const showRoundedCorner = !isLayoutPanelVisible && !firstTabIsActive
+    const showRoundedCorner = (!isLayoutPanelVisible || !isLayoutPanelPinned) && !firstTabIsActive
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {

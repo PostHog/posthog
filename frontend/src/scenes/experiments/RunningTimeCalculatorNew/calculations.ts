@@ -6,7 +6,11 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import type { CachedNewExperimentQueryResponse, ExperimentMetric } from '~/queries/schema/schema-general'
-import { isExperimentFunnelMetric, isExperimentMeanMetric } from '~/queries/schema/schema-general'
+import {
+    isExperimentFunnelMetric,
+    isExperimentMeanMetric,
+    isExperimentRatioMetric,
+} from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 import { ExperimentMetricMathType } from '~/types'
 
@@ -47,14 +51,37 @@ export function calculateBaselineValue(
         return baseline.number_of_samples > 0 ? stepCounts[stepCounts.length - 1] / baseline.number_of_samples : null
     }
 
+    if (isExperimentRatioMetric(metric)) {
+        if (!baseline.denominator_sum || baseline.denominator_sum === 0) {
+            return null
+        }
+        return baseline.sum / baseline.denominator_sum
+    }
+
     lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
     return null
 }
 
 /**
- * Calculate variance from experiment results
+ * Calculate variance from experiment results based on metric type.
+ *
+ * - For mean metrics (Count/Sum): Uses scaling factors based on metric type
+ * - For funnel metrics: Returns null (variance is implicit in p(1-p))
+ * - For ratio metrics: Uses delta method with covariance
+ *
+ * Delta method for ratio R = M/D:
+ * Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
+ *
+ * @param baselineValue - The baseline metric value (mean, rate, or ratio)
+ * @param metric - The experiment metric definition
+ * @param baseline - Required for ratio metrics, optional for others
+ * @returns The variance estimate, or null if not applicable
  */
-export function calculateVarianceFromResults(baselineValue: number, metric: ExperimentMetric): number | null {
+export function calculateVarianceFromResults(
+    baselineValue: number,
+    metric: ExperimentMetric,
+    baseline?: CachedNewExperimentQueryResponse['baseline']
+): number | null {
     if (isExperimentMeanMetric(metric)) {
         if (metric.source.math === ExperimentMetricMathType.Sum) {
             const averagePropertyValuePerUser = baselineValue
@@ -70,6 +97,37 @@ export function calculateVarianceFromResults(baselineValue: number, metric: Expe
         // Funnel metrics don't need separate variance calculation
         // The variance is embedded in the formula: p(1-p)
         return null
+    }
+
+    if (isExperimentRatioMetric(metric)) {
+        if (!baseline || !baseline.denominator_sum || baseline.denominator_sum === 0) {
+            lemonToast.error('Ratio metric missing denominator statistics')
+            return null
+        }
+
+        const n = baseline.number_of_samples
+        if (n === 0) {
+            return null
+        }
+
+        // Calculate means for numerator (M) and denominator (D)
+        // Backend reference: posthog/products/experiments/stats/shared/statistics.py:138-139
+        const meanM = baseline.sum / n
+        const meanD = baseline.denominator_sum / n
+
+        // Calculate variances using the formula: Var(X) = E[X²] - E[X]²
+        // Backend reference: posthog/products/experiments/stats/shared/statistics.py:140-141
+        const varM = baseline.sum_squares / n - meanM ** 2
+        const varD = (baseline.denominator_sum_squares || 0) / n - meanD ** 2
+
+        // Calculate covariance: Cov(M,D) = E[MD] - E[M]E[D]
+        // Backend reference: posthog/products/experiments/stats/shared/statistics.py:127-133
+        const cov = (baseline.numerator_denominator_sum_product || 0) / n - meanM * meanD
+
+        // Delta method variance formula for ratio R = M/D
+        // Backend reference: posthog/products/experiments/stats/shared/statistics.py:144-145
+        // Formula: Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
+        return varM / meanD ** 2 + (meanM ** 2 * varD) / meanD ** 4 - (2 * meanM * cov) / meanD ** 3
     }
 
     lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
@@ -127,7 +185,6 @@ export function calculateRecommendedSampleSize(
          * - The formula is identical to the Count metric case.
          */
         if (variance === null) {
-            lemonToast.error('Mean metric (Sum) requires variance, but got null')
             return null
         }
         sampleSizeFormula = (16 * variance) / d ** 2
@@ -185,6 +242,45 @@ export function calculateRecommendedSampleSize(
          * - The variance is inherent in `p(1 - p)`, which represents binomial variance.
          */
         sampleSizeFormula = (16 * conversionRate * (1 - conversionRate)) / d ** 2
+    } else if (isExperimentRatioMetric(metric)) {
+        /**
+         * Ratio metric (e.g., revenue per order, clicks per session):
+         *
+         * - `baselineValue` is the baseline ratio M/D (e.g., average revenue per order).
+         * - MDE is applied as a percentage of this ratio to compute `d`.
+         *
+         * Formula:
+         * d = MDE * baselineValue
+         *
+         * Backend reference for ratio calculation:
+         * - posthog/products/experiments/stats/shared/statistics.py:119-124 (RatioStatistic.ratio)
+         */
+        const baselineRatio = baselineValue
+        d = minimumDetectableEffectDecimal * baselineRatio
+
+        /**
+         * Sample size formula:
+         *
+         * N = (16 * variance) / d²
+         *
+         * Where:
+         * - `variance` is calculated via the delta method, accounting for both
+         *   numerator and denominator variances and their covariance.
+         * - The factor of 16 comes from statistical power analysis (95% CI, 80% power).
+         *
+         * Statistical basis:
+         * - Standard two-sample t-test power calculation: N = 2(Z_α/2 + Z_β)²σ²/δ²
+         * - For α=0.05 (Z=1.96) and β=0.20 (Z=0.84): (1.96 + 0.84)² ≈ 7.84
+         * - Multiply by 2 for two-sample comparison: 7.84 × 2 ≈ 16
+         *
+         * Backend reference for variance:
+         * - posthog/products/experiments/stats/shared/statistics.py:135-145 (RatioStatistic.variance)
+         * - Uses delta method: Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
+         */
+        if (variance === null) {
+            return null
+        }
+        sampleSizeFormula = (16 * variance) / d ** 2
     } else {
         lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
         return null
@@ -270,7 +366,7 @@ export function calculateExperimentTimeEstimate(
         return { currentExposures: null, recommendedSampleSize: null, exposureRate: null, estimatedRemainingDays: null }
     }
 
-    const variance = calculateVarianceFromResults(baselineValue, metric)
+    const variance = calculateVarianceFromResults(baselineValue, metric, result.baseline)
     const numberOfVariants = experiment.feature_flag?.filters.multivariate?.variants.length ?? 2
 
     const recommendedSampleSize = calculateRecommendedSampleSize(
