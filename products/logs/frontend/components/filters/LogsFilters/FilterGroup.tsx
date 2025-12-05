@@ -110,6 +110,7 @@ const UniversalSearch = (): JSX.Element => {
                     onClick={() => setVisible(true)}
                     searchInputRef={searchInputRef}
                     onClose={() => onClose()}
+                    onChange={() => setVisible(true)}
                     size="small"
                     fullWidth
                 />
