@@ -30,6 +30,8 @@ services:
             service: redis7
         volumes:
             - redis7-data:/data
+        ports:
+            - '6479:6379'
 
     clickhouse:
         #
