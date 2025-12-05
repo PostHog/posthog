@@ -52,7 +52,7 @@ class DailyTraceClusteringWorkflow:
         window_end = now.isoformat()
         window_start = (now - timedelta(days=inputs.lookback_days)).isoformat()
 
-        # Activity 1: Compute clustering (fetch embeddings, k-means, distances)
+        # Activity 1: Compute clustering (fetch embeddings, cluster, distances)
         compute_result = await workflow.execute_activity(
             perform_clustering_compute_activity,
             args=[
@@ -63,6 +63,12 @@ class DailyTraceClusteringWorkflow:
                     max_samples=inputs.max_samples,
                     min_k=inputs.min_k,
                     max_k=inputs.max_k,
+                    embedding_normalization=inputs.embedding_normalization,
+                    dimensionality_reduction_method=inputs.dimensionality_reduction_method,
+                    dimensionality_reduction_ndims=inputs.dimensionality_reduction_ndims,
+                    run_label=inputs.run_label,
+                    clustering_method=inputs.clustering_method,
+                    clustering_method_params=inputs.clustering_method_params,
                 )
             ],
             start_to_close_timeout=constants.COMPUTE_ACTIVITY_TIMEOUT,

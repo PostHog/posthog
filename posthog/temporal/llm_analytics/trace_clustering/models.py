@@ -1,6 +1,6 @@
 """Data models for trace clustering workflow."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 from posthog.temporal.llm_analytics.trace_clustering.constants import (
@@ -24,6 +24,14 @@ class ClusteringWorkflowInputs:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
+    embedding_normalization: str = "none"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
+    run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+    clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
+    # Method-specific params. For HDBSCAN: min_cluster_size_fraction, min_samples
+    # For k-means: min_k, max_k (uses silhouette score to pick best k)
+    clustering_method_params: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -39,6 +47,12 @@ class ClusteringActivityInputs:
     max_samples: int = DEFAULT_MAX_SAMPLES
     min_k: int = DEFAULT_MIN_K
     max_k: int = DEFAULT_MAX_K
+    embedding_normalization: str = "none"  # "none" or "l2" - whether to L2 normalize embeddings before clustering
+    dimensionality_reduction_method: str = "umap"  # "none", "umap", or "pca"
+    dimensionality_reduction_ndims: int = 100  # target dimensions for umap/pca (ignored if method is "none")
+    run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
+    clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
+    clustering_method_params: dict = field(default_factory=dict)
 
 
 @dataclass
