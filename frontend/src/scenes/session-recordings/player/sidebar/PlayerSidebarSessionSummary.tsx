@@ -440,7 +440,7 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
     return (
         <LemonBanner type={sessionSummary?.session_outcome?.success ? 'success' : 'error'} className="mb-4">
             <div className="text-sm font-normal">
-                <div>{sessionSummary?.session_outcome?.description}</div>
+                <strong>Session outcome:</strong> {sessionSummary?.session_outcome?.description}
             </div>
         </LemonBanner>
     )
