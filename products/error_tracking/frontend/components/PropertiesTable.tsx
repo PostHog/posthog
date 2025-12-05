@@ -1,4 +1,4 @@
-import { IconCopy } from '@posthog/icons'
+import { IconCopy, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -80,9 +80,23 @@ function renderValue(value: unknown): React.ReactNode {
     } else if (typeof value === 'string') {
         if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
             return (
-                <Tooltip title="Value redacted by SDK code variables masking configuration">
-                    <span className="text-muted">***</span>
-                </Tooltip>
+                <span className="inline-flex items-center gap-1">
+                    <Tooltip title="This value got redacted by SDK code variables masking configuration">
+                        <IconInfo className="text-muted text-sm" />
+                    </Tooltip>
+                    ***
+                </span>
+            )
+        }
+        if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
+            const masked = value.replaceAll('$$_posthog_redacted_based_on_masking_rules_$$', '***')
+            return (
+                <span className="inline-flex items-center gap-1">
+                    <Tooltip title="Some values inside got redacted by SDK code variables masking configuration">
+                        <IconInfo className="text-muted text-sm" />
+                    </Tooltip>
+                    {masked}
+                </span>
             )
         }
         if (/^https?:\/\/.+/.test(value)) {
