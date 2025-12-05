@@ -31,7 +31,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                         </LemonTag>
                     </div>
                     <div className="flex flex-col">
-                        <LemonLabel info="A version is incremented when the underlying query changes. You can execute old versions of the Endpoint by setting the `version` param on the request body.">
+                        <LemonLabel info="Versions auto-increment when the query changes. Access older versions via the 'version' parameter in requests. Useful for gradual rollouts and rollbacks.">
                             Current version
                         </LemonLabel>
                         <div className="flex items-center gap-2">
@@ -57,7 +57,9 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
 
                 {hasParameters && (
                     <div className="flex flex-col mt-4">
-                        <LemonLabel>Variables</LemonLabel>
+                        <LemonLabel info="Default values for query variables. Override these in the request payload when calling the endpoint.">
+                            Variables
+                        </LemonLabel>
                         <div className="space-y-2 mt-1">
                             {Object.entries(endpoint.parameters).map(([key, value]) => (
                                 <div key={key} className="flex items-start gap-2">

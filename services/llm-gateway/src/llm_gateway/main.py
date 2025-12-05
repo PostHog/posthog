@@ -10,6 +10,7 @@ import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from redis.asyncio import Redis
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from llm_gateway.api.health import health_router
@@ -17,6 +18,7 @@ from llm_gateway.api.routes import router
 from llm_gateway.config import get_settings
 from llm_gateway.db.postgres import close_db_pool, init_db_pool
 from llm_gateway.metrics.prometheus import DB_POOL_SIZE, get_instrumentator
+from llm_gateway.rate_limiting.redis_limiter import RateLimiter
 
 request_id_var: ContextVar[str] = ContextVar("request_id", default="")
 
@@ -82,9 +84,22 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         return response
 
 
+async def init_redis(url: str | None) -> Redis | None:
+    if not url:
+        return None
+    try:
+        redis = Redis.from_url(url)
+        await redis.ping()
+        return redis
+    except Exception:
+        logger.warning("redis_connection_failed", url=url)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+
     logger.info("Initializing database pool...")
     app.state.db_pool = await init_db_pool(
         settings.database_url,
@@ -92,7 +107,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         max_size=settings.db_pool_max_size,
     )
     logger.info("Database pool initialized")
+
+    app.state.redis = await init_redis(settings.redis_url)
+    if app.state.redis:
+        logger.info("Redis connected")
+
+    app.state.rate_limiter = RateLimiter(
+        redis=app.state.redis,
+        burst_limit=settings.rate_limit_burst,
+        burst_window=settings.rate_limit_burst_window,
+        sustained_limit=settings.rate_limit_sustained,
+        sustained_window=settings.rate_limit_sustained_window,
+    )
+
     yield
+
+    if app.state.redis:
+        await app.state.redis.aclose()
+        logger.info("Redis closed")
     logger.info("Closing database pool...")
     await close_db_pool(app.state.db_pool)
     logger.info("Database pool closed")

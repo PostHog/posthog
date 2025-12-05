@@ -50,8 +50,8 @@ RUN apt-get update && \
     sudo \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Node.js 20.x
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+# Install Node.js 24.x
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y nodejs && \
     rm -rf /var/lib/apt/lists/*
 
@@ -73,6 +73,10 @@ RUN cd /scripts && \
     curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/products/tasks/scripts/runAgent.mjs \
     -o runAgent.mjs && \
     chmod +x runAgent.mjs
+
+# Configure git for commits - TODO: Use user's email and name
+RUN git config --global user.email "array@posthog.com" && \
+    git config --global user.name "Array"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1

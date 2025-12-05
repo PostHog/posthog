@@ -19,7 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -61,9 +61,12 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        limit = self.query.limit
+        if self.limit_context == LimitContext.EXPORT:
+            limit = min(limit or MAX_SELECT_TRACES_LIMIT_EXPORT, MAX_SELECT_TRACES_LIMIT_EXPORT)
         self.paginator = HogQLHasMorePaginator.from_limit_context(
-            limit_context=LimitContext.QUERY,
-            limit=self.query.limit if self.query.limit else None,
+            limit_context=self.limit_context,
+            limit=limit,
             offset=self.query.offset,
         )
 

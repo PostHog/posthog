@@ -52,7 +52,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install
+              run: pnpm install --frozen-lockfile
 
             - name: Run unit tests
               run: cd products/mcp && pnpm run test

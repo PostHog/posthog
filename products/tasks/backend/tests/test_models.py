@@ -497,6 +497,26 @@ class TestTaskRun(TestCase):
         run.refresh_from_db()
         self.assertIsNotNone(run.id)
 
+    def test_emit_console_event_acp_format(self):
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+        )
+
+        run.emit_console_event("info", "Test message")
+
+        log_content = object_storage.read(run.log_url)
+        assert log_content is not None
+        entry = json.loads(log_content.strip())
+
+        self.assertEqual(entry["type"], "notification")
+        self.assertIn("timestamp", entry)
+        self.assertEqual(entry["notification"]["jsonrpc"], "2.0")
+        self.assertEqual(entry["notification"]["method"], "_posthog/console")
+        self.assertEqual(entry["notification"]["params"]["sessionId"], str(run.id))
+        self.assertEqual(entry["notification"]["params"]["level"], "info")
+        self.assertEqual(entry["notification"]["params"]["message"], "Test message")
+
 
 class TestSandboxSnapshot(TestCase):
     def setUp(self):

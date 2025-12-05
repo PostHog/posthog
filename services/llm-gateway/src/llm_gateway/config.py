@@ -12,8 +12,12 @@ class Settings(BaseSettings):
     db_pool_min_size: int = 2
     db_pool_max_size: int = 10
 
+    redis_url: str | None = None
+
     rate_limit_burst: int = 500
+    rate_limit_burst_window: int = 60
     rate_limit_sustained: int = 10000
+    rate_limit_sustained_window: int = 3600
 
     request_timeout: float = 300.0
     streaming_timeout: float = 300.0
