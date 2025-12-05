@@ -1,3 +1,5 @@
+import './LemonInputSelect.scss'
+
 import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -509,12 +511,10 @@ export function LemonInputSelect<T = string>({
                 />
                 {isEditButtonVisible && (
                     <div
-                        className={clsx('grow flex flex-col items-end', {
-                            'max-w-6': size === 'xsmall',
-                            'max-w-7': size === 'small',
-                            'max-w-8': size === 'medium',
-                            'max-w-9': size === 'large',
-                        })}
+                        className={clsx(
+                            'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
+                            size && `LemonInputSelect__edit-button-wrapper--${size}`
+                        )}
                     >
                         <LemonButton
                             icon={<IconPencil />}
