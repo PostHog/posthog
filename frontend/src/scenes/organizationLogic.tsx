@@ -13,8 +13,8 @@ import { getAppContext } from 'lib/utils/getAppContext'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
-import { getOnboardingEntryUrl } from './onboarding/utils'
 import type { organizationLogicType } from './organizationLogicType'
+import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export type OrganizationUpdatePayload = Partial<
@@ -145,7 +145,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = getOnboardingEntryUrl()
+            window.location.href = urls.useCaseSelection()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')

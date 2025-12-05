@@ -5,8 +5,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { CouponRedemption } from 'scenes/coupons/CouponRedemption'
 import { parseCouponCampaign } from 'scenes/coupons/utils'
-import { getOnboardingEntryUrl } from 'scenes/onboarding/utils'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 export const scene: SceneExport = {
     component: OnboardingCouponRedemption,
@@ -16,7 +16,7 @@ export function OnboardingCouponRedemption(): JSX.Element {
     const campaign = parseCouponCampaign(router.values.currentLocation.pathname) || ''
 
     const continueToOnboarding = (): void => {
-        router.actions.push(getOnboardingEntryUrl())
+        router.actions.push(urls.useCaseSelection())
     }
 
     return (

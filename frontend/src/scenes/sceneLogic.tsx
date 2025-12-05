@@ -45,7 +45,6 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { billingLogic } from './billing/billingLogic'
 import { parseCouponCampaign } from './coupons/utils'
-import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { sceneLogicType } from './sceneLogicType'
 import { inviteLogic } from './settings/organization/inviteLogic'
@@ -1172,7 +1171,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     return
                                 }
 
-                                router.actions.replace(getOnboardingEntryUrl(), nextUrl ? { next: nextUrl } : undefined)
+                                router.actions.replace(urls.useCaseSelection(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 

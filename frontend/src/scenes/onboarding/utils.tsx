@@ -81,8 +81,3 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         scene: Scene.LLMAnalytics,
     },
 }
-
-/** Returns the URL for the onboarding entry point */
-export function getOnboardingEntryUrl(): string {
-    return urls.useCaseSelection()
-}
