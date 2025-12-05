@@ -5,8 +5,11 @@ from posthog.temporal.delete_recordings.activities import (
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
+    perform_recording_metadata_deletion,
+    schedule_recording_metadata_deletion,
 )
 from posthog.temporal.delete_recordings.workflows import (
+    DeleteRecordingMetadataWorkflow,
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
     DeleteRecordingsWithTeamWorkflow,
@@ -15,6 +18,7 @@ from posthog.temporal.delete_recordings.workflows import (
 
 WORKFLOWS = [
     DeleteRecordingWorkflow,
+    DeleteRecordingMetadataWorkflow,
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithTeamWorkflow,
     DeleteRecordingsWithQueryWorkflow,
@@ -27,4 +31,6 @@ ACTIVITIES = [
     group_recording_blocks,
     load_recordings_with_query,
     load_recordings_with_team_id,
+    perform_recording_metadata_deletion,
+    schedule_recording_metadata_deletion,
 ]

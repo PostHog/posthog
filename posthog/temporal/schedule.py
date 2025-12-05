@@ -257,6 +257,43 @@ async def create_ducklake_compaction_schedule(client: Client):
         )
 
 
+async def create_delete_recording_metadata_schedule(client: Client):
+    """Create or update the schedule for the delete recording metadata workflow.
+
+    This schedule runs daily at midnight UTC to delete queued recording metadata from ClickHouse.
+    """
+    delete_recording_metadata_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "delete-recording-metadata",
+            None,
+            id="delete-recording-metadata-schedule",
+            task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at midnight UTC",
+                    hour=[ScheduleRange(start=0, end=0)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "delete-recording-metadata-schedule"):
+        await a_update_schedule(client, "delete-recording-metadata-schedule", delete_recording_metadata_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "delete-recording-metadata-schedule",
+            delete_recording_metadata_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
@@ -265,6 +302,7 @@ schedules = [
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
     create_ducklake_compaction_schedule,
+    create_delete_recording_metadata_schedule,
 ]
 
 if settings.EE_AVAILABLE:

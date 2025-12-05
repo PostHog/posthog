@@ -7,7 +7,10 @@ from tempfile import mkstemp
 from urllib import parse
 from uuid import uuid4
 
+from django.conf import settings
+
 import pytz
+import redis.asyncio as redis
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
@@ -268,6 +271,58 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[s
     session_ids: list[str] = _parse_session_recording_list_response(raw_response)
     logger.info(f"Successfully loaded {len(session_ids)} session IDs")
     return session_ids
+
+
+RECORDING_METADATA_DELETION_REDIS_KEY = "recording_metadata_deletion_queue"
+
+
+@activity.defn(name="schedule-recording-metadata-deletion")
+async def schedule_recording_metadata_deletion(input: Recording) -> None:
+    bind_contextvars(session_id=input.session_id, team_id=input.team_id)
+    logger = LOGGER.bind()
+    logger.info("Scheduling recording metadata deletion")
+
+    async with redis.from_url(settings.REDIS_URL) as r:
+        await r.sadd(RECORDING_METADATA_DELETION_REDIS_KEY, input.session_id)
+
+    logger.info("Scheduled recording metadata deletion")
+
+
+@activity.defn(name="perform-recording-metadata-deletion")
+async def perform_recording_metadata_deletion() -> int:
+    logger = LOGGER.bind()
+    logger.info("Performing recording metadata deletion")
+
+    async with redis.from_url(settings.REDIS_URL) as r:
+        session_ids: set[bytes] = await r.smembers(RECORDING_METADATA_DELETION_REDIS_KEY)
+
+    if not session_ids:
+        logger.info("No session IDs to delete")
+        return 0
+
+    session_id_list = [sid.decode("utf-8") for sid in session_ids]
+    logger.info(f"Found {len(session_id_list)} session IDs to delete")
+
+    query = """
+        ALTER TABLE session_replay_events
+        DELETE WHERE session_id IN %(session_ids)s
+    """
+
+    ch_query_id = str(uuid4())
+    logger.info(f"Executing ClickHouse DELETE with query_id: {ch_query_id}")
+
+    async with get_client() as client:
+        await client.execute_query(
+            query,
+            query_parameters={"session_ids": session_id_list},
+            query_id=ch_query_id,
+        )
+
+    async with redis.from_url(settings.REDIS_URL) as r:
+        await r.srem(RECORDING_METADATA_DELETION_REDIS_KEY, *session_ids)
+
+    logger.info(f"Successfully deleted metadata for {len(session_id_list)} sessions")
+    return len(session_id_list)
 
 
 @activity.defn(name="load-recordings-with-query")
