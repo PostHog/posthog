@@ -1,9 +1,7 @@
 from .execute_dag import ExecuteDAGWorkflow
-from .materialize_view import MaterializeViewWorkflow, MaterializeViewWorkflowInputs, MaterializeViewWorkflowResult
+from .materialize_view import MaterializeViewWorkflow
 
 __all__ = [
     "MaterializeViewWorkflow",
     "ExecuteDAGWorkflow",
-    "MaterializeViewWorkflowResult",
-    "MaterializeViewWorkflowInputs",
 ]
