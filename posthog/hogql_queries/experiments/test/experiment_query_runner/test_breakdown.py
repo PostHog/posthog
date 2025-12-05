@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
+from parameterized import parameterized
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest import skip
 
@@ -143,7 +144,148 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
 
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_breakdown(self):
+    def test_mean_metric_breakdown_with_changing_property_values(self, name, use_new_query_builder):
+        """
+        Regression test for bug where users with different breakdown values across exposures
+        were counted multiple times (once per unique breakdown value).
+
+        Tests that users with multiple exposure events having different breakdown property
+        values are attributed to the breakdown value from their FIRST exposure only.
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        metric = ExperimentMeanMetric(
+            source=EventsNode(
+                event="purchase",
+                math=ExperimentMetricMathType.SUM,
+                math_property="amount",
+            ),
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control user who changes browser between exposures
+        _create_person(distinct_ids=["user_control_changing"], team_id=self.team.pk)
+
+        # First exposure with Chrome at 12:00
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Chrome",
+            },
+        )
+
+        # Second exposure with Safari at 13:00 (user switched browser)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T13:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Safari",
+            },
+        )
+
+        # Purchase event at 14:00
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_changing",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 100,
+                "$browser": "Safari",
+            },
+        )
+
+        # Control user with consistent browser
+        _create_person(distinct_ids=["user_control_consistent"], team_id=self.team.pk)
+
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="user_control_consistent",
+            timestamp="2020-01-02T12:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "$feature_flag_response": "control",
+                "$feature_flag": feature_flag.key,
+                "$browser": "Firefox",
+            },
+        )
+
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_control_consistent",
+            timestamp="2020-01-02T14:00:00Z",
+            properties={
+                feature_flag_property: "control",
+                "amount": 50,
+                "$browser": "Firefox",
+            },
+        )
+
+        flush_persons_and_events()
+
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        # Verify results
+        self.assertIsNotNone(result.breakdown_results)
+        assert result.breakdown_results is not None
+
+        # Should have 2 breakdown categories (Chrome and Firefox)
+        # NOT 3 (Chrome, Safari, Firefox) even though changing user had Safari exposure
+        # The user should be attributed to Chrome (first exposure)
+        self.assertEqual(len(result.breakdown_results), 2)
+
+        breakdown_values = [br.breakdown_value for br in result.breakdown_results]
+        self.assertIn(["Chrome"], breakdown_values)
+        self.assertIn(["Firefox"], breakdown_values)
+        # Safari should NOT appear as a breakdown
+        self.assertNotIn(["Safari"], breakdown_values)
+
+        # Find Chrome breakdown (has the changing user)
+        chrome_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Chrome"])
+        self.assertIsNotNone(chrome_breakdown.baseline)
+
+        # Should have exactly 1 user in Chrome (the changing user, attributed to first exposure)
+        self.assertEqual(chrome_breakdown.baseline.number_of_samples, 1)
+        self.assertEqual(chrome_breakdown.baseline.sum, 100)  # Their purchase amount
+
+        # Find Firefox breakdown (has the consistent user)
+        firefox_breakdown = next(br for br in result.breakdown_results if br.breakdown_value == ["Firefox"])
+        self.assertEqual(firefox_breakdown.baseline.number_of_samples, 1)
+        self.assertEqual(firefox_breakdown.baseline.sum, 50)
+
+    @parameterized.expand([("new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_funnel_metric_with_breakdown(self, name, use_new_query_builder):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
         experiment.stats_config = {"method": "frequentist"}

@@ -1315,15 +1315,15 @@ class ExperimentQueryBuilder:
         if self._has_breakdown():
             breakdown_exprs = self._build_breakdown_exprs(table_alias="")
 
-            # Add breakdown columns to SELECT
+            # Add breakdown columns to SELECT using argMin attribution
+            # This ensures each user is attributed to exactly one breakdown value
+            # (from their first exposure), preventing duplicate counting when users
+            # have multiple exposures with different breakdown property values
             for alias, expr in breakdown_exprs:
-                exposure_query.select.append(ast.Alias(alias=alias, expr=expr))
-
-            # Add breakdown columns to GROUP BY
-            if exposure_query.group_by is None:
-                exposure_query.group_by = []
-            for alias, _ in breakdown_exprs:
-                exposure_query.group_by.append(ast.Field(chain=[alias]))
+                # Use argMin to attribute breakdown value from first exposure
+                # This matches the variant attribution logic
+                breakdown_attributed = parse_expr("argMin({expr}, timestamp)", placeholders={"expr": expr})
+                exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         return exposure_query
 
