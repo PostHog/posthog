@@ -19,6 +19,7 @@ import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
+import { CdpCyclotronProducerBatch } from './cdp/producers/cdp-batch-hogflow.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,

@@ -20,6 +20,7 @@ class HogFlowBatchJob(UUIDTModel):
         ]
 
     class State(models.TextChoices):
+        WAITING = "waiting"
         QUEUED = "queued"
         ACTIVE = "active"
         COMPLETED = "completed"

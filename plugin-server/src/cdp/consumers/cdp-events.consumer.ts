@@ -35,7 +35,7 @@ const counterQuotaLimited = new Counter({
     labelNames: ['team_id'],
 })
 
-const counterRateLimited = new Counter({
+export const counterRateLimited = new Counter({
     name: 'cdp_function_rate_limited',
     help: 'A function invocation was rate limited',
     labelNames: ['kind'],

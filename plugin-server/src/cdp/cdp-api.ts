@@ -116,6 +116,7 @@ export class CdpApi {
 
         router.post('/api/projects/:team_id/hog_functions/:id/invocations', asyncHandler(this.postFunctionInvocation))
         router.post('/api/projects/:team_id/hog_flows/:id/invocations', asyncHandler(this.postHogflowInvocation))
+        router.post('/api/projects/:team_id/hog_flows/:id/invocations/batch', asyncHandler(this.postHogflowInvocation))
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
         router.get('/api/hog_functions/states', asyncHandler(this.getFunctionStates()))

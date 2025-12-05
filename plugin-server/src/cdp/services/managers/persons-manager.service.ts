@@ -51,35 +51,28 @@ export class PersonsManagerService {
     }
 
     public async countMany(filters: BatchPersonGetArgs): Promise<number> {
-        return await this.personRepository.fetchPersonsByProperties(filters)
+        return await this.personRepository.countPersonsByProperties(filters)
     }
 
     public async streamMany(
         filters: BatchPersonGetArgs,
-        onPerson: (person: PersonManagerPerson) => Promise<void>
+        options?: { limit?: number },
+        onPerson?: (personId: string) => Promise<void>
     ): Promise<void> {
-        const personStream = this.personRepository.fetchPersonsByProperties(filters)
-
-        const batch: PersonManagerPerson[] = []
-        const batchSize = 500
-
-        for await (const personRow of personStream) {
-            batch.push({
-                id: personRow.uuid,
-                properties: personRow.properties,
-                team_id: personRow.team_id,
-                distinct_id: personRow.distinct_id,
-            })
-
-            if (batch.length >= batchSize) {
-                await Promise.all(batch.map((person) => onPerson(person)))
-                batch.length = 0
-            }
+        const opt = {
+            limit: options?.limit || 500,
+            offset: 0,
         }
-
-        // Process remaining batch
-        if (batch.length > 0) {
-            await Promise.all(batch.map((person) => onPerson(person)))
+        let personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, ...opt })
+        while (personBatch.length > 0) {
+            for (const personRow of personBatch) {
+                await onPerson?.({
+                    id: personRow.uuid,
+                    distinct_id: personRow.distinct_id,
+                })
+            }
+            opt.offset += opt.limit
+            personBatch = await this.personRepository.fetchPersonsByProperties({ ...filters, ...opt })
         }
     }
 
