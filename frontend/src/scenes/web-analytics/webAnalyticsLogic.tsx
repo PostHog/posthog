@@ -2120,6 +2120,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tileVisualizations,
             } = values
 
+            // These tabs don't support any filters, so we can just return the base path to keep the url clean
+            if (productTab === ProductTab.HEALTH) {
+                return '/web/health'
+            }
+
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
             // spreading from their individual dropdowns to the global filters list
             if (rawWebAnalyticsFilters.length > 0) {
@@ -2190,6 +2195,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             } else if (productTab === ProductTab.MARKETING) {
                 basePath = '/web/marketing'
             }
+
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
