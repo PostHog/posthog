@@ -1427,6 +1427,10 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 4e-7
             },
+            "baseten-fp4": {
+                "prompt_token": 3e-7,
+                "completion_token": 4.5e-7
+            },
             "chutes-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 4.1e-7
@@ -3033,6 +3037,19 @@
         }
     },
     {
+        "model": "mistralai/ministral-14b-2512",
+        "cost": {
+            "default": {
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
+            },
+            "mistral": {
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
+            }
+        }
+    },
+    {
         "model": "mistralai/ministral-3b",
         "cost": {
             "default": {
@@ -3046,6 +3063,19 @@
         }
     },
     {
+        "model": "mistralai/ministral-3b-2512",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
+            },
+            "mistral": {
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
+            }
+        }
+    },
+    {
         "model": "mistralai/ministral-8b",
         "cost": {
             "default": {
@@ -3055,6 +3085,19 @@
             "mistral": {
                 "prompt_token": 1e-7,
                 "completion_token": 1e-7
+            }
+        }
+    },
+    {
+        "model": "mistralai/ministral-8b-2512",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
+            },
+            "mistral": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
             }
         }
     },
@@ -4536,8 +4579,8 @@
         "model": "openai/gpt-oss-120b",
         "cost": {
             "default": {
-                "prompt_token": 4e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "amazon-bedrock": {
                 "prompt_token": 1.5e-7,
@@ -4573,8 +4616,8 @@
                 "cache_read_token": 8e-8
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.9e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "deepinfra-turbo": {
                 "prompt_token": 1.5e-7,
@@ -4639,12 +4682,12 @@
         "model": "openai/gpt-oss-120b:exacto",
         "cost": {
             "default": {
-                "prompt_token": 4e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.9e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "groq": {
                 "prompt_token": 1.5e-7,
@@ -4951,6 +4994,15 @@
     },
     {
         "model": "openrouter/auto",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "openrouter/bodybuilder",
         "cost": {
             "default": {
                 "prompt_token": 0,
