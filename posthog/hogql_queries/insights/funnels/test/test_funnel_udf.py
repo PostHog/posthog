@@ -4,8 +4,6 @@ from typing import cast
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 
-from test_funnel import PseudoFunnelActors, funnel_test_factory
-
 from posthog.schema import (
     DateRange,
     EventPropertyFilter,
@@ -23,6 +21,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors, funnel_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action
 from posthog.test.test_journeys import journeys_for
