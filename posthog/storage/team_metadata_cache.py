@@ -374,7 +374,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.
 
-    Note: Metrics are tracked by refresh_expiring_caches() using consolidated HYPERCACHE_TEAMS_PROCESSED_COUNTER
+    Note: Metrics are pushed to Pushgateway by refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours

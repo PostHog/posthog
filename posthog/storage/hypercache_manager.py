@@ -55,12 +55,7 @@ CACHE_SIZE_SAMPLE_LIMIT = 1000
 
 # Consolidated HyperCache metrics with namespace labels
 # These replace cache-specific metrics in flags_cache.py and team_metadata_cache.py
-
-HYPERCACHE_TEAMS_PROCESSED_COUNTER = Counter(
-    "posthog_hypercache_teams_processed",
-    "Teams processed by batch refresh operations",
-    labelnames=["namespace", "result"],
-)
+# Note: Batch refresh duration is tracked by the generic posthog_celery_task_duration_seconds metric
 
 HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
@@ -134,6 +129,40 @@ def push_hypercache_stats_metrics(
                 size_gauge.labels(namespace=namespace).set(size_bytes)
     except Exception as e:
         logger.warning("Failed to push hypercache stats to Pushgateway", error=str(e), namespace=namespace)
+
+
+def push_hypercache_teams_processed_metrics(
+    namespace: str,
+    successful: int,
+    failed: int,
+) -> None:
+    """
+    Push teams processed metrics to Pushgateway after batch refresh operations.
+
+    Uses Gauges instead of Counters because Counters don't work well with PushGateway
+    (they reset on each push). Gauges show the count from the most recent batch run,
+    which is the relevant information for an hourly task.
+
+    Args:
+        namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        successful: Number of teams successfully processed
+        failed: Number of teams that failed processing
+    """
+    if not settings.PROM_PUSHGATEWAY_ADDRESS:
+        return
+
+    try:
+        with pushed_metrics_registry(f"hypercache_teams_processed_{namespace}") as registry:
+            success_gauge = Gauge(
+                "posthog_hypercache_teams_processed_last_run",
+                "Teams processed in the last batch refresh run",
+                labelnames=["namespace", "result"],
+                registry=registry,
+            )
+            success_gauge.labels(namespace=namespace, result="success").set(successful)
+            success_gauge.labels(namespace=namespace, result="failure").set(failed)
+    except Exception as e:
+        logger.warning("Failed to push hypercache teams processed to Pushgateway", error=str(e), namespace=namespace)
 
 
 class UpdateFn(Protocol):
