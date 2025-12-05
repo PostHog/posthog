@@ -78,7 +78,7 @@ LABELING_LLM_TIMEOUT = 240.0
 # HDBSCAN clustering parameters
 DEFAULT_MIN_CLUSTER_SIZE_FRACTION = 0.05  # 5% of samples as minimum cluster size
 DEFAULT_HDBSCAN_MIN_SAMPLES = 5  # Minimum samples in neighborhood for core points
-DEFAULT_UMAP_N_COMPONENTS = 50  # Dimensionality for clustering (not visualization)
+DEFAULT_UMAP_N_COMPONENTS = 100  # Dimensionality for clustering (not visualization)
 DEFAULT_UMAP_N_NEIGHBORS = 15  # UMAP neighborhood size
 DEFAULT_UMAP_MIN_DIST = 0.0  # Tighter packing for clustering (vs 0.1 for visualization)
 

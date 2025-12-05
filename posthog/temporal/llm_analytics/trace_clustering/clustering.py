@@ -2,6 +2,7 @@
 
 import numpy as np
 from sklearn.cluster import HDBSCAN, KMeans
+from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
 from umap import UMAP
 
@@ -161,11 +162,17 @@ def compute_2d_coordinates(
         min_dist=min_dist,
         random_state=random_state,
         metric="euclidean",
+        init="random",  # Use random init to avoid spectral layout issues with small samples
     )
 
     # Fit on trace embeddings and transform both traces and centroids
     trace_coords = reducer.fit_transform(embeddings)
-    centroid_coords = reducer.transform(centroids)
+
+    # Handle case where there are no centroids (all points are noise)
+    if n_clusters == 0:
+        centroid_coords = np.zeros((0, 2))
+    else:
+        centroid_coords = reducer.transform(centroids)
 
     return trace_coords, centroid_coords
 
@@ -199,7 +206,9 @@ def reduce_dimensions_for_clustering(
         return embeddings[:, :n_components] if embeddings.shape[1] >= n_components else embeddings, None
 
     effective_n_neighbors = min(n_neighbors, n_samples - 1)
-    effective_n_components = min(n_components, n_samples - 1, embeddings.shape[1])
+    # UMAP's spectral initialization requires n_components < n_samples - 1
+    # Use a more conservative limit to avoid scipy eigsh issues
+    effective_n_components = min(n_components, max(2, n_samples - 2), embeddings.shape[1])
 
     reducer = UMAP(
         n_components=effective_n_components,
@@ -207,6 +216,43 @@ def reduce_dimensions_for_clustering(
         min_dist=min_dist,
         random_state=random_state,
         metric="euclidean",
+        init="random",  # Use random init instead of spectral to avoid eigsh issues with small samples
+    )
+
+    reduced = reducer.fit_transform(embeddings)
+    return reduced, reducer
+
+
+def reduce_dimensions_pca(
+    embeddings: np.ndarray,
+    n_components: int = 100,
+    random_state: int = 42,
+) -> tuple[np.ndarray, PCA]:
+    """
+    Reduce high-dimensional embeddings using PCA for clustering.
+
+    PCA is faster than UMAP and preserves global structure well.
+    Good for high-dimensional embeddings where UMAP may be slow.
+
+    Args:
+        embeddings: Array of embedding vectors, shape (n_samples, n_features)
+        n_components: Target dimensionality (default 100)
+        random_state: Random seed for reproducibility
+
+    Returns:
+        Tuple of (reduced_embeddings, fitted_pca)
+    """
+    n_samples, n_features = embeddings.shape
+
+    if n_samples < 2:
+        return embeddings[:, :n_components] if n_features >= n_components else embeddings, None
+
+    # PCA components cannot exceed min(n_samples, n_features)
+    effective_n_components = min(n_components, n_samples, n_features)
+
+    reducer = PCA(
+        n_components=effective_n_components,
+        random_state=random_state,
     )
 
     reduced = reducer.fit_transform(embeddings)

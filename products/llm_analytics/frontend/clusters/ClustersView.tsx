@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconGear, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { ClusterCard } from './ClusterCard'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
+import { ClusteringAdminModal } from './ClusteringAdminModal'
+import { clustersAdminLogic } from './clustersAdminLogic'
 import { clustersLogic } from './clustersLogic'
 import { Cluster, NOISE_CLUSTER_ID } from './types'
 
@@ -23,7 +27,12 @@ export function ClustersView(): JSX.Element {
         traceSummariesLoading,
         isScatterPlotExpanded,
     } = useValues(clustersLogic)
-    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded } = useActions(clustersLogic)
+    const { setSelectedRunId, toggleClusterExpanded, toggleScatterPlotExpanded, loadClusteringRuns } =
+        useActions(clustersLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openModal } = useActions(clustersAdminLogic)
+
+    const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
 
     if (clusteringRunsLoading) {
         return (
@@ -60,35 +69,56 @@ export function ClustersView(): JSX.Element {
                         }))}
                         placeholder="Select a run"
                     />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        onClick={loadClusteringRuns}
+                        tooltip="Refresh clustering runs"
+                    />
                 </div>
 
-                {currentRun && (
-                    <div className="flex items-center gap-2 text-muted text-sm">
-                        <span>{currentRun.totalTracesAnalyzed} traces analyzed</span>
-                        <span>|</span>
-                        <span>
-                            {(() => {
-                                const outlierCluster = sortedClusters.find(
-                                    (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
-                                )
-                                const regularClusterCount = sortedClusters.filter(
-                                    (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
-                                ).length
-                                const outlierCount = outlierCluster?.size || 0
+                <div className="flex items-center gap-4">
+                    {currentRun && (
+                        <div className="flex items-center gap-2 text-muted text-sm">
+                            <span>{currentRun.totalTracesAnalyzed} traces analyzed</span>
+                            <span>|</span>
+                            <span>
+                                {(() => {
+                                    const outlierCluster = sortedClusters.find(
+                                        (c: Cluster) => c.cluster_id === NOISE_CLUSTER_ID
+                                    )
+                                    const regularClusterCount = sortedClusters.filter(
+                                        (c: Cluster) => c.cluster_id !== NOISE_CLUSTER_ID
+                                    ).length
+                                    const outlierCount = outlierCluster?.size || 0
 
-                                if (outlierCount > 0) {
-                                    return `${regularClusterCount} clusters, ${outlierCount} outliers`
-                                }
-                                return `${regularClusterCount} clusters`
-                            })()}
-                        </span>
-                        <span>|</span>
-                        <span>
-                            {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
-                            {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
-                        </span>
-                    </div>
-                )}
+                                    if (outlierCount > 0) {
+                                        return `${regularClusterCount} clusters, ${outlierCount} outliers`
+                                    }
+                                    return `${regularClusterCount} clusters`
+                                })()}
+                            </span>
+                            <span>|</span>
+                            <span>
+                                {dayjs(currentRun.windowStart).format('MMM D')} -{' '}
+                                {dayjs(currentRun.windowEnd).format('MMM D, YYYY')}
+                            </span>
+                        </div>
+                    )}
+
+                    {showAdminPanel && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconGear />}
+                            onClick={openModal}
+                            tooltip="Run clustering with custom parameters"
+                        >
+                            Run clustering
+                        </LemonButton>
+                    )}
+                </div>
             </div>
 
             {/* Loading State */}
@@ -147,6 +177,9 @@ export function ClustersView(): JSX.Element {
             {!currentRunLoading && sortedClusters.length === 0 && currentRun && (
                 <div className="text-center p-8 text-muted">No clusters found in this run.</div>
             )}
+
+            {/* Admin Modal */}
+            {showAdminPanel && <ClusteringAdminModal />}
         </div>
     )
 }
