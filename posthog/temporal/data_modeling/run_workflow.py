@@ -679,7 +679,10 @@ async def set_view_to_never_sync(job: DataModelingJob, logger: FilteringBoundLog
         return
 
     saved_query.sync_frequency_interval = None
+    await database_sync_to_async(saved_query.save)()
+
     pause_saved_query_schedule(str(saved_query.id))
+
     await logger.adebug(f"Updated saved query {saved_query.id} to never sync")
 
 
