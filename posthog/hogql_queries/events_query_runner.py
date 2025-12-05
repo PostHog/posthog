@@ -138,15 +138,27 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         person: Optional[Person] = get_pk_or_uuid(
                             Person.objects.db_manager(READ_DB_FOR_PERSONS).filter(team=self.team), self.query.personId
                         ).first()
+                        distinct_ids = get_distinct_ids_for_subquery(person, self.team)
+                        # Use both raw distinct_id and cityHash64 comparisons:
+                        # 1. cityHash64(distinct_id) IN (...) - helps with ORDER BY index optimization
+                        # 2. distinct_id IN (...) - leverages bloom filter index for fast granule skipping
+                        # Both together ensure correctness (no hash collisions) and performance
                         where_exprs.append(
                             ast.CompareOperation(
                                 left=ast.Call(name="cityHash64", args=[ast.Field(chain=["distinct_id"])]),
                                 right=ast.Tuple(
                                     exprs=[
                                         ast.Call(name="cityHash64", args=[ast.Constant(value=id)])
-                                        for id in get_distinct_ids_for_subquery(person, self.team)
+                                        for id in distinct_ids
                                     ]
                                 ),
+                                op=ast.CompareOperationOp.In,
+                            )
+                        )
+                        where_exprs.append(
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["distinct_id"]),
+                                right=ast.Tuple(exprs=[ast.Constant(value=id) for id in distinct_ids]),
                                 op=ast.CompareOperationOp.In,
                             )
                         )
