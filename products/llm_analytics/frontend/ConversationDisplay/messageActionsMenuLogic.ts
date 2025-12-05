@@ -9,6 +9,17 @@ import type { messageActionsMenuLogicType } from './messageActionsMenuLogicType'
 const STORAGE_KEY = 'posthog-translate-language'
 export const MAX_TRANSLATE_LENGTH = 10000
 
+/** Simple string hash for generating unique keys from content */
+const hashString = (str: string): string => {
+    let hash = 0
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i)
+        hash = (hash << 5) - hash + char
+        hash = hash & hash // Convert to 32-bit integer
+    }
+    return hash.toString(36)
+}
+
 export const SUPPORTED_LANGUAGES = [
     { value: 'en', label: 'English' },
     { value: 'es', label: 'Spanish' },
@@ -53,7 +64,7 @@ export interface MessageActionsMenuLogicProps {
 export const messageActionsMenuLogic = kea<messageActionsMenuLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'ConversationDisplay', 'messageActionsMenuLogic']),
     props({} as MessageActionsMenuLogicProps),
-    key((props) => `${props.content.slice(0, 100)}_${props.content.length}`),
+    key((props) => hashString(props.content)),
     actions({
         setShowTranslatePopover: (show: boolean) => ({ show }),
         setShowConsentPopover: (show: boolean) => ({ show }),
