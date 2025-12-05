@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0935_eventdefinition_schema_enforcement_mode"),
+        ("posthog", "0934_cohortcalculationhistory_cohort_started_idx"),
     ]
 
     operations = [
