@@ -3,7 +3,7 @@ from typing import Optional
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, _create_event, flush_persons_and_events
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.http import HttpResponse
 from django.utils.timezone import now
@@ -240,7 +240,7 @@ class TestExports(APIBaseTest):
 
             # Should warm up the cache
             export_image(exported_asset)
-            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None)
+            mock_export_to_png.assert_called_once_with(exported_asset, max_height_pixels=None, insight_cache_keys=ANY)
 
             mock_process_query_dict.assert_called_once()
 

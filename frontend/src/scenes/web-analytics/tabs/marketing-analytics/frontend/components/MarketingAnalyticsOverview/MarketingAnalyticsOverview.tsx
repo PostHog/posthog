@@ -72,17 +72,14 @@ export function MarketingAnalyticsOverview(props: {
                 <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
             )}
             <OverviewGrid
+                compact
                 items={overviewItems}
                 loading={responseLoading}
                 numSkeletons={numSkeletons}
                 samplingRate={samplingRate}
                 usedPreAggregatedTables={false}
                 labelFromKey={labelFromKey}
-                settingsLinkFromKey={() => null}
-                dashboardLinkFromKey={() => null}
                 filterEmptyItems={filterEmptyMetrics}
-                showBetaTags={() => false}
-                compact={true}
             />
         </>
     )

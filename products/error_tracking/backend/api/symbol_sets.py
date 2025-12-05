@@ -32,10 +32,19 @@ PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
+    release = serializers.SerializerMethodField()
+
     class Meta:
         model = ErrorTrackingSymbolSet
-        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason"]
+        fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
+
+    def get_release(self, obj):
+        from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
+
+        if obj.release:
+            return ErrorTrackingReleaseSerializer(obj.release).data
+        return None
 
 
 @dataclass
@@ -67,7 +76,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     ]
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).select_related("release")
         params = self.request.GET.dict()
         status = params.get("status")
         order_by = params.get("order_by")

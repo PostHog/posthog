@@ -16,7 +16,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
             argMinIf(metric_events.breakdown_value_1, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS breakdown_value_1
@@ -52,7 +52,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_three_breakdowns_0_new_query_builder
@@ -74,7 +75,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
             argMinIf(metric_events.breakdown_value_1, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS breakdown_value_1,
@@ -116,7 +117,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns_0_new_query_builder
@@ -137,7 +139,7 @@
             argMinIf(metric_events.uuid, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_event_uuid,
             argMinIf(metric_events.session_id, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_session_id,
             argMinIf(metric_events.timestamp, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS exposure_timestamp,
-            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array_v9(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
+            arraySort(x -> minus(0, x.1), arrayMap(result -> tuple(result.1, if(and(ifNull(greaterOrEquals(result.1, 0), 0), ifNull(greater(length(result.4), result.1), 0)), if(ifNull(greater(length(arrayElement(result.4, plus(result.1, 1))), 0), 0), toString(arrayElement(result.4, plus(result.1, 1))[1]), ''), '')), aggregate_funnel_array(2, 94608000, 'first_touch', 'ordered', array(array('')), [], arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(metric_events.timestamp, 'Float64'), metric_events.uuid, array(''), arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, metric_events.step_0), multiply(2, metric_events.step_1)])))))))[1] AS value,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(toString(metric_events.session_id), ''))) AS uuid_to_session,
             mapFromArrays(groupArray(coalesce(toString(metric_events.uuid), '')), groupArray(coalesce(metric_events.timestamp, toDateTime(0, 'UTC')))) AS uuid_to_timestamp,
             argMinIf(metric_events.breakdown_value_1, metric_events.timestamp, ifNull(equals(metric_events.step_0, 1), 0)) AS breakdown_value_1,
@@ -176,7 +178,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_breakdown_0_new_query_builder
@@ -239,7 +242,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values_0_new_query_builder
@@ -302,7 +306,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_three_breakdowns_0_new_query_builder
@@ -379,7 +384,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns_0_new_query_builder
@@ -449,7 +455,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown_0_new_query_builder
@@ -563,7 +570,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations_0_new_query_builder
@@ -633,7 +641,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_breakdown_0_new_query_builder
@@ -746,7 +755,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_three_breakdowns_0_new_query_builder
@@ -885,7 +895,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns_0_new_query_builder
@@ -1011,6 +1022,7 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---

@@ -5,7 +5,6 @@ use crate::{
 };
 use common_database::PostgresReader;
 use common_redis::Client as RedisClient;
-use common_types::ProjectId;
 use std::{future::Future, sync::Arc};
 use tracing::{debug, warn};
 
@@ -67,7 +66,6 @@ const TEAM_COLUMNS: &str = "
     uuid,
     name,
     api_token,
-    project_id,
     organization_id,
     cookieless_server_hash_mode,
     timezone,
@@ -91,6 +89,7 @@ const TEAM_COLUMNS: &str = "
     session_recording_masking_config,
     session_replay_config,
     survey_config,
+    extra_settings,
     session_recording_url_trigger_config,
     session_recording_url_blocklist_config,
     session_recording_event_trigger_config,
@@ -114,11 +113,10 @@ impl Team {
             .await?;
 
         // TODO: Consider an LRU cache for teams as well, with small TTL to skip redis/pg lookups
-        let mut team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
+        let team: Team = serde_json::from_str(&serialized_team).map_err(|e| {
             tracing::error!("failed to parse data to team for token {token}: {e}");
             FlagError::RedisDataParsingError
         })?;
-        team.project_id = Some(team.project_id());
 
         tracing::debug!(
             "Successfully read team {} from Redis at key '{}{}'",
@@ -220,17 +218,13 @@ impl Team {
 
         Ok(row)
     }
-
-    pub fn project_id(&self) -> ProjectId {
-        // If `project_id` is not present, this means the payload is from before December 2024, which we correct for here
-        self.project_id.unwrap_or(self.id as ProjectId)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use rand::Rng;
     use redis::AsyncCommands;
+    use sqlx::types::Json;
     use uuid::Uuid;
 
     use super::*;
@@ -253,7 +247,6 @@ mod tests {
             .unwrap();
         assert_eq!(team_from_redis.api_token, target_token);
         assert_eq!(team_from_redis.id, team.id);
-        assert_eq!(team_from_redis.project_id, team.project_id);
     }
 
     #[tokio::test]
@@ -279,7 +272,6 @@ mod tests {
         let token = random_string("phc_", 12);
         let team = Team {
             id,
-            project_id: Some(i64::from(id) - 1),
             name: "team".to_string(),
             api_token: token,
             cookieless_server_hash_mode: Some(0),
@@ -310,43 +302,6 @@ mod tests {
             Err(other) => panic!("Expected DataParsingError, got {other:?}"),
             Ok(_) => panic!("Expected DataParsingError"),
         };
-    }
-
-    #[tokio::test]
-    async fn test_fetch_team_from_before_project_id_from_redis() {
-        let client = setup_redis_client(None).await;
-        let target_token = "phc_123456789012".to_string();
-        // A payload form before December 2025, it's missing `project_id`
-        let test_team = Team {
-            id: 343,
-            name: "team".to_string(),
-            api_token: target_token.clone(),
-            project_id: None,
-            uuid: Uuid::nil(),
-            session_recording_opt_in: false,
-            cookieless_server_hash_mode: Some(0),
-            timezone: "UTC".to_string(),
-            ..Default::default()
-        };
-
-        let serialized_team = serde_json::to_string(&test_team).expect("Failed to serialize team");
-        tracing::info!("Inserting test team payload: {serialized_team}");
-        client
-            .set(
-                format!("{TEAM_TOKEN_CACHE_PREFIX}{target_token}"),
-                serialized_team,
-            )
-            .await
-            .expect("Failed to write data to redis");
-
-        let team_from_redis = Team::from_redis(client.clone(), target_token.as_str())
-            .await
-            .expect("Failed to fetch team from redis");
-
-        assert_eq!(team_from_redis.api_token, target_token);
-        assert_eq!(team_from_redis.id, 343);
-        assert_eq!(team_from_redis.project_id, Some(343)); // Same as `id`
-        assert_eq!(team_from_redis.cookieless_server_hash_mode, Some(0));
     }
 
     #[tokio::test]
@@ -441,7 +396,6 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
@@ -484,7 +438,6 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
@@ -527,7 +480,6 @@ mod tests {
         let token = random_string("phc_", 12);
         let test_team = Team {
             id: team_id,
-            project_id: Some(i64::from(team_id)),
             name: "team".to_string(),
             api_token: token.clone(),
             organization_id: Some(Uuid::new_v4()),
@@ -563,5 +515,173 @@ mod tests {
             !client_calls.iter().any(|call| call.op == "set"),
             "Expected SET to NOT be called for Redis unavailable error, but it was"
         );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_extra_settings_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_extra_settings",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": "posthog-recorder",
+            "something_else": 123
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with extra_settings");
+
+        // Fetch the team and verify extra_settings deserializes correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with extra_settings from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_empty_recorder_script_from_pg() {
+        let context = TestContext::new(None).await;
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Update the team with extra_settings containing empty recorder_script
+        let mut conn = get_connection_with_metrics(
+            &context.non_persons_reader,
+            "non_persons_reader",
+            "test_empty_recorder_script",
+        )
+        .await
+        .expect("Failed to get connection");
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": ""
+        });
+
+        sqlx::query("UPDATE posthog_team SET extra_settings = $1 WHERE id = $2")
+            .bind(&extra_settings)
+            .bind(team.id)
+            .execute(&mut *conn)
+            .await
+            .expect("Failed to update team with empty recorder_script");
+
+        // Fetch the team and verify empty string is handled correctly
+        let team_from_pg = Team::from_pg(context.non_persons_reader.clone(), &team.api_token)
+            .await
+            .expect("Failed to fetch team with empty recorder_script from pg");
+
+        assert!(team_from_pg.extra_settings.is_some());
+        let config = team_from_pg.extra_settings.unwrap();
+        let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
+        assert_eq!(recorder_script, Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_extra_settings_from_redis() {
+        let client = setup_redis_client(None).await;
+
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let token = random_string("phc_", 12);
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": "posthog-recorder"
+        });
+
+        let team = Team {
+            id: team_id,
+            name: "team".to_string(),
+            api_token: token.clone(),
+            extra_settings: Some(Json(extra_settings.clone())),
+            cookieless_server_hash_mode: Some(0),
+            timezone: "UTC".to_string(),
+            ..Default::default()
+        };
+
+        // Manually set team with extra_settings in Redis
+        let serialized_team = serde_json::to_string(&team).expect("Failed to serialize team");
+
+        client
+            .set(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), serialized_team)
+            .await
+            .expect("Failed to write team to redis");
+
+        // Fetch from Redis and verify extra_settings deserializes correctly
+        let team_from_redis = Team::from_redis(client.clone(), &token)
+            .await
+            .expect("Failed to fetch team with extra_settings from redis");
+
+        assert_eq!(team_from_redis.api_token, token);
+        assert_eq!(team_from_redis.id, team_id);
+        assert!(team_from_redis.extra_settings.is_some());
+
+        let config = team_from_redis.extra_settings.unwrap();
+        assert_eq!(
+            config.get("recorder_script").and_then(|v| v.as_str()),
+            Some("posthog-recorder")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_team_with_empty_recorder_script_from_redis() {
+        let client = setup_redis_client(None).await;
+
+        let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
+        let token = random_string("phc_", 12);
+
+        let extra_settings = serde_json::json!({
+            "recorder_script": ""
+        });
+
+        let team = Team {
+            id: team_id,
+            name: "team".to_string(),
+            api_token: token.clone(),
+            extra_settings: Some(Json(extra_settings.clone())),
+            cookieless_server_hash_mode: Some(0),
+            timezone: "UTC".to_string(),
+            ..Default::default()
+        };
+
+        // Manually set team with empty recorder_script in Redis
+        let serialized_team = serde_json::to_string(&team).expect("Failed to serialize team");
+
+        client
+            .set(format!("{TEAM_TOKEN_CACHE_PREFIX}{token}"), serialized_team)
+            .await
+            .expect("Failed to write team to redis");
+
+        // Fetch from Redis and verify empty recorder_script is preserved
+        let team_from_redis = Team::from_redis(client.clone(), &token)
+            .await
+            .expect("Failed to fetch team with empty recorder_script from redis");
+
+        assert!(team_from_redis.extra_settings.is_some());
+        let config = team_from_redis.extra_settings.unwrap();
+        let recorder_script = config.get("recorder_script").and_then(|v| v.as_str());
+        assert_eq!(recorder_script, Some(""));
     }
 }
