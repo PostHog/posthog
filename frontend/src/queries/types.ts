@@ -15,22 +15,6 @@ import { InsightLogicProps, TrendResult } from '~/types'
 import { ColumnFeature } from './nodes/DataTable/DataTable'
 import { DataTableRow } from './nodes/DataTable/dataTableLogic'
 
-/** Props passed to row action render functions */
-export interface RowActionProps {
-    record: DataTableRow
-    recordIndex: number
-    query: DataTableNode
-}
-
-/** Props passed to cell action render functions */
-export interface CellActionProps {
-    columnName: string
-    query: DataTableNode
-    record: unknown
-    recordIndex: number
-    value: unknown
-}
-
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     /** Column templates for the DataTable */
@@ -74,8 +58,6 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableRowsTransformer?: (rows: DataTableRow[]) => DataTableRow[]
     /** Compare filter for Web Analytics queries */
     compareFilter?: any
-    /** Custom row actions to display in a "more" menu at the end of each row */
-    rowActions?: (props: RowActionProps) => JSX.Element | null
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{
@@ -101,6 +83,4 @@ export interface QueryContextColumn {
     width?: string
     hidden?: boolean // don't show this column in the table
     isRowFillFraction?: boolean // if true, this row will be filled with a background color based on the value (from 0 to 1)
-    /** Custom cell actions to display in a "more" menu for this column's cells */
-    cellActions?: (props: CellActionProps) => JSX.Element | null
 }

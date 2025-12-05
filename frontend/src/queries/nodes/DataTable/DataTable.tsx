@@ -82,6 +82,8 @@ import {
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
+import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
+import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
@@ -294,24 +296,19 @@ export function DataTable({
                     }
                 },
                 sorter: undefined, // using custom sorting code
-                cellActions: sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
-                    ? (_: unknown, record: DataTableRow, recordIndex: number) => {
-                          const cellActionsRenderer = context?.columns?.[key]?.cellActions
-                          if (!cellActionsRenderer || !record.result) {
-                              return null
+                cellActions:
+                    sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
+                    ['source', 'campaign'].includes(key.toLowerCase())
+                        ? (_: unknown, record: DataTableRow) => {
+                              if (!record.result) {
+                                  return null
+                              }
+                              const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
+                                  ? record.result[index]
+                                  : record.result[key]
+                              return <NonIntegratedConversionsCellActions columnName={key} value={value} />
                           }
-                          const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
-                              ? record.result[index]
-                              : record.result[key]
-                          return cellActionsRenderer({
-                              columnName: key,
-                              query,
-                              record: record.result,
-                              recordIndex,
-                              value,
-                          })
-                      }
-                    : undefined,
+                        : undefined,
                 more:
                     !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                         <>
@@ -922,13 +919,17 @@ export function DataTable({
                                               }
                                               return null
                                           }
-                                        : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
-                                            context?.rowActions
-                                          ? (row: DataTableRow, recordIndex: number) => {
-                                                if (row.label) {
+                                        : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
+                                          ? (row: DataTableRow) => {
+                                                if (row.label || !row.result || !columnsInResponse) {
                                                     return null
                                                 }
-                                                return context.rowActions?.({ record: row, recordIndex, query }) ?? null
+                                                return (
+                                                    <NonIntegratedConversionsRowActions
+                                                        result={row.result}
+                                                        columnsInResponse={columnsInResponse}
+                                                    />
+                                                )
                                             }
                                           : undefined
                                 }

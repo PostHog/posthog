@@ -1,7 +1,7 @@
 import '../MarketingAnalyticsTable/MarketingAnalyticsTableStyleOverride.scss'
 
-import { useValues } from 'kea'
-import { useMemo, useRef, useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -25,7 +25,7 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { MarketingAnalyticsCell } from '../../shared'
-import { useMarketingCellActions } from '../MarketingAnalyticsTable/MarketingCellActions'
+import { IntegrationSettingsModal } from '../settings/IntegrationSettingsModal'
 
 // Unique ID counter for this component
 let uniqueNodeId = 0
@@ -35,7 +35,8 @@ const TILE_DESCRIPTION =
     'Conversions with UTM parameters set that do not match any campaign data from your integrations. Use the cell actions to map these to your integrations or configure them from the marketing settings. You need to have conversion goals configured to be able to see any date. If you do not see anything, it means all your conversion from the period are mapped to a native source.'
 
 export const NonIntegratedConversionsTable = (): JSX.Element | null => {
-    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+    const { conversion_goals, integrationSettingsModal } = useValues(marketingAnalyticsSettingsLogic)
+    const { closeIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
     const { dateFilter, compareFilter, loading, draftConversionGoal } = useValues(marketingAnalyticsLogic)
 
     // Create a unique, stable insightProps for this component instance
@@ -48,17 +49,6 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
         }),
         [uniqueKey]
     )
-
-    // Cell actions and row actions for mapping sources and campaigns
-    const { sourceActions, campaignActions, rowActions, integrationSettingsModal } = useMarketingCellActions()
-
-    // Store stable references to avoid triggering re-renders
-    const sourceActionsRef = useRef(sourceActions)
-    const campaignActionsRef = useRef(campaignActions)
-    const rowActionsRef = useRef(rowActions)
-    sourceActionsRef.current = sourceActions
-    campaignActionsRef.current = campaignActions
-    rowActionsRef.current = rowActions
 
     // Memoize date values to avoid unnecessary re-renders
     const dateFrom = dateFilter.dateFrom
@@ -117,19 +107,16 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
         }
     }, [allConversionGoals.length, dateFrom, dateTo, compareFilter, selectColumns, draftConversionGoal])
 
-    // Build context with cell actions - use refs to avoid dependency on callbacks
+    // Build context - cell actions are handled directly in DataTable via QueryFeature
     const nonIntegratedContext: QueryContext = useMemo(() => {
-        const sourceColumnName = NonIntegratedConversionsColumnsSchemaNames.Source
         const campaignColumnName = NonIntegratedConversionsColumnsSchemaNames.Campaign
 
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             columnFeatures: [ColumnFeature.canSort],
-            rowActions: (props) => rowActionsRef.current(props),
             columns: selectColumns.reduce(
                 (acc, column) => {
-                    const isSourceColumn = column === sourceColumnName
                     const isCampaignColumn = column === campaignColumnName
 
                     acc[column] = {
@@ -142,9 +129,6 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
                                 }}
                             />
                         ),
-                        // Add cell actions for Source and Campaign columns - use refs to avoid dependency issues
-                        ...(isSourceColumn && { cellActions: (props) => sourceActionsRef.current(props) }),
-                        ...(isCampaignColumn && { cellActions: (props) => campaignActionsRef.current(props) }),
                     }
                     return acc
                 },
@@ -201,7 +185,15 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             <div className="bg-surface-primary rounded border border-border marketing-analytics-table-container">
                 <Query query={query} readOnly={false} context={nonIntegratedContext} />
             </div>
-            {integrationSettingsModal}
+            {integrationSettingsModal.integration && (
+                <IntegrationSettingsModal
+                    integrationName={integrationSettingsModal.integration}
+                    isOpen={integrationSettingsModal.isOpen}
+                    onClose={closeIntegrationSettingsModal}
+                    initialTab={integrationSettingsModal.initialTab}
+                    initialUtmValue={integrationSettingsModal.initialUtmValue}
+                />
+            )}
         </div>
     )
 }
