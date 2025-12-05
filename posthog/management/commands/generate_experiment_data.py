@@ -535,10 +535,7 @@ class Command(BaseCommand):
                                     )
                             else:
                                 properties[prop_name] = prop_value
-                        if action.time_delay:
-                            minutes_after_exposure += action.time_delay
-                        else:
-                            minutes_after_exposure += 1
+                        minutes_after_exposure += action.time_delay
                         posthoganalytics.capture(
                             distinct_id=distinct_id,
                             event=action.event,
