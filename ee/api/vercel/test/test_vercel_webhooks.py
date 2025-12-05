@@ -164,4 +164,4 @@ class TestVercelWebhooks(VercelTestBase):
         response = self._post_webhook(payload, signature=signature)
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert "No license" in response.json()["error"]
+        assert "Processing failed" in response.json()["error"]
