@@ -130,8 +130,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 logic.mount() // we're never unmounting this
             }
             actions.openSidePanelMax()
-            // HACK: Delay to ensure maxThreadLogic is mounted after the side panel opens - ugly, but works
-            window.setTimeout(() => logic!.actions.askMax(prompt), 100)
+            logic.actions.askMax(prompt)
         },
         openSidePanelMax: ({ conversationId }) => {
             if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {

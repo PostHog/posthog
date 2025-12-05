@@ -896,6 +896,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -1382,16 +1383,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 export interface EventHeaders {
     token?: string
     distinct_id?: string
+    session_id?: string
     timestamp?: string
     event?: string
     uuid?: string
     now?: Date
     force_disable_person_processing: boolean
+    historical_migration: boolean
 }
 
 export interface IncomingEvent {
     event: PipelineEvent
-    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {

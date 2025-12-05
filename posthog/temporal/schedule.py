@@ -23,6 +23,7 @@ from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
@@ -226,6 +227,36 @@ async def create_weekly_digest_schedule(client: Client):
         )
 
 
+async def create_ducklake_compaction_schedule(client: Client):
+    """Create or update the schedule for the DuckLake compaction workflow.
+
+    This schedule runs every hour to compact small parquet files in DuckLake.
+    """
+    ducklake_compaction_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "ducklake-compaction",
+            DucklakeCompactionInput(target_file_size="512MB"),
+            id="ducklake-compaction-schedule",
+            task_queue=settings.DUCKLAKE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=timedelta(minutes=5),
+            ),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(hours=1))]),
+    )
+
+    if await a_schedule_exists(client, "ducklake-compaction-schedule"):
+        await a_update_schedule(client, "ducklake-compaction-schedule", ducklake_compaction_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "ducklake-compaction-schedule",
+            ducklake_compaction_schedule,
+            trigger_immediately=False,
+        )
+
+
 schedules = [
     create_sync_vectors_schedule,
     create_run_quota_limiting_schedule,
@@ -233,6 +264,7 @@ schedules = [
     create_enforce_max_replay_retention_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,
+    create_ducklake_compaction_schedule,
 ]
 
 if settings.EE_AVAILABLE:
