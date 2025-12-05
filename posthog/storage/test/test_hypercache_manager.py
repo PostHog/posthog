@@ -11,7 +11,12 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from posthog.storage.hypercache import HyperCache
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats, invalidate_all_caches
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats,
+    invalidate_all_caches,
+    push_hypercache_stats_metrics,
+)
 
 
 def create_test_hypercache(
@@ -419,3 +424,76 @@ class TestGetCacheStats(BaseTest):
         # First scan call should use the stats pattern
         first_call = mock_redis.scan_iter.call_args_list[0]
         assert first_call[1]["match"] == "posthog:1:cache/teams/*/feature_flags/flags.json"
+
+
+class TestPushHypercacheStatsMetrics(BaseTest):
+    """Test push_hypercache_stats_metrics functionality."""
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_pushes_metrics_to_pushgateway(self, mock_registry_cm):
+        """Test that metrics are pushed to Pushgateway when configured."""
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_stats_metrics(
+                namespace="feature_flags",
+                coverage_percent=85.5,
+                entries_total=1000,
+                expiry_tracked_total=950,
+                size_bytes=1024000,
+            )
+
+        mock_registry_cm.assert_called_once_with("hypercache_stats_feature_flags")
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_skips_push_when_no_pushgateway_address(self, mock_registry_cm):
+        """Test that no push happens when PROM_PUSHGATEWAY_ADDRESS is not set."""
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS=None):
+            push_hypercache_stats_metrics(
+                namespace="feature_flags",
+                coverage_percent=85.5,
+                entries_total=1000,
+                expiry_tracked_total=950,
+                size_bytes=1024000,
+            )
+
+        mock_registry_cm.assert_not_called()
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    def test_skips_size_gauge_when_size_bytes_is_none(self, mock_registry_cm):
+        """Test that size gauge is not created when size_bytes is None."""
+        mock_registry = MagicMock()
+        mock_registry_cm.return_value.__enter__ = MagicMock(return_value=mock_registry)
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_stats_metrics(
+                namespace="team_metadata",
+                coverage_percent=90.0,
+                entries_total=500,
+                expiry_tracked_total=500,
+                size_bytes=None,
+            )
+
+        mock_registry_cm.assert_called_once_with("hypercache_stats_team_metadata")
+
+    @patch("posthog.storage.hypercache_manager.pushed_metrics_registry")
+    @patch("posthog.storage.hypercache_manager.logger")
+    def test_logs_warning_on_push_failure(self, mock_logger, mock_registry_cm):
+        """Test that a warning is logged when push fails."""
+        mock_registry_cm.return_value.__enter__ = MagicMock(side_effect=Exception("Connection failed"))
+        mock_registry_cm.return_value.__exit__ = MagicMock(return_value=False)
+
+        with self.settings(PROM_PUSHGATEWAY_ADDRESS="http://pushgateway:9091"):
+            push_hypercache_stats_metrics(
+                namespace="feature_flags",
+                coverage_percent=85.5,
+                entries_total=1000,
+                expiry_tracked_total=950,
+                size_bytes=1024000,
+            )
+
+        mock_logger.warning.assert_called_once()
+        assert "Failed to push hypercache stats" in str(mock_logger.warning.call_args)

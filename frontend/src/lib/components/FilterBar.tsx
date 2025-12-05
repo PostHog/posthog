@@ -22,9 +22,11 @@ export const FilterBar = ({ top, left, right, className, showBorderBottom }: Fil
             {top}
 
             <div className="flex flex-col md:flex-row md:justify-between gap-2">
-                <div className="flex items-start shrink-0">
+                <div className={clsx('flex items-start shrink-0', !right && 'flex-1')}>
                     <div className="flex flex-1 flex-row gap-2 items-center">
-                        <div className="flex flex-row gap-1 items-center flex-1 md:flex-none">{left}</div>
+                        <div className={clsx('flex flex-row gap-1 items-center flex-1', right && 'md:flex-none')}>
+                            {left}
+                        </div>
 
                         <LemonButton
                             type="secondary"

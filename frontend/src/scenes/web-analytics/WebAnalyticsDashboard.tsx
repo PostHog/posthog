@@ -409,33 +409,12 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
 
 const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+    if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
     }
 
     return <Tiles />
-}
-
-const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
-        return []
-    }
-    return [
-        {
-            key: ProductTab.PAGE_REPORTS,
-            label: (
-                <div className="flex items-center gap-1">
-                    Page reports
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            link: '/web/page-reports',
-        },
-    ]
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
@@ -459,8 +438,6 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
 
 const WebAnalyticsTabs = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const { setProductTab } = useActions(webAnalyticsLogic)
 
     const handleShare = (): void => {
@@ -474,7 +451,18 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                ...pageReportsTab(featureFlags),
+                {
+                    key: ProductTab.PAGE_REPORTS,
+                    label: (
+                        <div className="flex items-center gap-1">
+                            Page reports
+                            <LemonTag type="warning" className="uppercase">
+                                Beta
+                            </LemonTag>
+                        </div>
+                    ),
+                    link: '/web/page-reports',
+                },
             ]}
             sceneInset
             className="-mt-4"
