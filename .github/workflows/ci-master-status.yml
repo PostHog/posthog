@@ -178,7 +178,7 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       thread_ts: "${{ steps.incident.outputs.ts }}"
-                      text: "Also failing: *${{ github.event.workflow_run.name }}*\n<${{ github.event.workflow_run.html_url }}|View run →>"
+                      text: "Also failing: *${{ github.event.workflow_run.name }}* (${{ steps.commit.outputs.short_sha }})\n<${{ github.event.workflow_run.html_url }}|View run →>"
 
             - name: Update incident state with new counts
               if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'true'
@@ -254,6 +254,17 @@ jobs:
                           text:
                             type: "mrkdwn"
                             text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
+
+            - name: Thread reply with resolution
+              if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
+              uses: slackapi/slack-github-action@v2.1.0
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.incident.outputs.channel }}"
+                      thread_ts: "${{ steps.incident.outputs.ts }}"
+                      text: ":white_check_mark: Resolved: *${{ github.event.workflow_run.name }}* passed (${{ steps.commit.outputs.short_sha }})"
 
             - name: Clear incident state
               if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'

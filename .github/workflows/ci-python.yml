@@ -339,7 +339,7 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       thread_ts: "${{ steps.incident.outputs.ts }}"
-                      text: "Also failing: *Python CI*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run →>"
+                      text: "Also failing: *Python CI* (${{ steps.commit.outputs.short_sha }})\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run →>"
 
             - name: Update incident state with new counts (TEST)
               if: steps.incident.outputs.exists == 'true'
