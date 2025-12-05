@@ -16,6 +16,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import DateTimeDatabaseField, StringDatabaseField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, property_to_expr
 
@@ -31,6 +32,7 @@ from posthog.hogql_queries.insights.funnels.utils import (
     get_table_name,
     is_data_warehouse_source,
 )
+from posthog.hogql_queries.insights.utils.data_warehouse_schema_mixin import DataWarehouseSchemaMixin
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
@@ -38,7 +40,7 @@ from posthog.models.property.property import PropertyName
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
-class FunnelEventQuery:
+class FunnelEventQuery(DataWarehouseSchemaMixin):
     context: FunnelQueryContext
     _extra_event_fields_and_properties: list[ColumnName | PropertyName]
 
@@ -127,12 +129,24 @@ class FunnelEventQuery:
 
             all_step_cols = self._get_funnel_cols(SourceTableKind.DATA_WAREHOUSE, table_name, node)
 
+            field = self.get_warehouse_field(node.table_name, node.timestamp_field)
+
+            # TODO: Move validations to funnel base / series entity
+            if isinstance(field, DateTimeDatabaseField):
+                timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
+            elif isinstance(field, StringDatabaseField):
+                timestamp_expr = ast.Call(
+                    name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
+                )
+            else:
+                raise ValidationError(
+                    detail=f"Unsupported timestamp field type for {node.table_name}.{node.timestamp_field}"
+                )
+
             select: list[ast.Expr] = [
                 ast.Alias(
                     alias="timestamp",
-                    expr=ast.Call(
-                        name="toDateTime", args=[ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])]
-                    ),
+                    expr=timestamp_expr,
                 ),
                 ast.Alias(
                     alias="aggregation_target",

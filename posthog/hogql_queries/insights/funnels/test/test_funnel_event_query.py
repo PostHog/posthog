@@ -1,10 +1,9 @@
 from textwrap import dedent
 
 from freezegun import freeze_time
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-
 import regex
 import sqlparse
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, EventPropertyFilter, EventsNode, FunnelsQuery
 
@@ -12,6 +11,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
 
 def format_query(query: ast.SelectQuery):
@@ -21,6 +21,62 @@ def format_query(query: ast.SelectQuery):
 
 class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+
+    def setUp(self):
+        super().setUp()
+        self.warehouse_credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="key", access_secret="secret"
+        )
+        self._create_data_warehouse_table(
+            name="payments",
+            id_field="id",
+            distinct_id_field="user_id",
+            timestamp_field="created_at",
+        )
+        self._create_data_warehouse_table(
+            name="table_one",
+            id_field="id",
+            distinct_id_field="user_id",
+            timestamp_field="created_at",
+            extra_columns={
+                "some_prop": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "other_prop": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+        self._create_data_warehouse_table(
+            name="table_two",
+            id_field="some_id",
+            distinct_id_field="some_user_id",
+            timestamp_field="ts",
+            extra_columns={
+                "another_prop": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+
+    def _create_data_warehouse_table(
+        self,
+        name: str,
+        id_field: str,
+        distinct_id_field: str,
+        timestamp_field: str,
+        extra_columns: dict[str, dict[str, str | bool]] | None = None,
+    ) -> None:
+        columns: dict[str, dict[str, str | bool]] = {
+            id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            distinct_id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            timestamp_field: {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')", "valid": True},
+        }
+        if extra_columns:
+            columns.update(extra_columns)
+
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=name,
+            format=DataWarehouseTable.TableFormat.CSV,
+            url_pattern="http://localhost/file.csv",
+            credential=self.warehouse_credential,
+            columns=columns,
+        )
 
     @freeze_time("2025-11-12")
     def test_single_events_table(self):
