@@ -59,7 +59,7 @@ from products.user_interviews.backend.api import UserInterviewViewSet
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
-from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
+from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
 
 from ..heatmaps.heatmaps_api import HeatmapScreenshotViewSet, HeatmapViewSet, LegacyHeatmapViewSet, SavedHeatmapViewSet
 from ..session_recordings.session_recording_api import SessionRecordingViewSet
@@ -89,6 +89,7 @@ from . import (
     instance_settings,
     instance_status,
     integration,
+    materialized_column_slot,
     organization,
     organization_domain,
     organization_feature_flag,
@@ -282,6 +283,13 @@ projects_router.register(
     DataManagementViewSet,
     "project_data_management",
     ["project_id"],
+)
+
+environments_router.register(
+    r"materialized_column_slots",
+    materialized_column_slot.MaterializedColumnSlotViewSet,
+    "environment_materialized_column_slots",
+    ["team_id"],
 )
 
 projects_router.register(
@@ -646,6 +654,11 @@ if EE_AVAILABLE:
         r"vercel/v1/products",
         vercel_product.VercelProductViewSet,
         "vercel_products",
+    )
+    router.register(
+        r"vercel/proxy",
+        vercel_proxy.VercelProxyViewSet,
+        "vercel_proxy",
     )
 
 else:

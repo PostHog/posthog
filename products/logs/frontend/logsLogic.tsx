@@ -38,6 +38,12 @@ const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
+export enum SparklineTimezone {
+    UTC = 'utc',
+    Project = 'project',
+    Device = 'device',
+}
+
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
         Object.keys(row.attributes).forEach((key) => {
@@ -203,7 +209,6 @@ export const logsLogic = kea<logsLogicType>([
     actions({
         runQuery: (debounce?: integer) => ({ debounce }),
         fetchNextLogsPage: (limit?: number) => ({ limit }),
-        loadMoreLogs: true,
         truncateLogs: (limit: number) => ({ limit }),
         applyLogsPageSize: (logsPageSize: number) => ({ logsPageSize }),
         clearLogs: true,
@@ -258,6 +263,7 @@ export const logsLogic = kea<logsLogicType>([
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
+        setSparklineTimezone: (sparklineTimezone: SparklineTimezone) => ({ sparklineTimezone }),
     }),
 
     reducers({
@@ -407,6 +413,13 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailRunning: (_, { enabled }) => enabled,
                 runQuery: () => false,
+            },
+        ],
+        sparklineTimezone: [
+            SparklineTimezone.UTC as SparklineTimezone,
+            { persist: true },
+            {
+                setSparklineTimezone: (_, { sparklineTimezone }) => sparklineTimezone,
             },
         ],
         liveTailPollInterval: [
@@ -589,7 +602,14 @@ export const logsLogic = kea<logsLogicType>([
         parsedLogs: [
             (s) => [s.logs],
             (logs: LogMessage[]): ParsedLogMessage[] => {
-                return logs.map((log: LogMessage) => {
+                const seen = new Set<string>()
+                const result: ParsedLogMessage[] = []
+
+                for (const log of logs) {
+                    if (seen.has(log.uuid)) {
+                        continue
+                    }
+                    seen.add(log.uuid)
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -597,8 +617,10 @@ export const logsLogic = kea<logsLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    return { ...log, cleanBody, parsedBody }
-                })
+                    result.push({ ...log, cleanBody, parsedBody })
+                }
+
+                return result
             },
         ],
         pinnedParsedLogs: [
@@ -728,12 +750,14 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions, cache }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
         fetchNextLogsPageFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
@@ -837,9 +861,6 @@ export const logsLogic = kea<logsLogicType>([
                 actions.setHasMoreLogsToLoad(true)
             }
         },
-        loadMoreLogs: () => {
-            actions.fetchNextLogsPage()
-        },
         highlightNextLog: () => {
             const logs = values.parsedLogs
             if (logs.length === 0) {
@@ -855,7 +876,7 @@ export const logsLogic = kea<logsLogicType>([
             } else if (currentIndex < logs.length - 1) {
                 actions.setHighlightedLogId(logs[currentIndex + 1].uuid)
             } else if (values.hasMoreLogsToLoad && !values.logsLoading) {
-                actions.loadMoreLogs()
+                actions.fetchNextLogsPage()
             }
         },
         highlightPreviousLog: () => {

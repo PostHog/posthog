@@ -1,11 +1,13 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { getCookie } from 'lib/api'
+import api from 'lib/api'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
+import { EnrichedTraceTreeNode } from '../llmAnalyticsTraceDataLogic'
 import type { summaryViewLogicType } from './summaryViewLogicType'
 
 export type SummaryMode = 'minimal' | 'detailed'
@@ -30,14 +32,15 @@ export interface StructuredSummary {
 export interface SummaryViewLogicProps {
     trace?: LLMTrace
     event?: LLMTraceEvent
-    tree?: any[]
+    tree?: EnrichedTraceTreeNode[]
+    autoGenerate?: boolean
 }
 
 export const summaryViewLogic = kea<summaryViewLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'summary-view', 'summaryViewLogic']),
     props({} as SummaryViewLogicProps),
     connect({
-        values: [maxGlobalLogic, ['dataProcessingAccepted']],
+        values: [maxGlobalLogic, ['dataProcessingAccepted'], teamLogic, ['currentTeamId']],
     }),
     key((props) => {
         // Use trace ID or event ID as the key
@@ -55,6 +58,7 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         toggleFlowExpanded: true,
         toggleSummaryExpanded: true,
         toggleNotesExpanded: true,
+        loadCachedSummary: true,
     }),
     reducers({
         summaryMode: [
@@ -79,6 +83,20 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             true,
             {
                 toggleNotesExpanded: (state) => !state,
+            },
+        ],
+    }),
+    selectors({
+        entityId: [
+            () => [(_, props) => props],
+            (props: SummaryViewLogicProps): string | null => {
+                if (props.trace) {
+                    return props.trace.id
+                }
+                if (props.event) {
+                    return props.event.id
+                }
+                return null
             },
         ],
     }),
@@ -115,28 +133,13 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                       }
 
                 // Call the summarization API endpoint
-                const teamId = (window as any).POSTHOG_APP_CONTEXT?.current_team?.id
+                const teamId = values.currentTeamId
                 if (!teamId) {
                     throw new Error('Team ID not available')
                 }
 
-                const url = `/api/environments/${teamId}/llm_analytics/summarization/`
-                const response = await fetch(url, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRFToken': getCookie('posthog_csrftoken') || '',
-                    },
-                    body: JSON.stringify(payload),
-                    credentials: 'include',
-                })
+                const data = await api.create(`api/environments/${teamId}/llm_analytics/summarization/`, payload)
 
-                if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({}))
-                    throw new Error(errorData.detail || errorData.error || 'Failed to generate summary')
-                }
-
-                const data = await response.json()
                 return {
                     summary: data.summary,
                     text_repr: data.text_repr,
@@ -145,6 +148,21 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
+        loadCachedSummary: async () => {
+            // Try to load cached summary - requires consent since we're hitting the summarization API
+            // which will return cached data if available (forceRefresh: false)
+            if (!values.dataProcessingAccepted) {
+                return
+            }
+
+            const entityId = values.entityId
+            if (!entityId) {
+                return
+            }
+
+            // Use generateSummary with forceRefresh: false - backend returns cached data if available
+            actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
+        },
         regenerateSummary: () => {
             // Regenerate with current mode but force refresh to bust cache
             actions.generateSummary({ mode: values.summaryMode, forceRefresh: true })
@@ -156,4 +174,13 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
             }
         },
     })),
+    afterMount(({ props, actions, values }) => {
+        if (props.autoGenerate && values.dataProcessingAccepted) {
+            // Auto-generate was requested (e.g., from URL param)
+            actions.generateSummary({ mode: values.summaryMode, forceRefresh: false })
+        } else if (values.dataProcessingAccepted) {
+            // Try to load cached summary on mount (will use cache if available)
+            actions.loadCachedSummary()
+        }
+    }),
 ])

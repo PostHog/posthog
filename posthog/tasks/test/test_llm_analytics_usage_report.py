@@ -526,6 +526,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         # Verify org 1 report
         org_1_report = org_reports[str(self.organization.id)]
+        assert org_1_report["organization_name"] == self.organization.name
         assert org_1_report["ai_generation_count"] == 13  # 10 + 3
         assert org_1_report["ai_evaluation_count"] == 5
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
@@ -549,6 +550,7 @@ class TestLLMAnalyticsUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDe
 
         # Verify org 2 report
         org_2_report = org_reports[str(org_2.id)]
+        assert org_2_report["organization_name"] == org_2.name
         assert org_2_report["ai_embedding_count"] == 7
         assert org_2_report["ai_generation_count"] == 2
         assert org_2_report["total_ai_cost_usd"] == pytest.approx(0.050, rel=1e-6)  # 2 * 0.025

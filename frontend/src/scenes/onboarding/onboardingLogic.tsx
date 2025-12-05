@@ -26,6 +26,7 @@ export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONF
 
 const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
     [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
+    [OnboardingStepKey.LINK_DATA]: 'Connect your data',
 }
 
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {

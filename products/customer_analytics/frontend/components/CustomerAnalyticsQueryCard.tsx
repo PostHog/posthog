@@ -6,6 +6,9 @@ import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { InsightMetaContent } from 'lib/components/Cards/InsightCard/InsightMeta'
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { SurveyOpportunityButtonWithQuery } from 'scenes/surveys/components/SurveyOpportunityButton'
+import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
+import { isValidFunnelQuery } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { QuerySchema } from '~/queries/schema/schema-general'
@@ -51,6 +54,17 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
         query: insight.query,
     }
 
+    // isValidFunnelQuery does not check "business logic" such as conversion
+    // rate threshold, etc -- it only checks if the funnel can be targeted
+    // by a survey.
+    const surveyOpportunityButton = isValidFunnelQuery(insight.query) ? (
+        <SurveyOpportunityButtonWithQuery
+            insight={insight}
+            insightProps={insightProps}
+            source={SURVEY_CREATED_SOURCE.CUSTOMER_ANALYTICS_INSIGHT}
+        />
+    ) : null
+
     if (needsConfig) {
         const missingSeries = insight?.requiredSeries ? getEmptySeriesNames(insight.requiredSeries) : []
 
@@ -93,6 +107,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
             context={{ refresh: 'force_blocking', insightProps }}
             className={insight?.className || ''}
             attachTo={customerAnalyticsSceneLogic}
+            extraControls={surveyOpportunityButton}
         />
     )
 }
