@@ -157,17 +157,22 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             )
             for trace_id in trace_ids
         ]
-        results: list[SummarizationActivityResult] = await asyncio.gather(*tasks, return_exceptions=False)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
 
         successful_trace_ids = []
         for result in results:
-            if result.success:
+            if isinstance(result, BaseException):
+                # Activity failed with an exception - count as failed but don't crash workflow
+                metrics.summaries_failed += 1
+            elif result.success:
                 successful_trace_ids.append(result.trace_id)
             elif result.skipped:
                 metrics.summaries_skipped += 1
+            else:
+                # Activity returned but wasn't successful or skipped
+                metrics.summaries_failed += 1
 
         metrics.summaries_generated = len(successful_trace_ids)
-        metrics.summaries_failed = metrics.traces_queried - metrics.summaries_generated - metrics.summaries_skipped
 
         # Add a delay to allow events to be processed
         await temporalio.workflow.sleep(EVENT_PROCESSING_DELAY_SECONDS)
