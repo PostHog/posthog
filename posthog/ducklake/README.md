@@ -27,7 +27,7 @@ For local dev the defaults are:
 
 - `DUCKLAKE_RDS_HOST=localhost`
 - `DUCKLAKE_RDS_PORT=5432`
-- `DUCKLAKE_RDS_DATABASE=ducklake`
+- `DUCKLAKE_RDS_DATABASE=ducklake_catalog`
 - `DUCKLAKE_RDS_USERNAME=posthog`
 - `DUCKLAKE_RDS_PASSWORD=posthog`
 - `DUCKLAKE_BUCKET=ducklake-dev`
@@ -104,11 +104,17 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 
      ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
        AS ducklake (DATA_PATH 's3://ducklake-dev/');
+
+     -- Discover available schemas
+     SELECT * FROM information_schema.schemata WHERE catalog_name = 'ducklake';
+
+     -- List tables in the ducklake catalog
+     SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
+
+     -- Query a specific table
      SELECT * FROM ducklake.data_modeling_team_${TEAM_ID}.${MODEL_LABEL} LIMIT 10;
    "
    ```
-
-   Replace `${TEAM_ID}` and `${MODEL_LABEL}` with the team/model that was materialized (the model label is logged by the workflow).
 
 ### Testing Data Imports workflow
 
@@ -139,8 +145,14 @@ Follow these checklists to exercise the DuckLake copy workflows on a local check
 
      ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
        AS ducklake (DATA_PATH 's3://ducklake-dev/');
+
+     -- Discover available schemas
+     SELECT * FROM information_schema.schemata WHERE catalog_name = 'ducklake';
+
+     -- List tables in the ducklake catalog
+     SELECT table_schema, table_name FROM information_schema.tables WHERE table_catalog = 'ducklake';
+
+     -- Query a specific table
      SELECT * FROM ducklake.data_imports_team_${TEAM_ID}.${SOURCE_TYPE}_${TABLE_NAME}_${SCHEMA_ID_HEX} LIMIT 10;
    "
    ```
-
-   Replace the variables with values from the workflow logs (e.g., `stripe_invoices_a1b2c3d4`).
