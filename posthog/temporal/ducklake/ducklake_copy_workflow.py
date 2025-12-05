@@ -19,7 +19,6 @@ from posthog.ducklake.common import (
     configure_connection,
     escape as ducklake_escape,
     get_config,
-    normalize_endpoint,
 )
 from posthog.ducklake.verification import (
     DuckLakeCopyVerificationParameter,
@@ -469,17 +468,25 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
-    parsed = endpoint.strip()
-    if not parsed:
+    """Normalize object storage endpoint URL.
+
+    Returns tuple of (endpoint, use_ssl).
+    """
+    value = endpoint.strip()
+    if not value:
         return "", True
 
-    if "://" in parsed:
-        normalized, use_ssl = normalize_endpoint(parsed)
-    else:
-        use_ssl = parsed.lower().startswith("https")
-        normalized = parsed.rstrip("/")
+    if "://" in value:
+        from urllib.parse import urlparse
 
-    return normalized, use_ssl
+        parsed = urlparse(value)
+        normalized = parsed.netloc or parsed.path
+        use_ssl = parsed.scheme.lower() == "https"
+    else:
+        use_ssl = value.lower().startswith("https")
+        normalized = value.rstrip("/")
+
+    return normalized.rstrip("/") or "", use_ssl
 
 
 def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
@@ -487,7 +494,7 @@ def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
         return
 
     ensure_bucket_exists(
-        f"s3://{config['DUCKLAKE_DATA_BUCKET'].rstrip('/')}",
+        f"s3://{config['DUCKLAKE_BUCKET'].rstrip('/')}",
         config["DUCKLAKE_S3_ACCESS_KEY"],
         config["DUCKLAKE_S3_SECRET_KEY"],
         settings.OBJECT_STORAGE_ENDPOINT,
