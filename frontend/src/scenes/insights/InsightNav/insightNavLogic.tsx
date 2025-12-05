@@ -15,6 +15,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    CalendarHeatmapFilter,
     DataWarehouseNode,
     EventsNode,
     FunnelsFilter,
@@ -25,6 +26,7 @@ import {
     LifecycleQuery,
     PathsFilter,
     PathsQuery,
+    ProductAnalyticsInsightQueryNode,
     RetentionFilter,
     RetentionQuery,
     StickinessFilter,
@@ -51,6 +53,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { BaseMathType, InsightLogicProps, InsightType } from '~/types'
 
@@ -84,6 +87,8 @@ export interface QueryPropertyCache
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
     }
+    trendsFilter?: Partial<TrendsQuery['trendsFilter']>
+    calendarHeatmapFilter?: Partial<CalendarHeatmapFilter>
 }
 
 const cleanSeriesEntityMath = (
@@ -154,6 +159,10 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 } else if (isHogQuery(query)) {
                     return InsightType.HOG
                 } else if (isInsightVizNode(query)) {
+                    // Check for Web Analytics queries first before using the mapping
+                    if (isWebAnalyticsInsightQuery(query.source)) {
+                        return InsightType.WEB_ANALYTICS
+                    }
                     return nodeKindToInsightType[query.source.kind] || InsightType.TRENDS
                 }
                 return InsightType.JSON
@@ -200,6 +209,24 @@ export const insightNavLogic = kea<insightNavLogicType>([
                         label: <>Hog 🦔</>,
                         type: InsightType.HOG,
                         dataAttr: 'insight-hog-tab',
+                    })
+                }
+
+                if (activeView === InsightType.WEB_ANALYTICS) {
+                    // Like the json only, this is a temporary tab for Web Analytics insights.
+                    // We don't display it otherwise and humans shouldn't be able to click to select this tab
+                    // it only opens when you select "Open as new insight" from the Web Analytics dashboard.
+                    tabs.push({
+                        label: (
+                            <>
+                                Web Analytics{' '}
+                                <LemonTag type="warning" className="uppercase ml-2">
+                                    Beta
+                                </LemonTag>
+                            </>
+                        ),
+                        type: InsightType.WEB_ANALYTICS,
+                        dataAttr: 'insight-web-analytics-tab',
                     })
                 }
 
@@ -284,7 +311,11 @@ const cachePropertiesFromQuery = (query: InsightQueryNode, cache: QueryPropertyC
         newCache.series = cache?.series
     }
 
-    /**  store the insight specific filter in commonFilter */
+    if (isWebAnalyticsInsightQuery(query)) {
+        return newCache
+    }
+
+    /** store the insight specific filter in commonFilter */
     const filterKey = filterKeyForQuery(query)
     // exclude properties that shouldn't be shared
     const { resultCustomizations, ...commonProperties } = query[filterKey] || {}
@@ -392,8 +423,12 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         mergedQuery.funnelPathsFilter = cache.funnelPathsFilter
     }
 
+    if (isWebAnalyticsInsightQuery(mergedQuery as InsightQueryNode)) {
+        return mergedQuery as InsightQueryNode
+    }
+
     // insight specific filter
-    const filterKey = filterKeyForQuery(mergedQuery)
+    const filterKey = filterKeyForQuery(mergedQuery as ProductAnalyticsInsightQueryNode)
     if (cache[filterKey] || cache.commonFilter) {
         const node = { kind: mergedQuery.kind, [filterKey]: cache.commonFilter } as unknown as InsightQueryNode
         const nodeTrendsStickiness = (isTrendsQuery(mergedQuery) || isStickinessQuery(mergedQuery)
@@ -417,5 +452,5 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
         }
     }
 
-    return mergedQuery
+    return mergedQuery as InsightQueryNode
 }

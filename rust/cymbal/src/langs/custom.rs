@@ -104,7 +104,6 @@ impl From<&CustomFrame> for Frame {
             synthetic: value.meta.synthetic,
             suspicious: false,
             module: value.module.clone(),
-            exception_type: None,
             code_variables: None,
         }
     }

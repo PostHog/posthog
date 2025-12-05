@@ -27,7 +27,7 @@ export function OnboardingErrorTrackingSourceMapsStep({ stepKey }: { stepKey: On
         <OnboardingStep
             title="Link source maps"
             stepKey={stepKey}
-            continueOverride={!shouldShowContinue ? <></> : undefined}
+            showContinue={shouldShowContinue}
             showSkip={!shouldShowContinue}
         >
             <p>

@@ -6,7 +6,7 @@ import { useEffect } from 'react'
 import { useRef } from 'react'
 
 import { IconFilter, IconList, IconSearch } from '@posthog/icons'
-import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -26,6 +26,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
+import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
+import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -65,34 +67,39 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                {issue && (
-                    <div className="px-4">
-                        <SceneTitleSection
-                            canEdit
-                            name={issue.name}
-                            onNameChange={updateName}
-                            description={null}
-                            resourceType={{ type: 'error_tracking' }}
-                            actions={
-                                <div className="flex items-center gap-1">
-                                    <IssueAssigneeSelect
-                                        assignee={issue.assignee}
-                                        onChange={updateAssignee}
-                                        disabled={issue.status != 'active'}
-                                    />
-                                    <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                    {issue && (
+                        <>
+                            <div className="px-4">
+                                <SceneTitleSection
+                                    canEdit
+                                    name={issue.name}
+                                    onNameChange={updateName}
+                                    description={null}
+                                    resourceType={{ type: 'error_tracking' }}
+                                    actions={
+                                        <div className="flex items-center gap-1">
+                                            <IssueAssigneeSelect
+                                                assignee={issue.assignee}
+                                                onChange={updateAssignee}
+                                                disabled={issue.status != 'active'}
+                                            />
+                                            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                        </div>
+                                    }
+                                />
+                            </div>
+                            <ErrorTrackingIssueScenePanel issue={issue} />
+
+                            <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                <div className="flex flex-1 h-full w-full">
+                                    <LeftHandColumn />
+                                    <RightHandColumn />
                                 </div>
-                            }
-                        />
-
-                        <ErrorTrackingIssueScenePanel issue={issue} />
-                    </div>
-                )}
-
-                <div className="ErrorTrackingIssue flex h-[calc(100vh-var(--scene-layout-header-height)-50px)]">
-                    <LeftHandColumn />
-                    <RightHandColumn />
-                </div>
+                            </div>
+                        </>
+                    )}
+                </BindLogic>
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )
@@ -103,7 +110,7 @@ const RightHandColumn = (): JSX.Element => {
     const tagRenderer = useErrorTagRenderer()
 
     return (
-        <div className="flex flex-1 gap-y-1 px-4 py-3 overflow-y-auto min-w-[375px]">
+        <div className="flex flex-1 gap-y-1 overflow-y-auto min-w-[375px]">
             <PostHogSDKIssueBanner event={selectedEvent} />
 
             <ExceptionCard
@@ -139,7 +146,7 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-bg-light"
+            className="flex flex-col relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
@@ -148,7 +155,7 @@ const LeftHandColumn = (): JSX.Element => {
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
-                        <TabsPrimitiveList className="flex justify-between space-x-2">
+                        <TabsPrimitiveList className="flex justify-between space-x-0.5">
                             <TabsPrimitiveTrigger className="flex items-center px-2 py-1.5" value="exceptions">
                                 <IconList className="mr-1" />
                                 <span className="text-nowrap">Exceptions</span>
@@ -175,6 +182,7 @@ const LeftHandColumn = (): JSX.Element => {
                 </TabsPrimitiveContent>
                 <TabsPrimitiveContent value="breakdowns">
                     <BreakdownsSearchBar />
+                    <MiniBreakdowns />
                     <BreakdownsChart />
                 </TabsPrimitiveContent>
                 {hasTasks && (
@@ -195,35 +203,26 @@ const LeftHandColumn = (): JSX.Element => {
 }
 
 const ExceptionsTab = (): JSX.Element => {
-    const { eventsQuery, eventsQueryKey } = useValues(errorTrackingIssueSceneLogic)
+    const { eventsQuery, eventsQueryKey, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
 
     return (
         <div className="flex flex-col h-full">
-            <LemonCollapse
-                embedded
-                panels={[
-                    {
-                        key: 'filters',
-                        header: 'Add filters',
-                        content: (
-                            <ErrorFilters.Root>
-                                <div className="flex gap-2 justify-between flex-wrap">
-                                    <ErrorFilters.DateRange />
-                                    <ErrorFilters.InternalAccounts />
-                                </div>
-                                <ErrorFilters.FilterGroup />
-                            </ErrorFilters.Root>
-                        ),
-                    },
-                ]}
-            />
+            <div className="px-2 py-3">
+                <ErrorFilters.Root>
+                    <div className="flex gap-2 justify-between flex-wrap">
+                        <ErrorFilters.DateRange />
+                        <ErrorFilters.InternalAccounts />
+                    </div>
+                    <ErrorFilters.FilterGroup />
+                </ErrorFilters.Root>
+            </div>
             <LemonDivider className="my-0" />
             <Metadata className="flex flex-col overflow-y-auto">
                 <EventsTable
                     query={eventsQuery}
                     queryKey={eventsQueryKey}
-                    selectedEvent={null}
+                    selectedEvent={selectedEvent}
                     onEventSelect={(selectedEvent) => {
                         if (selectedEvent) {
                             selectEvent(selectedEvent)

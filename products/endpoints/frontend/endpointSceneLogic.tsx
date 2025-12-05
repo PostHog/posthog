@@ -160,7 +160,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         ],
     }),
     listeners(({ actions }) => ({
-        loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType }) => {
+        loadEndpointSuccess: ({ endpoint }: { endpoint: EndpointType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
         },

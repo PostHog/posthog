@@ -332,8 +332,8 @@ class TestUserProductList(BaseTest):
         UserProductList.objects.create(user=user, team=self.team, product_path="Data pipelines", enabled=True)
 
         # Add a product from the Unreleased category
-        assert "Customer analytics" in products_by_category.get("Unreleased", [])
-        UserProductList.objects.create(user=user, team=self.team, product_path="Customer analytics", enabled=True)
+        assert "Links" in products_by_category.get("Unreleased", [])
+        UserProductList.objects.create(user=user, team=self.team, product_path="Links", enabled=True)
 
         created_items = UserProductList.sync_cross_sell_products(user=user, team=self.team)
         created_paths = {item.product_path for item in created_items}
@@ -357,3 +357,12 @@ class TestUserProductList(BaseTest):
 
         created_paths = {item.product_path for item in created_items}
         assert not created_paths.intersection(analytics_products)
+
+    def test_user_product_list_reason_enum_matches_backend(self):
+        """Test that the frontend UserProductListReason enum matches the backend Reason choices."""
+        from posthog.schema import UserProductListReason
+
+        backend_reasons = {key for key, _ in UserProductList.Reason.choices}
+        schema_reasons = {value for _, value in UserProductListReason.__members__.items()}
+
+        assert backend_reasons == schema_reasons, "Backend reasons do not match schema reasons"

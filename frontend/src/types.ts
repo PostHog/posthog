@@ -67,11 +67,14 @@ import type {
     ProductKey,
     QuerySchema,
     QueryStatus,
+    QuickFilterContext,
+    QuickFilterType,
     RecordingOrder,
     RecordingsQuery,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
+    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -306,6 +309,7 @@ export interface SceneDashboardChoice {
 }
 
 export type UserTheme = 'light' | 'dark' | 'system'
+export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -335,6 +339,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_sso_enforcement: boolean
+    shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -524,6 +529,7 @@ export interface PropertyUsageType {
 }
 
 export interface ProjectBasicType {
+    [key: string]: any
     id: number
     organization_id: string
     name: string
@@ -649,12 +655,14 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
     default_evaluation_environments_enabled: boolean
+    require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     experiment_recalculation_time?: string | null
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
+    business_model?: 'b2b' | 'b2c' | 'other' | null
 }
 
 export interface ProductIntentType {
@@ -853,6 +861,7 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    WorkflowVariable = 'workflow_variable',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1020,7 +1029,7 @@ export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinTy
 
 export type RecordingConsoleLogV2 = {
     timestamp: number
-    windowId: string | undefined
+    windowId: number | undefined
     windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
@@ -1037,13 +1046,13 @@ export interface RecordingSegment {
     startTimestamp: number // Epoch time that the segment starts
     endTimestamp: number // Epoch time that the segment ends
     durationMs: number
-    windowId?: string
+    windowId?: number
     isActive: boolean
     isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
-    windowId: string
+    windowId: number
     data: eventWithTime[]
 }
 
@@ -1081,7 +1090,7 @@ export type SessionRecordingSnapshotParams = (
           end_blob_key?: string
       }
 ) & {
-    decompress?: boolean
+    decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
@@ -1105,7 +1114,7 @@ export interface SessionRecordingSnapshotResponse {
 }
 
 export type RecordingSnapshot = eventWithTime & {
-    windowId: string
+    windowId: number
 }
 
 export interface SessionPlayerSnapshotData {
@@ -1118,7 +1127,7 @@ export interface SessionPlayerData {
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshotsByWindowId: Record<number, eventWithTime[]>
     durationMs: number
     start: Dayjs | null
     end: Dayjs | null
@@ -1221,6 +1230,7 @@ export interface RecordingUniversalFilters {
     filter_group: UniversalFiltersGroup
     order?: RecordingsQuery['order']
     order_direction?: RecordingsQuery['order_direction']
+    limit?: RecordingsQuery['limit']
 }
 
 export interface UniversalFiltersGroup {
@@ -1448,6 +1458,7 @@ export interface CohortType {
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
+    last_error_message?: string | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -1654,8 +1665,6 @@ export interface SessionRecordingType {
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
-    /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
     /** whether we have received data for this recording in the last 5 minutes
@@ -1976,6 +1985,19 @@ export interface BillingType {
         email?: string
         name?: string
     }
+}
+
+export interface ClaimedCouponInfo {
+    code: string
+    campaign_name: string
+    campaign_slug: string | null
+    claimed_at: string
+    expires_at: string | null
+    status: 'claimed' | 'expired'
+}
+
+export interface CouponsOverview {
+    claimed_coupons: ClaimedCouponInfo[]
 }
 
 export interface BillingPeriod {
@@ -2482,6 +2504,7 @@ export enum InsightType {
     JSON = 'JSON',
     SQL = 'SQL',
     HOG = 'HOG',
+    WEB_ANALYTICS = 'WEB_ANALYTICS',
 }
 
 export enum PathType {
@@ -3098,8 +3121,13 @@ export interface SurveyDisplayConditions {
             name: string
         }[]
     } | null
+    /** events that trigger surveys */
     events: {
         repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    /** events that cancel "pending" (time-delayed) surveys */
+    cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
 }
@@ -3318,6 +3346,7 @@ export interface SurveyAppearance {
     maxWidth?: string
     textSubtleColor?: string
     inputBackground?: string
+    inputTextColor?: string
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
@@ -3352,6 +3381,7 @@ export interface RatingSurveyQuestion extends SurveyQuestionBase {
     scale: SurveyRatingScaleValue
     lowerBoundLabel: string
     upperBoundLabel: string
+    isNpsQuestion?: boolean
     skipSubmitButton?: boolean
     branching?:
         | NextQuestionBranching
@@ -3559,6 +3589,8 @@ export interface EarlyAccessFeatureType {
     stage: EarlyAccessFeatureStage
     /** Documentation URL. Can be empty. */
     documentation_url: string
+    /** Custom JSON payload for the early access feature */
+    payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
 }
@@ -3782,6 +3814,7 @@ export enum PropertyDefinitionType {
     Resource = 'resource',
     Log = 'log',
     FlagValue = 'flag_value',
+    WorkflowVariable = 'workflow_variable',
 }
 
 export interface PropertyDefinition {
@@ -4033,6 +4066,7 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
+    custom_products: UserProductListItem[]
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5581,6 +5615,8 @@ export type HogFunctionTemplateType = Pick<
     code_language: 'javascript' | 'hog'
     /** Whether the template should be conditionally rendered based on a feature flag */
     flag?: string
+    /** Whether this is a featured/recommended source */
+    featured?: boolean
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -5791,6 +5827,7 @@ export interface Conversation {
     updated_at: string | null
     type: ConversationType
     has_unsupported_content?: boolean
+    agent_mode?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -6025,6 +6062,7 @@ export enum OnboardingStepKey {
     SOURCE_MAPS = 'source_maps',
     ALERTS = 'alerts',
     AI_CONSENT = 'ai_consent',
+    TELL_US_MORE = 'tell_us_more',
 }
 
 export interface Dataset {
@@ -6110,4 +6148,22 @@ export interface EnrichedPatternAssignedEvent {
     event: string
     event_type: string | null
     event_index: number
+}
+
+export interface QuickFilterOption {
+    id: string
+    value: string | string[] | null
+    label: string
+    operator: PropertyOperator
+}
+
+export interface QuickFilter {
+    id: string
+    name: string
+    property_name: string
+    type: QuickFilterType
+    options: QuickFilterOption[]
+    contexts: QuickFilterContext[]
+    created_at: string
+    updated_at: string
 }

@@ -147,7 +147,7 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         action["filters"] = {
-            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}],
+            "properties": [{"key": "event", "type": "event_metadata", "value": ["custom_event"], "operator": "exact"}]
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -166,6 +166,166 @@ class TestHogFlowAPI(APIBaseTest):
         assert hog_flow.actions[1]["config"]["inputs"] == snapshot(
             {"url": {"order": 0, "value": "https://example.com", "bytecode": ["_H", 1, 32, "https://example.com"]}}
         )
+
+    def test_hog_flow_conditional_branch_filters_bytecode(self):
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "conditions": [
+                    {
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["custom_event"],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        }
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [trigger_action, conditional_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        conditions = response.json()["actions"][1]["config"]["conditions"]
+        assert "filters" in conditions[0]
+        assert "bytecode" in conditions[0]["filters"], conditions[0]["filters"]
+        assert conditions[0]["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+
+    def test_hog_flow_single_condition_field(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "condition": {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "event",
+                                "type": "event_metadata",
+                                "value": ["custom_event"],
+                                "operator": "exact",
+                            }
+                        ]
+                    }
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Single Condition",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+        condition = response.json()["actions"][1]["config"]["condition"]
+        assert "filters" in condition
+        assert "bytecode" in condition["filters"], condition["filters"]
+        assert condition["filters"]["bytecode"] == snapshot(["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11])
+
+    def test_hog_flow_condition_and_conditions_mutually_exclusive(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        wait_action = {
+            "id": "wait_1",
+            "name": "wait_1",
+            "type": "wait_until_condition",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "condition": {
+                    "filters": {
+                        "properties": [
+                            {
+                                "key": "event",
+                                "type": "event_metadata",
+                                "value": ["custom_event"],
+                                "operator": "exact",
+                            }
+                        ]
+                    }
+                },
+                "conditions": [
+                    {
+                        "filters": {
+                            "properties": [
+                                {
+                                    "key": "event",
+                                    "type": "event_metadata",
+                                    "value": ["another_event"],
+                                    "operator": "exact",
+                                }
+                            ]
+                        }
+                    }
+                ],
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow Mutually Exclusive",
+            "actions": [trigger_action, wait_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+
+        data = response.json()
+        assert data["attr"] == "actions__1__config"
+        assert data["code"] == "invalid_input"
+        assert data["type"] == "validation_error"
 
     def test_hog_flow_enable_disable(self):
         hog_flow, _ = self._create_hog_flow_with_action(
@@ -188,3 +348,47 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
         assert response.json()["status"] == "draft"
+
+    def test_hog_flow_conditional_event_filter_rejected(self):
+        conditional_action = {
+            "id": "cond_1",
+            "name": "cond_1",
+            "type": "function",
+            "config": {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+                "conditions": [
+                    {
+                        "filters": {
+                            "events": [{"id": "custom_event", "name": "custom_event", "type": "events", "order": 0}]
+                        }
+                    }
+                ],
+            },
+        }
+
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {
+                    "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
+                },
+            },
+        }
+
+        hog_flow = {
+            "name": "Test Flow",
+            "actions": [trigger_action, conditional_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__non_field_errors",
+            "code": "invalid_input",
+            "detail": "Event filters are not allowed in conditionals",
+            "type": "validation_error",
+        }

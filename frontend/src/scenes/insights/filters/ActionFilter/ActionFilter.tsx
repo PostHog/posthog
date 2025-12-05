@@ -101,6 +101,8 @@ export interface ActionFilterProps {
     addFilterDocLink?: string
     /** Properties to exclude from the properties filter */
     excludedProperties?: TaxonomicPopoverProps['excludedProperties']
+    /** Allow adding non-captured events */
+    allowNonCapturedEvents?: boolean
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -136,6 +138,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        allowNonCapturedEvents,
     },
     ref
 ): JSX.Element {
@@ -200,6 +203,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         filtersLeftPadding,
         addFilterDocLink,
         excludedProperties,
+        allowNonCapturedEvents,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
