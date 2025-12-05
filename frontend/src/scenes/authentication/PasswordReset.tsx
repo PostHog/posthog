@@ -28,14 +28,14 @@ export const scene: SceneExport = {
 export function PasswordReset(): JSX.Element {
     const { preflight, preflightLoading } = useValues(preflightLogic)
     const { requestPasswordResetSucceeded, requestPasswordResetManualErrors } = useValues(passwordResetLogic)
-    const { reset } = useActions(passwordResetLogic)
+    const { resetRequestPasswordReset } = useActions(passwordResetLogic)
 
     useEffect(() => {
         // reset the logic success states on component unmount
         return () => {
-            reset()
+            resetRequestPasswordReset()
         }
-    }, [reset])
+    }, [resetRequestPasswordReset])
 
     return (
         <BridgePage view="password-reset" footer={<SupportModalButton />}>
