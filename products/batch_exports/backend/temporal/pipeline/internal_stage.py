@@ -1,7 +1,9 @@
 import uuid
+import socket
 import typing
 import asyncio
 import datetime as dt
+import platform
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
@@ -67,6 +69,23 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
+def socket_factory(addr_info):
+    """Socket factory for ``aiohttp.TCPConnector``."""
+    family, type_, proto, _, _ = addr_info
+    sock = socket.socket(family=family, type=type_, proto=proto)
+    # Enable keepalive in the socket
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
+    if platform.system() == "Linux":
+        # Start sending keepalive probes after 30s
+        # Ensure that any idle timeouts allow at least 30s
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+        # Start sending keepalive probes every 10s
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+        # Give up after 5 failed probes
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+    return sock
+
+
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
@@ -79,7 +98,11 @@ async def get_s3_client():
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
         # slower batch exports.
-        config=AioConfig(connect_timeout=60, read_timeout=300, connector_args={"keepalive_timeout": 300}),
+        config=AioConfig(
+            connect_timeout=60,
+            read_timeout=300,
+            connector_args={"keepalive_timeout": 300, "socket_factory": socket_factory},
+        ),
     ) as s3_client:
         yield s3_client
 
