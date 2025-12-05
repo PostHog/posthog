@@ -75,7 +75,7 @@ jobs:
                       --num-shards 40 \
                       --ceiling 60 \
                       --learning-rate 0.3 \
-                      --iterations 50
+                      --iterations 200
                   rm -rf timing_artifacts
 
             - name: Check for changes

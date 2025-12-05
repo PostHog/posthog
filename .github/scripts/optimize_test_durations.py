@@ -87,15 +87,17 @@ def optimize(
 ) -> dict[str, float]:
     """Iteratively optimize synthetic durations for balanced shards."""
     sorted_tests = sorted(real_durations.keys())
-    avg_real = sum(real_durations.values()) / len(real_durations)
     target_per_shard = sum(real_durations.values()) / num_shards
 
-    # Initialize: use real durations, capping obviously inflated values (e.g. first-test setup time)
+    # Initialize: use real durations, but neutralize inflated values
+    # Tests above ceiling (e.g. 60s) are likely first-test-in-shard getting blamed for
+    # global setup time (~240s for Django DB). Their actual test time is negligible,
+    # so set them to a small value rather than avg (which would give them too much weight).
     synthetic = {}
     for test in sorted_tests:
         real = real_durations[test]
         if real > ceiling:
-            synthetic[test] = avg_real
+            synthetic[test] = 0.1  # Negligible - setup time isn't their fault
         else:
             synthetic[test] = max(0.01, real)
 
