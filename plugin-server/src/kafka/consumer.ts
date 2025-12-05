@@ -653,7 +653,7 @@ export class KafkaConsumer {
                 logger.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
                 // Track successful broker commits and update metrics
                 topicPartitionOffsets?.forEach((tpo) => {
-                    const partitionKey = `${tpo.topic}-${tpo.partition}`
+                    const partitionKey = `${tpo.topic}:${tpo.partition}`
                     const now = Date.now()
 
                     counterBrokerCommitAttempts
@@ -926,7 +926,9 @@ export class KafkaConsumer {
                     // Update time since last broker commit for all tracked partitions
                     const now = Date.now()
                     this.lastBrokerCommitTimestamps.forEach((timestamp, partitionKey) => {
-                        const [topic, partition] = partitionKey.split('-')
+                        const lastColonIndex = partitionKey.lastIndexOf(':')
+                        const topic = partitionKey.substring(0, lastColonIndex)
+                        const partition = partitionKey.substring(lastColonIndex + 1)
                         const timeSinceCommit = now - timestamp
                         gaugeTimeSinceLastBrokerCommit
                             .labels({
