@@ -805,11 +805,11 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.297.0
-        version: 1.297.0
+        specifier: 1.302.0
+        version: 1.302.0
       posthog-js-lite:
-        specifier: 4.1.0
-        version: 4.1.0
+        specifier: 4.2.1
+        version: 4.2.1
       prettier:
         specifier: ^3.6.2
         version: 3.6.2
@@ -1235,9 +1235,6 @@ importers:
       '@temporalio/client':
         specifier: ^1.12.0
         version: 1.13.1
-      '@types/lru-cache':
-        specifier: ^5.1.0
-        version: 5.1.1
       '@types/node':
         specifier: ^22.13.14
         version: 22.15.17
@@ -1305,8 +1302,8 @@ importers:
         specifier: ^4.17.21
         version: 4.17.21
       lru-cache:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^11.0.0
+        version: 11.0.2
       luxon:
         specifier: ^3.4.4
         version: 3.5.0
@@ -1771,8 +1768,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.297.0
-        version: 1.297.0
+        specifier: 1.302.0
+        version: 1.302.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2475,8 +2472,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.297.0
-        version: 1.297.0
+        specifier: 1.302.0
+        version: 1.302.0
       react:
         specifier: '*'
         version: 18.2.0
@@ -2547,14 +2544,21 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.297.0
-        version: 1.297.0
+        specifier: 1.302.0
+        version: 1.302.0
       react:
         specifier: '*'
         version: 18.2.0
+      use-debounce:
+        specifier: ^9.0.3
+        version: 9.0.3(react@18.2.0)
       zod:
         specifier: '*'
         version: 3.25.76
+    devDependencies:
+      kea-test-utils:
+        specifier: '*'
+        version: 0.2.4(kea@3.1.7(react@18.2.0))
 
   rust/cyclotron-node:
     devDependencies:
@@ -6483,8 +6487,11 @@ packages:
   '@posthog/core@1.4.0':
     resolution: {integrity: sha512-jmW8/I//YOHAfjzokqas+Qtc2T57Ux8d2uIJu7FLcMGxywckHsl6od59CD18jtUzKToQdjQhV6Y3429qj+KeNw==}
 
-  '@posthog/core@1.5.3':
-    resolution: {integrity: sha512-1cHCMR2uS/rAdBIFlBPJ4rPYaw1O42VkFy/LwQLtoy2hMQb2DdhCoSHfgA66R9TvcOybZsSANlbuihmGEZUKVQ==}
+  '@posthog/core@1.7.0':
+    resolution: {integrity: sha512-d6ZV4grpzeH/6/LP8quMVpSjY1puRkrqfwcPvGRKUAX7tb7YHyp/zMiTDuJmOFbpUxAMBXH5nDwcPiyCY2WGzA==}
+
+  '@posthog/core@1.7.1':
+    resolution: {integrity: sha512-kjK0eFMIpKo9GXIbts8VtAknsoZ18oZorANdtuTj1CbgS28t4ZVq//HAWhnxEuXRTrtkd+SUJ6Ux3j2Af8NCuA==}
 
   '@posthog/icons@0.35.2':
     resolution: {integrity: sha512-JLPjPzaK+K7xy8VSXQ8+u+Bpq9jl1vddIeofX6GcbH98X+C+UG14JFYoCejjAen/xL1o7fBco6uvvmeu+mDfEQ==}
@@ -9525,9 +9532,6 @@ packages:
   '@types/long@4.0.2':
     resolution: {integrity: sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==}
 
-  '@types/lru-cache@5.1.1':
-    resolution: {integrity: sha512-ssE3Vlrys7sdIzs5LOxCzTVMsU7i9oa/IaW92wF32JFb3CVczqOkru2xspuKczHEbG3nvmPY7IFqVmGGHdNbYw==}
-
   '@types/luxon@3.4.2':
     resolution: {integrity: sha512-TifLZlFudklWlMBfhubvgqTXRzLDI5pCbGa4P8a3wPyUQSW+1xQ5eDsreP9DWHX3tjq1ke96uYG/nwundroWcA==}
 
@@ -11298,9 +11302,6 @@ packages:
 
   core-js@3.40.0:
     resolution: {integrity: sha512-7vsMc/Lty6AGnn7uFpYT56QesI5D2Y/UkgKounk87OP9Z2H9Z8kj6jzcSGAxFmUtDOS0ntK6lbQz+Nsa0Jj6mQ==}
-
-  core-js@3.46.0:
-    resolution: {integrity: sha512-vDMm9B0xnqqZ8uSBpZ8sNtRtOdmfShrvT6h2TuQGLs0Is+cR0DYbj/KWP6ALVNbWPpqA/qPLoOuppJN07humpA==}
 
   core-util-is@1.0.2:
     resolution: {integrity: sha512-3lqz5YjWTYnW6dlDa5TLaTCcShfar1e40rmcJVwCBJC6mWlFuj0eCHIElmG1g5kyuJ/GD+8Wn4FFCcz4gJPfaQ==}
@@ -16529,11 +16530,11 @@ packages:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
 
-  posthog-js-lite@4.1.0:
-    resolution: {integrity: sha512-a+MoPmflhYtnKOuDg7tEgeiwT70mWwcZdqeMhduJw/3LPTFMTvnssTJ0jppmnwTkBoPdBgLYTO40l8k64Tl/yQ==}
+  posthog-js-lite@4.2.1:
+    resolution: {integrity: sha512-E5sN4Z9TxEdp/L7HkyuvMs3demijmXcgbtGPj1ykPq+aCyPgGOvL745p4rIPVwzBZoqjoIdqRls8ck+LVRHCdQ==}
 
-  posthog-js@1.297.0:
-    resolution: {integrity: sha512-+kHHe3oTRLPBokks5E2pojDfx0yAzkXLeN8BCfVY9kZ7eaaHuezpFb4DQ7i4hzI5nMFDe5qWotsUO73/GR6lmw==}
+  posthog-js@1.302.0:
+    resolution: {integrity: sha512-cBvxnAyKgcoXnikFJROCSqN8i1x9bm+szj7HOQ92mw3anlW7LK7vZ8hrQ4VNUGNIMu0ogP8djvXW5W8AlWbFcQ==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -16560,6 +16561,9 @@ packages:
 
   preact@10.27.2:
     resolution: {integrity: sha512-5SYSgFKSyhCbk6SrXyMpqjb5+MQBgfvEKE/OC+PujcY34sOpqtr+0AZQtPYx5IA6VxynQ7rUPCtKzyovpj9Bpg==}
+
+  preact@10.28.0:
+    resolution: {integrity: sha512-rytDAoiXr3+t6OIP3WGlDd0ouCUG1iCWzkcY3++Nreuoi17y6T5i/zRhe6uYfoVcxq6YU+sBtJouuRDsq8vvqA==}
 
   prelude-ls@1.2.1:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
@@ -25699,7 +25703,11 @@ snapshots:
 
   '@posthog/core@1.4.0': {}
 
-  '@posthog/core@1.5.3':
+  '@posthog/core@1.7.0':
+    dependencies:
+      cross-spawn: 7.0.6
+
+  '@posthog/core@1.7.1':
     dependencies:
       cross-spawn: 7.0.6
 
@@ -29487,8 +29495,6 @@ snapshots:
 
   '@types/long@4.0.2': {}
 
-  '@types/lru-cache@5.1.1': {}
-
   '@types/luxon@3.4.2': {}
 
   '@types/mapbox__point-geometry@0.1.3': {}
@@ -31574,8 +31580,6 @@ snapshots:
   core-js-pure@3.45.1: {}
 
   core-js@3.40.0: {}
-
-  core-js@3.46.0: {}
 
   core-util-is@1.0.2: {}
 
@@ -38339,14 +38343,16 @@ snapshots:
     dependencies:
       xtend: 4.0.2
 
-  posthog-js-lite@4.1.0: {}
-
-  posthog-js@1.297.0:
+  posthog-js-lite@4.2.1:
     dependencies:
-      '@posthog/core': 1.5.3
-      core-js: 3.46.0
+      '@posthog/core': 1.7.0
+
+  posthog-js@1.302.0:
+    dependencies:
+      '@posthog/core': 1.7.1
+      core-js: 3.40.0
       fflate: 0.4.8
-      preact: 10.27.2
+      preact: 10.28.0
       web-vitals: 4.2.4
 
   posthog-node@5.10.4:
@@ -38373,6 +38379,8 @@ snapshots:
   potpack@2.0.0: {}
 
   preact@10.27.2: {}
+
+  preact@10.28.0: {}
 
   prelude-ls@1.2.1: {}
 

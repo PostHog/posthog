@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { snapshotDataLogic } from 'scenes/session-recordings/player/snapshotDataLogic'
+import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { annotationsModel } from '~/models/annotationsModel'
@@ -28,10 +29,13 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             sessionRecordingId,
             blobV2PollingDisabled,
         })
+        const registryLogic = windowIdRegistryLogic({ sessionRecordingId })
         return {
             actions: [
                 snapshotLogic,
                 ['loadSnapshots', 'loadSnapshotSources', 'loadSnapshotsForSourceSuccess', 'setSnapshots'],
+                registryLogic,
+                ['registerWindowId'],
             ],
             values: [
                 teamLogic,
@@ -40,6 +44,8 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
                 ['annotations', 'annotationsLoading'],
                 snapshotLogic,
                 ['snapshotSources', 'snapshotsBySources', 'snapshotsLoading', 'snapshotsLoaded', 'isLoadingSnapshots'],
+                registryLogic,
+                ['uuidToIndex', 'getWindowId'],
             ],
         }
     }),
@@ -50,7 +56,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
         loadRecordingMeta: true,
         loadRecordingFromFile: (recording: ExportedSessionRecordingFileV2['data']) => ({ recording }),
         maybeLoadRecordingMeta: true,
-        setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setTrackedWindow: (windowId: number | null) => ({ windowId }),
     }),
     reducers(() => ({
         isNotFound: [
@@ -62,7 +68,7 @@ export const sessionRecordingMetaLogic = kea<sessionRecordingMetaLogicType>([
             },
         ],
         trackedWindow: [
-            null as string | null,
+            null as number | null,
             {
                 setTrackedWindow: (_, { windowId }) => windowId,
             },

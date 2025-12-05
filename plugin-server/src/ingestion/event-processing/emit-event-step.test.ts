@@ -71,6 +71,7 @@ describe('emit-event-step', () => {
             person_properties: JSON.stringify({}),
             person_created_at: testTimestamp,
             person_mode: 'full',
+            historical_migration: false,
         }
     })
 
@@ -416,6 +417,7 @@ describe('emit-event-step', () => {
 
         const createHeaders = (overrides: Partial<EventHeaders> = {}): EventHeaders => ({
             force_disable_person_processing: false,
+            historical_migration: false,
             ...overrides,
         })
 

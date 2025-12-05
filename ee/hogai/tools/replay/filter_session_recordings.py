@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.session_recordings.queries.utils import SessionRecordingQueryResult
 from posthog.sync import database_sync_to_async
 
 from products.replay.backend.prompts import (
@@ -177,21 +179,12 @@ class FilterSessionRecordingsTool(MaxTool):
                     content += f"\n...and {total_count - 5} more recordings"
         return content, None
 
-    def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> Any:
+    def _get_recordings_with_filters(self, recordings_query: RecordingsQuery) -> SessionRecordingQueryResult:
         """Get recordings from DB with filters"""
-        from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
-
-        try:
-            query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=recordings_query, hogql_query_modifiers=None
-            )
-            results = query_runner.run()
-        except Exception as e:
-            logger.exception(
-                f"Error getting recordings with filters query ({recordings_query.model_dump_json(exclude_none=True)}): {e}"
-            )
-            return None
-        return results
+        query_runner = SessionRecordingListFromQuery(
+            team=self._team, query=recordings_query, hogql_query_modifiers=None
+        )
+        return query_runner.run()
 
     def _format_recording_metadata(self, recording: dict[str, Any]) -> str:
         """Format recording metadata for display."""
