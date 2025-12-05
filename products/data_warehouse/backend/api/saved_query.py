@@ -341,7 +341,12 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         team_id = self.context["team_id"]
 
         context = HogQLContext(team_id=team_id, enable_select_queries=True)
-        select_ast = parse_select(query["query"])
+
+        try:
+            select_ast = parse_select(query["query"])
+        except Exception as e:
+            error_message = f"Invalid query: {str(e)}"
+            raise exceptions.ValidationError(detail=error_message)
 
         find_placeholders = FindPlaceholders()
         find_placeholders.visit(select_ast)
