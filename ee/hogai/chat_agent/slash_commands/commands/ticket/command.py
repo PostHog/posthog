@@ -11,6 +11,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
+from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantState, PartialAssistantState
 
@@ -23,6 +24,8 @@ class TicketCommand(SlashCommand):
     Summarizes the conversation for the frontend to use when creating a support ticket.
     """
 
+    _window_manager = AnthropicConversationCompactionManager()
+
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         if self._is_first_message(state):
             return PartialAssistantState(
@@ -34,7 +37,10 @@ class TicketCommand(SlashCommand):
                 ]
             )
 
-        summary = await self._summarize_conversation(state.messages)
+        messages_in_window = self._window_manager.get_messages_in_window(
+            state.messages, state.root_conversation_start_id
+        )
+        summary = await self._summarize_conversation(messages_in_window)
 
         return PartialAssistantState(
             messages=[
