@@ -600,7 +600,7 @@ async def materialize_model(
             saved_query.latest_error = error_message
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
-            await set_view_to_never_sync(job, logger)
+            await set_view_to_never_sync(saved_query, logger)
             raise NonRetryableException(f"Query exceeded timeout limit for model {model_label}: {error_message}") from e
         else:
             saved_query.latest_error = f"Query failed to materialize: {error_message}"
@@ -671,12 +671,8 @@ async def mark_job_as_failed(job: DataModelingJob, error_message: str, logger: F
     await database_sync_to_async(job.save)()
 
 
-async def set_view_to_never_sync(job: DataModelingJob, logger: FilteringBoundLogger) -> None:
-    """Update job to set the sync schedule to "never" to protect from high strain on clickhouse"""
-    saved_query: DataWarehouseSavedQuery | None = job.saved_query
-    if not saved_query:
-        await logger.adebug("set_view_to_never_sync: No saved query found for job")
-        return
+async def set_view_to_never_sync(saved_query: DataWarehouseSavedQuery, logger: FilteringBoundLogger) -> None:
+    """Updates saved_query to set the sync schedule to "never" to protect from high strain on clickhouse"""
 
     saved_query.sync_frequency_interval = None
     await database_sync_to_async(saved_query.save)()
