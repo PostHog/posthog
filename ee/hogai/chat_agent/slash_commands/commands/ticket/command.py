@@ -8,7 +8,7 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import AssistantMessage, HumanMessage
+from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, MaxBillingContextSubscriptionLevel
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
 from ee.hogai.core.agent_modes.compaction_manager import AnthropicConversationCompactionManager
@@ -26,7 +26,33 @@ class TicketCommand(SlashCommand):
 
     _window_manager = AnthropicConversationCompactionManager()
 
+    def _can_create_ticket(self, config: RunnableConfig) -> bool:
+        """Check if user's subscription allows ticket creation."""
+        billing_context_data = config.get("configurable", {}).get("billing_context")
+        if not billing_context_data:
+            return False
+
+        billing_context = MaxBillingContext.model_validate(billing_context_data)
+
+        has_paid_subscription = billing_context.subscription_level in (
+            MaxBillingContextSubscriptionLevel.PAID,
+            MaxBillingContextSubscriptionLevel.CUSTOM,
+        )
+        has_active_trial = billing_context.trial is not None and billing_context.trial.is_active
+
+        return has_paid_subscription or has_active_trial
+
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
+        if not self._can_create_ticket(config):
+            return PartialAssistantState(
+                messages=[
+                    AssistantMessage(
+                        content="The `/ticket` command is available for customers on paid plans. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help.",
+                        id=str(uuid4()),
+                    )
+                ]
+            )
+
         if self._is_first_message(state):
             return PartialAssistantState(
                 messages=[

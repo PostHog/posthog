@@ -14,6 +14,8 @@ export interface SlashCommand {
     flag?: FeatureFlagKey
     /** If true, this command is only available when the conversation is idle (not streaming) */
     requiresIdle?: boolean
+    /** If true, this command is only available for users on paid plans or with an active trial */
+    requiresPaidPlan?: boolean
 }
 
 export const MAX_SLASH_COMMANDS: SlashCommand[] = [
@@ -47,5 +49,6 @@ export const MAX_SLASH_COMMANDS: SlashCommand[] = [
         icon: <IconSupport />,
         flag: FEATURE_FLAGS.POSTHOG_AI_TICKET_COMMAND,
         requiresIdle: true,
+        requiresPaidPlan: true,
     },
 ]

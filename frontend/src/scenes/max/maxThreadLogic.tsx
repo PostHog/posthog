@@ -49,7 +49,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -829,18 +829,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags, s.threadLoading],
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
             (
                 question: string,
                 featureFlags: Record<string, boolean | string>,
-                threadLoading: boolean
-            ): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter(
+                threadLoading: boolean,
+                billingContext: MaxBillingContext | null
+            ): SlashCommand[] => {
+                const hasPaidPlan =
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
+                    billingContext?.trial?.is_active ||
+                    process.env.NODE_ENV === 'development'
+
+                return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
                         (!command.flag || featureFlags[command.flag]) &&
-                        (!command.requiresIdle || !threadLoading)
-                ),
+                        (!command.requiresIdle || !threadLoading) &&
+                        (!command.requiresPaidPlan || hasPaidPlan)
+                )
+            },
         ],
 
         showDeepResearchModeToggle: [

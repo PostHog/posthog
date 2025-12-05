@@ -10,6 +10,16 @@ from ee.hogai.chat_agent.slash_commands.commands.ticket import TicketCommand
 from ee.hogai.utils.types import AssistantState
 
 
+def _make_billing_context(subscription_level: str = "paid", trial_active: bool = False):
+    return {
+        "subscription_level": subscription_level,
+        "has_active_subscription": subscription_level != "free",
+        "products": [],
+        "settings": {"autocapture_on": True, "active_destinations": 0},
+        "trial": {"is_active": trial_active, "expires_at": None, "target": None} if trial_active else None,
+    }
+
+
 class TestTicketCommand(BaseTest):
     def setUp(self):
         super().setUp()
@@ -28,7 +38,13 @@ class TestTicketCommand(BaseTest):
                 HumanMessage(content="/ticket"),
             ]
         )
-        config = RunnableConfig(configurable={"thread_id": "test-conversation-id", "trace_id": "test-trace-id"})
+        config = RunnableConfig(
+            configurable={
+                "thread_id": "test-conversation-id",
+                "trace_id": "test-trace-id",
+                "billing_context": _make_billing_context("paid"),
+            }
+        )
 
         result = await self.command.execute(config, state)
 
@@ -47,11 +63,83 @@ class TestTicketCommand(BaseTest):
                 HumanMessage(content="/ticket"),
             ]
         )
+        config = RunnableConfig(
+            configurable={"thread_id": "test-conversation-id", "billing_context": _make_billing_context("paid")}
+        )
+
+        result = await self.command.execute(config, state)
+
+        self.assertEqual(len(result.messages), 1)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("describe your issue", message.content.lower())
+
+    @pytest.mark.asyncio
+    async def test_execute_free_user_returns_upgrade_message(self):
+        """Test that /ticket returns upgrade message for free users."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        config = RunnableConfig(
+            configurable={"thread_id": "test-conversation-id", "billing_context": _make_billing_context("free")}
+        )
+
+        result = await self.command.execute(config, state)
+
+        self.assertEqual(len(result.messages), 1)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("paid plans", message.content)
+
+    @pytest.mark.asyncio
+    async def test_execute_no_billing_context_returns_upgrade_message(self):
+        """Test that /ticket returns upgrade message when no billing context."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
         config = RunnableConfig(configurable={"thread_id": "test-conversation-id"})
 
         result = await self.command.execute(config, state)
 
         self.assertEqual(len(result.messages), 1)
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        assert isinstance(message.content, str)
+        self.assertIn("paid plans", message.content)
+
+    @pytest.mark.asyncio
+    @patch.object(TicketCommand, "_summarize_conversation")
+    async def test_execute_custom_subscription_allowed(self, mock_summarize):
+        """Test that /ticket works for custom subscription level."""
+        mock_summarize.return_value = "Summary"
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Issue"),
+                AssistantMessage(content="Response", id="1"),
+                HumanMessage(content="/ticket"),
+            ]
+        )
+        config = RunnableConfig(
+            configurable={"thread_id": "test-conversation-id", "billing_context": _make_billing_context("custom")}
+        )
+
+        result = await self.command.execute(config, state)
+
+        message = result.messages[0]
+        assert isinstance(message, AssistantMessage)
+        self.assertNotIn("paid plans", message.content)
+
+    @pytest.mark.asyncio
+    async def test_execute_active_trial_allowed(self):
+        """Test that /ticket works for users with active trial."""
+        state = AssistantState(messages=[HumanMessage(content="/ticket")])
+        config = RunnableConfig(
+            configurable={
+                "thread_id": "test-conversation-id",
+                "billing_context": _make_billing_context("free", trial_active=True),
+            }
+        )
+
+        result = await self.command.execute(config, state)
+
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)
