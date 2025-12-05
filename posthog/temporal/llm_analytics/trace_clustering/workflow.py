@@ -69,6 +69,7 @@ class DailyTraceClusteringWorkflow:
                     run_label=inputs.run_label,
                     clustering_method=inputs.clustering_method,
                     clustering_method_params=inputs.clustering_method_params,
+                    visualization_method=inputs.visualization_method,
                 )
             ],
             start_to_close_timeout=constants.COMPUTE_ACTIVITY_TIMEOUT,

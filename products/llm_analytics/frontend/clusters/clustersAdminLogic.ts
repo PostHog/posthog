@@ -19,6 +19,8 @@ export interface ClusteringRunParams {
     kmeans_min_k: number
     kmeans_max_k: number
     run_label: string
+    // Visualization params
+    visualization_method: 'umap' | 'pca' | 'tsne'
 }
 
 export interface ClusteringRunResponse {
@@ -39,6 +41,7 @@ export const DEFAULT_CLUSTERING_PARAMS: ClusteringRunParams = {
     kmeans_min_k: 2,
     kmeans_max_k: 20,
     run_label: '',
+    visualization_method: 'umap',
 }
 
 export const clustersAdminLogic = kea<clustersAdminLogicType>([

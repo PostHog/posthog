@@ -32,6 +32,7 @@ class ClusteringWorkflowInputs:
     # Method-specific params. For HDBSCAN: min_cluster_size_fraction, min_samples
     # For k-means: min_k, max_k (uses silhouette score to pick best k)
     clustering_method_params: dict = field(default_factory=dict)
+    visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
 
 
 @dataclass
@@ -53,6 +54,7 @@ class ClusteringActivityInputs:
     run_label: str = ""  # optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)
     clustering_method: str = "hdbscan"  # "hdbscan" or "kmeans"
     clustering_method_params: dict = field(default_factory=dict)
+    visualization_method: str = "umap"  # "umap", "pca", or "tsne" - method for 2D scatter plot visualization
 
 
 @dataclass

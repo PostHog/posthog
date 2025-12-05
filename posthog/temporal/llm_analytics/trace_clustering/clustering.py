@@ -1,8 +1,11 @@
 """Clustering utilities: HDBSCAN and k-means implementations."""
 
+from typing import Literal
+
 import numpy as np
 from sklearn.cluster import HDBSCAN, KMeans
 from sklearn.decomposition import PCA
+from sklearn.manifold import TSNE
 from sklearn.metrics import silhouette_score
 from umap import UMAP
 
@@ -128,18 +131,20 @@ def select_representatives_from_distances(
 def compute_2d_coordinates(
     embeddings: np.ndarray,
     centroids: np.ndarray,
+    method: Literal["umap", "pca", "tsne"] = "umap",
     n_neighbors: int = 15,
     min_dist: float = 0.1,
     random_state: int = 42,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
-    Reduce high-dimensional embeddings and centroids to 2D coordinates using UMAP.
+    Reduce high-dimensional embeddings and centroids to 2D coordinates for visualization.
 
     Args:
         embeddings: Array of embedding vectors, shape (n_samples, n_features)
         centroids: Array of centroid vectors, shape (n_clusters, n_features)
+        method: Dimensionality reduction method - 'umap', 'pca', or 'tsne'
         n_neighbors: Number of neighbors for UMAP (higher = more global structure)
-        min_dist: Minimum distance between points (lower = tighter clusters)
+        min_dist: Minimum distance between points for UMAP (lower = tighter clusters)
         random_state: Random seed for reproducibility
 
     Returns:
@@ -153,26 +158,49 @@ def compute_2d_coordinates(
     if n_samples < 2:
         return np.zeros((n_samples, 2)), np.zeros((n_clusters, 2))
 
-    # Adjust n_neighbors if we have fewer samples
-    effective_n_neighbors = min(n_neighbors, n_samples - 1)
+    if method == "pca":
+        reducer = PCA(n_components=2, random_state=random_state)
+        trace_coords = reducer.fit_transform(embeddings)
+        if n_clusters == 0:
+            centroid_coords = np.zeros((0, 2))
+        else:
+            centroid_coords = reducer.transform(centroids)
 
-    reducer = UMAP(
-        n_components=2,
-        n_neighbors=effective_n_neighbors,
-        min_dist=min_dist,
-        random_state=random_state,
-        metric="euclidean",
-        init="random",  # Use random init to avoid spectral layout issues with small samples
-    )
+    elif method == "tsne":
+        # t-SNE doesn't support transform(), so we need to fit on all points together
+        if n_clusters == 0:
+            # Adjust perplexity for small samples
+            perplexity = min(30, max(5, n_samples // 3))
+            tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state)
+            trace_coords = tsne.fit_transform(embeddings)
+            centroid_coords = np.zeros((0, 2))
+        else:
+            # Combine embeddings and centroids, then split after transform
+            combined = np.vstack([embeddings, centroids])
+            perplexity = min(30, max(5, len(combined) // 3))
+            tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state)
+            combined_coords = tsne.fit_transform(combined)
+            trace_coords = combined_coords[:n_samples]
+            centroid_coords = combined_coords[n_samples:]
 
-    # Fit on trace embeddings and transform both traces and centroids
-    trace_coords = reducer.fit_transform(embeddings)
+    else:  # default to umap
+        # Adjust n_neighbors if we have fewer samples
+        effective_n_neighbors = min(n_neighbors, n_samples - 1)
 
-    # Handle case where there are no centroids (all points are noise)
-    if n_clusters == 0:
-        centroid_coords = np.zeros((0, 2))
-    else:
-        centroid_coords = reducer.transform(centroids)
+        reducer = UMAP(
+            n_components=2,
+            n_neighbors=effective_n_neighbors,
+            min_dist=min_dist,
+            random_state=random_state,
+            metric="euclidean",
+            init="random",  # Use random init to avoid spectral layout issues with small samples
+        )
+
+        trace_coords = reducer.fit_transform(embeddings)
+        if n_clusters == 0:
+            centroid_coords = np.zeros((0, 2))
+        else:
+            centroid_coords = reducer.transform(centroids)
 
     return trace_coords, centroid_coords
 

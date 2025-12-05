@@ -120,6 +120,14 @@ class ClusteringRunRequestSerializer(serializers.Serializer):
         help_text="Optional label/tag for the clustering run (used as suffix in run_id for tracking experiments)",
     )
 
+    # Visualization parameters
+    visualization_method = serializers.ChoiceField(
+        required=False,
+        default="umap",
+        choices=["umap", "pca", "tsne"],
+        help_text="Method for 2D scatter plot visualization: 'umap', 'pca', or 'tsne'",
+    )
+
 
 class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """ViewSet for triggering and managing clustering workflow runs."""
@@ -146,6 +154,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
         dimensionality_reduction_ndims = serializer.validated_data["dimensionality_reduction_ndims"]
         run_label = serializer.validated_data["run_label"]
         clustering_method = serializer.validated_data["clustering_method"]
+        visualization_method = serializer.validated_data["visualization_method"]
 
         # Build method-specific params dict
         clustering_method_params: dict = {}
@@ -171,6 +180,7 @@ class LLMAnalyticsClusteringRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet)
             run_label=run_label,
             clustering_method=clustering_method,
             clustering_method_params=clustering_method_params,
+            visualization_method=visualization_method,
         )
 
         # Generate unique workflow ID

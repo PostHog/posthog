@@ -166,21 +166,12 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             n_representatives=constants.DEFAULT_TRACES_PER_CLUSTER_FOR_LABELING,
         )
 
-    # Step 5: Compute 2D coordinates for visualization (use original embeddings for better spread)
-    # We need centroids in original embedding space for transform - compute as cluster means
-    noise_cluster_id = constants.NOISE_CLUSTER_ID if inputs.clustering_method == "hdbscan" else -999
-    original_centroids = []
-    for cluster_id in sorted(set(labels_list) - {noise_cluster_id}):
-        cluster_mask = labels_array == cluster_id
-        cluster_center = embeddings_array[cluster_mask].mean(axis=0)
-        original_centroids.append(cluster_center)
-    original_centroids_array = (
-        np.array(original_centroids) if original_centroids else np.zeros((0, embeddings_array.shape[1]))
-    )
-
+    # Step 5: Compute 2D coordinates for visualization
+    # Use the same embeddings that went into clustering so the scatter plot accurately represents the clustering space
     coords_2d, centroid_coords_2d = compute_2d_coordinates(
-        embeddings_array,  # Use original 3072-dim embeddings for visualization
-        original_centroids_array,
+        clustering_embeddings,
+        centroids_array,
+        method=inputs.visualization_method,
     )
 
     return ClusteringComputeResult(
