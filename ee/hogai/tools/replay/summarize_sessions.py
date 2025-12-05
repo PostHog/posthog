@@ -104,16 +104,23 @@ class SummarizeSessionsTool(MaxTool):
         elif isinstance(recordings_filters_or_explicit_session_ids, list):
             llm_provided_session_ids = recordings_filters_or_explicit_session_ids
         # If unexpected type - raise an error
-        else:  # type: ignore[unreachable]
-            msg = f"Unexpected type of recordings_filters_or_explicit_session_ids: {type(recordings_filters_or_explicit_session_ids)}"
+        else:
+            msg = f"Unexpected type of recordings_filters_or_explicit_session_ids: {type(recordings_filters_or_explicit_session_ids)}"  # type: ignore[unreachable]
             logger.error(msg, signals_type="session-summaries")
             raise ValueError(msg)
+        # If LLM provided no session ids - nothing to summarize
+        if not llm_provided_session_ids:
+            return "No sessions were found matching the specified criteria.", None
         # Confirm that the sessions provided by the LLM (through filters or explicitly) are true sessions with events (to avoid DB query failures)
         session_ids = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
             llm_provided_session_ids
         )
-        # No sessions found
+        # LLM provided session ids, but no actual sessions with events were found
         if not session_ids:
+            logger.warning(
+                f"No sessions with events were found for the LLM-provided session IDs: {llm_provided_session_ids}",
+                signals_type="session-summaries",
+            )
             return "No sessions were found matching the specified criteria.", None
         # We have session IDs - start tracking
         summary_type: Literal["single", "group"] = (
