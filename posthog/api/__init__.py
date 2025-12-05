@@ -51,6 +51,7 @@ from products.llm_analytics.backend.api import (
     EvaluationViewSet,
     LLMAnalyticsSummarizationViewSet,
     LLMAnalyticsTextReprViewSet,
+    LLMAnalyticsTranslateViewSet,
     LLMProxyViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
@@ -1024,5 +1025,12 @@ environments_router.register(
     r"llm_analytics/summarization",
     LLMAnalyticsSummarizationViewSet,
     "environment_llm_analytics_summarization",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/translate",
+    LLMAnalyticsTranslateViewSet,
+    "environment_llm_analytics_translate",
     ["team_id"],
 )

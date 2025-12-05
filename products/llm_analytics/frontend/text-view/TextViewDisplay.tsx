@@ -163,6 +163,7 @@ export function TextViewDisplay({
                                     activeLineNumber={lineNumber}
                                     lineNumberPadding={lineNumberPadding}
                                     onCopyPermalink={onCopyPermalink}
+                                    enableLineActions
                                 />
                             </span>
                         )
@@ -185,6 +186,7 @@ export function TextViewDisplay({
                             setPopoutSegment={setPopoutSegment}
                             activeLineNumber={lineNumber}
                             lineNumberPadding={lineNumberPadding}
+                            enableLineActions
                         />
                     )
                 })}

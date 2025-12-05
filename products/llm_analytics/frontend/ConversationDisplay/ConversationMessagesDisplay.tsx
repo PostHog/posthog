@@ -30,6 +30,7 @@ import {
 } from '../utils'
 import { HighlightedLemonMarkdown } from './HighlightedLemonMarkdown'
 import { HighlightedXMLViewer } from './HighlightedXMLViewer'
+import { MessageActionsMenu } from './MessageActionsMenu'
 import { XMLViewer } from './XMLViewer'
 
 export function ConversationMessagesDisplay({
@@ -615,6 +616,9 @@ export const LLMMessageDisplay = React.memo(
                                     iconSize="small"
                                     description="message content"
                                     explicitValue={typeof content === 'string' ? content : JSON.stringify(content)}
+                                />
+                                <MessageActionsMenu
+                                    content={typeof content === 'string' ? content : JSON.stringify(content, null, 2)}
                                 />
                             </>
                         )}
