@@ -92,6 +92,7 @@ const UniversalSearch = (): JSX.Element => {
                     onChange={onChange}
                     size="small"
                     fullWidth
+                    autoFocus={false}
                 />
             </LemonDropdown>
         </BindLogic>
