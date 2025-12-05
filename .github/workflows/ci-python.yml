@@ -183,6 +183,7 @@ jobs:
                     echo "channel=$(jq -r '.channel' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "ts=$(jq -r '.ts' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "since=$(jq -r '.since' .master-ci-incident)" >> $GITHUB_OUTPUT
+                    echo "failCount=$(jq -r '.failCount // 1' .master-ci-incident)" >> $GITHUB_OUTPUT
                     echo "Incident state:"
                     cat .master-ci-incident
                   else
@@ -190,7 +191,16 @@ jobs:
                     echo "No incident found"
                   fi
 
-            # Simulate FAILURE scenario - post new incident
+            # Get commit info for better messages
+            - name: Get commit info
+              id: commit
+              run: |
+                  echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+                  echo "message=$(git log -1 --pretty=%s | head -c 50)" >> $GITHUB_OUTPUT
+                  echo "author=$(git log -1 --pretty=%an)" >> $GITHUB_OUTPUT
+                  echo "url=${{ github.server_url }}/${{ github.repository }}/commit/$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+            # New incident - post initial alert
             - name: Post new incident to Slack (TEST)
               if: steps.incident.outputs.exists == 'false'
               id: slack_new
@@ -201,13 +211,34 @@ jobs:
                   errors: true
                   payload: |
                       channel: "U063CTHPZF0"
-                      text: ":red_circle: *Master is red* (TEST)\nPython CI failed\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+                      text: ":red_circle: Master is red (1 workflow failing) [TEST]"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master is red* (1 workflow failing) [TEST]"
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Workflow*\nPython CI"
+                            - type: "mrkdwn"
+                              text: "*Author*\n${{ steps.commit.outputs.author }}"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View failing run →"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
             - name: Debug Slack response
               if: steps.incident.outputs.exists == 'false'
               run: |
                   echo "Slack OK: ${{ steps.slack_new.outputs.ok }}"
-                  echo "Slack response: ${{ steps.slack_new.outputs.response }}"
                   echo "Slack ts: ${{ steps.slack_new.outputs.ts }}"
                   echo "Slack channel_id: ${{ steps.slack_new.outputs.channel_id }}"
 
@@ -219,7 +250,8 @@ jobs:
                     --arg ts "${{ steps.slack_new.outputs.ts }}" \
                     --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                     --arg firstFailure "Python CI (TEST)" \
-                    '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure}' > .master-ci-incident
+                    --argjson failCount 1 \
+                    '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount}' > .master-ci-incident
                   echo "Saved incident:"
                   cat .master-ci-incident
 
@@ -238,8 +270,49 @@ jobs:
                   path: .master-ci-incident
                   key: master-ci-incident
 
-            # Simulate thread reply if incident exists
-            - name: Thread reply to existing incident (TEST)
+            # Existing incident - update count and add thread reply
+            - name: Calculate new count
+              if: steps.incident.outputs.exists == 'true'
+              id: new_count
+              run: |
+                  count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
+                  echo "count=$count" >> $GITHUB_OUTPUT
+
+            - name: Update Slack message with new count (TEST)
+              if: steps.incident.outputs.exists == 'true'
+              uses: slackapi/slack-github-action@v2.1.0
+              with:
+                  method: chat.update
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ steps.incident.outputs.channel }}"
+                      ts: "${{ steps.incident.outputs.ts }}"
+                      text: ":red_circle: Master is red (${{ steps.new_count.outputs.count }} workflows failing) [TEST]"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *Master is red* (${{ steps.new_count.outputs.count }} workflows failing) [TEST]"
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Latest*\nPython CI"
+                            - type: "mrkdwn"
+                              text: "*Author*\n${{ steps.commit.outputs.author }}"
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: "*Commit*\n<${{ steps.commit.outputs.url }}|${{ steps.commit.outputs.short_sha }}> ${{ steps.commit.outputs.message }}"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View failing run →"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+            - name: Thread reply with failure details (TEST)
               if: steps.incident.outputs.exists == 'true'
               uses: slackapi/slack-github-action@v2.1.0
               with:
@@ -248,4 +321,26 @@ jobs:
                   payload: |
                       channel: "${{ steps.incident.outputs.channel }}"
                       thread_ts: "${{ steps.incident.outputs.ts }}"
-                      text: "Still failing: Python CI (TEST)\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+                      text: "Also failing: *Python CI*\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run →>"
+
+            - name: Update incident state with new count (TEST)
+              if: steps.incident.outputs.exists == 'true'
+              run: |
+                  jq --argjson count ${{ steps.new_count.outputs.count }} '.failCount = $count' .master-ci-incident > .master-ci-incident.tmp
+                  mv .master-ci-incident.tmp .master-ci-incident
+                  cat .master-ci-incident
+
+            - name: Delete old cache (update)
+              if: steps.incident.outputs.exists == 'true'
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh cache delete master-ci-incident || true
+
+            - name: Save updated incident to cache
+              if: steps.incident.outputs.exists == 'true'
+              uses: actions/cache/save@v4
+              with:
+                  path: .master-ci-incident
+                  key: master-ci-incident
