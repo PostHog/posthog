@@ -20005,14 +20005,11 @@
         "PageURL": {
             "additionalProperties": false,
             "properties": {
-                "count": {
-                    "type": "number"
-                },
                 "url": {
                     "type": "string"
                 }
             },
-            "required": ["url", "count"],
+            "required": ["url"],
             "type": "object"
         },
         "PathCleaningFilter": {
@@ -27783,6 +27780,10 @@
         },
         "SimpleIntervalType": {
             "enum": ["day", "month"],
+            "type": "string"
+        },
+        "SlashCommandName": {
+            "enum": ["/init", "/remember", "/usage", "/feedback"],
             "type": "string"
         },
         "SourceConfig": {

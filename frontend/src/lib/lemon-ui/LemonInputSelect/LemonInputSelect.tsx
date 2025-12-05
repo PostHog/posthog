@@ -1,3 +1,5 @@
+import './LemonInputSelect.scss'
+
 import { DndContext, DragEndEvent, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, arrayMove, rectSortingStrategy, useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -508,7 +510,12 @@ export function LemonInputSelect<T = string>({
                     onDragEnd={handleDragEnd}
                 />
                 {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                    <div
+                        className={clsx(
+                            'grow flex flex-col items-end LemonInputSelect__edit-button-wrapper',
+                            size && `LemonInputSelect__edit-button-wrapper--${size}`
+                        )}
+                    >
                         <LemonButton
                             icon={<IconPencil />}
                             onClick={() => {
@@ -538,6 +545,7 @@ export function LemonInputSelect<T = string>({
         setInputValue,
         sortable,
         handleDragEnd,
+        size,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -830,7 +838,7 @@ export function LemonInputSelect<T = string>({
                                 ? undefined
                                 : 'Pick value'
                 }
-                autoWidth={autoWidth}
+                autoWidth={fullWidth ? false : autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={
