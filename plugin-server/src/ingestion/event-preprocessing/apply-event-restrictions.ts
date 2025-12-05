@@ -40,12 +40,12 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
             manager.shouldForceOverflow(token, distinctId, sessionId, eventName, eventUuid)
         ) {
             ingestionOverflowingMessagesTotal.inc()
-            const shouldSkipPerson = manager.shouldSkipPerson(token, distinctId, sessionId, eventName, eventUuid)
-            const preserveKey = shouldSkipPerson ? routingConfig.preservePartitionLocality : true
+            const shouldProcessPerson = !manager.shouldSkipPerson(token, distinctId, sessionId, eventName, eventUuid)
+            const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',
                 routingConfig.overflowTopic,
-                preserveKey,
+                preservePartitionLocality,
                 false
             )
         }
