@@ -15,7 +15,7 @@ import {
 } from '~/ingestion/pipelines/results'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { KafkaProducerWrapper } from '../../../../src/kafka/producer'
 import {
@@ -196,7 +196,7 @@ const person: Person = {
 describe('EventPipelineRunner', () => {
     let runner: TestEventPipelineRunner
     let hub: any
-    let personsStoreForBatch: BatchWritingPersonsStoreForBatch
+    let personsStoreForBatch: BatchWritingPersonsStore
     let groupStoreForBatch: BatchWritingGroupStoreForBatch
 
     const mockProducer: jest.Mocked<KafkaProducerWrapper> = {
@@ -222,7 +222,7 @@ describe('EventPipelineRunner', () => {
             TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0.0,
         }
 
-        personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.db.postgres),
             hub.kafkaProducer
         )
@@ -349,7 +349,7 @@ describe('EventPipelineRunner', () => {
 
                 // setup just enough mocks that the right pipeline runs
 
-                const personsStore = new BatchWritingPersonsStoreForBatch(
+                const personsStore = new BatchWritingPersonsStore(
                     new PostgresPersonRepository(hub.db.postgres),
                     hub.kafkaProducer
                 )

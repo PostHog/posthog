@@ -6,7 +6,7 @@ import { Hub, PipelineEvent, ProjectId, RawKafkaEvent, Team, TimestampFormat } f
 import { castTimestampOrNow } from '../../utils/utils'
 import { EventPipelineResult, EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, PipelineResultType, ok } from '../pipelines/results'
 import { EventPipelineRunnerInput, createEventPipelineRunnerV1Step } from './event-pipeline-runner-v1-step'
 
@@ -75,7 +75,7 @@ const createTestRawKafkaEvent = (overrides: Partial<RawKafkaEvent> = {}): RawKaf
 describe('event-pipeline-runner-v1-step', () => {
     let mockHub: Hub
     let mockHogTransformer: HogTransformerService
-    let mockPersonsStore: PersonsStoreForBatch
+    let mockPersonsStore: PersonsStore
     let mockGroupStore: GroupStoreForBatch
     let mockEventPipelineRunner: jest.Mocked<EventPipelineRunner>
     let mockMessage: Message
@@ -88,7 +88,7 @@ describe('event-pipeline-runner-v1-step', () => {
 
         mockHub = {} as Hub
         mockHogTransformer = {} as HogTransformerService
-        mockPersonsStore = {} as PersonsStoreForBatch
+        mockPersonsStore = {} as PersonsStore
         mockGroupStore = {} as GroupStoreForBatch
 
         mockMessage = {
@@ -135,13 +135,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, [ackPromise])
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -167,13 +166,12 @@ describe('event-pipeline-runner-v1-step', () => {
             ;(retriableError as any).isRetriable = true
             mockEventPipelineRunner.runEventPipeline.mockRejectedValue(retriableError)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -187,13 +185,12 @@ describe('event-pipeline-runner-v1-step', () => {
             ;(nonRetriableError as any).isRetriable = false
             mockEventPipelineRunner.runEventPipeline.mockRejectedValue(nonRetriableError)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -206,13 +203,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const errorWithoutRetriable = new Error('Error without isRetriable')
             mockEventPipelineRunner.runEventPipeline.mockRejectedValue(errorWithoutRetriable)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -234,13 +230,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult, sideEffects)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -261,13 +256,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -288,13 +282,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -321,13 +314,12 @@ describe('event-pipeline-runner-v1-step', () => {
             const mockPipelineResult: PipelineResult<EventPipelineResult> = ok(mockResult)
             mockEventPipelineRunner.runEventPipeline.mockResolvedValue(mockPipelineResult)
 
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -351,13 +343,12 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass processPerson=false and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: false,
                 forceDisablePersonProcessing: true,
@@ -368,13 +359,12 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass processPerson=true and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: false,
@@ -385,13 +375,12 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass processPerson=false and forceDisablePersonProcessing=false to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: false,
                 forceDisablePersonProcessing: false,
@@ -402,13 +391,12 @@ describe('event-pipeline-runner-v1-step', () => {
         })
 
         it('should pass processPerson=true and forceDisablePersonProcessing=true to runEventPipeline', async () => {
-            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer)
+            const step = createEventPipelineRunnerV1Step(mockHub, mockHogTransformer, mockPersonsStore)
             const input: EventPipelineRunnerInput = {
                 message: mockMessage,
                 event: mockEvent,
                 team: mockTeam,
                 headers: mockHeaders,
-                personsStoreForBatch: mockPersonsStore,
                 groupStoreForBatch: mockGroupStore,
                 processPerson: true,
                 forceDisablePersonProcessing: true,
