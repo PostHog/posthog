@@ -675,7 +675,7 @@ async def test_logger_skips_produce_with_log_mode_write(activity_environment, pr
     log_counts = (3, 2)
 
     expected_log_count = 0
-    for log_count, activity in zip(log_counts, activities):
+    for index, (log_count, activity) in enumerate(zip(log_counts, activities)):
         with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
             if fut := activity_environment.run(activity):
                 await fut
@@ -687,14 +687,14 @@ async def test_logger_skips_produce_with_log_mode_write(activity_environment, pr
             await asyncio.sleep(0)
 
         # One log explicitly produced on each activity
-        assert len(queue.entries) == 1 or len(queue.entries) == 2
+        assert len(queue.entries) == index + 1
         await queue.join()
-        assert len(producer.entries) == 1 or len(producer.entries) == 2
+        assert len(producer.entries) == index + 1
 
         expected_log_count += log_count
         assert len(log_capture.write_entries) == expected_log_count
         # One log explicitly produced on each activity
-        assert len(log_capture.produce_entries) == 1 or len(log_capture.produce_entries) == 2
+        assert len(log_capture.produce_entries) == index + 1
 
 
 @freezegun.freeze_time("2023-11-02 10:00:00.123123")
@@ -729,7 +729,7 @@ async def test_logger_skips_write_with_log_mode_produce(activity_environment, pr
     log_counts = (3, 2)
 
     expected_log_count = 0
-    for log_count, activity in zip(log_counts, activities):
+    for index, (log_count, activity) in enumerate(zip(log_counts, activities)):
         with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
             if fut := activity_environment.run(activity):
                 await fut
@@ -744,7 +744,7 @@ async def test_logger_skips_write_with_log_mode_produce(activity_environment, pr
         assert len(producer.entries) == expected_log_count
 
         # One log explicitly written on each activity
-        assert len(log_capture.write_entries) == 1 or len(log_capture.write_entries) == 2
+        assert len(log_capture.write_entries) == index + 1
         assert len(log_capture.produce_entries) == expected_log_count
 
 
