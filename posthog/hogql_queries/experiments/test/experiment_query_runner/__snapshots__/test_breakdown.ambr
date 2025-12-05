@@ -1032,7 +1032,10 @@
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1098,7 +1101,8 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
 # name: TestExperimentBreakdown.test_retention_metric_with_two_breakdowns_0_new_query_builder
@@ -1108,7 +1112,10 @@
          entity_metrics.breakdown_value_2 AS breakdown_value_2,
          count(entity_metrics.entity_id) AS num_users,
          sum(entity_metrics.value) AS total_sum,
-         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares
+         sum(power(entity_metrics.value, 2)) AS total_sum_of_squares,
+         count(entity_metrics.entity_id) AS denominator_sum,
+         count(entity_metrics.entity_id) AS denominator_sum_squares,
+         sum(entity_metrics.value) AS numerator_denominator_sum_product
   FROM
     (SELECT exposures.entity_id AS entity_id,
             exposures.variant AS variant,
@@ -1179,6 +1186,7 @@
                      allow_experimental_analyzer=1,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
   '''
 # ---
