@@ -50,13 +50,15 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 }
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadEndpoint } = useActions(endpointLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadMaterializationStatus } = useActions(
+        endpointLogic({ tabId })
+    )
     const {
         endpoint,
         cacheAge,
         syncFrequency,
         isMaterialized: localIsMaterialized,
-        endpointLoading,
+        materializationStatusLoading,
     } = useValues(endpointLogic({ tabId }))
 
     if (!endpoint) {
@@ -111,8 +113,8 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     <LemonButton
                                         size="xsmall"
                                         icon={<IconRefresh />}
-                                        onClick={() => endpoint.name && loadEndpoint(endpoint.name)}
-                                        loading={endpointLoading}
+                                        onClick={() => endpoint.name && loadMaterializationStatus(endpoint.name)}
+                                        loading={materializationStatusLoading}
                                         tooltip="Refresh status"
                                     />
                                 </div>
