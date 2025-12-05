@@ -74,8 +74,7 @@ def get_actors(
     return response.results
 
 
-class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
-    __test__ = False
+class TestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _setup_basic_test(self):
@@ -644,7 +643,3 @@ class BaseTestFunnelCorrelationActors(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
-
-
-class TestFunnelCorrelationActors(BaseTestFunnelCorrelationActors):
-    __test__ = True

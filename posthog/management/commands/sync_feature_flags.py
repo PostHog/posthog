@@ -10,9 +10,10 @@ from posthog.models import FeatureFlag, Project, User
 # Turn these on for flags that heavily change the behavior and that you wouldn't like
 # your fellow colleagues to see locally
 #
-# Examples of changes that should go here are authentication changes, big UI changes, etc.
+# Examples of changes that should go here are authentication changes, big UI changes, debugging flags, etc.
 INACTIVE_FLAGS = [
     "session-reset-on-load",
+    "debug-react-renders",
     "posthog-3000-nav",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
