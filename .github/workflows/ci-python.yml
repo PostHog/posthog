@@ -198,9 +198,18 @@ jobs:
               with:
                   method: chat.postMessage
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  errors: true
                   payload: |
                       channel: "D063CTJ0B1U"
                       text: ":red_circle: *Master is red* (TEST)\nPython CI failed\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+            - name: Debug Slack response
+              if: steps.incident.outputs.exists == 'false'
+              run: |
+                  echo "Slack OK: ${{ steps.slack_new.outputs.ok }}"
+                  echo "Slack response: ${{ steps.slack_new.outputs.response }}"
+                  echo "Slack ts: ${{ steps.slack_new.outputs.ts }}"
+                  echo "Slack channel_id: ${{ steps.slack_new.outputs.channel_id }}"
 
             - name: Save new incident state (TEST)
               if: steps.incident.outputs.exists == 'false'
