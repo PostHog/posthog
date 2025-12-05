@@ -192,14 +192,16 @@ jobs:
                     echo "No incident found"
                   fi
 
-            # Get commit info for better messages
+            # Get commit info for better messages (use PR head, not merge commit)
             - name: Get commit info
               id: commit
               run: |
-                  echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-                  echo "message=$(git log -1 --pretty=%s | head -c 50)" >> $GITHUB_OUTPUT
-                  echo "author=$(git log -1 --pretty=%an)" >> $GITHUB_OUTPUT
-                  echo "url=${{ github.server_url }}/${{ github.repository }}/commit/$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+                  # Use github.sha for push events, github.event.pull_request.head.sha for PRs
+                  sha="${{ github.event.pull_request.head.sha || github.sha }}"
+                  echo "short_sha=${sha:0:7}" >> $GITHUB_OUTPUT
+                  echo "message=$(git log -1 --pretty=%s $sha | head -c 50)" >> $GITHUB_OUTPUT
+                  echo "author=$(git log -1 --pretty=%an $sha)" >> $GITHUB_OUTPUT
+                  echo "url=${{ github.server_url }}/${{ github.repository }}/commit/$sha" >> $GITHUB_OUTPUT
 
             # New incident - post initial alert
             - name: Post new incident to Slack (TEST)
@@ -246,12 +248,13 @@ jobs:
             - name: Save new incident state (TEST)
               if: steps.incident.outputs.exists == 'false'
               run: |
+                  sha="${{ github.event.pull_request.head.sha || github.sha }}"
                   jq -n \
                     --arg channel "${{ steps.slack_new.outputs.channel_id }}" \
                     --arg ts "${{ steps.slack_new.outputs.ts }}" \
                     --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                     --arg firstFailure "Python CI (TEST)" \
-                    --arg firstCommit "$(git rev-parse HEAD)" \
+                    --arg firstCommit "$sha" \
                     --argjson failCount 1 \
                     --argjson commitCount 1 \
                     '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount, commitCount: $commitCount, commits: [$firstCommit]}' > .master-ci-incident
@@ -282,8 +285,8 @@ jobs:
                   fail_count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
                   echo "failCount=$fail_count" >> $GITHUB_OUTPUT
 
-                  # Check if this commit is new
-                  current_sha="$(git rev-parse HEAD)"
+                  # Check if this commit is new (use PR head, not merge commit)
+                  current_sha="${{ github.event.pull_request.head.sha || github.sha }}"
                   if jq -e --arg sha "$current_sha" '.commits | index($sha)' .master-ci-incident > /dev/null 2>&1; then
                     # Commit already tracked
                     echo "commitCount=${{ steps.incident.outputs.commitCount }}" >> $GITHUB_OUTPUT
@@ -341,7 +344,7 @@ jobs:
             - name: Update incident state with new counts (TEST)
               if: steps.incident.outputs.exists == 'true'
               run: |
-                  current_sha="$(git rev-parse HEAD)"
+                  current_sha="${{ github.event.pull_request.head.sha || github.sha }}"
                   jq \
                     --argjson failCount ${{ steps.new_count.outputs.failCount }} \
                     --argjson commitCount ${{ steps.new_count.outputs.commitCount }} \
