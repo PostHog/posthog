@@ -201,7 +201,8 @@ export class EventsProcessor {
     async createEvent(
         preIngestionEvent: PreIngestionEvent,
         person: Person,
-        processPerson: boolean
+        processPerson: boolean,
+        historicalMigration = false
     ): Promise<RawKafkaEvent> {
         const { eventUuid: uuid, event, teamId, projectId, distinctId, properties, timestamp } = preIngestionEvent
 
@@ -256,6 +257,8 @@ export class EventsProcessor {
             person_properties: eventPersonProperties,
             person_created_at: castTimestampOrNow(person.created_at, TimestampFormat.ClickHouseSecondPrecision),
             person_mode: personMode,
+            // Only include historical_migration when true to avoid bloating messages
+            ...(historicalMigration ? { historical_migration: true } : {}),
         }
 
         const team = await this.teamManager.getTeam(teamId)

@@ -6,8 +6,7 @@ from typing import Optional
 import structlog
 from temporalio import activity
 
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.cluster import get_cluster
 from posthog.models import MaterializedColumnSlot
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.property_definition import PropertyType
@@ -40,15 +39,21 @@ class UpdateSlotStateInputs:
     error_message: Optional[str] = None
 
 
-def _generate_property_extraction_sql(property_name: str, property_type: str) -> str:
+def _generate_property_extraction_sql(property_type: str) -> str:
     """
     Generate SQL expression to extract property value from JSON properties column.
+
+    Uses %(property_name)s placeholder for safe parameterization (matching HogQL pattern).
+    Caller must pass property_name in the query params dict.
 
     Mimics the HogQL property type wrappers (toFloat, toBool, toDateTime) applied
     to JSON-extracted values to ensure identical behavior.
     """
-    # Base JSON extraction with quote trimming (same as HogQL printer)
-    base_extract = trim_quotes_expr(f"JSONExtractRaw(properties, '{property_name}')")
+    # Base JSON extraction with quote trimming and nullIf handling (same as HogQL printer)
+    # HogQL pattern: replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(...), ''), 'null'), '^"|"$', '')
+    base_extract = (
+        "replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, %(property_name)s), ''), 'null'), '^\"|\"$', '')"
+    )
 
     if property_type == PropertyType.String:
         return base_extract
@@ -63,11 +68,11 @@ def _generate_property_extraction_sql(property_name: str, property_type: str) ->
         return f"transform(toString({base_extract}), ['true', 'false'], [1, 0], NULL)"
 
     elif property_type == PropertyType.Datetime:
-        # Match HogQL's toDateTime() which uses parseDateTimeBestEffort
-        return f"""coalesce(
-            parseDateTimeBestEffortOrNull({base_extract}),
-            parseDateTimeBestEffortOrNull(substring({base_extract}, 1, 10))
-        )"""
+        # Match HogQL's toDateTime() -> parseDateTime64BestEffortOrNull with precision 6
+        # See posthog/hogql/printer.py L1391-1392 and posthog/hogql/functions/clickhouse/conversions.py L112-127
+        # Timezone param omitted - uses server default (UTC). Most datetime strings have explicit
+        # timezone info anyway, and for ambiguous strings UTC is a reasonable default.
+        return f"parseDateTime64BestEffortOrNull({base_extract}, 6)"
 
     else:
         raise ValueError(f"Unsupported property type for materialization: {property_type}")
@@ -78,21 +83,27 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     """
     Backfill a materialized column by running ALTER TABLE UPDATE on historical events.
 
-    Returns the number of rows affected (from ClickHouse mutation info).
+    Runs the mutation on all shards since sharded_events is a sharded table.
+    Uses mutations_sync=1 to block until each shard's mutation completes.
+
+    Returns 0 (row count not tracked).
     """
-    # Generate the SQL expression for extracting the property
-    extraction_sql = _generate_property_extraction_sql(inputs.property_name, inputs.property_type)
+    extraction_sql = _generate_property_extraction_sql(inputs.property_type)
 
-    # Build the ALTER TABLE UPDATE query
-    partition_clause = f"IN PARTITION '{inputs.partition_id}'" if inputs.partition_id else ""
-
-    # Note: Using sharded_events table directly (not distributed table)
+    partition_clause = "IN PARTITION %(partition_id)s" if inputs.partition_id else ""
     query = f"""
         ALTER TABLE sharded_events
         UPDATE {inputs.mat_column_name} = {extraction_sql}
         {partition_clause}
         WHERE team_id = %(team_id)s
     """
+
+    params: dict[str, str | int] = {
+        "team_id": inputs.team_id,
+        "property_name": inputs.property_name,
+    }
+    if inputs.partition_id:
+        params["partition_id"] = inputs.partition_id
 
     logger.info(
         "Starting backfill for materialized column",
@@ -104,19 +115,22 @@ def backfill_materialized_column(inputs: BackfillMaterializedColumnInputs) -> in
     )
 
     try:
-        # Execute the ALTER TABLE UPDATE mutation
-        sync_execute(query, {"team_id": inputs.team_id})
+        cluster = get_cluster()
 
-        # Note: ClickHouse mutations are async, so we can't get exact row count immediately
-        # The mutation will complete in the background
+        # Execute mutation on one host per shard with mutations_sync=1
+        # This blocks until the mutation completes on each shard
+        def run_mutation(client):
+            client.execute(query, params, settings={"mutations_sync": 1})
+
+        cluster.map_one_host_per_shard(run_mutation).result()
+
         logger.info(
-            "Backfill mutation submitted successfully",
+            "Backfill mutation completed on all shards",
             team_id=inputs.team_id,
             property_name=inputs.property_name,
             mat_column_name=inputs.mat_column_name,
         )
 
-        # Return 0 since we don't have row count (mutation is async in ClickHouse)
         return 0
 
     except Exception as e:
