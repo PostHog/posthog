@@ -8,7 +8,7 @@ class Settings(BaseSettings):
     port: int = 8080
     debug: bool = False
 
-    database_url: str = "postgresql://localhost:5432/posthog"
+    database_url: str = "postgres://posthog:posthog@localhost:5432/posthog"
     db_pool_min_size: int = 2
     db_pool_max_size: int = 10
 
