@@ -4,7 +4,7 @@ import collections.abc
 
 import temporalio.common
 
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.transformer import ChunkTransformerProtocol
@@ -12,8 +12,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, raise_on_task_failure
 from products.batch_exports.backend.temporal.utils import cast_record_batch_json_columns
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
 
 
 class Consumer:
@@ -25,7 +24,6 @@ class Consumer:
 
     def __init__(self):
         self.logger = LOGGER.bind()
-        self.external_logger = EXTERNAL_LOGGER.bind()
 
         # Progress tracking
         self.total_record_batches_count = 0
