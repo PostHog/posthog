@@ -1,4 +1,3 @@
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -83,9 +82,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
     },
 }
 
-/** Returns the URL for the onboarding entry point based on feature flags */
-export function getOnboardingEntryUrl(featureFlags: Record<string, string | boolean | undefined>): string {
-    // Default to use-case selection unless explicitly set to 'control'
-    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] !== 'control'
-    return useUseCaseSelection ? urls.useCaseSelection() : urls.products()
+/** Returns the URL for the onboarding entry point */
+export function getOnboardingEntryUrl(): string {
+    return urls.useCaseSelection()
 }

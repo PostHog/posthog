@@ -13,7 +13,6 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
@@ -328,14 +327,7 @@ export const sceneLogic = kea<sceneLogicType>([
             inviteLogic,
             ['hideInviteModal'],
         ],
-        values: [
-            billingLogic,
-            ['billing'],
-            organizationLogic,
-            ['organizationBeingDeleted'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [billingLogic, ['billing'], organizationLogic, ['organizationBeingDeleted']],
     })),
     afterMount(({ cache }) => {
         cache.mountedTabLogic = {} as Record<string, () => void>
@@ -1180,10 +1172,7 @@ export const sceneLogic = kea<sceneLogicType>([
                                     return
                                 }
 
-                                router.actions.replace(
-                                    getOnboardingEntryUrl(values.featureFlags),
-                                    nextUrl ? { next: nextUrl } : undefined
-                                )
+                                router.actions.replace(getOnboardingEntryUrl(), nextUrl ? { next: nextUrl } : undefined)
                                 return
                             }
 

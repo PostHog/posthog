@@ -7,7 +7,6 @@ import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAu
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isUserLoggedIn } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
 
@@ -44,9 +43,6 @@ export const organizationLogic = kea<organizationLogicType>([
         }),
         deleteOrganizationSuccess: ({ redirectPath }: { redirectPath?: string }) => ({ redirectPath }),
         deleteOrganizationFailure: true,
-    }),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
     }),
     connect([userLogic]),
     reducers({
@@ -141,7 +137,7 @@ export const organizationLogic = kea<organizationLogicType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentOrganizationSuccess: ({ currentOrganization }) => {
             if (currentOrganization) {
                 ApiConfig.setCurrentOrganizationId(currentOrganization.id)
@@ -149,7 +145,7 @@ export const organizationLogic = kea<organizationLogicType>([
         },
         createOrganizationSuccess: () => {
             sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
-            window.location.href = getOnboardingEntryUrl(values.featureFlags)
+            window.location.href = getOnboardingEntryUrl()
         },
         updateOrganizationSuccess: () => {
             lemonToast.success('Organization updated successfully!')

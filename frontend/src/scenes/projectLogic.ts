@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -30,7 +29,7 @@ export const projectLogic = kea<projectLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
         ],
-        values: [featureFlagLogic, ['featureFlags'], userLogic, ['otherOrganizations']],
+        values: [userLogic, ['otherOrganizations']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -123,7 +122,7 @@ export const projectLogic = kea<projectLogicType>([
                     : null,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -143,7 +142,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, getOnboardingEntryUrl(values.featureFlags))
+                actions.switchTeam(currentProject.id, getOnboardingEntryUrl())
             }
         },
 

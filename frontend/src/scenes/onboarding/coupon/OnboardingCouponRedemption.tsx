@@ -1,10 +1,8 @@
-import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconArrowRight } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { CouponRedemption } from 'scenes/coupons/CouponRedemption'
 import { parseCouponCampaign } from 'scenes/coupons/utils'
 import { getOnboardingEntryUrl } from 'scenes/onboarding/utils'
@@ -15,11 +13,10 @@ export const scene: SceneExport = {
 }
 
 export function OnboardingCouponRedemption(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const campaign = parseCouponCampaign(router.values.currentLocation.pathname) || ''
 
     const continueToOnboarding = (): void => {
-        router.actions.push(getOnboardingEntryUrl(featureFlags))
+        router.actions.push(getOnboardingEntryUrl())
     }
 
     return (
