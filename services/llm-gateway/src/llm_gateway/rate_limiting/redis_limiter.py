@@ -10,8 +10,9 @@ class RateLimiter:
     """
     Redis-backed rate limiter with local fallback.
 
-    Uses a sliding window counter in Redis for global rate limiting.
-    Falls back to in-memory token bucket if Redis is unavailable.
+    Implements dual-limit rate limiting (burst and sustained) using fixed window
+    counters with expiration in Redis. Falls back to in-memory token bucket
+    limiters if Redis is unavailable.
     """
 
     def __init__(
@@ -80,5 +81,5 @@ class RateLimiter:
 
             return True, None
         except Exception:
-            logger.warning("redis_rate_limit_check_failed", user_id=user_id)
+            logger.exception("redis_rate_limit_check_failed", user_id=user_id)
             return True, None

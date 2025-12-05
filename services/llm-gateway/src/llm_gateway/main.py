@@ -125,6 +125,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if app.state.redis:
         await app.state.redis.aclose()
         logger.info("Redis closed")
+    logger.info("Closing database pool...")
     await close_db_pool(app.state.db_pool)
     logger.info("Database pool closed")
 
