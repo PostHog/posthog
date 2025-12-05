@@ -30,10 +30,22 @@ DEFAULT_LEARNING_RATE = 0.3
 DEFAULT_ITERATIONS = 50
 
 
-def load_timing_artifacts(artifacts_dir: Path) -> dict[str, float]:
-    """Load and merge timing data from all shard artifacts."""
+def load_timing_artifacts(artifacts_dir: Path, segment: str | None = None) -> dict[str, float]:
+    """Load and merge timing data from shard artifacts.
+
+    Args:
+        artifacts_dir: Directory containing timing artifacts
+        segment: If provided, only load artifacts from this segment (e.g., "Core")
+                 Artifact dirs are named like "timing_data-Core-1", "timing_data-Temporal-5"
+    """
     durations = {}
     for timing_file in artifacts_dir.rglob(".test_durations"):
+        # Filter by segment if specified
+        if segment:
+            # Parent dir name is like "timing_data-Core-1"
+            parent_name = timing_file.parent.name
+            if not parent_name.startswith(f"timing_data-{segment}-"):
+                continue
         with open(timing_file) as f:
             durations.update(json.load(f))
     return durations
@@ -164,11 +176,19 @@ def main():
         default=DEFAULT_ITERATIONS,
         help=f"Number of optimization iterations (default: {DEFAULT_ITERATIONS})",
     )
+    parser.add_argument(
+        "--segment",
+        type=str,
+        default=None,
+        help="Only load artifacts from this segment (e.g., 'Core'). Filters by artifact dir name.",
+    )
 
     args = parser.parse_args()
 
     logger.info("Loading timing artifacts from %s...", args.artifacts_dir)
-    real_durations = load_timing_artifacts(args.artifacts_dir)
+    if args.segment:
+        logger.info("  Filtering to segment: %s", args.segment)
+    real_durations = load_timing_artifacts(args.artifacts_dir, segment=args.segment)
     logger.info("  Total tests: %d", len(real_durations))
 
     target = sum(real_durations.values()) / args.num_shards

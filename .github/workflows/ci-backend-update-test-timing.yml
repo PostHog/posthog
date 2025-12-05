@@ -71,11 +71,14 @@ jobs:
 
             - name: Optimize timing data for balanced shards
               run: |
+                  # Only use Core segment artifacts - that's the 40-shard config we optimize for
+                  # Temporal segment has different tests and fewer shards (10), mixing them skews boundaries
                   python3 .github/scripts/optimize_test_durations.py timing_artifacts .test_durations \
                       --num-shards 40 \
                       --ceiling 60 \
                       --learning-rate 0.3 \
-                      --iterations 200
+                      --iterations 200 \
+                      --segment Core
                   rm -rf timing_artifacts
 
             - name: Check for changes
