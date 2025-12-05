@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
 from posthog.schema import (
+    AgentMode,
     ArtifactContentType,
     ArtifactSource,
     AssistantMessage,
@@ -99,6 +100,100 @@ class TestConversationSerializers(APIBaseTest):
         self.assertEqual(data["messages"], [])
         self.assertTrue(data["has_unsupported_content"])
 
+    def test_has_unsupported_content_on_other_errors(self):
+        """On non-validation errors, has_unsupported_content should be False."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation with graph error", type=Conversation.Type.ASSISTANT
+        )
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+            mock_get_state.side_effect = RuntimeError("Graph compilation failed")
+
+            data = ConversationSerializer(
+                conversation,
+                context={
+                    "team": self.team,
+                    "user": self.user,
+                },
+            ).data
+
+        self.assertEqual(data["messages"], [])
+        self.assertFalse(data["has_unsupported_content"])
+
+    def test_has_unsupported_content_on_success(self):
+        """On successful message fetch, has_unsupported_content should be False."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Valid conversation", type=Conversation.Type.ASSISTANT
+        )
+
+        state = AssistantState(messages=[AssistantMessage(content="Test message", type="ai")])
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = state.model_dump()
+
+            mock_get_state.return_value = MockSnapshot()
+
+            data = ConversationSerializer(
+                conversation,
+                context={
+                    "team": self.team,
+                    "user": self.user,
+                },
+            ).data
+
+        self.assertEqual(len(data["messages"]), 1)
+        self.assertFalse(data["has_unsupported_content"])
+
+    def test_agent_mode_defaults_when_missing(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation without agent mode", type=Conversation.Type.ASSISTANT
+        )
+
+        state = AssistantState(messages=[AssistantMessage(content="Test message", type="ai")])
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = state.model_dump()
+
+            mock_get_state.return_value = MockSnapshot()
+
+            data = ConversationSerializer(
+                conversation,
+                context={
+                    "team": self.team,
+                    "user": self.user,
+                },
+            ).data
+
+        self.assertEqual(data["agent_mode"], AgentMode.PRODUCT_ANALYTICS.value)
+
+    def test_agent_mode_returns_state_value(self):
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation with agent mode", type=Conversation.Type.ASSISTANT
+        )
+
+        state = AssistantState(messages=[AssistantMessage(content="Test message", type="ai")], agent_mode=AgentMode.SQL)
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+
+            class MockSnapshot:
+                values = state.model_dump()
+
+            mock_get_state.return_value = MockSnapshot()
+
+            data = ConversationSerializer(
+                conversation,
+                context={
+                    "team": self.team,
+                    "user": self.user,
+                },
+            ).data
+
+        self.assertEqual(data["agent_mode"], AgentMode.SQL.value)
+
     def test_caching_prevents_duplicate_operations(self):
         """This is to test that the caching works correctly as to not incurring in unnecessary operations (We would do a DRF call per field call)."""
         conversation = Conversation.objects.create(
@@ -125,6 +220,7 @@ class TestConversationSerializers(APIBaseTest):
             # Explicitly access both fields multiple times
             _ = serializer.data["messages"]
             _ = serializer.data["has_unsupported_content"]
+            _ = serializer.data["agent_mode"]
             _ = serializer.data["messages"]
             _ = serializer.data["has_unsupported_content"]
 

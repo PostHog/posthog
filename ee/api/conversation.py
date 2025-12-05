@@ -17,7 +17,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict, QuotaLimitExceeded
@@ -85,6 +85,7 @@ class MessageSerializer(serializers.Serializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     deep_research_mode = serializers.BooleanField(required=False, default=False)
+    agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
 
     def validate(self, data):
         if data["content"] is not None:
@@ -110,6 +111,11 @@ class MessageSerializer(serializers.Serializer):
                 capture_exception(e)
                 # billing data relies on a lot of legacy code, this might break and we don't want to block the conversation
                 data["billing_context"] = None
+        if agent_mode := data.get("agent_mode"):
+            try:
+                data["agent_mode"] = AgentMode(agent_mode)
+            except ValueError:
+                raise serializers.ValidationError("Invalid agent mode.")
         return data
 
 
@@ -219,6 +225,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             session_id=request.headers.get("X-POSTHOG-SESSION-ID"),  # Relies on posthog-js __add_tracing_headers
             billing_context=serializer.validated_data.get("billing_context"),
             mode=AssistantMode.ASSISTANT,
+            agent_mode=serializer.validated_data.get("agent_mode"),
         )
         workflow_class = AssistantConversationRunnerWorkflow
 

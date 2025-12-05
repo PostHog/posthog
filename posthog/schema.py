@@ -695,16 +695,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ContextMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["context"] = "context"
-
-
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -2332,6 +2322,14 @@ class MinimalHedgehogConfig(BaseModel):
     accessories: list[str]
     color: HedgehogColorOptions | None = None
     use_as_profile: bool
+
+
+class ModeContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AgentMode
+    type: Literal["mode"] = "mode"
 
 
 class MultiQuestionFormQuestionOption(BaseModel):
@@ -8236,6 +8234,17 @@ class CalendarHeatmapResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    meta: ModeContext | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["context"] = "context"
 
 
 class ConversionGoalFilter1(BaseModel):

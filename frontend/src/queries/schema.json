@@ -7780,6 +7780,9 @@
                 "id": {
                     "type": "string"
                 },
+                "meta": {
+                    "$ref": "#/definitions/ContextMessageMetadata"
+                },
                 "parent_tool_call_id": {
                     "type": "string"
                 },
@@ -7790,6 +7793,16 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "ContextMessageMetadata": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ModeContext"
+                },
+                {
+                    "type": "null"
+                }
+            ]
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -19696,6 +19709,20 @@
                 }
             },
             "required": ["use_as_profile", "color", "accessories"],
+            "type": "object"
+        },
+        "ModeContext": {
+            "additionalProperties": false,
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/AgentMode"
+                },
+                "type": {
+                    "const": "mode",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "mode"],
             "type": "object"
         },
         "MultiQuestionForm": {

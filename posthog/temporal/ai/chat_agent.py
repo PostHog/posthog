@@ -9,7 +9,7 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.schema import HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 from posthog.temporal.ai.base import AgentBaseWorkflow
@@ -44,6 +44,7 @@ class AssistantConversationRunnerWorkflowInputs:
     session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
     billing_context: Optional[MaxBillingContext] = None
+    agent_mode: AgentMode | None = None
 
 
 @workflow.defn(name="conversation-processing")
@@ -98,6 +99,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         billing_context=inputs.billing_context,
+        agent_mode=inputs.agent_mode,
     )
 
     stream_key = get_conversation_stream_key(inputs.conversation_id)
