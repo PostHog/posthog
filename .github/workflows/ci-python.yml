@@ -159,3 +159,87 @@ jobs:
             #   shell: bash
             #   run: |
             #       npm run taxonomy:build:json && git diff --exit-code
+
+    # TEMPORARY: Test master CI status Slack integration
+    test-master-ci-status:
+        needs: changes
+        if: needs.changes.outputs.python == 'true'
+        runs-on: ubuntu-latest
+        steps:
+            - name: Get incident state
+              id: incident
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      try {
+                        const { data } = await github.rest.actions.getRepoVariable({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          name: 'MASTER_CI_INCIDENT'
+                        });
+                        const incident = data.value ? JSON.parse(data.value) : null;
+                        core.setOutput('exists', incident ? 'true' : 'false');
+                        core.setOutput('channel', incident?.channel || '');
+                        core.setOutput('ts', incident?.ts || '');
+                        core.setOutput('since', incident?.since || '');
+                        console.log('Incident state:', incident);
+                      } catch (e) {
+                        if (e.status === 404) {
+                          core.setOutput('exists', 'false');
+                          console.log('No incident variable found');
+                        } else throw e;
+                      }
+
+            # Simulate FAILURE scenario - post new incident
+            - name: Post new incident to Slack (TEST)
+              if: steps.incident.outputs.exists == 'false'
+              id: slack_new
+              uses: slackapi/slack-github-action@v2.1.0
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "D063CTJ0B1U"
+                      text: ":red_circle: *Master is red* (TEST)\nPython CI failed\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+
+            - name: Save new incident state (TEST)
+              if: steps.incident.outputs.exists == 'false'
+              uses: actions/github-script@v7
+              with:
+                  script: |
+                      const value = JSON.stringify({
+                        channel: '${{ steps.slack_new.outputs.channel_id }}',
+                        ts: '${{ steps.slack_new.outputs.ts }}',
+                        since: new Date().toISOString(),
+                        firstFailure: 'Python CI (TEST)'
+                      });
+                      console.log('Saving incident:', value);
+                      try {
+                        await github.rest.actions.updateRepoVariable({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          name: 'MASTER_CI_INCIDENT',
+                          value
+                        });
+                      } catch (e) {
+                        if (e.status === 404) {
+                          await github.rest.actions.createRepoVariable({
+                            owner: context.repo.owner,
+                            repo: context.repo.repo,
+                            name: 'MASTER_CI_INCIDENT',
+                            value
+                          });
+                        } else throw e;
+                      }
+
+            # Simulate thread reply if incident exists
+            - name: Thread reply to existing incident (TEST)
+              if: steps.incident.outputs.exists == 'true'
+              uses: slackapi/slack-github-action@v2.1.0
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_BOT_TOKEN }}
+                  payload: |
+                      channel: "${{ steps.incident.outputs.channel }}"
+                      thread_ts: "${{ steps.incident.outputs.ts }}"
+                      text: "Still failing: Python CI (TEST)\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
