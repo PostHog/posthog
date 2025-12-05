@@ -175,6 +175,7 @@ async fn main() -> Result<()> {
         } else {
             // production: use JSON format Loki/Grafana can extract useful filter tags from
             base.json()
+                .with_span_list(false)
                 .with_filter(EnvFilter::from_default_env())
                 .boxed()
         }
