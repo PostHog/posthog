@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 
+import supportedLanguagesJson from '../../shared/supported_languages.json'
 import type { messageActionsMenuLogicType } from './messageActionsMenuLogicType'
 
 const STORAGE_KEY = 'posthog-translate-language'
@@ -20,20 +21,10 @@ const hashString = (str: string): string => {
     return hash.toString(36)
 }
 
-export const SUPPORTED_LANGUAGES = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Spanish' },
-    { value: 'fr', label: 'French' },
-    { value: 'de', label: 'German' },
-    { value: 'pt', label: 'Portuguese' },
-    { value: 'zh', label: 'Chinese' },
-    { value: 'ja', label: 'Japanese' },
-    { value: 'ko', label: 'Korean' },
-    { value: 'it', label: 'Italian' },
-    { value: 'nl', label: 'Dutch' },
-    { value: 'ru', label: 'Russian' },
-    { value: 'ar', label: 'Arabic' },
-] as const
+export const SUPPORTED_LANGUAGES = supportedLanguagesJson.map((lang) => ({
+    value: lang.code,
+    label: lang.label,
+})) as readonly { value: string; label: string }[]
 
 export type LanguageCode = (typeof SUPPORTED_LANGUAGES)[number]['value']
 
