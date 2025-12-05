@@ -71,15 +71,22 @@ jobs:
 
             - name: Optimize timing data for balanced shards
               run: |
-                  # Only use Core segment artifacts - that's the 40-shard config we optimize for
-                  # Temporal segment has different tests and fewer shards (10), mixing them skews boundaries
-                  python3 .github/scripts/optimize_test_durations.py timing_artifacts .test_durations \
-                      --num-shards 40 \
-                      --ceiling 60 \
-                      --learning-rate 0.3 \
-                      --iterations 200 \
-                      --segment Core
-                  rm -rf timing_artifacts
+                  # Optimize each segment separately with its own shard count, then merge
+                  # Core: 40 shards, Temporal: 10 shards
+                  python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                      --num-shards 40 --ceiling 60 --learning-rate 0.3 --iterations 200 --segment Core
+                  python3 .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                      --num-shards 10 --ceiling 60 --learning-rate 0.3 --iterations 200 --segment Temporal
+
+                  # Merge into single file (Core first, then Temporal overwrites any overlaps)
+                  python3 -c "
+                  import json
+                  with open('/tmp/core_durations') as f: durations = json.load(f)
+                  with open('/tmp/temporal_durations') as f: durations.update(json.load(f))
+                  with open('.test_durations', 'w') as f: json.dump(durations, f, separators=(',', ':'), sort_keys=True)
+                  print(f'Merged {len(durations)} tests')
+                  "
+                  rm -rf timing_artifacts /tmp/core_durations /tmp/temporal_durations
 
             - name: Check for changes
               id: check-changes
