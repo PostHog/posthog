@@ -6,7 +6,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -59,27 +59,27 @@ const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSPro
 
 export interface LogRowProps {
     log: ParsedLogMessage
-    isHighlighted: boolean
+    isAtCursor: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
-    onTogglePin: (uuid: string) => void
-    onSetHighlighted: (uuid: string | null) => void
+    onTogglePin: (log: ParsedLogMessage) => void
+    onSetCursor: () => void
     rowWidth?: number
 }
 
 export function LogRow({
     log,
-    isHighlighted,
+    isAtCursor,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onSetHighlighted,
+    onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
@@ -107,19 +107,30 @@ export function LogRow({
                         </span>
                     </div>
                 )
-            case 'message':
+            case 'message': {
+                const isPrettyJson = prettifyJson && log.parsedBody
+                const content = isPrettyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody
+
+                if (isPrettyJson) {
+                    return (
+                        <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
+                            <pre className={cn('font-mono text-xs m-0', wrapBody ? '' : 'whitespace-nowrap truncate')}>
+                                {content}
+                            </pre>
+                        </div>
+                    )
+                }
+
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
                         <span
-                            className={cn(
-                                'font-mono text-xs break-all',
-                                wrapBody || (prettifyJson && log.parsedBody) ? 'whitespace-pre-wrap' : 'truncate'
-                            )}
+                            className={cn('font-mono text-xs', wrapBody ? 'whitespace-pre-wrap break-all' : 'truncate')}
                         >
-                            {log.parsedBody && prettifyJson ? JSON.stringify(log.parsedBody, null, 2) : log.cleanBody}
+                            {content}
                         </span>
                     </div>
                 )
+            }
             case 'actions':
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
@@ -129,13 +140,13 @@ export function LogRow({
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onTogglePin(log.uuid)
+                                onTogglePin(log)
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                         />
                         <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                            <LogsTableRowActions log={log} />
+                            <LogsViewerRowActions log={log} />
                         </div>
                     </div>
                 )
@@ -148,13 +159,13 @@ export function LogRow({
         <div
             className={cn(
                 'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isHighlighted && 'bg-primary-highlight',
+                isAtCursor && 'bg-primary-highlight',
                 pinned && 'bg-warning-highlight',
                 pinned && showPinnedWithOpacity && 'opacity-50',
                 isNew && 'VirtualizedLogsList__row--new'
             )}
             style={rowWidth ? { width: rowWidth } : undefined}
-            onClick={() => onSetHighlighted(isHighlighted ? null : log.uuid)}
+            onClick={onSetCursor}
         >
             {LOG_COLUMNS.map(renderCell)}
         </div>

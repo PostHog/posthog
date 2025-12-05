@@ -16,8 +16,8 @@ import { createRedis } from '~/utils/db/redis'
 import { parseRawClickHouseEvent } from '~/utils/event'
 import { captureTeamEvent } from '~/utils/posthog'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStoreForBatch } from '~/worker/ingestion/persons/persons-store-for-batch'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
 import { createEmitEventStep } from '../../src/ingestion/event-processing/emit-event-step'
 import { isOkResult } from '../../src/ingestion/pipelines/results'
@@ -64,7 +64,7 @@ export async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<unknown>[]) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<unknown>[]) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -103,7 +103,7 @@ describe('processEvent', () => {
             ...data,
         } as any as PluginEvent
 
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        const personsStoreForBatch = new BatchWritingPersonsStore(
             new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )
@@ -227,7 +227,7 @@ describe('processEvent', () => {
             team_id: team.id,
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
+        const personsStoreForBatch = new BatchWritingPersonsStore(
             personRepository || new PostgresPersonRepository(hub.db.postgres),
             hub.db.kafkaProducer
         )

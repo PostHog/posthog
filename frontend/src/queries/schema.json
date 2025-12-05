@@ -7780,6 +7780,9 @@
                 "id": {
                     "type": "string"
                 },
+                "meta": {
+                    "$ref": "#/definitions/ContextMessageMetadata"
+                },
                 "parent_tool_call_id": {
                     "type": "string"
                 },
@@ -7790,6 +7793,16 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "ContextMessageMetadata": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ModeContext"
+                },
+                {
+                    "type": "null"
+                }
+            ]
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -19702,6 +19715,20 @@
             "required": ["use_as_profile", "color", "accessories"],
             "type": "object"
         },
+        "ModeContext": {
+            "additionalProperties": false,
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/AgentMode"
+                },
+                "type": {
+                    "const": "mode",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "mode"],
+            "type": "object"
+        },
         "MultiQuestionForm": {
             "additionalProperties": false,
             "properties": {
@@ -27786,6 +27813,11 @@
                 "featureFlag": {
                     "type": "string"
                 },
+                "featured": {
+                    "default": false,
+                    "description": "Whether this source should be prominently displayed in onboarding flows",
+                    "type": "boolean"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
@@ -28478,6 +28510,9 @@
                     "type": "string"
                 },
                 "inputBackground": {
+                    "type": "string"
+                },
+                "inputTextColor": {
                     "type": "string"
                 },
                 "maxWidth": {
@@ -30395,6 +30430,7 @@
             "enum": [
                 "Visitors",
                 "Views",
+                "AvgTimeOnPage",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -31122,6 +31158,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeAvgTimeOnPage": {
                     "type": "boolean"
                 },
                 "includeBounceRate": {

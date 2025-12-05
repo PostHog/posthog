@@ -96,11 +96,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
-            inner_event_query = self._get_inner_event_query_for_udf(
-                entity_name="events", skip_step_filter=True, skip_entity_filter=True
-            )
+            inner_event_query = self._get_inner_event_query_for_udf(skip_step_filter=True, skip_entity_filter=True)
         else:
-            inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
+            inner_event_query = self._get_inner_event_query_for_udf()
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
