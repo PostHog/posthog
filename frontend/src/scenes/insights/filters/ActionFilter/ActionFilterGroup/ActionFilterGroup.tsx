@@ -63,6 +63,7 @@ export function ActionFilterGroup({
 }: ActionFilterGroupProps): JSX.Element {
     const { updateFilter: updateSeriesFilter, removeLocalFilter, splitLocalFilter } = useActions(logic)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
     const { isHogQLDropdownVisible } = useValues(actionFilterGroupLogic({ filterUuid: filter.uuid }))
     const { setHogQLDropdownVisible } = useActions(actionFilterGroupLogic({ filterUuid: filter.uuid }))
 
@@ -133,14 +134,9 @@ export function ActionFilterGroup({
                         index,
                     } as any)
                 },
-                splitLocalFilter: () => {
-                    // Split is handled at parent level, not needed for nested
-                },
             } as any,
         } as any
     }
-
-    const { setNodeRef, attributes, transform, transition, isDragging } = useSortable({ id: filter.uuid })
 
     const handleOperatorChange = (operator: FilterLogicalOperator): void => {
         updateSeriesFilter({
