@@ -41,23 +41,16 @@ export interface PageURLSearchResult {
 
 /**
  * Creates property filters for URL matching that handles query parameters consistently
+ * Always attempts to parse full URLs into host+pathname filters to enable backend optimizations
  * @param url The URL to match
- * @param stripQueryParams Whether to strip query parameters
- * @param isUsingNewEngine Whether the new query engine (pre-aggregated tables) is enabled
+ * @param stripQueryParams Whether to strip query parameters (used as fallback for regex)
  * @returns An array of property filters for the URL
  */
-export function createUrlPropertyFilter(
-    url: string,
-    stripQueryParams: boolean,
-    isUsingNewEngine: boolean
-): WebAnalyticsPropertyFilters {
-    if (isUsingNewEngine) {
-        const parsed = parseWebAnalyticsURL(url)
+export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilters {
+    // Always try to parse as full URL first - this enables pre-aggregated table optimizations on backend
+    const parsed = parseWebAnalyticsURL(url)
 
-        if (!parsed.isValid || !parsed.host || !parsed.pathname) {
-            return []
-        }
-
+    if (parsed.isValid && parsed.host && parsed.pathname) {
         return [
             {
                 key: 'host',
@@ -74,6 +67,7 @@ export function createUrlPropertyFilter(
         ]
     }
 
+    // Fallback to regex for partial URLs or unparseable input
     return [
         {
             key: '$current_url',
@@ -97,7 +91,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'compareFilter',
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
-                'preAggregatedEnabled',
             ],
         ],
         actions: [webAnalyticsLogic, ['setDates']],
@@ -192,7 +185,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.shouldFilterTestAccounts,
                 s.compareFilter,
                 s.isPathCleaningEnabled,
-                s.preAggregatedEnabled,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -201,8 +193,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
-                isPathCleaningEnabled: boolean,
-                preAggregatedEnabled: boolean
+                isPathCleaningEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -225,7 +216,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
 
                 const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
-                    ...createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled),
+                    ...createUrlPropertyFilter(pageUrl, stripQueryParams),
                 ]
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
@@ -271,9 +262,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ],
                         },
                         properties: [
-                            ...(pageUrl
-                                ? createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled)
-                                : []),
+                            ...(pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : []),
                             {
                                 key: 'event',
                                 value: ['$pageview', '$pageleave'],
@@ -344,13 +333,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.preAggregatedEnabled],
-            (
-                    pageUrl: string | null,
-                    stripQueryParams: boolean,
-                    shouldFilterTestAccounts: boolean,
-                    preAggregatedEnabled: boolean
-                ) =>
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
+            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -385,9 +369,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl
-                            ? createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled)
-                            : [],
+                        properties: pageUrl ? createUrlPropertyFilter(pageUrl, stripQueryParams) : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
