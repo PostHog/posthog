@@ -169,7 +169,6 @@ export const urls = {
         `/links${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     link: (id: string): string => `/link/${id}`,
     sessionAttributionExplorer: (): string => '/web/session-attribution-explorer',
-    webAnalyticsHealthCheck: (): string => '/web/health',
     sessionProfile: (id: string): string => `/sessions/${id}`,
     wizard: (): string => `/wizard`,
     coupons: (campaign: string): string => `/coupons/${campaign}`,

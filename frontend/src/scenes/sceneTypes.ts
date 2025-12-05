@@ -293,6 +293,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.WebAnalyticsMarketing]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,
 
     // Surveys
     [Scene.Survey]: AccessControlResourceType.Survey,
