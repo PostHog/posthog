@@ -508,7 +508,14 @@ export function LemonInputSelect<T = string>({
                     onDragEnd={handleDragEnd}
                 />
                 {isEditButtonVisible && (
-                    <div className="grow flex flex-col items-end">
+                    <div
+                        className={clsx('grow flex flex-col items-end', {
+                            'max-w-6': size === 'xsmall',
+                            'max-w-7': size === 'small',
+                            'max-w-8': size === 'medium',
+                            'max-w-9': size === 'large',
+                        })}
+                    >
                         <LemonButton
                             icon={<IconPencil />}
                             onClick={() => {
@@ -538,6 +545,7 @@ export function LemonInputSelect<T = string>({
         setInputValue,
         sortable,
         handleDragEnd,
+        size,
     ])
 
     // Positioned like a placeholder but rendered via the suffix since the actual placeholder has to be a string
@@ -830,7 +838,7 @@ export function LemonInputSelect<T = string>({
                                 ? undefined
                                 : 'Pick value'
                 }
-                autoWidth={autoWidth}
+                autoWidth={fullWidth ? false : autoWidth}
                 fullWidth={fullWidth}
                 prefix={valuesPrefix}
                 suffix={

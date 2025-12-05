@@ -9,7 +9,6 @@ import {
     NodeKind,
     QuerySchema,
     TrendsQuery,
-    WebAnalyticsPropertyFilter,
     WebAnalyticsPropertyFilters,
     WebPageURLSearchQuery,
     WebStatsBreakdown,
@@ -30,6 +29,7 @@ import {
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
     WebAnalyticsTile,
     WebTileLayout,
+    parseWebAnalyticsURL,
 } from './common'
 import type { pageReportsLogicType } from './pageReportsLogicType'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
@@ -40,18 +40,48 @@ export interface PageURLSearchResult {
 }
 
 /**
- * Creates a property filter for URL matching that handles query parameters consistently
+ * Creates property filters for URL matching that handles query parameters consistently
  * @param url The URL to match
  * @param stripQueryParams Whether to strip query parameters
- * @returns A property filter object for the URL
+ * @param isUsingNewEngine Whether the new query engine (pre-aggregated tables) is enabled
+ * @returns An array of property filters for the URL
  */
-export function createUrlPropertyFilter(url: string, stripQueryParams: boolean): WebAnalyticsPropertyFilter {
-    return {
-        key: '$current_url',
-        value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
-        operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
-        type: PropertyFilterType.Event,
+export function createUrlPropertyFilter(
+    url: string,
+    stripQueryParams: boolean,
+    isUsingNewEngine: boolean
+): WebAnalyticsPropertyFilters {
+    if (isUsingNewEngine) {
+        const parsed = parseWebAnalyticsURL(url)
+
+        if (!parsed.isValid || !parsed.host || !parsed.pathname) {
+            return []
+        }
+
+        return [
+            {
+                key: 'host',
+                value: parsed.host,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+            {
+                key: 'pathname',
+                value: parsed.pathname,
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ]
     }
+
+    return [
+        {
+            key: '$current_url',
+            value: stripQueryParams ? `^${url.split('?')[0]}(\\?.*)?$` : url,
+            operator: stripQueryParams ? PropertyOperator.Regex : PropertyOperator.Exact,
+            type: PropertyFilterType.Event,
+        },
+    ]
 }
 
 export const pageReportsLogic = kea<pageReportsLogicType>({
@@ -67,6 +97,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'compareFilter',
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
+                'preAggregatedEnabled',
             ],
         ],
         actions: [webAnalyticsLogic, ['setDates']],
@@ -76,7 +107,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         setPageUrl: (url: string | string[] | null) => ({ url }),
         setPageUrlSearchTerm: (searchTerm: string) => ({ searchTerm }),
         loadPages: (searchTerm: string = '') => ({ searchTerm }),
-        toggleStripQueryParams: () => ({}),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({
             tileId,
             visualization,
@@ -109,13 +139,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 loadPagesSuccess: () => false,
             },
         ],
-        stripQueryParams: [
-            true,
-            { persist: true },
-            {
-                toggleStripQueryParams: (state: boolean) => !state,
-            },
-        ],
         tileVisualizations: [
             {} as Record<TileId, TileVisualizationOption>,
             { persist: true },
@@ -138,7 +161,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         setLatestVersionsOnQuery({
                             kind: NodeKind.WebPageURLSearchQuery,
                             searchTerm: searchTerm,
-                            stripQueryParams: values.stripQueryParams,
+                            stripQueryParams: true,
                             dateRange: {
                                 date_from: values.dateFilter.dateFrom,
                                 date_to: values.dateFilter.dateTo,
@@ -159,6 +182,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             (selectors) => [selectors.pagesUrlsLoading, selectors.isInitialLoad],
             (pagesUrlsLoading: boolean, isInitialLoad: boolean) => pagesUrlsLoading || isInitialLoad,
         ],
+        stripQueryParams: [() => [], () => true],
         queries: [
             (s) => [
                 s.webAnalyticsTiles,
@@ -168,6 +192,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 s.shouldFilterTestAccounts,
                 s.compareFilter,
                 s.isPathCleaningEnabled,
+                s.preAggregatedEnabled,
             ],
             (
                 webAnalyticsTiles: WebAnalyticsTile[],
@@ -176,7 +201,8 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 dateFilter: typeof webAnalyticsLogic.values.dateFilter,
                 shouldFilterTestAccounts: boolean,
                 compareFilter: CompareFilter,
-                isPathCleaningEnabled: boolean
+                isPathCleaningEnabled: boolean,
+                preAggregatedEnabled: boolean
             ) => {
                 // If we don't have a pageUrl, return empty queries to rendering problems
                 if (!pageUrl) {
@@ -199,7 +225,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }
 
                 const pageReportsPropertyFilters: WebAnalyticsPropertyFilters = [
-                    createUrlPropertyFilter(pageUrl, stripQueryParams),
+                    ...createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled),
                 ]
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
 
@@ -245,7 +271,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             ],
                         },
                         properties: [
-                            ...(pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : []),
+                            ...(pageUrl
+                                ? createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled)
+                                : []),
                             {
                                 key: 'event',
                                 value: ['$pageview', '$pageleave'],
@@ -316,8 +344,13 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 }),
         ],
         combinedMetricsQuery: [
-            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts],
-            (pageUrl: string | null, stripQueryParams: boolean, shouldFilterTestAccounts: boolean) =>
+            (s) => [s.pageUrl, s.stripQueryParams, s.shouldFilterTestAccounts, s.preAggregatedEnabled],
+            (
+                    pageUrl: string | null,
+                    stripQueryParams: boolean,
+                    shouldFilterTestAccounts: boolean,
+                    preAggregatedEnabled: boolean
+                ) =>
                 (dateFilter: typeof webAnalyticsLogic.values.dateFilter): InsightVizNode<TrendsQuery> => ({
                     kind: NodeKind.InsightVizNode,
                     source: {
@@ -352,7 +385,9 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                             showLegend: true,
                         },
                         filterTestAccounts: shouldFilterTestAccounts,
-                        properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
+                        properties: pageUrl
+                            ? createUrlPropertyFilter(pageUrl, stripQueryParams, preAggregatedEnabled)
+                            : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
                     embedded: true,
@@ -580,15 +615,12 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
         ],
     },
 
-    listeners: ({ actions, values }) => ({
+    listeners: ({ actions }) => ({
         setPageUrlSearchTerm: ({ searchTerm }) => {
             actions.loadPages(searchTerm)
         },
         setPageUrl: ({ url }) => {
             router.actions.replace('/web/page-reports', url ? { pageURL: url } : {}, router.values.hashParams)
-        },
-        toggleStripQueryParams: () => {
-            actions.loadPages(values.pageUrlSearchTerm)
         },
         loadPages: ({ searchTerm }) => {
             actions.loadPagesUrls({ searchTerm })
@@ -604,11 +636,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             if (searchParams.pageURL && searchParams.pageURL !== values.pageUrl) {
                 actions.setPageUrl(searchParams.pageURL)
             }
-
-            // Only toggle stripQueryParams if it's explicitly present in the URL
-            if ('stripQueryParams' in searchParams && !!searchParams.stripQueryParams !== values.stripQueryParams) {
-                actions.toggleStripQueryParams()
-            }
         },
     }),
 
@@ -621,17 +648,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             } else {
                 delete searchParams.pageURL
             }
-
-            // Only include stripQueryParams if it's different from the URL
-            if (!!router.values.searchParams.stripQueryParams !== values.stripQueryParams) {
-                searchParams.stripQueryParams = values.stripQueryParams
-            }
-
-            return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
-        },
-        toggleStripQueryParams: () => {
-            const searchParams = { ...router.values.searchParams }
-            searchParams.stripQueryParams = values.stripQueryParams
 
             return ['/web/page-reports', searchParams, router.values.hashParams, { replace: true }]
         },
