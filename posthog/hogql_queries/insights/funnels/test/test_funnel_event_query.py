@@ -117,7 +117,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments AS e
-            WHERE and(and(greaterOrEquals(e.created_at, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.created_at, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
 
@@ -200,7 +200,7 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    0 AS step_2,
                    if(and(1, equals(other_prop, 'other_value')), 1, 0) AS step_3
             FROM table_one AS e
-            WHERE and(and(greaterOrEquals(e.created_at, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.created_at, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_1, 1), equals(step_3, 1)))
         """).strip()
         self.assertEqual(select_2, expected_2)
 
@@ -213,6 +213,6 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(and(1, equals(another_prop, 'another_value')), 1, 0) AS step_2,
                    0 AS step_3
             FROM table_two AS e
-            WHERE and(and(greaterOrEquals(e.ts, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(e.ts, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), equals(step_2, 1))
         """).strip()
         self.assertEqual(select_3, expected_3)
