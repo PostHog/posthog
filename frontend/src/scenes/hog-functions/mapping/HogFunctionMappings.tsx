@@ -27,7 +27,7 @@ import { EntityTypes, HogFunctionConfigurationType, HogFunctionMappingType } fro
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 
-const humanize = (value: string): string => {
+export const humanize = (value: string): string => {
     const fallback = typeof value === 'string' ? (value ?? '') : ''
 
     // Simple replacement from something like MY_STRING-here to My string here
@@ -38,7 +38,7 @@ const humanize = (value: string): string => {
         .replace(/\b\w/g, (char) => char.toUpperCase())
 }
 
-const MappingSummary = memo(function MappingSummary({
+export const MappingSummary = memo(function MappingSummary({
     mapping,
 }: {
     mapping: HogFunctionMappingType
@@ -90,7 +90,7 @@ export function HogFunctionMapping({
     index: number
     mapping: HogFunctionMappingType
     onChange: (mapping: HogFunctionMappingType | null) => void
-    parentConfiguration: HogFunctionConfigurationType
+    parentConfiguration: Pick<HogFunctionConfigurationType, 'inputs_schema' | 'inputs'>
 }): JSX.Element | null {
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { showSource, sampleGlobalsWithInputs } = useValues(hogFunctionConfigurationLogic)
