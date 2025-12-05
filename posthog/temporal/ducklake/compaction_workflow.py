@@ -1,4 +1,5 @@
 import os
+import re
 from datetime import timedelta
 
 import structlog
@@ -8,6 +9,9 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 
 logger = structlog.get_logger(__name__)
+
+# Valid SQL identifier pattern (alphanumeric and underscores only)
+TABLE_NAME_PATTERN = re.compile(r"^[a-zA-Z_][a-zA-Z0-9_]*$")
 
 
 def get_ducklake_connection_string() -> str:
@@ -88,6 +92,12 @@ async def run_ducklake_compaction(input: DucklakeCompactionInput) -> dict:
 
     for table in tables_to_compact:
         activity.heartbeat()
+
+        # Validate table name to prevent SQL injection
+        if not TABLE_NAME_PATTERN.match(table):
+            logger.warning("Skipping invalid table name", table=table)
+            compaction_results[table] = {"status": "error", "error": "Invalid table name"}
+            continue
 
         try:
             if input.dry_run:
