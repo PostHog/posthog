@@ -246,6 +246,27 @@ export function ClusteringAdminModal(): JSX.Element {
                         </div>
                     </div>
                 )}
+
+                {/* Visualization */}
+                <div>
+                    <h4 className="font-semibold mb-3">Visualization</h4>
+                    <div>
+                        <label className="text-sm font-medium mb-1 block">2D scatter plot method</label>
+                        <LemonSelect
+                            value={params.visualization_method}
+                            onChange={(value) => setParams({ visualization_method: value })}
+                            options={[
+                                { value: 'umap', label: 'UMAP' },
+                                { value: 'pca', label: 'PCA' },
+                                { value: 'tsne', label: 't-SNE' },
+                            ]}
+                            fullWidth
+                        />
+                        <div className="text-xs text-muted mt-1">
+                            Method for reducing cluster embeddings to 2D for the scatter plot visualization
+                        </div>
+                    </div>
+                </div>
             </div>
         </LemonModal>
     )
