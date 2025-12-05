@@ -3,7 +3,6 @@ import hashlib
 from typing import Any
 
 from django.conf import settings
-from django.views.decorators.csrf import csrf_exempt
 
 import structlog
 from rest_framework import status
@@ -72,7 +71,6 @@ def _forward_to_billing_service(event_type: str, payload: dict[str, Any], integr
     )
 
 
-@csrf_exempt
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([])
@@ -95,6 +93,8 @@ def vercel_webhook(request: Request) -> Response:
     if not _is_billing_event(event_type):
         logger.info("vercel_webhook_non_billing_event", event_type=event_type)
         return Response({"status": "ignored"}, status=status.HTTP_200_OK)
+
+    assert event_type is not None  # Guaranteed by _is_billing_event check above
 
     integration = _get_integration(config_id)
     if not integration:

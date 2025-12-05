@@ -26,15 +26,17 @@ class TestVercelWebhooks(VercelTestBase):
         ).hexdigest()
 
     def _post_webhook(self, payload: dict, signature: str | None = None):
-        headers = {}
         if signature is not None:
-            headers["HTTP_X_VERCEL_SIGNATURE"] = signature
-
+            return self.client.post(
+                self.url,
+                data=json.dumps(payload),
+                content_type="application/json",
+                HTTP_X_VERCEL_SIGNATURE=signature,
+            )
         return self.client.post(
             self.url,
             data=json.dumps(payload),
             content_type="application/json",
-            **headers,
         )
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
