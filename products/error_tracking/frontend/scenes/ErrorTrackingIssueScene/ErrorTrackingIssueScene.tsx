@@ -32,12 +32,12 @@ import { StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
+import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { IssueStatusSelect } from './ScenePanel/IssueStatusSelect'
 import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
@@ -83,7 +83,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                             disabled={issue.status != 'active'}
                                         />
                                         <StatusIndicator status={issue.status} className="ml-1 mr-2" withTooltip />
-                                        <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                        <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                     </div>
                                 }
                             />

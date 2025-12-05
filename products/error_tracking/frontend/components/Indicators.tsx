@@ -55,12 +55,12 @@ const STATUS_INTENT: Record<ErrorTrackingIssue['status'], Intent> = {
     suppressed: 'danger',
 }
 
-const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
-    active: 'Reopen issue',
-    suppressed: 'Suppress issue',
+export const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
+    active: 'Mark issue as active again',
+    suppressed: 'Suppress issue (new occurrences will be ignored)',
     archived: 'Archive issue',
-    pending_release: 'Resolve in next version',
-    resolved: 'Resolve issue',
+    pending_release: 'Mark issue as resolved in next version (will return to active if it occurs again)',
+    resolved: 'Mark issue as resolved (will return to active if it occurs again)',
 }
 
 const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
