@@ -24,7 +24,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -35,6 +34,7 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     ScenePanel,
     ScenePanelActionsSection,
@@ -48,7 +48,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { QueryContext } from '~/queries/types'
-import { CohortType } from '~/types'
+import { CohortType, SidePanelTab } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { PersonDisplayNameType, RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
@@ -102,6 +102,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
         canRemovePersonFromCohort,
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { openSidePanel } = useActions(sidePanelStateLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -338,7 +339,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     </LemonField>
 
                                     {!isNewCohort && !cohort?.is_static && (
-                                        <div className="max-w-70 w-fit">
+                                        <div className="flex flex-col gap-y-2">
                                             <p className="flex items-center gap-x-1 my-0">
                                                 <strong>Last calculated:</strong>
                                                 {cohort.is_calculating ? (
@@ -351,11 +352,18 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                             </p>
 
                                             {cohort.errors_calculating ? (
-                                                <Tooltip title="The last attempted calculation failed. This means your current cohort data can be stale. This doesn't affect feature flag evaluation.">
-                                                    <div className="text-danger">
-                                                        <IconErrorOutline className="text-danger text-xl shrink-0" />
-                                                    </div>
-                                                </Tooltip>
+                                                <LemonBanner
+                                                    type="error"
+                                                    action={{
+                                                        onClick: () =>
+                                                            openSidePanel(SidePanelTab.Support, 'bug:cohorts::true'),
+                                                        children: 'Contact support',
+                                                    }}
+                                                >
+                                                    <strong>Calculation failed:</strong>{' '}
+                                                    {cohort.last_error_message ||
+                                                        'Unable to calculate this cohort. Please check your matching criteria and try again.'}
+                                                </LemonBanner>
                                             ) : null}
                                         </div>
                                     )}

@@ -48,7 +48,7 @@ def start_session(team_id: int, batch_export_id: str | None = None):
         )
 
     bedbg = BatchExportsDebugger(team_id, initial_batch_export=initial_batch_export)  # noqa: F841
-    IPython.embed(colors="Linux")
+    IPython.embed(colors="Linux", using="asyncio")
 
 
 if __name__ == "__main__":

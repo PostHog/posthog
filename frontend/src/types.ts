@@ -1453,6 +1453,7 @@ export interface CohortType {
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
+    last_error_message?: string | null
     is_static?: boolean
     name?: string
     csv?: File
