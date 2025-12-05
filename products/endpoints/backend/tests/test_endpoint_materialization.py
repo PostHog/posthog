@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.utils import timezone
@@ -11,8 +11,9 @@ from asgiref.sync import sync_to_async
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.schema import DataWarehouseSyncInterval
+from posthog.schema import DataWarehouseSyncInterval, PathsFilter, PathsQuery, PathType, RetentionQuery
 
+from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
@@ -220,14 +221,13 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("Failed to update endpoint", response.json()["detail"])
 
     def test_can_materialize_trends_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="user1",
             properties={"$browser": "Chrome"},
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_trends_query",
@@ -258,6 +258,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.name, endpoint.name)
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
         self.assertIsInstance(saved_query.query["query"], str)
@@ -265,13 +266,12 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(saved_query.is_materialized)
 
     def test_can_materialize_lifecycle_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="user1",
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_lifecycle_query",
@@ -299,17 +299,17 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
         self.assertIsInstance(saved_query.query["query"], str)
 
     def test_can_materialize_stickiness_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="user1",
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_stickiness_query",
@@ -337,16 +337,16 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_can_materialize_funnels_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="step1",
             distinct_id="user1",
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_funnels_query",
@@ -377,29 +377,34 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_can_materialize_retention_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="user1",
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_retention_query",
             team=self.team,
-            query={
-                "kind": "RetentionQuery",
-                "retentionFilter": {
-                    "retentionType": "retention_first_time",
-                    "targetEntity": {"kind": "EventsNode", "event": "$pageview"},
-                    "returningEntity": {"kind": "EventsNode", "event": "$pageview"},
+            query=RetentionQuery(
+                dateRange={"date_from": "2025-01-01", "date_to": "2025-01-08"},
+                retentionFilter={
+                    "period": "Day",
+                    "totalIntervals": 7,
+                    "retentionType": RETENTION_FIRST_EVER_OCCURRENCE,
+                    "targetEntity": {
+                        "id": "$user_signed_up",
+                        "name": "$user_signed_up",
+                        "type": TREND_FILTER_TYPE_EVENTS,
+                    },
+                    "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
                 },
-                "dateRange": {"date_from": "-7d"},
-            },
+            ).model_dump(),
             created_by=self.user,
         )
 
@@ -417,24 +422,26 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_can_materialize_paths_query(self):
-        from posthog.test.base import _create_event
-
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id="user1",
         )
+        flush_persons_and_events()
 
         endpoint = Endpoint.objects.create(
             name="test_paths_query",
             team=self.team,
-            query={
-                "kind": "PathsQuery",
-                "dateRange": {"date_from": "-7d"},
-            },
+            query=PathsQuery(
+                pathsFilter=PathsFilter(
+                    includeEventTypes=[PathType.FIELD_PAGEVIEW, PathType.FIELD_SCREEN],
+                    excludeEvents=["logout", "https://example.com"],  # URL should be filtered out
+                )
+            ).model_dump(),
             created_by=self.user,
         )
 
@@ -452,6 +459,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_cannot_materialize_unsupported_query(self):

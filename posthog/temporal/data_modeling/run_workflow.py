@@ -984,9 +984,9 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
         if pa.types.is_list(field.type):
             if "datetime64" in type.lower():
                 # Array(DateTime64) -> list<timestamp(us, UTC)>
-                new_element_type = pa.timestamp("us", tz="UTC")
+                new_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
                 new_list_type = pa.list_(new_element_type)
-                new_field = field.with_type(new_list_type)
+                new_field: pa.Field = field.with_type(new_list_type)
                 # Cast list<uint64> -> list<int64> -> list<timestamp>
                 list_int64 = pc.cast(column, pa.list_(pa.int64()))
                 list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
@@ -1014,17 +1014,21 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
             continue
 
         # Handle scalar types
+        new_scalar_type: pa.DataType
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_scalar_type = pa.timestamp("us", tz="UTC")
+            new_field = field.with_type(new_scalar_type)
             new_column = pc.cast(column, new_field.type)
         elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+            new_scalar_type = pa.timestamp("us", tz="UTC")
+            new_field = field.with_type(new_scalar_type)
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
             new_column = pc.cast(seconds_col, new_field.type)
         else:
-            new_field = field.with_type(pa.date32())
+            new_scalar_type = pa.date32()
+            new_field = field.with_type(new_scalar_type)
             # Gotta upcast from uint16 to int32 first
             int32_col = pc.cast(column, pa.int32())
             new_column = pc.cast(int32_col, new_field.type)
