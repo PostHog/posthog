@@ -567,6 +567,8 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
                     return 'datasets'
                 } else if (sceneKey === 'llmAnalyticsEvaluations') {
                     return 'evaluations'
+                } else if (sceneKey === 'llmAnalyticsSettings') {
+                    return 'settings'
                 }
                 return 'dashboard'
             },
@@ -1352,6 +1354,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsSessions()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsPlayground()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsSettings()]: () => {},
         }
     }),
 
