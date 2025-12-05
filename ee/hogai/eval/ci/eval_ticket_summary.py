@@ -48,18 +48,12 @@ Generated summary:
 Expected summary characteristics:
 {{expected}}
 
-How would you rate this summary? Choose one:
-- perfect: Exactly follows format, captures all key information, follows all rules
-- good: Mostly correct format with minor issues (e.g., slightly verbose, missing small detail)
-- partial: Has the sections but missing key information or has formatting issues
-- poor: Wrong format, uses first person, includes bullets, or misses major information
-- failed: Completely wrong format or empty/meaningless output""",
+Does this summary pass? Choose one:
+- pass: Follows the required format with both sections, captures key information, and follows the rules (minor issues acceptable)
+- fail: Wrong format, missing sections, uses first person, includes bullets, misses major information, or empty/meaningless output""",
             choice_scores={
-                "perfect": 1.0,
-                "good": 0.8,
-                "partial": 0.5,
-                "poor": 0.25,
-                "failed": 0.0,
+                "pass": 1.0,
+                "fail": 0.0,
             },
             model="gpt-4.1",
             **kwargs,
