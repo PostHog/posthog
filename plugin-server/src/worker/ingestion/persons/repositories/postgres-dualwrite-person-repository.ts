@@ -76,7 +76,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         let result!: CreatePersonResult
         try {
@@ -91,7 +92,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     isUserId,
                     isIdentified,
                     uuid,
-                    distinctIds,
+                    primaryDistinctId,
+                    extraDistinctIds,
                     leftTx
                 )
                 if (!p.success) {
@@ -110,7 +112,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
                     isUserId,
                     isIdentified,
                     uuid,
-                    distinctIds,
+                    primaryDistinctId,
+                    extraDistinctIds,
                     rightTx,
                     forcedId
                 )

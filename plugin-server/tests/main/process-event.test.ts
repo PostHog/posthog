@@ -46,6 +46,7 @@ export async function createPerson(
     properties: Record<string, any> = {}
 ): Promise<Person> {
     const personRepository = new PostgresPersonRepository(server.db.postgres)
+    const [primaryDistinctId, ...extraDistinctIds] = distinctIds.map((distinctId) => ({ distinctId }))
     const result = await personRepository.createPerson(
         DateTime.utc(),
         properties,
@@ -55,7 +56,8 @@ export async function createPerson(
         null,
         false,
         new UUIDT().toString(),
-        distinctIds.map((distinctId) => ({ distinctId }))
+        primaryDistinctId,
+        extraDistinctIds.length > 0 ? extraDistinctIds : undefined
     )
     if (!result.success) {
         throw new Error('Failed to create person')
