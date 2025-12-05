@@ -15,7 +15,7 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-from posthog.storage.hypercache_manager import HYPERCACHE_TEAMS_PROCESSED_COUNTER
+from posthog.storage.hypercache_manager import push_hypercache_teams_processed_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -190,9 +190,12 @@ def refresh_expiring_caches(
         total=len(teams),
     )
 
-    # Track metrics using consolidated counters
-    HYPERCACHE_TEAMS_PROCESSED_COUNTER.labels(namespace=config.namespace, result="success").inc(successful)
-    HYPERCACHE_TEAMS_PROCESSED_COUNTER.labels(namespace=config.namespace, result="failure").inc(failed)
+    # Push metrics to Pushgateway (Gauges work better than Counters for batch jobs)
+    push_hypercache_teams_processed_metrics(
+        namespace=config.namespace,
+        successful=successful,
+        failed=failed,
+    )
 
     return successful, failed
 
