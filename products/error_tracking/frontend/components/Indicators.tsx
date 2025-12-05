@@ -31,7 +31,7 @@ export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorPro
 ): JSX.Element {
     return (
         <Tooltip title={tooltip} placement={tooltipPlacement}>
-            <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>
+            <div ref={ref} className={clsx('flex items-center cursor-help', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
             </div>

@@ -77,12 +77,12 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                 resourceType={{ type: 'error_tracking' }}
                                 actions={
                                     <div className="flex items-center gap-1">
+                                        <StatusIndicator status={issue.status} withTooltip />
                                         <IssueAssigneeSelect
                                             assignee={issue.assignee}
                                             onChange={updateAssignee}
                                             disabled={issue.status != 'active'}
                                         />
-                                        <StatusIndicator status={issue.status} className="ml-1 mr-2" withTooltip />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                     </div>
                                 }
