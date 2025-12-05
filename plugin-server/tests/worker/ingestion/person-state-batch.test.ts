@@ -8,6 +8,7 @@ import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
+import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
 import { TopicMessage } from '../../../src/kafka/producer'
 import {
@@ -25,7 +26,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
@@ -35,7 +36,6 @@ import {
     createDefaultSyncMergeMode,
 } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import {
@@ -80,7 +80,7 @@ async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<void>) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -170,7 +170,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             personRepository,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
@@ -208,7 +208,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             personRepository,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
@@ -243,7 +243,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             customPersonRepository ??
                 (customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository),
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
@@ -1275,7 +1275,7 @@ describe('PersonState.processEvent()', () => {
             // $identify events with different $set properties are processed in the same batch,
             // all $set properties from all events should be applied to the merged person.
 
-            const sharedPersonsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
                 const fullEvent = {
@@ -1438,7 +1438,7 @@ describe('PersonState.processEvent()', () => {
             // person updates for that distinctId, causing pending property updates to be lost
             // when the batch is flushed.
 
-            const sharedPersonsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -1546,7 +1546,7 @@ describe('PersonState.processEvent()', () => {
             // by another concurrent operation before caching null. If the cache now has data,
             // it returns the cached person instead of overwriting with null.
 
-            const sharedPersonsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
             // Helper to create processor with shared store
             const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
@@ -3307,7 +3307,7 @@ describe('PersonState.processEvent()', () => {
             )
             const context = mergeService.getContext()
 
-            const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
+            const batchStore = context.personStore as BatchWritingPersonsStore
 
             batchStore.setCachedPersonForUpdate(
                 teamId,
@@ -4198,7 +4198,7 @@ describe('PersonState.processEvent()', () => {
                         ...event,
                     }
 
-                    const personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+                    const personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
                     const context = new PersonContext(
                         fullEvent as any,

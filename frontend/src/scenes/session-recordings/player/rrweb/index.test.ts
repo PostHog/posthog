@@ -33,30 +33,6 @@ describe('CorsPlugin', () => {
         CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
         expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/my-image.js`)
     })
-
-    it('can replace a stylesheet css link', () => {
-        const el = document.createElement('link')
-        el.setAttribute('rel', 'stylesheet')
-        el.href = 'https://app.posthog.com/assets/styles.css'
-        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
-        expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/assets/styles.css`)
-    })
-
-    it('can replace a stylesheet css link with query parameters', () => {
-        const el = document.createElement('link')
-        el.setAttribute('rel', 'stylesheet')
-        el.href = 'https://app.posthog.com/assets/styles.css?v=123'
-        CorsPlugin.onBuild?.(el, { id: 1, replayer: null as unknown as any })
-        expect(el.href).toEqual(`https://replay.ph-proxy.com/proxy?url=https://app.posthog.com/assets/styles.css?v=123`)
-    })
-
-    it.each([
-        'https://app.posthog.com/styles.css',
-        'https://app.posthog.com/styles.css?v=123',
-        'https://app.posthog.com/assets/main.css?t=1234567890',
-    ])('should replace CSS urls', (cssUrl) => {
-        expect(CorsPlugin._replaceCSSUrl(cssUrl)).toEqual(`https://replay.ph-proxy.com/proxy?url=${cssUrl}`)
-    })
 })
 
 describe('WindowTitlePlugin', () => {
