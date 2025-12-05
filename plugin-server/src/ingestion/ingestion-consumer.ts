@@ -40,6 +40,7 @@ import {
     createResolveTeamStep,
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
+    createValidateEventSchemaStep,
     createValidateEventUuidStep,
     createValidateHistoricalMigrationStep,
 } from './event-preprocessing'
@@ -289,6 +290,7 @@ export class IngestionConsumer {
                                 c
                                     .pipe(createValidateEventMetadataStep())
                                     .pipe(createValidateEventPropertiesStep())
+                                    .pipe(createValidateEventSchemaStep())
                                     .pipe(
                                         createApplyPersonProcessingRestrictionsStep(
                                             this.eventIngestionRestrictionManager
