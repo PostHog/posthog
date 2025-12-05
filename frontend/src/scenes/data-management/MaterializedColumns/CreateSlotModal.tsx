@@ -12,7 +12,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { materializedColumnsLogic, PropertyDefinition } from './materializedColumnsLogic'
+import { PropertyDefinition, materializedColumnsLogic } from './materializedColumnsLogic'
 
 export function CreateSlotModal(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
