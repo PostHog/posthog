@@ -66,6 +66,7 @@ export const ReplayButton = ({ date_from, date_to, breakdownBy, value }: ReplayB
         tooltip: 'View recordings',
         className: 'no-underline',
         targetBlank: true,
+        hideExternalLinkIcon: true,
         onClick: (e: React.MouseEvent) => {
             e.stopPropagation()
             void addProductIntentForCrossSell({

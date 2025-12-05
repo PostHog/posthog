@@ -11,7 +11,7 @@ import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { isValidFunnelQuery } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
-import { QuerySchema } from '~/queries/schema/schema-general'
+import { ProductKey, QuerySchema } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
 import {
@@ -62,6 +62,7 @@ export function CustomerAnalyticsQueryCard({ insight, tabId }: CustomerAnalytics
             insight={insight}
             insightProps={insightProps}
             source={SURVEY_CREATED_SOURCE.CUSTOMER_ANALYTICS_INSIGHT}
+            fromProduct={ProductKey.CUSTOMER_ANALYTICS}
         />
     ) : null
 
