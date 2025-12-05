@@ -158,11 +158,7 @@ class SummarizeSessionsTool(MaxTool):
             summaries_content, session_group_summary_id = await self._summarize_sessions(
                 session_ids=session_ids,
                 summary_title=summary_title,
-                session_ids_source=(
-                    "filters"
-                    if isinstance(recordings_filters_or_explicit_session_ids, MaxRecordingUniversalFilters)
-                    else "explicit"
-                ),
+                session_ids_source=llm_provided_session_ids_source,
             )
             # Build messages artifact for group summaries (with "Open report" button)
             content, artifact = None, None
