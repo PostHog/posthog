@@ -34,6 +34,17 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
             timestamp_field="created_at",
         )
         self._create_data_warehouse_table(
+            name="payments_string_timestamp",
+            id_field="id",
+            distinct_id_field="user_id",
+            timestamp_field="created_at_str",
+            timestamp_column={
+                "hogql": "StringDatabaseField",
+                "clickhouse": "String",
+                "valid": True,
+            },
+        )
+        self._create_data_warehouse_table(
             name="table_one",
             id_field="id",
             distinct_id_field="user_id",
@@ -60,11 +71,13 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
         distinct_id_field: str,
         timestamp_field: str,
         extra_columns: dict[str, dict[str, str | bool]] | None = None,
+        timestamp_column: dict[str, str | bool] | None = None,
     ) -> None:
         columns: dict[str, dict[str, str | bool]] = {
             id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
             distinct_id_field: {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
-            timestamp_field: {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')", "valid": True},
+            timestamp_field: timestamp_column
+            or {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(3, 'UTC')", "valid": True},
         }
         if extra_columns:
             columns.update(extra_columns)
@@ -117,6 +130,31 @@ class TestFunnelEventQuery(ClickhouseTestMixin, APIBaseTest):
                    if(1, 1, 0) AS step_0,
                    if(1, 1, 0) AS step_1
             FROM payments AS e
+            WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
+        """).strip()
+        self.assertEqual(select, expected)
+
+    @freeze_time("2025-11-12")
+    def test_single_dwh_table_string_timestamp(self):
+        dwh_node = DataWarehouseNode(
+            distinct_id_field="user_id",
+            timestamp_field="created_at_str",
+            table_name="payments_string_timestamp",
+            id="payments_string_timestamp",
+            id_field="id",
+        )
+        query = FunnelsQuery(series=[dwh_node, dwh_node])
+        context = FunnelQueryContext(query=query, team=self.team)
+
+        funnel_event_query = FunnelEventQuery(context=context).to_query()
+
+        select = format_query(funnel_event_query)
+        expected = dedent("""
+            SELECT toDateTime(e.created_at_str) AS timestamp,
+                   toUUID(e.user_id) AS aggregation_target,
+                   if(1, 1, 0) AS step_0,
+                   if(1, 1, 0) AS step_1
+            FROM payments_string_timestamp AS e
             WHERE and(and(greaterOrEquals(timestamp, toDateTime('2025-11-05 00:00:00.000000')), lessOrEquals(timestamp, toDateTime('2025-11-12 23:59:59.999999'))), or(equals(step_0, 1), equals(step_1, 1)))
         """).strip()
         self.assertEqual(select, expected)
