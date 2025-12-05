@@ -8,6 +8,7 @@ import pytest
 from django.conf import settings
 
 import psycopg
+import pytest_asyncio
 import temporalio.worker
 from asgiref.sync import sync_to_async
 from infi.clickhouse_orm import Database
@@ -97,8 +98,8 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture(scope="module")
-async def clickhouse_client(event_loop):
+@pytest_asyncio.fixture(scope="module", loop_scope="module")
+async def clickhouse_client():
     """Provide a ClickHouseClient to use in tests."""
     async with ClickHouseClient(
         url=settings.CLICKHOUSE_HTTP_URL,
@@ -159,14 +160,7 @@ async def activities(request):
         return ACTIVITIES
 
 
-@pytest.fixture(scope="module")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
-
-
-@pytest.fixture(autouse=True, scope="module")
+@pytest_asyncio.fixture(autouse=True, scope="module", loop_scope="module")
 async def configure_logger_auto() -> None:
     """Configure logger when running in a Temporal activity environment."""
     configure_logger(cache_logger_on_first_use=False)

@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -40,7 +41,7 @@ GENERATE_TEST_DATA_END = NOW.replace(minute=0, second=0, microsecond=0, tzinfo=d
 GENERATE_TEST_DATA_START = GENERATE_TEST_DATA_END - dt.timedelta(hours=1)
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest_asyncio.fixture(scope="module", autouse=True, loop_scope="module")
 async def clickhouse_db_setup(clickhouse_client):
     await create_clickhouse_tables_and_views(clickhouse_client)
 
