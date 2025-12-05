@@ -1,38 +1,12 @@
 // Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
-exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
-[
-  {
-    "headers": {
-      "distinct_id": "user-1",
-      "dlq-reason": "test",
-      "dlq-step": "unknown",
-      "dlq-timestamp": "2025-01-01T00:00:00.000Z",
-      "event": "$pageview",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
-    "topic": "events_plugin_ingestion_dlq_test",
-    "value": {
-      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
-      "distinct_id": "user-1",
-      "ip": "127.0.0.1",
-      "now": "2025-01-01T00:00:00.000Z",
-      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
-      "uuid": "<REPLACED-UUID-0>",
-    },
-  },
-]
-`;
-
 exports[`IngestionConsumer general overflow force overflow should force events with matching token:distinct_id to overflow: force overflow messages 1`] = `
 [
   {
     "headers": {
       "distinct_id": "team1-user",
       "event": "$pageview",
-      "redirect-step": "applyForceOverflowRestrictionsStep",
+      "redirect-step": "applyEventRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
@@ -57,7 +31,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user1",
       "event": "$pageview",
-      "redirect-step": "applyForceOverflowRestrictionsStep",
+      "redirect-step": "applyEventRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
       "uuid": "<REPLACED-UUID-0>",
@@ -77,7 +51,7 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
     "headers": {
       "distinct_id": "user2",
       "event": "$pageview",
-      "redirect-step": "applyForceOverflowRestrictionsStep",
+      "redirect-step": "applyEventRestrictionsStep",
       "redirect-timestamp": "2025-01-01T00:00:00.000Z",
       "token": "<REPLACED-UUID-1>",
       "uuid": "<REPLACED-UUID-2>",
@@ -91,6 +65,32 @@ exports[`IngestionConsumer general overflow force overflow should handle multipl
       "now": "2025-01-01T00:00:00.000Z",
       "token": "<REPLACED-UUID-1>",
       "uuid": "<REPLACED-UUID-2>",
+    },
+  },
+]
+`;
+
+exports[`IngestionConsumer error handling should handle explicitly non retriable errors by sending to DLQ 1`] = `
+[
+  {
+    "headers": {
+      "distinct_id": "user-1",
+      "dlq-reason": "test",
+      "dlq-step": "unknown",
+      "dlq-timestamp": "2025-01-01T00:00:00.000Z",
+      "event": "$pageview",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
+    },
+    "key": "THIS IS NOT A TOKEN FOR TEAM 2:user-1",
+    "topic": "events_plugin_ingestion_dlq_test",
+    "value": {
+      "data": "{"distinct_id":"user-1","uuid":"<REPLACED-UUID-0>","token":"THIS IS NOT A TOKEN FOR TEAM 2","ip":"127.0.0.1","site_url":"us.posthog.com","now":"2025-01-01T00:00:00.000Z","event":"$pageview","properties":{"$current_url":"http://localhost:8000"}}",
+      "distinct_id": "user-1",
+      "ip": "127.0.0.1",
+      "now": "2025-01-01T00:00:00.000Z",
+      "token": "THIS IS NOT A TOKEN FOR TEAM 2",
+      "uuid": "<REPLACED-UUID-0>",
     },
   },
 ]
