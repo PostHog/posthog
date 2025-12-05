@@ -132,11 +132,6 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam):
     assert metadata.ducklake_schema_name == f"data_imports_team_{ateam.id}"
     assert metadata.ducklake_table_name.startswith("postgres_customers_")
     assert metadata.source_partition_column == "created_at"
-    assert "created_at" in metadata.source_key_columns
-    assert "id" in metadata.source_key_columns
-    assert "id" in metadata.source_non_nullable_columns
-    assert "created_at" in metadata.source_non_nullable_columns
-    assert "name" not in metadata.source_non_nullable_columns
 
 
 @pytest.mark.asyncio
@@ -179,11 +174,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
     assert len(result) == 1
     metadata = result[0]
     assert metadata.source_normalized_name == "charges"
-    assert metadata.source_partition_column is None
-    assert metadata.source_partition_column_type is None
-    assert "id" in metadata.source_key_columns
-    assert "id" in metadata.source_non_nullable_columns
-    assert "amount" not in metadata.source_non_nullable_columns
+    # Falls back to standard partition key when no partitioning configured
+    assert metadata.source_partition_column == "_ph_partition_key"
 
 
 @pytest.mark.asyncio
@@ -318,14 +310,6 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
-        MagicMock(return_value=[]),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
-        MagicMock(return_value=[]),
-    )
 
     query = DuckLakeCopyVerificationQuery(
         name="row_count_check",
@@ -398,14 +382,6 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
         "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
     )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
-        MagicMock(return_value=[]),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
-        MagicMock(return_value=[]),
-    )
 
     query = DuckLakeCopyVerificationQuery(
         name="failing_query",
@@ -477,14 +453,6 @@ def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeyp
     monkeypatch.setattr(
         "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_partition_verification",
         MagicMock(return_value=None),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_key_cardinality_verifications",
-        MagicMock(return_value=[]),
-    )
-    monkeypatch.setattr(
-        "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow._run_data_imports_non_nullable_verifications",
-        MagicMock(return_value=[]),
     )
 
     query_pass = DuckLakeCopyVerificationQuery(
