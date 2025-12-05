@@ -200,7 +200,7 @@ jobs:
                   token: ${{ secrets.SLACK_BOT_TOKEN }}
                   errors: true
                   payload: |
-                      channel: "D063CTJ0B1U"
+                      channel: "U063CTHPZF0"
                       text: ":red_circle: *Master is red* (TEST)\nPython CI failed\n<${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
 
             - name: Debug Slack response
