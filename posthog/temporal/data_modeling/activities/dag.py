@@ -1,5 +1,4 @@
 import dataclasses
-from collections import defaultdict
 
 from temporalio import activity
 
@@ -29,9 +28,9 @@ class DAG:
         edge_lookup: map from target_id to a set of source_id where target depends on source
     """
 
-    node_set: set[str]
-    executable_node_set: set[str]
-    edge_lookup: dict
+    nodes: list[str]
+    executable_nodes: list[str]
+    edges: list[tuple[str, str]]
 
 
 @database_sync_to_async
@@ -39,20 +38,15 @@ def _get_dag_structure_async(team_id: int, dag_id: str) -> DAG:
     """Retrieve all nodes and edges for a DAG from the database."""
     nodes = Node.objects.filter(team_id=team_id, dag_id=dag_id)
     executable_nodes = nodes.filter(type__in=[NodeType.VIEW, NodeType.MAT_VIEW])
-    edges = Edge.objects.prefetch_related("source", "target").filter(
-        team_id=team_id, dag_id=dag_id, source__type__not_in=[NodeType.TABLE]
+    edges = (
+        Edge.objects.prefetch_related("source", "target")
+        .filter(team_id=team_id, dag_id=dag_id)
+        .exclude(source__type=NodeType.TABLE)
     )
-
-    node_set = set(nodes.values_list("id", flat=True))
-    executable_node_set = set(executable_nodes.values_list("id", flat=True))
-    edge_lookup = defaultdict(set)
-    for e in edges:
-        edge_lookup[e.target.id].add(e.source.id)
-
     return DAG(
-        node_set=node_set,
-        executable_node_set=executable_node_set,
-        edge_lookup=edge_lookup,
+        nodes=[n.id for n in nodes],
+        executable_nodes=[n.id for n in executable_nodes],
+        edges=[(e.source.id, e.target.id) for e in edges],
     )
 
 
@@ -61,16 +55,13 @@ async def get_dag_structure_activity(inputs: GetDAGStructureInputs) -> DAG:
     """Retrieve the structure of a DAG for orchestration."""
     logger = LOGGER.bind()
     logger.info("Retrieving DAG structure", team_id=inputs.team_id, dag_id=inputs.dag_id)
-
     dag_structure = await _get_dag_structure_async(inputs.team_id, inputs.dag_id)
-
     logger.info(
         "Retrieved DAG structure",
         team_id=inputs.team_id,
         dag_id=inputs.dag_id,
-        num_nodes=len(dag_structure.node_set),
-        num_executable_nodes=len(dag_structure.executable_node_set),
-        num_edges=len(dag_structure.edge_lookup),
+        num_nodes=len(dag_structure.nodes),
+        num_executable_nodes=len(dag_structure.executable_nodes),
+        num_edges=len(dag_structure.edges),
     )
-
     return dag_structure

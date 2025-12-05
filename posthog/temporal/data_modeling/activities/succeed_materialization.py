@@ -52,7 +52,7 @@ async def succeed_materialization_activity(inputs: SucceedMaterializationInputs)
 
     node, job = await _succeed_node_and_data_modeling_job(inputs)
 
-    await logger.aerror(
+    await logger.ainfo(
         f"Succeeded materialization job: node={node.id} dag={inputs.dag_id} job={job.id} "
         f"workflow={job.workflow_id} workflow_run={job.workflow_run_id}"
     )

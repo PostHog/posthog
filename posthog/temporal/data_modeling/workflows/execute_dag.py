@@ -9,16 +9,12 @@ import temporalio.exceptions
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.base import PostHogWorkflow
-
-from products.data_modeling.backend.temporal.activities.dag import GetDAGStructureInputs
-from products.data_modeling.backend.temporal.workflows.materialize_view import (
+from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
+from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflow,
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
-
-with temporalio.workflow.unsafe.imports_passed_through():
-    from products.data_modeling.backend.temporal.activities.dag import get_dag_structure_activity
 
 
 class EmptyDAGOrCycleError(Exception):
@@ -87,6 +83,13 @@ class ExecuteDAGResult:
     node_results: list[NodeResult]
 
 
+def _get_edge_lookup(edges: list[tuple[str, str]]):
+    edge_lookup = defaultdict(set)
+    for source, target in edges:
+        edge_lookup[target].add(source)
+    return edge_lookup
+
+
 def _get_dependent_lookup(edge_lookup: dict):
     # builds the inverse of the edge_lookup in the DAG object
     dependents = defaultdict(set)
@@ -109,7 +112,7 @@ def _get_downstream_lookup(edge_lookup: dict):
         return result
 
     visited = set()
-    for node in downstreams:
+    for node in list(downstreams.keys()):
         downstreams[node] = _get_all_downstream(node, visited)
 
     return downstreams
@@ -118,15 +121,16 @@ def _get_downstream_lookup(edge_lookup: dict):
 def _dag_execution_levels(
     team_id: int,
     dag_id: str,
-    node_set: set[str],
+    nodes: list[str],
     edge_lookup: dict,
 ) -> list[list[str]]:
     """Compute execution levels using kahn's topological sort."""
-    in_degree = {k: len(v) for k, v in edge_lookup.items()}
+    # Initialize in_degree for all nodes, defaulting to 0 for nodes with no dependencies
+    in_degree = {node_id: len(edge_lookup.get(node_id, set())) for node_id in nodes}
     # inverse of the edge_lookup
     dependents = _get_dependent_lookup(edge_lookup)
     levels: list[list[str]] = []
-    remaining = node_set.copy()
+    remaining = nodes.copy()
     while remaining:
         current_level = [node_id for node_id in remaining if in_degree[node_id] == 0]
         if not current_level:
@@ -141,7 +145,7 @@ def _dag_execution_levels(
     return levels
 
 
-@temporalio.workflow.defn(name="dag-orchestrator")
+@temporalio.workflow.defn(name="execute-dag")
 class ExecuteDAGWorkflow(PostHogWorkflow):
     """Temporal workflow to orchestrate materialization of all nodes in a DAG.
 
@@ -172,15 +176,13 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             ),
             start_to_close_timeout=dt.timedelta(minutes=1),
         )
-        executable_node_set = dag_structure.executable_node_set
+        executable_nodes = dag_structure.executable_nodes
         # filter to requested nodes if specified
         if inputs.node_ids:
             requested_node_set = set(inputs.node_ids)
-            executable_node_set = {
-                node_id for node_id in dag_structure.executable_node_set if node_id in requested_node_set
-            }
+            executable_nodes = [node_id for node_id in dag_structure.executable_nodes if node_id in requested_node_set]
 
-        if not executable_node_set:
+        if not executable_nodes:
             temporalio.workflow.logger.info("No executable nodes found", **inputs.properties_to_log)
             end_time = temporalio.workflow.now()
             return ExecuteDAGResult(
@@ -193,7 +195,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
-        levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_node_set, dag_structure.edge_lookup)
+        edge_lookup = _get_edge_lookup(dag_structure.edges)
+        levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_nodes, edge_lookup)
 
         temporalio.workflow.logger.info(
             "DAG execution levels",
@@ -205,7 +208,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
         node_results: list[NodeResult] = []
         failed_node_set: set[str] = set()
-        downstreams = _get_downstream_lookup(dag_structure.edge_lookup)
+        downstreams = _get_downstream_lookup(edge_lookup)
         for i, level in enumerate(levels):
             temporalio.workflow.logger.info(
                 f"Executing level {i + 1}/{len(levels)}",
