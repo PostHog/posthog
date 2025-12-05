@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     IntervalType,
     MultipleVariantHandling,
@@ -22,9 +23,10 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
@@ -47,6 +49,7 @@ from posthog.hogql_queries.experiments.exposure_query_logic import (
 from posthog.hogql_queries.experiments.utils import (
     aggregate_variants_across_breakdowns,
     get_bayesian_experiment_result,
+    get_experiment_query_sql,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
     get_variant_results,
@@ -108,6 +111,11 @@ class ExperimentQueryRunner(QueryRunner):
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
             denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
+        elif isinstance(self.query.metric, ExperimentRetentionMetric):
+            # For retention metrics, check if either start_event or completion_event uses data warehouse
+            start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
+            completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
+            self.is_data_warehouse_query = start_is_dw or completion_is_dw
         else:
             self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
@@ -127,10 +135,16 @@ class ExperimentQueryRunner(QueryRunner):
         else:
             self.use_new_query_builder = self.experiment.stats_config.get("use_new_query_builder", False)
 
+        self.clickhouse_sql: str | None = None
+        self.hogql: str | None = None
+
     def _should_use_new_query_builder(self) -> bool:
         """
         Determines whether to use the new CTE-based query builder.
+        Retention metrics always use the new query builder since the old one doesn't support them.
         """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return True
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
@@ -493,7 +507,10 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         """
         if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
+            assert isinstance(
+                self.metric,
+                ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+            )
 
             # Get the "missing" (not directly accessible) parameters required for the builder
             (
@@ -577,15 +594,20 @@ class ExperimentQueryRunner(QueryRunner):
         # Adding experiment specific tags to the tag collection
         # This will be available as labels in Prometheus
         tag_queries(
+            product=Product.EXPERIMENTS,
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
             experiment_feature_flag_key=self.feature_flag.key,
             experiment_is_data_warehouse_query=self.is_data_warehouse_query,
         )
 
+        experiment_query_ast = self._get_experiment_query()
+        self.hogql = to_printed_hogql(experiment_query_ast, self.team)
+        self.clickhouse_sql = get_experiment_query_sql(experiment_query_ast, self.team)
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
-            query=self._get_experiment_query(),
+            query=experiment_query_ast,
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
@@ -622,6 +644,9 @@ class ExperimentQueryRunner(QueryRunner):
         # Attach breakdown data if present
         if breakdown_results is not None:
             result.breakdown_results = breakdown_results
+
+        result.clickhouse_sql = self.clickhouse_sql
+        result.hogql = self.hogql
 
         return result
 

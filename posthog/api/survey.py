@@ -919,11 +919,13 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
         Args:
             exclude_archived: Optional boolean to exclude archived responses (default: false, includes archived)
+            survey_ids: Optional comma-separated list of survey IDs to filter by
 
         Returns:
             Dictionary mapping survey IDs to response counts
         """
         exclude_archived = request.query_params.get("exclude_archived", "false").lower() == "true"
+        survey_ids_param = request.query_params.get("survey_ids")
 
         earliest_survey_start_date = Survey.objects.filter(team__project_id=self.project_id).aggregate(
             Min("start_date")
@@ -949,6 +951,15 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 archived_filter = f"AND {archived_filter_sql}"
                 params.update(archived_params)
 
+        survey_ids_filter = ""
+        if survey_ids_param:
+            survey_ids = [sid.strip() for sid in survey_ids_param.split(",") if sid.strip()]
+            if survey_ids:
+                survey_ids_filter = (
+                    f"AND JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') IN %(survey_ids)s"
+                )
+                params["survey_ids"] = survey_ids
+
         query = f"""
             SELECT
                 JSONExtractString(properties, '{SurveyEventProperties.SURVEY_ID}') as survey_id,
@@ -960,6 +971,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 AND timestamp >= %(timestamp)s
                 AND {partial_responses_filter}
                 {archived_filter}
+                {survey_ids_filter}
             GROUP BY survey_id
         """
 

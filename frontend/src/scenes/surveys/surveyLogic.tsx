@@ -29,8 +29,14 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    CompareFilter,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
@@ -78,6 +84,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
+import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -483,7 +490,7 @@ export const surveyLogic = kea<surveyLogicType>([
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
             surveysLogic,
-            ['data'],
+            ['data', 'teamSdkVersions'],
             userLogic,
             ['user'],
             teamLogic,
@@ -1291,7 +1298,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         dateRange: [
             null as SurveyDateRange | null,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
@@ -1333,10 +1339,10 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         partialResponsesFilter: [
-            (s) => [s.survey],
-            (survey: Survey): string => {
+            (s) => [s.survey, s.dateRange],
+            (survey: Survey, dateRange: SurveyDateRange): string => {
                 if (survey.enable_partial_responses) {
-                    return buildPartialResponsesFilter(survey)
+                    return buildPartialResponsesFilter(survey, dateRange)
                 }
                 /**
                  * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
@@ -1987,6 +1993,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 })
 
                 return responsesByQuestion
+            },
+        ],
+        surveyVersionWarnings: [
+            (s) => [s.survey, s.teamSdkVersions],
+            (survey, teamSdkVersions): SurveyVersionWarning[] => {
+                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
             },
         ],
     }),
