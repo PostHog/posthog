@@ -9,7 +9,7 @@
         },
         {
             "path": "Customer analytics",
-            "category": "Unreleased",
+            "category": "Analytics",
             "iconType": "cohort",
             "type": null,
             "intents": ["customer_analytics"]
@@ -85,7 +85,7 @@
             "type": null,
             "intents": ["llm_analytics"]
         },
-        { "path": "Logs", "category": "Tools", "iconType": null, "type": null, "intents": ["logs"] },
+        { "path": "Logs", "category": "Behavior", "iconType": null, "type": null, "intents": ["logs"] },
         {
             "path": "Product analytics",
             "category": "Analytics",

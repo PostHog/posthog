@@ -6,10 +6,10 @@ import datetime
 import xml.etree.ElementTree as ET
 from xml import etree
 
-UDF_VERSION = 9  # Last modified by: @orian, 2025-11-06
+UDF_VERSION = 10  # Last modified by: @thmsobrmlr, 2025-12-05
 
 # Clean up all versions less than this
-EARLIEST_UDF_VERSION = 7
+EARLIEST_UDF_VERSION = 8
 
 CLICKHOUSE_XML_FILENAME = "user_defined_function.xml"
 ACTIVE_XML_CONFIG = "../../docker/clickhouse/user_defined_function.xml"

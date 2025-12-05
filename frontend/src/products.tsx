@@ -51,7 +51,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    EndpointNew: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -108,7 +107,6 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
@@ -255,7 +253,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
-    EndpointNew: { projectBased: true, name: 'EndpointNew', activityScope: 'Endpoint' },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -379,10 +376,10 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         defaultDocsPath: '/docs/tasks',
         activityScope: 'TaskTracker',
-        description: 'Tasks are a way to track your work and get things done.',
+        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
     },
-    TaskDetail: { name: 'Task Detail', projectBased: true, activityScope: 'TaskDetail' },
+    TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -489,6 +486,7 @@ export const productUrls = {
             timestamp?: string
             exception_ts?: string
             search?: string
+            tab?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
@@ -599,7 +597,21 @@ export const productUrls = {
             ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
+    replaySingle: (
+        id: string,
+        options?: {
+            secondsOffsetFromStart?: number
+            unixTimestampMillis?: number
+        }
+    ): string => {
+        if (options?.unixTimestampMillis) {
+            return `/replay/${id}?timestamp=${options.unixTimestampMillis}`
+        }
+        if (options?.secondsOffsetFromStart) {
+            return `/replay/${id}?t=${options.secondsOffsetFromStart}`
+        }
+        return `/replay/${id}`
+    },
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
@@ -911,7 +923,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
-        category: 'Unreleased',
+        category: 'Analytics',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
         tags: ['alpha'],
@@ -972,11 +984,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1075,12 +1087,12 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Tools',
+        category: 'Behavior',
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
     },
@@ -1256,8 +1268,8 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        tags: ['beta'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Event definitions',
@@ -1272,7 +1284,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Pipeline',
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
     },

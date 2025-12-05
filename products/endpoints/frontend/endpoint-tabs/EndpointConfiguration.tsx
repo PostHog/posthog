@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconDatabase, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -50,12 +50,15 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
 }
 
 export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JSX.Element {
-    const { setCacheAge, setSyncFrequency, setIsMaterialized } = useActions(endpointLogic({ tabId }))
+    const { setCacheAge, setSyncFrequency, setIsMaterialized, loadMaterializationStatus } = useActions(
+        endpointLogic({ tabId })
+    )
     const {
         endpoint,
         cacheAge,
         syncFrequency,
         isMaterialized: localIsMaterialized,
+        materializationStatusLoading,
     } = useValues(endpointLogic({ tabId }))
 
     if (!endpoint) {
@@ -103,9 +106,18 @@ export function EndpointConfiguration({ tabId }: EndpointConfigurationProps): JS
                                     <IconDatabase className="text-lg" />
                                     <span className="font-medium">Materialization status</span>
                                 </div>
-                                <LemonTag type={getStatusTagType(materializationStatus)}>
-                                    {materializationStatus || 'Pending'}
-                                </LemonTag>
+                                <div className="flex items-center gap-2">
+                                    <LemonTag type={getStatusTagType(materializationStatus)}>
+                                        {materializationStatus || 'Pending'}
+                                    </LemonTag>
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconRefresh />}
+                                        onClick={() => endpoint.name && loadMaterializationStatus(endpoint.name)}
+                                        loading={materializationStatusLoading}
+                                        tooltip="Refresh status"
+                                    />
+                                </div>
                             </div>
 
                             {lastMaterializedAt && (
