@@ -122,7 +122,7 @@ export function Playlist({
         .flatMap((s) => s.items).length
 
     return (
-        <div className="flex flex-col min-w-60">
+        <div className="flex flex-col h-full min-w-60">
             {filterActions && (
                 <DraggableToNotebook className="mb-2" href={notebooksHref}>
                     {filterActions}

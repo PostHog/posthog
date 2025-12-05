@@ -14,7 +14,7 @@ import { capitalizeFirstLetter, splitKebabCase } from 'lib/utils'
 import { SessionRecordingSidebarStacking, SessionRecordingSidebarTab } from '~/types'
 
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { PlayerSidebarTab } from './sidebar/PlayerSidebarTab'
+import { PlayerSidebarContent } from './sidebar/PlayerSidebarContent'
 import { playerSidebarLogic } from './sidebar/playerSidebarLogic'
 
 export function PlayerSidebar(): JSX.Element {
@@ -118,7 +118,7 @@ export function PlayerSidebar(): JSX.Element {
                             />
                         </div>
                     </div>
-                    <PlayerSidebarTab />
+                    <PlayerSidebarContent />
                 </>
             )}
         </div>

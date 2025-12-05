@@ -9,7 +9,7 @@ import { PlayerSidebarOverviewTab } from './PlayerSidebarOverviewTab'
 import { PlayerSidebarSessionSummaryTab } from './PlayerSidebarSessionSummaryTab'
 import { playerSidebarLogic } from './playerSidebarLogic'
 
-export function PlayerSidebarTab(): JSX.Element | null {
+export function PlayerSidebarContent(): JSX.Element | null {
     const { activeTab } = useValues(playerSidebarLogic)
 
     switch (activeTab) {

@@ -16,8 +16,10 @@ import {
     RecordingsUniversalFiltersEmbed,
     RecordingsUniversalFiltersEmbedButton,
 } from '../filters/RecordingsUniversalFiltersEmbed'
+import { PlayerSidebar } from '../player/PlayerSidebar'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../player/sessionRecordingPlayerLogic'
 import { SessionRecordingPreview } from './SessionRecordingPreview'
 import { SessionRecordingsPlaylistTopSettings } from './SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from './SessionRecordingsPlaylistTroubleshooting'
@@ -66,7 +68,7 @@ export function SessionRecordingsPlaylist({
     const { maybeLoadSessionRecordings, setSelectedRecordingId, setFilters, resetFilters } = useActions(playlistLogic)
 
     const { isFiltersExpanded } = useValues(playlistFiltersLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
+    const { isCinemaMode, sidebarOpen, isVerticallyStacked } = useValues(playerSettingsLogic)
 
     const notebookNode = useNotebookNode()
     const sections: PlaylistSection[] = []
@@ -186,24 +188,53 @@ export function SessionRecordingsPlaylist({
                             allowReplayHogQLFilters={allowHogQLFilters}
                         />
                     ) : showContent && activeSessionRecording ? (
-                        <SessionRecordingPlayer
-                            playerKey={props.logicKey ?? 'playlist'}
-                            sessionRecordingId={activeSessionRecording.id}
-                            matchingEventsMatchType={matchingEventsMatchType}
-                            playlistLogic={playlistLogic}
-                            noBorder
-                            pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
-                            setPinned={
-                                props.onPinnedChange
-                                    ? (pinned) => {
-                                          if (!activeSessionRecording.id) {
-                                              return
-                                          }
-                                          props.onPinnedChange?.(activeSessionRecording, pinned)
-                                      }
-                                    : undefined
-                            }
-                        />
+                        <div
+                            className={clsx('min-w-0 flex h-full w-full', {
+                                'flex-col': sidebarOpen && isVerticallyStacked,
+                                'flex-row': !(sidebarOpen && isVerticallyStacked),
+                            })}
+                        >
+                            <div className="flex-1 min-w-0 min-h-0 h-full">
+                                <SessionRecordingPlayer
+                                    playerKey={props.logicKey ?? 'playlist'}
+                                    sessionRecordingId={activeSessionRecording.id}
+                                    matchingEventsMatchType={matchingEventsMatchType}
+                                    playlistLogic={playlistLogic}
+                                    noBorder
+                                    noInspector
+                                    pinned={!!pinnedRecordings.find((x) => x.id === activeSessionRecording.id)}
+                                    setPinned={
+                                        props.onPinnedChange
+                                            ? (pinned) => {
+                                                  if (!activeSessionRecording.id) {
+                                                      return
+                                                  }
+                                                  props.onPinnedChange?.(activeSessionRecording, pinned)
+                                              }
+                                            : undefined
+                                    }
+                                />
+                            </div>
+                            <BindLogic
+                                logic={sessionRecordingPlayerLogic}
+                                props={
+                                    {
+                                        sessionRecordingId: activeSessionRecording.id,
+                                        playerKey: props.logicKey ?? 'playlist',
+                                        matchingEventsMatchType,
+                                        playlistLogic,
+                                        pinned: !!pinnedRecordings.find((x) => x.id === activeSessionRecording.id),
+                                        setPinned: props.onPinnedChange
+                                            ? (pinned: boolean) => {
+                                                  props.onPinnedChange?.(activeSessionRecording, pinned)
+                                              }
+                                            : undefined,
+                                    } satisfies SessionRecordingPlayerLogicProps
+                                }
+                            >
+                                <PlayerSidebar />
+                            </BindLogic>
+                        </div>
                     ) : (
                         <div className="mt-20">
                             <EmptyMessage
