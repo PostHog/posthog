@@ -13,6 +13,7 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentStatsBase,
     IntervalType,
     MultipleVariantHandling,
@@ -110,6 +111,11 @@ class ExperimentQueryRunner(QueryRunner):
             numerator_is_dw = isinstance(self.query.metric.numerator, ExperimentDataWarehouseNode)
             denominator_is_dw = isinstance(self.query.metric.denominator, ExperimentDataWarehouseNode)
             self.is_data_warehouse_query = numerator_is_dw or denominator_is_dw
+        elif isinstance(self.query.metric, ExperimentRetentionMetric):
+            # For retention metrics, check if either start_event or completion_event uses data warehouse
+            start_is_dw = isinstance(self.query.metric.start_event, ExperimentDataWarehouseNode)
+            completion_is_dw = isinstance(self.query.metric.completion_event, ExperimentDataWarehouseNode)
+            self.is_data_warehouse_query = start_is_dw or completion_is_dw
         else:
             self.is_data_warehouse_query = False
         self.is_ratio_metric = isinstance(self.query.metric, ExperimentRatioMetric)
@@ -135,7 +141,10 @@ class ExperimentQueryRunner(QueryRunner):
     def _should_use_new_query_builder(self) -> bool:
         """
         Determines whether to use the new CTE-based query builder.
+        Retention metrics always use the new query builder since the old one doesn't support them.
         """
+        if isinstance(self.metric, ExperimentRetentionMetric):
+            return True
         return self.use_new_query_builder is True
 
     def _get_metrics_aggregated_per_entity_query(
@@ -498,7 +507,10 @@ class ExperimentQueryRunner(QueryRunner):
         Returns the main experiment query.
         """
         if self._should_use_new_query_builder():
-            assert isinstance(self.metric, ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric)
+            assert isinstance(
+                self.metric,
+                ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
+            )
 
             # Get the "missing" (not directly accessible) parameters required for the builder
             (
