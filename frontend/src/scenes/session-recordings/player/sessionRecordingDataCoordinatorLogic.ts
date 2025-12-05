@@ -5,7 +5,9 @@ import posthog from 'posthog-js'
 
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     RecordingSegment,
@@ -114,6 +116,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'sessionNotebookComments',
                     'sessionNotebookCommentsLoading',
                 ],
+                featureFlagLogic,
+                ['featureFlags'],
             ],
         }
     }),
@@ -170,15 +174,30 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     })),
     selectors(({ cache }) => ({
         snapshots: [
-            (s, p) => [s.snapshotSources, s.viewportForTimestamp, p.sessionRecordingId, s.snapshotsBySources],
-            (sources, viewportForTimestamp, sessionRecordingId, snapshotsBySources): RecordingSnapshot[] => {
+            (s, p) => [
+                s.snapshotSources,
+                s.viewportForTimestamp,
+                p.sessionRecordingId,
+                s.snapshotsBySources,
+                s.featureFlags,
+            ],
+            (
+                sources,
+                viewportForTimestamp,
+                sessionRecordingId,
+                snapshotsBySources,
+                featureFlags
+            ): RecordingSnapshot[] => {
                 cache.processingCache = cache.processingCache || { snapshots: {} }
+                const discardRawSnapshots = !!featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
                 const snapshots = processAllSnapshots(
                     sources,
                     snapshotsBySources,
                     cache.processingCache,
                     viewportForTimestamp,
-                    sessionRecordingId
+                    sessionRecordingId,
+                    false,
+                    discardRawSnapshots
                 )
 
                 return snapshots || []

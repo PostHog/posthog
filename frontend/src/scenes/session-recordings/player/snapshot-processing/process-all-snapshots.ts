@@ -136,7 +136,8 @@ export function processAllSnapshots(
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
-    enableYielding?: false
+    enableYielding?: false,
+    discardRawSnapshots?: boolean
 ): RecordingSnapshot[]
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
@@ -144,7 +145,8 @@ export function processAllSnapshots(
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
-    enableYielding: true
+    enableYielding: true,
+    discardRawSnapshots?: boolean
 ): Promise<RecordingSnapshot[]>
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
@@ -152,7 +154,8 @@ export function processAllSnapshots(
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
-    enableYielding: boolean = false
+    enableYielding: boolean = false,
+    discardRawSnapshots: boolean = false
 ): RecordingSnapshot[] | Promise<RecordingSnapshot[]> {
     if (enableYielding) {
         return processAllSnapshotsAsync(
@@ -160,7 +163,8 @@ export function processAllSnapshots(
             snapshotsBySource,
             processingCache,
             viewportForTimestamp,
-            sessionRecordingId
+            sessionRecordingId,
+            discardRawSnapshots
         )
     }
     return processAllSnapshotsSync(
@@ -168,7 +172,8 @@ export function processAllSnapshots(
         snapshotsBySource,
         processingCache,
         viewportForTimestamp,
-        sessionRecordingId
+        sessionRecordingId,
+        discardRawSnapshots
     )
 }
 
@@ -330,7 +335,8 @@ async function processAllSnapshotsAsync(
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
+    sessionRecordingId: string,
+    discardRawSnapshots: boolean
 ): Promise<RecordingSnapshot[]> {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
@@ -397,6 +403,12 @@ async function processAllSnapshotsAsync(
 
         processingCache.snapshots[sourceKey] = context.sourceResult
 
+        // Clear original snapshots after processing to free memory
+        // Once processed, we only need processingCache.snapshots[sourceKey]
+        if (discardRawSnapshots && snapshotsBySource[sourceKey]) {
+            snapshotsBySource[sourceKey].snapshots = []
+        }
+
         if (sourceIdx < sources.length - 1) {
             await yieldToMain()
         }
@@ -412,7 +424,8 @@ function processAllSnapshotsSync(
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
+    sessionRecordingId: string,
+    discardRawSnapshots: boolean
 ): RecordingSnapshot[] {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
@@ -472,6 +485,12 @@ function processAllSnapshotsSync(
         }
 
         processingCache.snapshots[sourceKey] = context.sourceResult
+
+        // Clear original snapshots after processing to free memory
+        // Once processed, we only need processingCache.snapshots[sourceKey]
+        if (discardRawSnapshots && snapshotsBySource[sourceKey]) {
+            snapshotsBySource[sourceKey].snapshots = []
+        }
     }
 
     context.result.sort((a, b) => a.timestamp - b.timestamp)
