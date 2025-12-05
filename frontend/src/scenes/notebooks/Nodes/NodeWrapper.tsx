@@ -23,7 +23,6 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { NotebookNodeLogicProps, notebookNodeLogic } from './notebookNodeLogic'
 import { posthogNodeInputRule, posthogNodePasteRule, useSyncedAttributes } from './utils'
 import { KNOWN_NODES } from '../utils'
-import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { NotebookNodeTitle } from './components/NotebookNodeTitle'
 import { notebookNodeLogicType } from './notebookNodeLogicType'
 import { SlashCommandsPopover } from '../Notebook/SlashCommands'
@@ -56,8 +55,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
         Settings = null,
         settingsIcon,
     } = props
-
-    useWhyDidIRender('NodeWrapper.props', props)
 
     const mountedNotebookLogic = useMountedLogic(notebookLogic)
     const { isEditable, editingNodeId, containerSize } = useValues(mountedNotebookLogic)
@@ -97,16 +94,6 @@ function NodeWrapper<T extends CustomNotebookNodeAttributes>(props: NodeWrapperP
     // TRICKY: child nodes mount the parent logic so we need to control the mounting / unmounting directly in this component
     useOnMountEffect(() => {
         return () => unregisterNodeLogic(nodeId)
-    })
-
-    useWhyDidIRender('NodeWrapper.logicProps', {
-        resizeable,
-        expanded,
-        actions,
-        setExpanded,
-        deleteNode,
-        toggleEditing,
-        mountedNotebookLogic,
     })
 
     const contentRef = useRef<HTMLDivElement | null>(null)
@@ -353,7 +340,6 @@ export function createPostHogWidgetNode<T extends CustomNotebookNodeAttributes>(
 
     // NOTE: We use NodeViewProps here as we convert them to NotebookNodeProps
     const WrappedComponent = (props: NodeViewProps): JSX.Element => {
-        useWhyDidIRender('NodeWrapper(WrappedComponent)', props)
         const [attributes, updateAttributes] = useSyncedAttributes<T>(props)
 
         if (props.node.attrs.nodeId === null) {
