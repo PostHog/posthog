@@ -6,20 +6,21 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.hogql_queries.legacy_compatibility.feature_flag import insight_funnels_use_udf
 from posthog.models import Team
 
 
 def use_udf(funnelsFilter: FunnelsFilter, team: Team):
     if funnelsFilter.useUdf:
         return True
+
     funnelVizType = funnelsFilter.funnelVizType
     if funnelVizType == FunnelVizType.TRENDS:
         return True
-    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
+    if funnelVizType == FunnelVizType.STEPS:
         return True
     if funnelVizType == FunnelVizType.TIME_TO_CONVERT:
         return True
+
     return False
 
 
