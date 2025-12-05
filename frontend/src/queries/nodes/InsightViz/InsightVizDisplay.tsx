@@ -32,10 +32,10 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType } from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -52,7 +52,6 @@ export function InsightVizDisplay({
     embedded,
     inSharedMode,
     editMode,
-    insightProps,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
@@ -64,9 +63,8 @@ export function InsightVizDisplay({
     embedded: boolean
     inSharedMode?: boolean
     editMode?: boolean
-    insightProps: InsightLogicProps<QuerySchema>
 }): JSX.Element | null {
-    const { canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
+    const { insightProps, canEditInsight, isUsingPathsV1, isUsingPathsV2 } = useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
