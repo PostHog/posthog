@@ -2686,6 +2686,6 @@ describe.each([{ PERSONS_PREFETCH_ENABLED: false }, { PERSONS_PREFETCH_ENABLED: 
                     shared_prop: 'batch2',
                 })
             })
-        }
-    )
-})
+        })
+    }
+)

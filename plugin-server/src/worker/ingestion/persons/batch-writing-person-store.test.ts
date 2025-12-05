@@ -2168,9 +2168,11 @@ describe('BatchWritingPersonStore', () => {
                 { teamId, distinctId: 'user-2' },
             ])
 
-            // Both caches should be populated
-            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(person1)
-            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toEqual(person2)
+            // Both caches should be populated (check cache stores InternalPerson without distinct_id)
+            const { distinct_id: _1, ...expectedPerson1 } = person1
+            const { distinct_id: _2, ...expectedPerson2 } = person2
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(expectedPerson1)
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toEqual(expectedPerson2)
             expect(personStoreForBatch.getUpdateCache().get(`${teamId}:1`)).toBeDefined()
             expect(personStoreForBatch.getUpdateCache().get(`${teamId}:2`)).toBeDefined()
         })
@@ -2188,8 +2190,9 @@ describe('BatchWritingPersonStore', () => {
                 { teamId, distinctId: 'user-2' },
             ])
 
-            // Check cache: person1 should be cached, person2 should be null
-            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(person1)
+            // Check cache: person1 should be cached (without distinct_id), person2 should be null
+            const { distinct_id: _, ...expectedPerson1 } = person1
+            expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-1`)).toEqual(expectedPerson1)
             expect(personStoreForBatch.getCheckCache().get(`${teamId}:user-2`)).toBeNull()
 
             // Update cache: only person1 should be cached (no null for missing)
@@ -2291,6 +2294,72 @@ describe('BatchWritingPersonStore', () => {
             const { distinct_id: _, ...expectedPerson } = prefetchedPerson
             expect(result).toEqual(expectedPerson)
             // fetchPerson should not have been called since data was prefetched
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForChecking to wait on in-flight prefetch without duplicate queries', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Create a deferred promise so we can control when the prefetch completes
+            let resolvePrefetch: (value: (typeof prefetchedPerson)[]) => void
+            const prefetchPromise = new Promise<(typeof prefetchedPerson)[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+
+            // Start prefetch but don't await it (simulating non-blocking behavior)
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now call fetchForChecking while prefetch is still in flight
+            const fetchCheckingPromise = personStoreForBatch.fetchForChecking(teamId, 'user-1')
+
+            // Resolve the prefetch
+            resolvePrefetch!([prefetchedPerson])
+            await prefetchCompletion
+
+            // fetchForChecking should get the prefetched data
+            const result = await fetchCheckingPromise
+
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+
+            // Only the batch fetch should have been called, not individual fetchPerson
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
+            expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
+        })
+
+        it('should allow fetchForUpdate to wait on in-flight prefetch without duplicate queries', async () => {
+            const personStoreForBatch = getPersonsStore()
+
+            const prefetchedPerson = { ...person, id: '1', team_id: teamId, distinct_id: 'user-1' }
+
+            // Create a deferred promise so we can control when the prefetch completes
+            let resolvePrefetch: (value: (typeof prefetchedPerson)[]) => void
+            const prefetchPromise = new Promise<(typeof prefetchedPerson)[]>((resolve) => {
+                resolvePrefetch = resolve
+            })
+            mockRepo.fetchPersonsByDistinctIds.mockReturnValueOnce(prefetchPromise)
+
+            // Start prefetch but don't await it
+            const prefetchCompletion = personStoreForBatch.prefetchPersons([{ teamId, distinctId: 'user-1' }])
+
+            // Now call fetchForUpdate while prefetch is still in flight
+            const fetchUpdatePromise = personStoreForBatch.fetchForUpdate(teamId, 'user-1')
+
+            // Resolve the prefetch
+            resolvePrefetch!([prefetchedPerson])
+            await prefetchCompletion
+
+            // fetchForUpdate should get the prefetched data
+            const result = await fetchUpdatePromise
+
+            const { distinct_id: _, ...expectedPerson } = prefetchedPerson
+            expect(result).toEqual(expectedPerson)
+
+            // Only the batch fetch should have been called, not individual fetchPerson
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
             expect(mockRepo.fetchPerson).not.toHaveBeenCalled()
         })
     })
