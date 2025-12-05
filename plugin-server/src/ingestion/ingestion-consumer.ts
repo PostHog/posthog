@@ -28,7 +28,7 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -41,6 +41,7 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
+    createValidateHistoricalMigrationStep,
 } from './event-preprocessing'
 import { createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
@@ -64,10 +65,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
-    events: IncomingEventWithTeam[]
+    events: EventWithHeaders[]
 }
 
 type IncomingEventsByDistinctId = {
@@ -82,7 +85,7 @@ type PreprocessedEvent = {
 }
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
-    personsStoreForBatch: PersonsStoreForBatch
+    headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
 }
 
@@ -121,7 +124,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStore: BatchWritingPersonsStore
+    private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
@@ -175,7 +178,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
@@ -256,6 +259,7 @@ export class IngestionConsumer {
                         .pipe(createParseKafkaMessageStep())
                         .pipe(createDropExceptionEventsStep())
                         .pipe(createResolveTeamStep(this.hub))
+                        .pipe(createValidateHistoricalMigrationStep())
                 )
             )
             // We want to handle the first batch of rejected events, so that the remaining ones
@@ -294,7 +298,7 @@ export class IngestionConsumer {
                             )
                             // We want to call cookieless with the whole batch at once.
                             .gather()
-                            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+                            .pipeBatch(createApplyCookielessProcessingStep(this.hub.cookielessManager))
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )
@@ -328,7 +332,13 @@ export class IngestionConsumer {
                                     retry
                                         .pipe(createNormalizeProcessPersonFlagStep())
                                         .pipe(createHandleClientIngestionWarningStep())
-                                        .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
+                                        .pipe(
+                                            createEventPipelineRunnerV1Step(
+                                                this.hub,
+                                                this.hogTransformer,
+                                                this.personsStore
+                                            )
+                                        )
                                         .pipe(
                                             createEmitEventStep({
                                                 kafkaProducer: this.kafkaProducer!,
@@ -413,7 +423,7 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -421,7 +431,6 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
-        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -429,19 +438,20 @@ export class IngestionConsumer {
                     const eventsToProcess = this.redirectEvents(events)
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
+                        this.processEventsForDistinctId(eventsToProcess, groupStoreForBatch)
                     )
                 })
             )
         })
 
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
 
         if (this.kafkaProducer) {
             await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
-        personsStoreForBatch.reportBatch()
+        this.personsStore.reportBatch()
+        this.personsStore.reset()
         groupStoreForBatch.reportBatch()
 
         for (const message of messages) {
@@ -602,7 +612,6 @@ export class IngestionConsumer {
 
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
-        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
@@ -611,7 +620,6 @@ export class IngestionConsumer {
                 trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
                 return {
                     ...incomingEvent,
-                    personsStoreForBatch,
                     groupStoreForBatch,
                 }
             }
@@ -643,11 +651,12 @@ export class IngestionConsumer {
         return result
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+    private groupEventsByDistinctId(preprocessedEvents: PreprocessedEvent[]): IncomingEventsByDistinctId {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
-        for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
+        for (const preprocessedEvent of preprocessedEvents) {
+            const { eventWithTeam, headers } = preprocessedEvent
+            const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`

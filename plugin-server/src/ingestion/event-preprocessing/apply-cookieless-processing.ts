@@ -1,9 +1,17 @@
-import { Hub, IncomingEventWithTeam } from '../../types'
+import { IncomingEventWithTeam } from '../../types'
+import { CookielessManager } from '../cookieless/cookieless-manager'
 import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 
-export function createApplyCookielessProcessingStep<T extends { eventWithTeam: IncomingEventWithTeam }>(hub: Hub) {
-    return async function applyCookielessProcessingStep(events: T[]): Promise<PipelineResult<T>[]> {
-        const cookielessResults = await hub.cookielessManager.doBatch(events.map((x) => x.eventWithTeam))
+type ApplyCookielessProcessingInput = { eventWithTeam: IncomingEventWithTeam }
+type ApplyCookielessProcessingOutput = { eventWithTeam: IncomingEventWithTeam }
+
+export function createApplyCookielessProcessingStep<T extends ApplyCookielessProcessingInput>(
+    cookielessManager: CookielessManager
+) {
+    return async function applyCookielessProcessingStep(
+        events: T[]
+    ): Promise<PipelineResult<T & ApplyCookielessProcessingOutput>[]> {
+        const cookielessResults = await cookielessManager.doBatch(events.map((x) => x.eventWithTeam))
 
         return events.map((event, index) => {
             const cookielessResult = cookielessResults[index]
