@@ -1,4 +1,4 @@
-export type TicketStatus = 'open' | 'pending' | 'resolved'
+export type TicketStatus = 'new' | 'open' | 'pending' | 'on_hold' | 'resolved'
 export type TicketChannel = 'widget' | 'slack' | 'email'
 export type TicketSlaState = 'on-track' | 'at-risk' | 'breached'
 
@@ -20,13 +20,13 @@ export const sampleTickets: ConversationTicket[] = [
         id: 'CX-9112',
         subject: 'Widget stuck reconnecting on EU pages',
         customer: 'Keypath',
-        status: 'open',
+        status: 'new',
         channel: 'widget',
         priority: 'high',
         aiContained: false,
-        assignedTo: 'Dana',
-        updatedAgoMinutes: 4,
-        slaState: 'at-risk',
+        assignedTo: 'Unassigned',
+        updatedAgoMinutes: 2,
+        slaState: 'on-track',
     },
     {
         id: 'CX-9108',
@@ -80,11 +80,11 @@ export const sampleTickets: ConversationTicket[] = [
         id: 'CX-9097',
         subject: 'AI asking wrong escalation contact',
         customer: 'Ramen Club',
-        status: 'resolved',
+        status: 'on_hold',
         channel: 'slack',
         priority: 'medium',
         aiContained: true,
-        assignedTo: 'Support bot',
+        assignedTo: 'Mei',
         updatedAgoMinutes: 55,
         slaState: 'on-track',
     },

@@ -3125,6 +3125,123 @@ async fn test_config_error_tracking_disabled() -> Result<()> {
 }
 
 #[tokio::test]
+async fn test_config_conversations_enabled() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Enable conversations on the team
+    team.conversations_enabled = Some(true);
+    team.conversations_greeting_text = Some("Hey, how can I help you today?".to_string());
+    team.conversations_color = Some("#1d4aff".to_string());
+    team.conversations_public_token = Some("test_public_token_123".to_string());
+
+    // Update the team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    // Insert team in PG
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Conversations should be configured
+    assert!(json_data["conversations"].is_object());
+    let conversations = &json_data["conversations"];
+
+    assert_eq!(conversations["enabled"], true);
+    assert_eq!(conversations["greetingText"], "Hey, how can I help you today?");
+    assert_eq!(conversations["color"], "#1d4aff");
+    assert_eq!(conversations["token"], "test_public_token_123");
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_config_conversations_disabled() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let distinct_id = "user_distinct_id".to_string();
+
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+
+    // Explicitly disable conversations
+    team.conversations_enabled = Some(false);
+
+    // Update the team in Redis
+    let serialized_team = serde_json::to_string(&team).unwrap();
+    client
+        .set(
+            format!(
+                "{}{}",
+                feature_flags::team::team_models::TEAM_TOKEN_CACHE_PREFIX,
+                team.api_token.clone()
+            ),
+            serialized_team,
+        )
+        .await
+        .unwrap();
+
+    // Insert team in PG
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+    context
+        .insert_person(team.id, distinct_id.clone(), None)
+        .await
+        .unwrap();
+
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
+        "token": token,
+        "distinct_id": distinct_id,
+    });
+
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), Some("true"))
+        .await;
+    assert_eq!(StatusCode::OK, res.status());
+
+    let json_data = res.json::<Value>().await?;
+
+    // Conversations should be false
+    assert_eq!(json_data["conversations"], false);
+
+    Ok(())
+}
+
+#[tokio::test]
 async fn test_disable_flags_returns_empty_response() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
 

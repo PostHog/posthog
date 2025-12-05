@@ -1,42 +1,37 @@
-import { MakeLogicType, actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 
-import { ConversationTicket, TicketChannel, TicketSlaState, TicketStatus, sampleTickets } from '../../data/tickets'
+import api from 'lib/api'
 
-type ConversationsTicketsSceneLogicValues = {
-    statusFilter: TicketStatus | 'all'
-    channelFilter: TicketChannel | 'all'
-    resolutionFilter: 'all' | 'ai' | 'human'
-    slaFilter: TicketSlaState | 'all'
-    tickets: ConversationTicket[]
-    filteredTickets: ConversationTicket[]
-    metrics: {
-        open: number
-        pending: number
-        atRisk: number
-        aiContainment: number
-    }
-}
+import type { Ticket, TicketChannel, TicketSlaState, TicketStatus } from '../../types'
+import type { conversationsTicketsSceneLogicType } from './conversationsTicketsSceneLogicType'
 
-type ConversationsTicketsSceneLogicActions = {
-    setStatusFilter: (status: TicketStatus | 'all') => { status: TicketStatus | 'all' }
-    setChannelFilter: (channel: TicketChannel | 'all') => { channel: TicketChannel | 'all' }
-    setResolutionFilter: (resolution: 'all' | 'ai' | 'human') => { resolution: 'all' | 'ai' | 'human' }
-    setSlaFilter: (sla: TicketSlaState | 'all') => { sla: TicketSlaState | 'all' }
-}
-
-export const conversationsTicketsSceneLogic = kea<
-    MakeLogicType<ConversationsTicketsSceneLogicValues, ConversationsTicketsSceneLogicActions>
->([
+export const conversationsTicketsSceneLogic = kea<conversationsTicketsSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'tickets', 'conversationsTicketsSceneLogic']),
     actions({
         setStatusFilter: (status: TicketStatus | 'all') => ({ status }),
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
-        setResolutionFilter: (resolution: 'all' | 'ai' | 'human') => ({ resolution }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
+        loadTickets: true,
     }),
+    loaders(({ values }) => ({
+        tickets: [
+            [] as Ticket[],
+            {
+                loadTickets: async () => {
+                    const params: Record<string, any> = {}
+                    if (values.statusFilter !== 'all') {
+                        params.status = values.statusFilter
+                    }
+                    const response = await api.conversationsTickets.list(params)
+                    return response.results
+                },
+            },
+        ],
+    })),
     reducers({
         statusFilter: [
-            'open' as TicketStatus | 'all',
+            'all' as TicketStatus | 'all',
             {
                 setStatusFilter: (_, { status }) => status,
             },
@@ -47,12 +42,6 @@ export const conversationsTicketsSceneLogic = kea<
                 setChannelFilter: (_, { channel }) => channel,
             },
         ],
-        resolutionFilter: [
-            'all' as 'all' | 'ai' | 'human',
-            {
-                setResolutionFilter: (_, { resolution }) => resolution,
-            },
-        ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
             {
@@ -61,53 +50,26 @@ export const conversationsTicketsSceneLogic = kea<
         ],
     }),
     selectors({
-        tickets: [() => [], (): ConversationTicket[] => sampleTickets],
         filteredTickets: [
-            (s) => [s.tickets, s.statusFilter, s.channelFilter, s.resolutionFilter, s.slaFilter],
-            (
-                tickets: ConversationTicket[],
-                statusFilter: TicketStatus | 'all',
-                channelFilter: TicketChannel | 'all',
-                resolutionFilter: 'all' | 'ai' | 'human',
-                slaFilter: TicketSlaState | 'all'
-            ) => {
-                return tickets.filter((ticket: ConversationTicket) => {
-                    if (statusFilter !== 'all' && ticket.status !== statusFilter) {
+            (s) => [s.tickets, s.channelFilter],
+            (tickets: Ticket[], channelFilter: TicketChannel | 'all') => {
+                return tickets.filter((ticket: Ticket) => {
+                    if (channelFilter !== 'all' && ticket.channel_source !== channelFilter) {
                         return false
                     }
-                    if (channelFilter !== 'all' && ticket.channel !== channelFilter) {
-                        return false
-                    }
-                    if (slaFilter !== 'all' && ticket.slaState !== slaFilter) {
-                        return false
-                    }
-                    if (resolutionFilter === 'ai' && !ticket.aiContained) {
-                        return false
-                    }
-                    if (resolutionFilter === 'human' && ticket.aiContained) {
-                        return false
-                    }
+                    // SLA filtering would need to be calculated based on created_at/updated_at
+                    // For now, skip SLA filter since we don't have that data from backend yet
                     return true
                 })
             },
         ],
-        metrics: [
-            (s) => [s.tickets],
-            (tickets: ConversationTicket[]) => {
-                const open = tickets.filter((t: ConversationTicket) => t.status === 'open').length
-                const pending = tickets.filter((t: ConversationTicket) => t.status === 'pending').length
-                const atRisk = tickets.filter((t: ConversationTicket) => t.slaState !== 'on-track').length
-                const aiContainment = Math.round(
-                    (tickets.filter((t: ConversationTicket) => t.aiContained).length / Math.max(tickets.length, 1)) *
-                        100
-                )
-                return {
-                    open,
-                    pending,
-                    atRisk,
-                    aiContainment,
-                }
-            },
-        ],
+    }),
+    listeners(({ actions }) => ({
+        setStatusFilter: () => {
+            actions.loadTickets()
+        },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadTickets()
     }),
 ])

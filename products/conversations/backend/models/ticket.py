@@ -17,7 +17,7 @@ class Ticket(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "conversations_ticket"
+        db_table = "posthog_conversations_ticket"
         indexes = [
             models.Index(fields=["team", "distinct_id"]),
             models.Index(fields=["team", "status"]),

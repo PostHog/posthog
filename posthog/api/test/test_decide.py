@@ -4022,6 +4022,54 @@ class TestDecide(BaseTest, QueryMatchingTest):
             },
         )
 
+    def test_conversations_disabled_by_default(self, *args):
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["conversations"], False)
+
+    def test_conversations_enabled_with_defaults(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_public_token_123"
+        self.team.save()
+
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+
+        self.assertEqual(conversations["enabled"], True)
+        self.assertEqual(conversations["greetingText"], "Hey, how can I help you today?")
+        self.assertEqual(conversations["color"], "#1d4aff")
+        self.assertEqual(conversations["token"], "test_public_token_123")
+
+    def test_conversations_enabled_with_custom_values(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_greeting_text = "Welcome! Need assistance?"
+        self.team.conversations_color = "#ff5733"
+        self.team.conversations_public_token = "custom_token_456"
+        self.team.save()
+
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+
+        self.assertEqual(conversations["enabled"], True)
+        self.assertEqual(conversations["greetingText"], "Welcome! Need assistance?")
+        self.assertEqual(conversations["color"], "#ff5733")
+        self.assertEqual(conversations["token"], "custom_token_456")
+
+    def test_conversations_enabled_with_empty_greeting_text(self, *args):
+        self.team.conversations_enabled = True
+        self.team.conversations_greeting_text = ""
+        self.team.conversations_public_token = "test_token"
+        self.team.save()
+
+        response = self._post_decide(api_version=3)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        conversations = response.json()["conversations"]
+
+        # Empty string should fall back to default
+        self.assertEqual(conversations["greetingText"], "Hey, how can I help you today?")
+
     def test_only_evaluate_survey_feature_flags_query_param(self, *args):
         # Create a survey flag and a regular flag
         FeatureFlag.objects.create(

@@ -1,7 +1,8 @@
-from django.db.models import Count, Max, QuerySet
+from django.db.models import CharField, Count, OuterRef, QuerySet, Subquery
+from django.db.models.functions import Cast
 
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -12,9 +13,15 @@ from products.conversations.backend.models import Ticket
 logger = structlog.get_logger(__name__)
 
 
+class TicketPagination(pagination.LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 1000
+
+
 class TicketSerializer(serializers.ModelSerializer):
     message_count = serializers.SerializerMethodField()
     last_message_at = serializers.SerializerMethodField()
+    last_message_text = serializers.SerializerMethodField()
 
     class Meta:
         model = Ticket
@@ -30,8 +37,17 @@ class TicketSerializer(serializers.ModelSerializer):
             "updated_at",
             "message_count",
             "last_message_at",
+            "last_message_text",
         ]
-        read_only_fields = ["id", "channel_source", "distinct_id", "created_at", "message_count", "last_message_at"]
+        read_only_fields = [
+            "id",
+            "channel_source",
+            "distinct_id",
+            "created_at",
+            "message_count",
+            "last_message_at",
+            "last_message_text",
+        ]
 
     def get_message_count(self, obj: Ticket) -> int:
         """Get count of messages in this ticket."""
@@ -52,36 +68,69 @@ class TicketSerializer(serializers.ModelSerializer):
         )
         return last_comment.created_at if last_comment else None
 
+    def get_last_message_text(self, obj: Ticket) -> str | None:
+        """Get text of last message."""
+        if hasattr(obj, "last_message_text"):
+            return obj.last_message_text
+        last_comment = (
+            Comment.objects.filter(team=obj.team, scope="conversations_ticket", item_id=str(obj.id), deleted=False)
+            .order_by("-created_at")
+            .first()
+        )
+        return last_comment.content if last_comment else None
+
 
 class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
     queryset = Ticket.objects.all()
     serializer_class = TicketSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = TicketPagination
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter tickets by team and add annotations."""
         queryset = queryset.filter(team_id=self.team_id)
 
-        # Add message count annotation
-        queryset = queryset.annotate(
-            message_count=Count(
-                "id",
-                filter=Comment.objects.filter(
-                    team_id=self.team_id, scope="conversations_ticket", item_id="id", deleted=False
-                ).query,
+        # Add message count annotation using Subquery
+        # Cast ticket UUID id to string to match Comment.item_id CharField
+        message_count_subquery = (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
             )
+            .values("item_id")
+            .annotate(count=Count("id"))
+            .values("count")
         )
+        queryset = queryset.annotate(message_count=Subquery(message_count_subquery))
 
-        # Add last message timestamp annotation
-        queryset = queryset.annotate(
-            last_message_at=Max(
-                "created_at",
-                filter=Comment.objects.filter(
-                    team_id=self.team_id, scope="conversations_ticket", item_id="id", deleted=False
-                ).query,
+        # Add last message timestamp annotation using Subquery
+        last_message_subquery = (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
             )
+            .order_by("-created_at")
+            .values("created_at")[:1]
         )
+        queryset = queryset.annotate(last_message_at=Subquery(last_message_subquery))
+
+        # Add last message text annotation using Subquery
+        last_message_text_subquery = (
+            Comment.objects.filter(
+                team_id=self.team_id,
+                scope="conversations_ticket",
+                item_id=Cast(OuterRef("id"), output_field=CharField()),
+                deleted=False,
+            )
+            .order_by("-created_at")
+            .values("content")[:1]
+        )
+        queryset = queryset.annotate(last_message_text=Subquery(last_message_text_subquery))
 
         # Filter by status if provided
         status = self.request.query_params.get("status")
@@ -100,4 +149,4 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 anonymous_traits__email__icontains=search
             )
 
-        return queryset.order_by("-created_at")
+        return queryset.order_by("-updated_at")

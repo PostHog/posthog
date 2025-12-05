@@ -33,7 +33,7 @@ class ContentArticle(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "conversations_content_article"
+        db_table = "posthog_conversations_content_article"
         indexes = [
             models.Index(fields=["team", "is_enabled"]),
         ]

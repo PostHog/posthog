@@ -2407,3 +2407,158 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         data = response.json()
         assert sorted(data.keys()) == ["timezone"]
         assert data["timezone"] in ("UTC", "Europe/London")
+
+    def test_conversations_disabled_by_default(self):
+        response = self.client.get("/api/environments/@current/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertIsNone(response_data.get("conversations_enabled"))
+        self.assertIsNone(response_data.get("conversations_greeting_text"))
+        self.assertIsNone(response_data.get("conversations_color"))
+        self.assertIsNone(response_data.get("conversations_public_token"))
+
+    def test_enabling_conversations_auto_generates_token(self):
+        response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertTrue(response_data["conversations_enabled"])
+        self.assertIsNotNone(response_data["conversations_public_token"])
+        self.assertTrue(len(response_data["conversations_public_token"]) > 0)
+
+        # Verify token was saved
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.conversations_enabled)
+        self.assertIsNotNone(self.team.conversations_public_token)
+
+    def test_disabling_conversations_clears_token(self):
+        # First enable conversations
+        self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+        self.team.refresh_from_db()
+        token = self.team.conversations_public_token
+        self.assertIsNotNone(token)
+
+        # Now disable conversations
+        response = self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertFalse(response_data["conversations_enabled"])
+        self.assertIsNone(response_data["conversations_public_token"])
+
+        # Verify token was cleared
+        self.team.refresh_from_db()
+        self.assertFalse(self.team.conversations_enabled)
+        self.assertIsNone(self.team.conversations_public_token)
+
+    def test_re_enabling_conversations_keeps_existing_token(self):
+        # Enable, disable, then re-enable
+        self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+        self.team.refresh_from_db()
+
+        self.client.patch("/api/environments/@current/", {"conversations_enabled": False})
+
+        # Re-enable - should generate a new token since previous was cleared
+        response = self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.team.refresh_from_db()
+        self.assertIsNotNone(self.team.conversations_public_token)
+
+    def test_update_conversations_greeting_text(self):
+        # Enable conversations first
+        self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+
+        response = self.client.patch(
+            "/api/environments/@current/", {"conversations_greeting_text": "Welcome! How can we help?"}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["conversations_greeting_text"], "Welcome! How can we help?")
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.conversations_greeting_text, "Welcome! How can we help?")
+
+    def test_update_conversations_color(self):
+        # Enable conversations first
+        self.client.patch("/api/environments/@current/", {"conversations_enabled": True})
+
+        response = self.client.patch("/api/environments/@current/", {"conversations_color": "#ff5733"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertEqual(response_data["conversations_color"], "#ff5733")
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.conversations_color, "#ff5733")
+
+    def test_conversations_public_token_is_read_only(self):
+        # Try to directly set the token
+        response = self.client.patch("/api/environments/@current/", {"conversations_public_token": "my_custom_token"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Token should not have changed (it's read-only)
+        self.team.refresh_from_db()
+        self.assertNotEqual(self.team.conversations_public_token, "my_custom_token")
+
+    @freeze_time("2022-02-08")
+    def test_generate_conversations_public_token(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self._assert_activity_log_is_empty()
+
+        # Enable conversations first
+        self.team.conversations_enabled = True
+        self.team.save()
+
+        response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertIsNotNone(response_data["conversations_public_token"])
+        self.assertTrue(len(response_data["conversations_public_token"]) > 0)
+
+        # Verify token was saved
+        self.team.refresh_from_db()
+        self.assertIsNotNone(self.team.conversations_public_token)
+        new_token = self.team.conversations_public_token
+
+        # Generate again - should create a different token
+        response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.team.refresh_from_db()
+        self.assertIsNotNone(self.team.conversations_public_token)
+        self.assertNotEqual(self.team.conversations_public_token, new_token)
+
+    def test_generate_conversations_public_token_insufficient_privileges(self):
+        # Non-admin should not be able to generate token
+        self.team.conversations_enabled = True
+        self.team.save()
+
+        response = self.client.post(f"/api/environments/{self.team.id}/generate_conversations_public_token/")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_update_conversations_config_all_fields(self):
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {
+                "conversations_enabled": True,
+                "conversations_greeting_text": "Hi there!",
+                "conversations_color": "#1d4aff",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_data = response.json()
+        self.assertTrue(response_data["conversations_enabled"])
+        self.assertEqual(response_data["conversations_greeting_text"], "Hi there!")
+        self.assertEqual(response_data["conversations_color"], "#1d4aff")
+        self.assertIsNotNone(response_data["conversations_public_token"])
+
+        self.team.refresh_from_db()
+        self.assertTrue(self.team.conversations_enabled)
+        self.assertEqual(self.team.conversations_greeting_text, "Hi there!")
+        self.assertEqual(self.team.conversations_color, "#1d4aff")
+        self.assertIsNotNone(self.team.conversations_public_token)

@@ -1,9 +1,11 @@
 import { actions, kea, path, reducers } from 'kea'
 
+import type { conversationsDashboardSceneLogicType } from './conversationsDashboardSceneLogicType'
+
 export type TimeRange = '24h' | '7d' | '30d'
 export type ChannelFilter = 'all' | 'widget' | 'slack' | 'email'
 
-export const conversationsDashboardSceneLogic = kea([
+export const conversationsDashboardSceneLogic = kea<conversationsDashboardSceneLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'dashboard', 'conversationsDashboardSceneLogic']),
     actions({
         setTimeRange: (timeRange: TimeRange) => ({ timeRange }),

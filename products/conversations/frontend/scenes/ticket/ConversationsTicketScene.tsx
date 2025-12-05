@@ -1,22 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
-import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonDivider, LemonInput, LemonSelect, LemonTag, Spinner } from '@posthog/lemon-ui'
 
-import { CommentComposer } from 'scenes/comments/CommentComposer'
+import { MemberSelect } from 'lib/components/MemberSelect'
+import { TZLabel } from 'lib/components/TZLabel'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { TicketSlaState, TicketStatus } from '../../data/tickets'
-import { ticketDetail } from '../../data/tickets'
+import { ChannelsTag } from '../../components/Channels/ChannelsTag'
+import { Message } from '../../components/Chat/Message'
+import { type TicketSlaState, type TicketStatus, priorityOptions, statusOptionsWithoutAll } from '../../types'
 import { conversationsTicketSceneLogic } from './conversationsTicketSceneLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<{ ticketId: string }> = {
     component: ConversationsTicketScene,
+    logic: conversationsTicketSceneLogic,
+    paramsToProps: ({ params: { ticketId } }) => ({ ticketId: ticketId || 'new' }),
 }
 
 function calculateSLA(lastMessageTimestamp: string): { timeRemaining: string; risk: TicketSlaState } {
@@ -48,47 +53,119 @@ function calculateSLA(lastMessageTimestamp: string): { timeRemaining: string; ri
     }
 }
 
-export function ConversationsTicketScene(): JSX.Element {
-    const logic = conversationsTicketSceneLogic()
-    const { status, priority, assignedTo } = useValues(logic)
-    const { setStatus, setPriority, setAssignedTo } = useActions(logic)
+export function ConversationsTicketScene({ ticketId }: { ticketId: string }): JSX.Element {
+    const logic = conversationsTicketSceneLogic({ id: ticketId || 'new' })
+    const {
+        ticket,
+        ticketLoading,
+        status,
+        priority,
+        assignedTo,
+        messages,
+        messagesLoading,
+        messageSending,
+        hasMoreMessages,
+        olderMessagesLoading,
+    } = useValues(logic)
+    const { setStatus, setPriority, setAssignedTo, sendMessage, updateTicket, loadOlderMessages } = useActions(logic)
     const { push } = useActions(router)
 
-    const [isAiActive, setIsAiActive] = useState(!ticketDetail.aiContainment) // AI active if not contained (escalated)
-    const [escalationReason, setEscalationReason] = useState('')
+    const [showAiSuggestion, setShowAiSuggestion] = useState(true)
+    const [messageContent, setMessageContent] = useState('')
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+    const messagesContainerRef = useRef<HTMLDivElement>(null)
+
+    const scrollToBottom = (): void => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
 
     // Auto-calculate SLA based on last customer message
-    const lastCustomerMessage = [...ticketDetail.timeline].reverse().find((msg) => msg.actor === 'customer')
-    const [slaData, setSlaData] = useState(calculateSLA(lastCustomerMessage?.timestamp || '08:20'))
+    const lastCustomerMessage = messages.length > 0 ? messages[messages.length - 1] : null
+    const [slaData, setSlaData] = useState(
+        calculateSLA(
+            lastCustomerMessage?.created_at
+                ? new Date(lastCustomerMessage.created_at).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                  })
+                : '08:20'
+        )
+    )
+
+    // Scroll to bottom when messages change
+    useEffect(() => {
+        if (messages.length > 0) {
+            scrollToBottom()
+        }
+    }, [messages.length])
 
     useEffect(() => {
         const interval = setInterval(() => {
             if (lastCustomerMessage) {
-                setSlaData(calculateSLA(lastCustomerMessage.timestamp))
+                const timeString = new Date(lastCustomerMessage.created_at).toLocaleTimeString('en-US', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                })
+                setSlaData(calculateSLA(timeString))
             }
         }, 30000) // Update every 30 seconds
 
         return () => clearInterval(interval)
     }, [lastCustomerMessage])
 
-    const handleEscalate = (): void => {
-        // TODO: Add modal to collect escalation reason
-        setIsAiActive(false)
-        setEscalationReason('Requires human expertise')
-        // TODO: Send to backend to stop AI responses and log escalation
+    const handleSendMessage = (): void => {
+        if (messageContent.trim()) {
+            sendMessage(messageContent)
+            setMessageContent('')
+        }
     }
 
-    const handleReenableAi = (): void => {
-        setIsAiActive(true)
-        setEscalationReason('')
-        // TODO: Send to backend to re-enable AI responses
+    const handleScroll = (): void => {
+        const container = messagesContainerRef.current
+        if (!container || olderMessagesLoading || !hasMoreMessages) {
+            return
+        }
+
+        // Check if scrolled to top (within 50px threshold)
+        if (container.scrollTop < 50) {
+            loadOlderMessages()
+        }
+    }
+
+    if (ticketLoading) {
+        return (
+            <SceneContent>
+                <div className="flex items-center justify-center h-96">
+                    <Spinner className="text-4xl" />
+                </div>
+            </SceneContent>
+        )
+    }
+
+    const isNewTicket = ticketId === 'new'
+
+    if (!ticket && !isNewTicket) {
+        return (
+            <SceneContent>
+                <div className="flex items-center justify-center h-96">
+                    <div className="text-center">
+                        <h2 className="text-xl font-semibold mb-2">Ticket not found</h2>
+                        <LemonButton type="primary" to={urls.conversationsTickets()}>
+                            Back to tickets
+                        </LemonButton>
+                    </div>
+                </div>
+            </SceneContent>
+        )
     }
 
     return (
         <SceneContent>
             <SceneTitleSection
-                name={ticketDetail.subject}
-                description={ticketDetail.id}
+                name={ticket?.id || ''}
+                description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
                     name: 'Ticket list',
@@ -101,54 +178,113 @@ export function ConversationsTicketScene(): JSX.Element {
                 {/* Main conversation area */}
                 <LemonCard hoverEffect={false} className="flex flex-col overflow-hidden">
                     {/* Chat messages */}
-                    <div className="flex-1 overflow-y-auto p-4 space-y-1.5 min-h-[400px] max-h-[600px]">
-                        {ticketDetail.timeline.map((message) => (
-                            <div
-                                key={message.id}
-                                className={`flex ${message.actor === 'customer' ? 'flex-row-reverse ml-10' : 'mr-10'}`}
-                            >
-                                <div
-                                    className={`flex flex-col min-w-0 ${message.actor === 'customer' ? 'items-end' : 'items-start'}`}
-                                >
-                                    <div className="max-w-full">
-                                        <div className="border py-2 px-3 rounded-lg bg-surface-primary">
-                                            <div className="flex items-center gap-2 text-xs text-muted mb-1">
-                                                <span className="font-medium">{message.author}</span>
-                                                {message.role && (
-                                                    <span className="text-muted-alt">· {message.role}</span>
-                                                )}
-                                                <span className="text-muted-alt">· {message.timestamp}</span>
-                                            </div>
-                                            <p className="text-sm">{message.content}</p>
-                                            {message.attachments && (
-                                                <div className="mt-2 flex flex-wrap gap-1.5">
-                                                    {message.attachments.map((att) => (
-                                                        <LemonTag key={att.name} type="muted" size="small">
-                                                            {att.name}
-                                                        </LemonTag>
-                                                    ))}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
+                    <div
+                        ref={messagesContainerRef}
+                        onScroll={handleScroll}
+                        className="flex-1 overflow-y-auto p-4 space-y-1.5 min-h-[400px] max-h-[600px]"
+                    >
+                        {olderMessagesLoading && (
+                            <div className="flex items-center justify-center py-2">
+                                <Spinner className="text-sm" />
                             </div>
-                        ))}
+                        )}
+                        {messagesLoading && messages.length === 0 ? (
+                            <div className="flex items-center justify-center h-full">
+                                <Spinner />
+                            </div>
+                        ) : messages.length === 0 ? (
+                            <div className="flex items-center justify-center h-full text-muted-alt text-sm">
+                                No messages yet. Start the conversation!
+                            </div>
+                        ) : (
+                            <>
+                                {messages.map((message: any) => {
+                                    const authorType = message.item_context?.author_type || 'customer'
+                                    const isCustomer = authorType === 'customer'
 
-                        {/* Escalation indicator */}
-                        {!isAiActive && escalationReason && (
-                            <div className="flex justify-center my-3">
-                                <div className="bg-warning-highlight border border-warning rounded px-3 py-2 text-xs">
-                                    <span className="font-medium">🤝 Escalated to human</span>
-                                    <span className="text-muted-alt ml-2">· {escalationReason}</span>
-                                </div>
-                            </div>
+                                    let displayName = 'Customer'
+                                    if (message.created_by) {
+                                        displayName =
+                                            `${message.created_by.first_name} ${message.created_by.last_name}`.trim() ||
+                                            message.created_by.email
+                                    } else if (authorType === 'customer') {
+                                        displayName =
+                                            ticket?.anonymous_traits?.name ||
+                                            ticket?.anonymous_traits?.email ||
+                                            'Customer'
+                                    }
+
+                                    return (
+                                        <Message
+                                            key={message.id}
+                                            message={message}
+                                            isCustomer={isCustomer}
+                                            displayName={displayName}
+                                        />
+                                    )
+                                })}
+                                <div ref={messagesEndRef} />
+                            </>
                         )}
                     </div>
 
+                    {/* AI suggested reply */}
+                    {showAiSuggestion && ticket?.aiInsights && (
+                        <div className="border-t border-b bg-accent-3000-light p-3">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-semibold">💡 AI suggested reply</span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {ticket.aiInsights.referencedContent?.map((item: string) => (
+                                            <LemonTag key={item} type="muted" size="small">
+                                                {item}
+                                            </LemonTag>
+                                        ))}
+                                    </div>
+                                </div>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="tertiary"
+                                    onClick={() => setShowAiSuggestion(false)}
+                                    icon={<span className="text-xs">✕</span>}
+                                />
+                            </div>
+                            <div className="text-xs p-2 bg-bg-light rounded border mb-2">
+                                {ticket.aiInsights.suggestedReply}
+                            </div>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() => {
+                                    setMessageContent(ticket.aiInsights.suggestedReply)
+                                    setShowAiSuggestion(false)
+                                }}
+                            >
+                                Use this reply
+                            </LemonButton>
+                        </div>
+                    )}
+
                     {/* Reply input */}
                     <div className="border-t p-3">
-                        <CommentComposer scope="conversation_ticket" item_id={ticketDetail.id} />
+                        <div className="flex gap-2">
+                            <LemonInput
+                                className="flex-1"
+                                placeholder="Type your message..."
+                                value={messageContent}
+                                onChange={setMessageContent}
+                                onPressEnter={handleSendMessage}
+                                disabled={messageSending}
+                            />
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSendMessage}
+                                loading={messageSending}
+                                disabled={!messageContent.trim()}
+                            >
+                                Send
+                            </LemonButton>
+                        </div>
                     </div>
                 </LemonCard>
 
@@ -160,36 +296,28 @@ export function ConversationsTicketScene(): JSX.Element {
                         <div className="space-y-2 text-xs">
                             <div className="flex justify-between">
                                 <span className="text-muted-alt">Created</span>
-                                <span>{ticketDetail.createdAt}</span>
+                                <span>
+                                    <TZLabel time={ticket?.created_at} />
+                                </span>
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-muted-alt">Updated</span>
-                                <span>{ticketDetail.updatedAt}</span>
+                                <span>
+                                    <TZLabel time={ticket?.updated_at} />
+                                </span>
                             </div>
                             <div className="flex justify-between">
                                 <span className="text-muted-alt">Channel</span>
-                                <span className="capitalize">{ticketDetail.channel}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Queue</span>
-                                <span>{ticketDetail.queue}</span>
-                            </div>
-                            <div className="flex justify-between items-center">
-                                <span className="text-muted-alt">Handling</span>
-                                <LemonTag type={isAiActive ? 'success' : 'default'} size="small">
-                                    {isAiActive ? 'AI active' : 'Human'}
-                                </LemonTag>
+                                <span className="capitalize">
+                                    <ChannelsTag channel={ticket?.channel_source} />
+                                </span>
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Status</span>
                                 <LemonSelect
                                     size="small"
                                     value={status}
-                                    options={[
-                                        { value: 'open', label: 'Open' },
-                                        { value: 'pending', label: 'Pending' },
-                                        { value: 'resolved', label: 'Resolved' },
-                                    ]}
+                                    options={statusOptionsWithoutAll}
                                     onChange={(value: TicketStatus | null) => value && setStatus(value)}
                                     dropdownMatchSelectWidth={false}
                                 />
@@ -199,23 +327,16 @@ export function ConversationsTicketScene(): JSX.Element {
                                 <LemonSelect
                                     size="small"
                                     value={priority}
-                                    options={[
-                                        { value: 'low', label: 'Low' },
-                                        { value: 'medium', label: 'Medium' },
-                                        { value: 'high', label: 'High' },
-                                    ]}
+                                    options={priorityOptions}
                                     onChange={(value: 'low' | 'medium' | 'high' | null) => value && setPriority(value)}
                                     dropdownMatchSelectWidth={false}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
                                 <span className="text-muted-alt">Assignee</span>
-                                <LemonInput
-                                    className="max-w-32"
-                                    size="small"
-                                    value={assignedTo}
-                                    onChange={(value) => setAssignedTo(value)}
-                                    placeholder="Unassigned"
+                                <MemberSelect
+                                    value={assignedTo === 'All users' ? null : assignedTo}
+                                    onChange={(user) => setAssignedTo(user?.id || 'All users')}
                                 />
                             </div>
                             <div className="flex justify-between items-center">
@@ -235,156 +356,93 @@ export function ConversationsTicketScene(): JSX.Element {
                             </div>
                         </div>
                         <div className="mt-3 pt-3 border-t">
-                            <LemonButton type="primary" size="small">
+                            <LemonButton type="primary" size="small" onClick={() => updateTicket()}>
                                 Save changes
                             </LemonButton>
                         </div>
                     </LemonCard>
 
-                    {/* AI insights */}
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-sm font-semibold">AI insights</h3>
-                            <LemonTag type={isAiActive ? 'success' : 'warning'} size="small">
-                                {isAiActive ? 'Active' : 'Escalated'}
-                            </LemonTag>
-                        </div>
-
-                        {isAiActive ? (
-                            <>
-                                <p className="text-xs text-muted-alt mb-3">AI is actively handling this conversation</p>
-                                <LemonButton type="secondary" size="small" onClick={handleEscalate}>
-                                    Escalate to human
-                                </LemonButton>
-                            </>
-                        ) : (
-                            <>
-                                <p className="text-xs text-muted-alt mb-2">{ticketDetail.aiInsights.fallbackReason}</p>
-                                <p className="text-xs mb-2">{ticketDetail.aiInsights.summary}</p>
-                                <div className="space-y-1.5 mb-3">
-                                    <h4 className="text-xs font-medium text-muted-alt">Referenced content</h4>
-                                    <div className="flex flex-wrap gap-1">
-                                        {ticketDetail.aiInsights.referencedContent.map((item) => (
-                                            <LemonTag key={item} type="muted" size="small">
-                                                {item}
-                                            </LemonTag>
-                                        ))}
-                                    </div>
-                                </div>
-                                <div className="space-y-1.5 mb-3">
-                                    <h4 className="text-xs font-medium text-muted-alt">Suggested reply</h4>
-                                    <div className="text-xs p-2 bg-bg-300 rounded border text-muted-alt">
-                                        {ticketDetail.aiInsights.suggestedReply}
-                                    </div>
-                                </div>
-                                <LemonButton type="secondary" size="small" onClick={handleReenableAi}>
-                                    Re-enable AI
-                                </LemonButton>
-                            </>
-                        )}
-                    </LemonCard>
-
                     {/* Customer */}
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-sm font-semibold">Customer</h3>
-                            <LemonButton
-                                size="xsmall"
-                                type="secondary"
-                                onClick={() => push(urls.personByDistinctId('123'))}
-                            >
-                                View person
-                            </LemonButton>
-                        </div>
-                        <div className="space-y-1.5 text-xs">
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Name</span>
-                                <span className="font-medium">{ticketDetail.customer.name}</span>
+                    {ticket?.distinct_id && (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <div className="flex items-center justify-between mb-3">
+                                <h3 className="text-sm font-semibold">Customer</h3>
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    onClick={() => push(urls.personByDistinctId(ticket.distinct_id))}
+                                >
+                                    View person
+                                </LemonButton>
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Company</span>
-                                <span className="font-medium">{ticketDetail.customer.company}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Plan</span>
-                                <span>{ticketDetail.customer.plan}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">Region</span>
-                                <span>{ticketDetail.customer.region}</span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-muted-alt">ARR</span>
-                                <span className="font-medium">{ticketDetail.customer.mrr}</span>
-                            </div>
-                        </div>
-                        <div className="mt-2 flex flex-wrap gap-1">
-                            {ticketDetail.customer.tags.map((tag) => (
-                                <LemonTag key={tag} type="muted" size="small">
-                                    {tag}
-                                </LemonTag>
-                            ))}
-                        </div>
-                    </LemonCard>
+                            <PersonDisplay person={{ distinct_id: ticket.distinct_id }} withIcon />
+                        </LemonCard>
+                    )}
 
                     {/* Recent events */}
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <h3 className="text-sm font-semibold mb-2">Recent events</h3>
-                        <div className="space-y-2 text-xs">
-                            {ticketDetail.recentEvents.map((event, idx) => (
-                                <div key={event.id}>
-                                    <div className="flex justify-between gap-2">
-                                        <span className="flex-1">{event.description}</span>
-                                        <span className="text-muted-alt whitespace-nowrap">{event.ts}</span>
+                    {ticket?.recentEvents && ticket.recentEvents.length > 0 && (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <h3 className="text-sm font-semibold mb-2">Recent events</h3>
+                            <div className="space-y-2 text-xs">
+                                {ticket.recentEvents.map((event: any, idx: number) => (
+                                    <div key={event.id}>
+                                        <div className="flex justify-between gap-2">
+                                            <span className="flex-1">{event.description}</span>
+                                            <span className="text-muted-alt whitespace-nowrap">{event.ts}</span>
+                                        </div>
+                                        {idx < ticket.recentEvents.length - 1 && (
+                                            <LemonDivider dashed className="my-2" />
+                                        )}
                                     </div>
-                                    {idx < ticketDetail.recentEvents.length - 1 && (
-                                        <LemonDivider dashed className="my-2" />
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                    </LemonCard>
+                                ))}
+                            </div>
+                        </LemonCard>
+                    )}
 
                     {/* Session recording */}
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <h3 className="text-sm font-semibold mb-2">Session recording</h3>
-                        <p className="text-xs text-muted-alt mb-2">
-                            {ticketDetail.sessionRecording.id} · {ticketDetail.sessionRecording.duration}
-                        </p>
-                        <div className="rounded border border-dashed border-light bg-bg-300 p-3 text-center text-xs text-muted-alt">
-                            Recording preview
-                        </div>
-                        <LemonButton
-                            className="mt-2"
-                            type="secondary"
-                            size="small"
-                            to={ticketDetail.sessionRecording.url}
-                        >
-                            Open in replay
-                        </LemonButton>
-                    </LemonCard>
+                    {ticket?.sessionRecording && (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <h3 className="text-sm font-semibold mb-2">Session recording</h3>
+                            <p className="text-xs text-muted-alt mb-2">
+                                {ticket.sessionRecording.id} · {ticket.sessionRecording.duration}
+                            </p>
+                            <div className="rounded border border-dashed border-light bg-bg-300 p-3 text-center text-xs text-muted-alt">
+                                Recording preview
+                            </div>
+                            <LemonButton
+                                className="mt-2"
+                                type="secondary"
+                                size="small"
+                                to={ticket.sessionRecording.url}
+                            >
+                                Open in replay
+                            </LemonButton>
+                        </LemonCard>
+                    )}
 
                     {/* Previous tickets */}
-                    <LemonCard hoverEffect={false} className="p-3">
-                        <h3 className="text-sm font-semibold mb-2">Previous tickets</h3>
-                        <div className="space-y-2 text-xs">
-                            <div className="p-2 rounded border border-border-light hover:bg-bg-light cursor-pointer">
-                                <div className="font-medium">Widget rendering issue</div>
-                                <div className="text-muted-alt mt-0.5">Resolved • 3 days ago</div>
+                    {ticket?.previousTickets && ticket.previousTickets.length > 0 && (
+                        <LemonCard hoverEffect={false} className="p-3">
+                            <h3 className="text-sm font-semibold mb-2">Previous tickets</h3>
+                            <div className="space-y-2 text-xs">
+                                {ticket.previousTickets.map((prevTicket: any) => (
+                                    <div
+                                        key={prevTicket.id}
+                                        className="p-2 rounded border border-border-light hover:bg-bg-light cursor-pointer"
+                                        onClick={() => push(urls.conversationsTicketDetail(prevTicket.id))}
+                                    >
+                                        <div className="font-medium">{prevTicket.subject}</div>
+                                        <div className="text-muted-alt mt-0.5">
+                                            {prevTicket.status} • {prevTicket.timeAgo}
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
-                            <div className="p-2 rounded border border-border-light hover:bg-bg-light cursor-pointer">
-                                <div className="font-medium">API rate limit question</div>
-                                <div className="text-muted-alt mt-0.5">Resolved • 1 week ago</div>
-                            </div>
-                            <div className="p-2 rounded border border-border-light hover:bg-bg-light cursor-pointer">
-                                <div className="font-medium">SAML configuration help</div>
-                                <div className="text-muted-alt mt-0.5">Resolved • 2 weeks ago</div>
-                            </div>
-                        </div>
-                        <LemonButton className="mt-2" type="secondary" size="small">
-                            View all tickets
-                        </LemonButton>
-                    </LemonCard>
+                            <LemonButton className="mt-2" type="secondary" size="small">
+                                View all tickets
+                            </LemonButton>
+                        </LemonCard>
+                    )}
                 </div>
             </div>
         </SceneContent>

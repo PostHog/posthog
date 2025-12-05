@@ -60,7 +60,6 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/conversations': ['ConversationsDashboard', 'conversationsDashboard'],
         '/conversations/tickets': ['ConversationsTickets', 'conversationsTickets'],
         '/conversations/tickets/:ticketId': ['ConversationsTicketDetail', 'conversationsTicketDetail'],
         '/conversations/content': ['ConversationsContent', 'conversationsContent'],
@@ -70,7 +69,9 @@ export const manifest: ProductManifest = {
         '/conversations/playground': ['ConversationsPlayground', 'conversationsPlayground'],
         '/conversations/settings': ['ConversationsSettings', 'conversationsSettings'],
     },
-    redirects: {},
+    redirects: {
+        '/conversations': '/conversations/tickets',
+    },
     urls: {
         conversationsDashboard: (): string => '/conversations',
         conversationsTickets: (): string => '/conversations/tickets',

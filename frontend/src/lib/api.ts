@@ -5066,6 +5066,15 @@ const api = {
             return await new ApiRequest().dataWarehouseManagedViewset(kind).get()
         },
     },
+
+    projects: {
+        async generateConversationsPublicToken(teamId?: TeamType['id']): Promise<TeamType> {
+            return await new ApiRequest()
+                .environmentsDetail(teamId)
+                .withAction('generate_conversations_public_token')
+                .create()
+        },
+    },
 }
 
 async function handleFetch(url: string, method: string, fetcher: () => Promise<Response>): Promise<Response> {

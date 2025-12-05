@@ -4,7 +4,6 @@ Widget API endpoints for the Conversations product.
 These endpoints are public (authenticated via public token) and used by the posthog-js widget.
 """
 
-import re
 import html
 import hashlib
 from typing import Optional
@@ -86,22 +85,14 @@ class WidgetAuthentication(BaseAuthentication):
 
 def validate_distinct_id(distinct_id: Optional[str]) -> str:
     """
-    Validate distinct_id format and entropy.
-    Raises ValidationError if invalid.
+    Validate distinct_id is present and within length limits.
+    PostHog allows any distinct_id format.
     """
     if not distinct_id:
         raise ValidationError("distinct_id is required")
 
     if len(distinct_id) > 200:
         raise ValidationError("distinct_id too long (max 200 chars)")
-
-    # Reject low-entropy sequential IDs that might be used for enumeration
-    if re.match(r"^(user|test|temp)\d+$", distinct_id.lower()):
-        raise ValidationError("Invalid distinct_id format")
-
-    # Require minimum length for anonymous IDs (unless it's an email)
-    if len(distinct_id) < 16 and "@" not in distinct_id:
-        raise ValidationError("distinct_id too short")
 
     return distinct_id
 
@@ -244,7 +235,7 @@ class WidgetMessageView(APIView):
                 "ticket_status": ticket.status,
                 "created_at": comment.created_at.isoformat(),
             },
-            status=status.HTTP_201_CREATED,
+            status=status.HTTP_200_OK,
         )
 
 

@@ -29,7 +29,7 @@ class GuidanceRule(UUIDTModel):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "conversations_guidance_rule"
+        db_table = "posthog_conversations_guidance_rule"
         indexes = [
             models.Index(fields=["team", "is_active"]),
             models.Index(fields=["team", "rule_type"]),

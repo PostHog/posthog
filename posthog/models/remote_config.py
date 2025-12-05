@@ -261,6 +261,17 @@ class RemoteConfig(UUIDTModel):
 
         config["heatmaps"] = True if team.heatmaps_opt_in else False
 
+        # MARK: Conversations
+        if team.conversations_enabled:
+            config["conversations"] = {
+                "enabled": True,
+                "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
+                "color": team.conversations_color or "#1d4aff",
+                "token": team.conversations_public_token,
+            }
+        else:
+            config["conversations"] = False
+
         surveys_opt_in = get_surveys_opt_in(team)
 
         if surveys_opt_in:

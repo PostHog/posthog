@@ -22,6 +22,10 @@ pub struct Team {
     pub inject_web_apps: Option<bool>,
     pub surveys_opt_in: Option<bool>,
     pub heatmaps_opt_in: Option<bool>,
+    pub conversations_enabled: Option<bool>,
+    pub conversations_greeting_text: Option<String>,
+    pub conversations_color: Option<String>,
+    pub conversations_public_token: Option<String>,
     pub capture_dead_clicks: Option<bool>,
     pub flags_persistence_default: Option<bool>,
     pub session_recording_sample_rate: Option<Decimal>, // numeric(3,2) in postgres, see https://docs.rs/sqlx/latest/sqlx/postgres/types/index.html#rust_decimal

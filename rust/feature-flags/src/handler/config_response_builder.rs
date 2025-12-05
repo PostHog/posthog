@@ -221,6 +221,18 @@ fn apply_core_config_fields(response: &mut FlagsResponse, config: &Config, team:
 
     response.config.surveys = Some(serde_json::json!(team.surveys_opt_in.unwrap_or(false)));
     response.config.heatmaps = Some(team.heatmaps_opt_in.unwrap_or(false));
+    
+    response.config.conversations = if team.conversations_enabled.unwrap_or(false) {
+        Some(serde_json::json!({
+            "enabled": true,
+            "greetingText": team.conversations_greeting_text.as_deref().unwrap_or("Hey, how can I help you today?"),
+            "color": team.conversations_color.as_deref().unwrap_or("#1d4aff"),
+            "token": team.conversations_public_token.as_deref()
+        }))
+    } else {
+        Some(serde_json::json!(false))
+    };
+    
     response.config.default_identified_only = Some(true);
     response.config.flags_persistence_default =
         Some(team.flags_persistence_default.unwrap_or(false));
@@ -261,6 +273,10 @@ mod tests {
             inject_web_apps: None,
             surveys_opt_in: None,
             heatmaps_opt_in: None,
+            conversations_enabled: None,
+            conversations_greeting_text: None,
+            conversations_color: None,
+            conversations_public_token: None,
             capture_dead_clicks: None,
             flags_persistence_default: None,
             session_recording_sample_rate: None,

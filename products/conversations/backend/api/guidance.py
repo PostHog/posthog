@@ -1,7 +1,7 @@
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -10,6 +10,11 @@ from posthog.api.shared import UserBasicSerializer
 from products.conversations.backend.models import GuidanceRule
 
 logger = structlog.get_logger(__name__)
+
+
+class GuidanceRulePagination(pagination.LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 1000
 
 
 class GuidanceRuleSerializer(serializers.ModelSerializer):
@@ -42,6 +47,7 @@ class GuidanceRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = GuidanceRule.objects.all()
     serializer_class = GuidanceRuleSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = GuidanceRulePagination
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter rules by team."""

@@ -1,7 +1,7 @@
 from django.db.models import QuerySet
 
 import structlog
-from rest_framework import serializers, viewsets
+from rest_framework import pagination, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -10,6 +10,11 @@ from posthog.api.shared import UserBasicSerializer
 from products.conversations.backend.models import ContentArticle
 
 logger = structlog.get_logger(__name__)
+
+
+class ContentArticlePagination(pagination.LimitOffsetPagination):
+    default_limit = 100
+    max_limit = 1000
 
 
 class ContentArticleSerializer(serializers.ModelSerializer):
@@ -42,6 +47,7 @@ class ContentArticleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = ContentArticle.objects.all()
     serializer_class = ContentArticleSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = ContentArticlePagination
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         """Filter articles by team."""

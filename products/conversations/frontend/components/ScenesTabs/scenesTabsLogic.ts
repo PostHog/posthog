@@ -14,11 +14,11 @@ export type SceneTabConfig = {
 }
 
 export const SCENE_TABS: SceneTabConfig[] = [
-    {
+    /*{
         key: 'dashboard',
         label: 'Overview',
         href: urls.conversationsDashboard(),
-    },
+    },*/
     {
         key: 'tickets',
         label: 'Tickets',
@@ -34,11 +34,11 @@ export const SCENE_TABS: SceneTabConfig[] = [
         label: 'Guidance',
         href: urls.conversationsGuidance(),
     },
-    {
+    /*{
         key: 'playground',
         label: 'Playground',
         href: urls.conversationsPlayground(),
-    },
+    },*/
     {
         key: 'settings',
         label: 'Settings',
@@ -54,7 +54,7 @@ export const scenesTabsLogic = kea<scenesTabsLogicType>([
     }),
     reducers({
         activeTab: [
-            'dashboard' as SceneTabKey,
+            'tickets' as SceneTabKey,
             {
                 setActiveTab: (_state: SceneTabKey, { tab }: { tab: SceneTabKey }) => tab,
             },

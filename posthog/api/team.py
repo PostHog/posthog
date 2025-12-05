@@ -745,6 +745,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 **validated_data["session_replay_config"],
             }
 
+        # Auto-generate/clear conversations token based on conversations_enabled
+        if "conversations_enabled" in validated_data:
+            is_enabling = validated_data["conversations_enabled"] and not instance.conversations_enabled
+            is_disabling = not validated_data["conversations_enabled"] and instance.conversations_enabled
+
+            if is_enabling and not instance.conversations_public_token:
+                # Auto-generate token when enabling for the first time
+                import secrets
+
+                validated_data["conversations_public_token"] = secrets.token_urlsafe(32)
+            elif is_disabling:
+                # Clear token when disabling
+                validated_data["conversations_public_token"] = None
+
         updated_team = super().update(instance, validated_data)
         changes = dict_changes_between("Team", before_update, updated_team.__dict__, use_field_exclusions=True)
 

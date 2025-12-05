@@ -180,6 +180,18 @@ def get_base_config(token: str, team: Team, request: HttpRequest, skip_db: bool 
 
     response["surveys"] = surveys_opt_in
     response["heatmaps"] = True if team.heatmaps_opt_in else False
+
+    # Conversations widget config
+    if team.conversations_enabled:
+        response["conversations"] = {
+            "enabled": True,
+            "greetingText": team.conversations_greeting_text or "Hey, how can I help you today?",
+            "color": team.conversations_color or "#1d4aff",
+            "token": team.conversations_public_token,
+        }
+    else:
+        response["conversations"] = False
+
     response["flagsPersistenceDefault"] = True if team.flags_persistence_default else False
     response["defaultIdentifiedOnly"] = True  # Support old SDK versions with setting that is now the default
 

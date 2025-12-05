@@ -90,6 +90,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 "errorTracking": {"autocaptureExceptions": False, "suppressionRules": []},
                 "surveys": False,
                 "heatmaps": False,
+                "conversations": False,
                 "defaultIdentifiedOnly": True,
                 "siteApps": [],
             }
@@ -141,7 +142,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.headers["Content-Type"] == "application/javascript"
 
         assert response.content == snapshot(
-            b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+            b'(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "conversations": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
         )
 
     @patch("posthog.models.remote_config.get_array_js_content", return_value="[MOCKED_ARRAY_JS_CONTENT]")
@@ -160,7 +161,7 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
         assert response.content
 
         assert response.content == snapshot(
-            b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
+            b'[MOCKED_ARRAY_JS_CONTENT]\n\n(function() {\n  window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};\n  window._POSTHOG_REMOTE_CONFIG[\'token123\'] = {\n    config: {"token": "token123", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": {"script": "posthog-recorder"}}, "heatmaps": false, "surveys": false, "conversations": false, "defaultIdentifiedOnly": true},\n    siteApps: []\n  }\n})();'
         )
 
         # NOT actually testing the content here as it will change dynamically
@@ -177,3 +178,78 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
             )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_conversations_disabled_by_default(self):
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["conversations"] is False
+
+    def test_conversations_enabled_with_defaults(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_public_token_123"
+        self.team.save()
+
+        # Force remote config refresh
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        cache.clear()
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        conversations = response.json()["conversations"]
+
+        assert conversations["enabled"] is True
+        assert conversations["greetingText"] == "Hey, how can I help you today?"
+        assert conversations["color"] == "#1d4aff"
+        assert conversations["token"] == "test_public_token_123"
+
+    def test_conversations_enabled_with_custom_config(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_greeting_text = "Welcome! How can we assist?"
+        self.team.conversations_color = "#ff5733"
+        self.team.conversations_public_token = "custom_token_456"
+        self.team.save()
+
+        # Force remote config refresh
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        cache.clear()
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config", headers={"origin": "https://foo.example.com"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        conversations = response.json()["conversations"]
+
+        assert conversations["enabled"] is True
+        assert conversations["greetingText"] == "Welcome! How can we assist?"
+        assert conversations["color"] == "#ff5733"
+        assert conversations["token"] == "custom_token_456"
+
+    def test_conversations_in_js_config(self):
+        self.team.conversations_enabled = True
+        self.team.conversations_greeting_text = "Hi there!"
+        self.team.conversations_color = "#1d4aff"
+        self.team.conversations_public_token = "js_test_token"
+        self.team.save()
+
+        # Force remote config refresh
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        cache.clear()
+
+        response = self.client.get(
+            f"/array/{self.team.api_token}/config.js", headers={"origin": "https://foo.example.com"}
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert b'"conversations": {"enabled": true' in response.content
+        assert b'"greetingText": "Hi there!"' in response.content
+        assert b'"color": "#1d4aff"' in response.content
+        assert b'"token": "js_test_token"' in response.content
