@@ -87,6 +87,7 @@ export interface SchemaValidationResult {
 
 /**
  * Validates an event's properties against an enforced schema.
+ * Only required properties are validated - optional properties are not included in the schema.
  */
 export function validateEventAgainstSchema(
     eventProperties: Record<string, unknown> | undefined,
@@ -94,11 +95,7 @@ export function validateEventAgainstSchema(
 ): SchemaValidationResult {
     const errors: SchemaValidationError[] = []
 
-    for (const property of schema.properties) {
-        if (!property.is_required) {
-            continue
-        }
-
+    for (const property of schema.required_properties) {
         const value = eventProperties?.[property.name]
 
         // Check if required property is missing

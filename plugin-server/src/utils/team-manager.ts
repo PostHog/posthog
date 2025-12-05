@@ -129,11 +129,13 @@ export class TeamManager {
                 t.timezone,
                 extract('epoch' from t.drop_events_older_than) as drop_events_older_than_seconds,
                 o.available_product_features,
+                -- Fetch enforced event schemas for schema validation at ingestion time.
+                -- Only required properties are fetched since optional properties are not validated.
                 (
                     SELECT COALESCE(json_agg(
                         json_build_object(
                             'event_name', ed.name,
-                            'properties', (
+                            'required_properties', (
                                 SELECT COALESCE(json_agg(
                                     json_build_object(
                                         'name', prop.name,
@@ -151,6 +153,7 @@ export class TeamManager {
                                     JOIN posthog_schemapropertygroupproperty p ON p.property_group_id = pg.id
                                     WHERE es.event_definition_id = ed.id
                                     GROUP BY p.name
+                                    HAVING bool_or(p.is_required) = true
                                 ) prop
                             )
                         )

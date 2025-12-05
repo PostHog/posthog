@@ -812,10 +812,10 @@ export interface EventSchemaProperty {
     is_required: boolean
 }
 
-/** Event schema with enforcement enabled */
+/** Event schema with enforcement enabled. Only includes required properties since optional properties are not validated. */
 export interface EventSchemaEnforcement {
     event_name: string
-    properties: EventSchemaProperty[]
+    required_properties: EventSchemaProperty[]
 }
 
 /** Usable Team model. */
