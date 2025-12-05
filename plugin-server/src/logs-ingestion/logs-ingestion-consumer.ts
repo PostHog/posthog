@@ -5,12 +5,34 @@ import { RedisV2, createRedisV2Pool } from '~/common/redis/redis-v2'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { KafkaProducerWrapper } from '~/kafka/producer'
 
+import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
 import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
-import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService } from '../types'
+import { HealthCheckResult, Hub, LogsIngestionConsumerConfig, PluginServerService, TimestampFormat } from '../types'
 import { isDevEnv } from '../utils/env-utils'
 import { logger } from '../utils/logger'
+import { castTimestampOrNow } from '../utils/utils'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsIngestionMessage } from './types'
+
+export type UsageStats = {
+    bytesReceived: number
+    recordsReceived: number
+    bytesAllowed: number
+    recordsAllowed: number
+    bytesDropped: number
+    recordsDropped: number
+}
+
+const DEFAULT_USAGE_STATS: UsageStats = {
+    bytesReceived: 0,
+    recordsReceived: 0,
+    bytesAllowed: 0,
+    recordsAllowed: 0,
+    bytesDropped: 0,
+    recordsDropped: 0,
+}
+
+export type UsageStatsByTeam = Map<number, UsageStats>
 
 export const logMessageDroppedCounter = new Counter({
     name: 'logs_ingestion_message_dropped_count',
@@ -94,20 +116,18 @@ export class LogsIngestionConsumer {
             return { messages: [] }
         }
 
-        const filteredMessages = await this.filterRateLimitedMessages(messages)
-
-        if (!filteredMessages.length) {
-            return { messages: [] }
-        }
+        const { allowed, usageStats } = await this.filterRateLimitedMessages(messages)
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
-            backgroundTask: this.produceValidLogMessages(filteredMessages),
-            messages: filteredMessages,
+            backgroundTask: Promise.all([this.produceValidLogMessages(allowed), this.emitUsageMetrics(usageStats)]),
+            messages: allowed,
         }
     }
 
-    private async filterRateLimitedMessages(messages: LogsIngestionMessage[]): Promise<LogsIngestionMessage[]> {
+    private async filterRateLimitedMessages(
+        messages: LogsIngestionMessage[]
+    ): Promise<{ allowed: LogsIngestionMessage[]; usageStats: UsageStatsByTeam }> {
         // Track total incoming traffic
         let totalBytesReceived = 0
         let totalRecordsReceived = 0
@@ -121,10 +141,19 @@ export class LogsIngestionConsumer {
         // Filter messages using rate limiter service
         const { allowed, dropped } = await this.rateLimiter.filterMessages(messages)
 
+        // Aggregate usage stats by team for app_metrics
+        const usageStats: UsageStatsByTeam = new Map()
+
         // Track allowed metrics
         let bytesAllowed = 0
         let recordsAllowed = 0
         for (const message of allowed) {
+            const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
+            stats.bytesReceived += message.bytesUncompressed
+            stats.recordsReceived += message.recordCount
+            stats.bytesAllowed += message.bytesUncompressed
+            stats.recordsAllowed += message.recordCount
+            usageStats.set(message.teamId, stats)
             bytesAllowed += message.bytesUncompressed
             recordsAllowed += message.recordCount
         }
@@ -132,17 +161,24 @@ export class LogsIngestionConsumer {
         logsRecordsAllowedCounter.inc(recordsAllowed)
 
         // Track dropped metrics
+        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
+
         let bytesDropped = 0
         let recordsDropped = 0
-        logMessageDroppedCounter.inc({ reason: 'rate_limited' }, dropped.length)
         for (const message of dropped) {
+            const stats = usageStats.get(message.teamId) || { ...DEFAULT_USAGE_STATS }
+            stats.bytesReceived += message.bytesUncompressed
+            stats.recordsReceived += message.recordCount
+            stats.bytesDropped += message.bytesUncompressed
+            stats.recordsDropped += message.recordCount
+            usageStats.set(message.teamId, stats)
             bytesDropped += message.bytesUncompressed
             recordsDropped += message.recordCount
         }
         logsBytesDroppedCounter.inc(bytesDropped)
         logsRecordsDroppedCounter.inc(recordsDropped)
 
-        return allowed
+        return { allowed, usageStats }
     }
 
     private async produceValidLogMessages(messages: LogsIngestionMessage[]): Promise<void> {
@@ -160,6 +196,50 @@ export class LogsIngestionConsumer {
                 })
             })
         )
+    }
+
+    private async emitUsageMetrics(usageStats: UsageStatsByTeam): Promise<void> {
+        if (usageStats.size === 0) {
+            return
+        }
+
+        const timestamp = castTimestampOrNow(null, TimestampFormat.ClickHouse)
+
+        const metricsPromises: Promise<void>[] = []
+        for (const [teamId, stats] of usageStats) {
+            metricsPromises.push(
+                this.produceUsageMetric(teamId, 'bytes_received', stats.bytesReceived, timestamp),
+                this.produceUsageMetric(teamId, 'records_received', stats.recordsReceived, timestamp),
+                this.produceUsageMetric(teamId, 'bytes_ingested', stats.bytesAllowed, timestamp),
+                this.produceUsageMetric(teamId, 'records_ingested', stats.recordsAllowed, timestamp),
+                this.produceUsageMetric(teamId, 'bytes_dropped', stats.bytesDropped, timestamp),
+                this.produceUsageMetric(teamId, 'records_dropped', stats.recordsDropped, timestamp)
+            )
+        }
+
+        await Promise.all(metricsPromises)
+    }
+
+    private produceUsageMetric(teamId: number, metricName: string, count: number, timestamp: string): Promise<void> {
+        if (count === 0) {
+            return Promise.resolve()
+        }
+        return this.kafkaProducer!.produce({
+            topic: KAFKA_APP_METRICS_2,
+            value: Buffer.from(
+                JSON.stringify({
+                    team_id: teamId,
+                    timestamp,
+                    app_source: 'logs',
+                    app_source_id: '',
+                    instance_id: '',
+                    metric_kind: 'usage',
+                    metric_name: metricName,
+                    count,
+                })
+            ),
+            key: null,
+        })
     }
 
     @instrumented('logsIngestionConsumer.handleEachBatch.parseKafkaMessages')
