@@ -6,9 +6,10 @@ import { BuiltLogic, useActions } from 'kea'
 import { useValues } from 'kea'
 
 import { IconPlusSmall, IconTrash, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import {
@@ -69,7 +70,6 @@ export function ActionFilterGroup({
 
     // Ensure nested filters have order set for entityFilterVisible tracking.
     // This is critical after deletion: if we delete event[1] from [0,1,2], we get [0,2] but need [0,1].
-    // TODO: Probably handle in the logic
     const values =
         (filter.values as LocalFilter[] | null | undefined)?.map((val, i) => ({
             ...val,
@@ -138,21 +138,12 @@ export function ActionFilterGroup({
         } as any
     }
 
-    const handleOperatorChange = (operator: FilterLogicalOperator): void => {
-        updateSeriesFilter({
-            type: EntityTypes.GROUPS,
-            operator,
-            values,
-            index,
-        } as any)
-    }
-
     const handleMathChange = (filterIndex: number, selectedMath?: string): void => {
-        let mathProperties
         const mathProperty = filter.math_property
         const mathHogQL = filter.math_hogql
         const mathPropertyType = filter.math_property_type
 
+        let mathProperties: any
         if (selectedMath) {
             const selectedMathDef = (mathDefinitions as Record<string, any>)[selectedMath]
             const math_property =
@@ -283,29 +274,6 @@ export function ActionFilterGroup({
                         )}
 
                         <div className="ActionFilterGroup__control-group">
-                            <span className="ActionFilterGroup__control-label">Operator:</span>
-                            <LemonSelect
-                                size="small"
-                                value={filter.operator || FilterLogicalOperator.Or}
-                                options={[
-                                    {
-                                        label: 'Or',
-                                        value: FilterLogicalOperator.Or,
-                                    },
-                                    {
-                                        label: 'And',
-                                        value: FilterLogicalOperator.And,
-                                    },
-                                ]}
-                                onChange={handleOperatorChange}
-                                disabled={disabled || readOnly}
-                                dropdownMatchSelectWidth={false}
-                                dropdownPlacement="bottom-start"
-                                data-attr={`group-operator-selector-${index}`}
-                            />
-                        </div>
-
-                        <div className="ActionFilterGroup__control-group">
                             <span className="ActionFilterGroup__control-label">Math:</span>
                             <MathSelector
                                 size="small"
@@ -320,6 +288,7 @@ export function ActionFilterGroup({
                             {(mathDefinitions as Record<string, any>)[filter.math || BaseMathType.TotalCount]
                                 ?.category === MathCategory.PropertyValue && (
                                 <TaxonomicStringPopover
+                                    size="small"
                                     groupType={
                                         filter.math_property_type || TaxonomicFilterGroupType.NumericalEventProperties
                                     }
@@ -337,6 +306,41 @@ export function ActionFilterGroup({
                                     eventNames={values.map((v) => v.name).filter(Boolean) as string[]}
                                     data-attr="math-property-select"
                                     showNumericalPropsOnly={showNumericalPropsOnly}
+                                    renderValue={(currentValue) => (
+                                        <Tooltip
+                                            title={
+                                                currentValue === '$session_duration' ? (
+                                                    <>
+                                                        Calculate{' '}
+                                                        {(mathDefinitions as Record<string, any>)[
+                                                            filter.math ?? ''
+                                                        ].name.toLowerCase()}{' '}
+                                                        of the session duration. This is based on the{' '}
+                                                        <code>$session_id</code> property associated with events. The
+                                                        duration is derived from the time difference between the first
+                                                        and last event for each distinct <code>$session_id</code>.
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Calculate{' '}
+                                                        {(mathDefinitions as Record<string, any>)[
+                                                            filter.math ?? ''
+                                                        ].name.toLowerCase()}{' '}
+                                                        from property <code>{currentValue}</code>. Note that only event
+                                                        occurrences where <code>{currentValue}</code> is set with a
+                                                        numeric value will be taken into account.
+                                                    </>
+                                                )
+                                            }
+                                            placement="right"
+                                        >
+                                            <PropertyKeyInfo
+                                                value={currentValue}
+                                                disablePopover
+                                                type={TaxonomicFilterGroupType.EventProperties}
+                                            />
+                                        </Tooltip>
+                                    )}
                                 />
                             )}
                         </div>
