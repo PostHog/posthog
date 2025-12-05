@@ -4089,6 +4089,128 @@ email@example.org,
         cohort = Cohort.objects.get(id=cohort1_id)
         self.assertTrue(cohort.deleted)
 
+    def test_cohort_last_error_message_from_calculation_history(self):
+        """Test that API returns friendly error message from failed calculation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="ClickHouse query timeout after 1200 seconds",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(response.json()["last_error_message"])
+        self.assertIn("taking too long", response.json()["last_error_message"].lower())
+
+    def test_cohort_last_error_message_in_list_view(self):
+        """Test that list view includes last_error_message via annotation"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNotNone(cohort_data["last_error_message"])
+        self.assertIn("too much memory", cohort_data["last_error_message"].lower())
+
+    def test_cohort_last_error_message_none_when_successful(self):
+        """Test that successful cohorts return None for last_error_message"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now(),
+            finished_at=timezone.now(),
+            count=100,
+            error=None,
+            error_code=None,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["last_error_message"])
+
+    def test_cohort_last_error_message_uses_most_recent_failure(self):
+        """Test that only the most recent failed calculation's error is returned"""
+        from posthog.models.cohort.calculation_history import CohortCalculationHistory
+        from posthog.models.cohort.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            errors_calculating=1,
+        )
+
+        # Older failure - timeout
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # Newer failure - memory limit (should be returned)
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            error="Memory limit exceeded",
+            error_code=CohortErrorCode.MEMORY_LIMIT,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("too much memory", response.json()["last_error_message"].lower())
+
 
 class TestCalculateCohortCommand(APIBaseTest):
     def test_calculate_cohort_command_success(self):
