@@ -82,6 +82,8 @@ def generate_survey_headline(
     user: User,
 ) -> dict:
     """Generate a one-line headline summary of all survey responses."""
+    logger.info("[survey_headline_summary] generating headline", survey_id=str(survey.id))
+
     timer = ServerTimingsGathered()
 
     # we want to ignore link questions, but need to preserve the indices
@@ -143,6 +145,8 @@ def generate_survey_headline(
     rows = result.results or []
     has_more = paginator.has_more()
 
+    logger.info("[survey_headline_summary] queried responses", survey_id=str(survey.id), responses=len(rows))
+
     if not rows:
         return {
             "headline": "No responses yet",
@@ -160,35 +164,43 @@ def generate_survey_headline(
     formatted_data = "\n\n".join(formatted_parts)
 
     with timer("llm"):
-        llm = MaxChatOpenAI(
-            user=user,
-            team=team,
-            model="gpt-4.1-mini",
-            temperature=0.3,
-            billable=False,
-            inject_context=True,
-        )
+        logger.info("[survey_headline_summary] starting LLM call", survey_id=str(survey.id))
+        try:
+            llm = MaxChatOpenAI(
+                user=user,
+                team=team,
+                model="gpt-4.1-mini",
+                temperature=0.3,
+                billable=False,
+                inject_context=True,
+                streaming=False,
+                disable_streaming=True,
+            )
 
-        messages = [
-            SystemMessage(content=HEADLINE_SYSTEM_PROMPT),
-            HumanMessage(
-                content=HEADLINE_USER_PROMPT.format(
-                    survey_name=survey.name,
-                    formatted_data=formatted_data,
-                )
-            ),
-        ]
+            messages = [
+                SystemMessage(content=HEADLINE_SYSTEM_PROMPT),
+                HumanMessage(
+                    content=HEADLINE_USER_PROMPT.format(
+                        survey_name=survey.name,
+                        formatted_data=formatted_data,
+                    )
+                ),
+            ]
 
-        llm_result = llm.invoke(messages)
-        content = llm_result.content
-        if isinstance(content, str):
-            headline = content.strip()
-        elif content:
-            headline = str(content[0]).strip() if content else "Unable to generate summary"
-        else:
-            headline = "Unable to generate summary"
+            llm_result = llm.invoke(messages)
+            logger.info("[survey_headline_summary] LLM call completed", survey_id=str(survey.id))
+            content = llm_result.content
+            if isinstance(content, str):
+                headline = content.strip()
+            elif content:
+                headline = str(content[0]).strip() if content else "Unable to generate summary"
+            else:
+                headline = "Unable to generate summary"
+        except Exception as e:
+            logger.exception("[survey_headline_summary] LLM call failed", survey_id=str(survey.id), error=str(e))
+            raise
 
-    logger.info("survey_headline_generated", survey_id=str(survey.id), responses=len(rows))
+    logger.info("[survey_headline_summary] headline generated", survey_id=str(survey.id), responses=len(rows))
 
     return {
         "headline": headline,
