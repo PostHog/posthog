@@ -2873,6 +2873,7 @@ export namespace Schemas {
         | 'twilio'
         | 'linear'
         | 'github'
+        | 'gitlab'
         | 'meta-ads'
         | 'clickup'
         | 'reddit-ads'

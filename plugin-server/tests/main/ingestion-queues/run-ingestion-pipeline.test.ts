@@ -1,7 +1,7 @@
 import Redis from 'ioredis'
 import { Pool } from 'pg'
 
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -64,17 +64,14 @@ describe('workerTasks.runEventPipeline()', () => {
             now: new Date().toISOString(),
             uuid: new UUIDT().toString(),
         }
-        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
+        const personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
         const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
             hub.db,
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
         await expect(
-            new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch).runEventPipeline(
-                event,
-                team
-            )
+            new EventPipelineRunner(hub, event, null, personsStore, groupStoreForBatch).runEventPipeline(event, team)
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
         pgQueryMock.mockRestore()
     })

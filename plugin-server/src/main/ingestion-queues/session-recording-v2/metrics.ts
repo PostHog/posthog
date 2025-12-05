@@ -37,8 +37,26 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['partition'],
     })
 
+    private static readonly messagesDroppedByRestrictions = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_dropped_by_restrictions',
+        help: 'The number of messages dropped due to event ingestion restrictions',
+    })
+
+    private static readonly messagesOverflowedByRestrictions = new Counter({
+        name: 'recording_blob_ingestion_v2_messages_overflowed_by_restrictions',
+        help: 'The number of messages redirected to overflow due to event ingestion restrictions',
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
+    }
+
+    public static observeDroppedByRestrictions(count: number): void {
+        this.messagesDroppedByRestrictions.inc(count)
+    }
+
+    public static observeOverflowedByRestrictions(count: number): void {
+        this.messagesOverflowedByRestrictions.inc(count)
     }
 
     public static resetSessionsRevoked(): void {

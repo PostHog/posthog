@@ -8,6 +8,9 @@ pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
 /// Counter for duplicate events published to Kafka (with status label: success/failure)
 pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
 
+/// Histogram for Kafka producer send duration
+pub const PRODUCER_SEND_DURATION_HISTOGRAM: &str = "producer_send_duration_seconds";
+
 /// Counter for deduplication results broken down by result type, dedup type, and reason
 pub const DEDUPLICATION_RESULT_COUNTER: &str = "deduplication_result_total";
 
@@ -104,5 +107,22 @@ pub const CHECKPOINT_UPLOAD_DURATION_HISTOGRAM: &str = "checkpoint_upload_durati
 /// Counter for checkpoint upload outcome status
 pub const CHECKPOINT_UPLOADS_COUNTER: &str = "checkpoint_upload_status";
 
+/// Counter for checkpoint file downloads outcome status
+pub const CHECKPOINT_FILE_DOWNLOADS_COUNTER: &str = "checkpoint_file_downloads_status";
+
 /// Counter for checkpoint files tracked in each attempt plan tagged by action taken
 pub const CHECKPOINT_PLAN_FILE_TRACKED_COUNTER: &str = "checkpoint_plan_file_tracked";
+
+/// Histogram for checkpoint metadata file fetch duration; only measured on success
+pub const CHECKPOINT_FILE_FETCH_HISTOGRAM: &str = "checkpoint_file_fetch_seconds";
+
+/// Histogram for checkpoint total batch download_files duration; only measured on success.
+/// The individual file ops are parallelized - we're measuring total elapsed time for the fanout
+pub const CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM: &str =
+    "checkpoint_batch_file_fetch_and_store_seconds";
+
+/// Histogram for checkpoint file download and store duration; only measured on success
+pub const CHECKPOINT_FILE_FETCH_STORE_HISTOGRAM: &str = "checkpoint_file_fetch_and_store_seconds";
+
+/// Histogram for checkpoint metadata file list duration; only measured on success
+pub const CHECKPOINT_LIST_METADATA_HISTOGRAM: &str = "checkpoint_list_metadata_seconds";

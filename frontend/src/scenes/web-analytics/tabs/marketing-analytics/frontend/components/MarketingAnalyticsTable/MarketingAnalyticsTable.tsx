@@ -1,6 +1,7 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { BuiltLogic, LogicWrapper, useActions } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
@@ -17,9 +18,13 @@ import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/
 import { InsightLogicProps } from '~/types'
 
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
+import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { MarketingAnalyticsCell } from '../../shared'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
+import {
+    MarketingAnalyticsValidationWarningBanner,
+    validateConversionGoals,
+} from '../MarketingAnalyticsValidationWarningBanner'
 import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
@@ -35,6 +40,9 @@ export const MarketingAnalyticsTable = ({
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+    const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
+
+    const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
     const handleIncludeAllConversionsChange = (checked: boolean): void => {
         const sourceQuery = query.source as MarketingAnalyticsTableQuery
@@ -78,24 +86,24 @@ export const MarketingAnalyticsTable = ({
     return (
         <div className="bg-surface-primary">
             <div className="p-4 border-b border-border bg-bg-light">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <DraftConversionGoalControls />
-                    </div>
-                    <div className="self-start flex flex-col gap-2">
-                        <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
-                            Configure columns
-                        </LemonButton>
-                        <LemonSwitch
-                            checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
-                            onChange={handleIncludeAllConversionsChange}
-                            label="Non-integrated conversions"
-                            tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
-                            size="small"
-                        />
-                    </div>
+                <div className="flex gap-4 justify-end">
+                    <LemonButton type="secondary" icon={<IconGear />} onClick={showColumnConfigModal}>
+                        Configure columns
+                    </LemonButton>
+                    <LemonSwitch
+                        checked={(query.source as MarketingAnalyticsTableQuery).includeAllConversions ?? false}
+                        onChange={handleIncludeAllConversionsChange}
+                        label="Non-integrated conversions"
+                        tooltip="Include conversion goal rows even when they don't match any campaign data from integrations. This will be based on the utm campaign and source"
+                        size="small"
+                    />
                 </div>
             </div>
+            {validationWarnings && validationWarnings.length > 0 && (
+                <div className="pt-2">
+                    <MarketingAnalyticsValidationWarningBanner warnings={validationWarnings} />
+                </div>
+            )}
             <div className="relative marketing-analytics-table-container">
                 <Query
                     attachTo={attachTo}

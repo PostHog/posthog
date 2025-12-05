@@ -23,7 +23,6 @@ export const twilioSetupModalLogic = kea<twilioSetupModalLogicType>([
     path(['products', 'workflows', 'frontend', 'TwilioSetup', 'twilioSetupModalLogic']),
     props({} as TwilioSetupModalLogicProps),
     connect(() => ({
-        values: [integrationsLogic, ['integrations', 'integrationsLoading']],
         actions: [integrationsLogic, ['loadIntegrations']],
     })),
     forms(({ props, actions, values }) => ({

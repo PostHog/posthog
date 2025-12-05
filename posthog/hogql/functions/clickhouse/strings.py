@@ -2,7 +2,7 @@ from posthog.hogql.ast import IntegerType, StringType
 
 from ..core import HogQLFunctionMeta
 
-# strings
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "left": HogQLFunctionMeta("left", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
     "right": HogQLFunctionMeta("right", 2, 2, signatures=[((StringType(), IntegerType()), StringType())]),
@@ -40,6 +40,7 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # searching in strings
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "position": HogQLFunctionMeta("position", 2, 3, case_sensitive=False),
     "positionCaseInsensitive": HogQLFunctionMeta("positionCaseInsensitive", 2, 3),
@@ -75,6 +76,7 @@ STRING_SEARCH_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # replacing in strings
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_REPLACE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "replace": HogQLFunctionMeta("replace", 3, 3, case_sensitive=False),
     "replaceAll": HogQLFunctionMeta("replaceAll", 3, 3),
@@ -87,6 +89,7 @@ STRING_REPLACE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # splitting strings
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 STRING_SPLIT_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "splitByChar": HogQLFunctionMeta("splitByChar", 2, 3),
     "splitByString": HogQLFunctionMeta("splitByString", 2, 3),
@@ -100,6 +103,7 @@ STRING_SPLIT_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # PostgreSQL-style string functions
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 POSTGRESQL_STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "repeat": HogQLFunctionMeta(
         "repeat",
@@ -137,6 +141,7 @@ POSTGRESQL_STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
 }
 
 # PostgreSQL trim functions - using dictionary comprehensions like in the original
+# Keep in sync with the posthog.com repository: contents/docs/sql/clickhouse-functions.mdx
 POSTGRESQL_TRIM_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     **{
         name: HogQLFunctionMeta(

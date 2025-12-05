@@ -1,4 +1,5 @@
 import datetime
+from collections.abc import Mapping
 from typing import Any
 
 from django.conf import settings
@@ -38,6 +39,20 @@ class MaxChatMixin(BaseModel):
     conversation_start_dt: datetime.datetime | None = None
     """
     The datetime of the start of the conversation. If not provided, the current time will be used.
+    """
+    billable: bool = False
+    """
+    Whether the generation will be marked as billable in the usage report for calculating AI billing credits.
+    """
+    inject_context: bool = True
+    """
+    Whether to inject project/org/user context into the system prompt.
+    Set to False to disable automatic context injection.
+    """
+    posthog_properties: dict[str, Any] | None = None
+    """
+    Additional PostHog properties to be added to the $ai_generation event.
+    These will be merged with the standard properties like $ai_billable and team_id.
     """
 
     def model_post_init(self, __context: Any) -> None:
@@ -94,12 +109,32 @@ class MaxChatMixin(BaseModel):
                     break
         return messages
 
+    def _with_posthog_properties(
+        self,
+        kwargs: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return a shallow copy of kwargs with PostHog properties, billable flag, and team_id injected into metadata."""
+        new_kwargs = dict(kwargs or {})
+        metadata = dict(new_kwargs.get("metadata") or {})
+
+        # Build posthog_properties with billable flag and team_id
+        posthog_props = dict(self.posthog_properties or {})
+        posthog_props["$ai_billable"] = self.billable
+        posthog_props["team_id"] = self.team.id
+
+        metadata["posthog_properties"] = posthog_props
+        new_kwargs["metadata"] = metadata
+
+        return new_kwargs
+
 
 class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
     """PostHog-tuned subclass of ChatOpenAI.
 
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
     It also makes sure we retry automatically in case of an OpenAI API error.
+    If billable is set to True, the generation will be marked as billable in the usage report for calculating AI billing credits.
+    If inject_context is set to False, no context will be included in the system prompt.
     """
 
     def model_post_init(self, __context: Any) -> None:
@@ -129,11 +164,15 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         *args,
         **kwargs,
     ) -> LLMResult:
-        project_org_user_variables = self._get_project_org_user_variables()
-        if self.use_responses_api:
-            self._enrich_responses_api_model_kwargs(project_org_user_variables)
-        else:
-            messages = self._enrich_messages(messages, project_org_user_variables)
+        if self.inject_context:
+            project_org_user_variables = self._get_project_org_user_variables()
+            if self.use_responses_api:
+                self._enrich_responses_api_model_kwargs(project_org_user_variables)
+            else:
+                messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -142,11 +181,15 @@ class MaxChatOpenAI(MaxChatMixin, ChatOpenAI):
         *args,
         **kwargs,
     ) -> LLMResult:
-        project_org_user_variables = await self._aget_project_org_user_variables()
-        if self.use_responses_api:
-            self._enrich_responses_api_model_kwargs(project_org_user_variables)
-        else:
-            messages = self._enrich_messages(messages, project_org_user_variables)
+        if self.inject_context:
+            project_org_user_variables = await self._aget_project_org_user_variables()
+            if self.use_responses_api:
+                self._enrich_responses_api_model_kwargs(project_org_user_variables)
+            else:
+                messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
         return await super().agenerate(messages, *args, **kwargs)
 
 
@@ -163,8 +206,12 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         *args,
         **kwargs,
     ) -> LLMResult:
-        project_org_user_variables = self._get_project_org_user_variables()
-        messages = self._enrich_messages(messages, project_org_user_variables)
+        if self.inject_context:
+            project_org_user_variables = self._get_project_org_user_variables()
+            messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
         return super().generate(messages, *args, **kwargs)
 
     async def agenerate(
@@ -173,6 +220,10 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         *args,
         **kwargs,
     ) -> LLMResult:
-        project_org_user_variables = await self._aget_project_org_user_variables()
-        messages = self._enrich_messages(messages, project_org_user_variables)
+        if self.inject_context:
+            project_org_user_variables = await self._aget_project_org_user_variables()
+            messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
         return await super().agenerate(messages, *args, **kwargs)

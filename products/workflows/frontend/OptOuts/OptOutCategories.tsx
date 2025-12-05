@@ -1,13 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
+import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+import { CustomerIOImportModal } from './CustomerIOImportModal'
 import { NewCategoryModal } from './NewCategoryModal'
 import { OptOutList } from './OptOutList'
+import { customerIOImportLogic } from './customerIOImportLogic'
 import { optOutCategoriesLogic } from './optOutCategoriesLogic'
 
 interface MessageCategory {
@@ -21,7 +26,10 @@ interface MessageCategory {
 
 export function OptOutCategories(): JSX.Element {
     const { categories, categoriesLoading, isNewCategoryModalOpen } = useValues(optOutCategoriesLogic)
-    const { loadCategories, deleteCategory, closeNewCategoryModal } = useActions(optOutCategoriesLogic)
+    const { loadCategories, deleteCategory, closeNewCategoryModal, openNewCategoryModal } =
+        useActions(optOutCategoriesLogic)
+    const { isImportModalOpen } = useValues(customerIOImportLogic)
+    const { openImportModal } = useActions(customerIOImportLogic)
     const [editingCategory, setEditingCategory] = useState<MessageCategory | null>(null)
 
     useEffect(() => {
@@ -130,7 +138,24 @@ export function OptOutCategories(): JSX.Element {
                     {collapseItems.length > 0 ? (
                         <LemonCollapse panels={collapseItems} />
                     ) : (
-                        <div className="text-center py-8 text-muted">No message categories configured yet</div>
+                        <ProductIntroduction
+                            productName="Message Categories"
+                            thingName="category"
+                            description="Configure message categories to manage user opt-out preferences for different types of communications."
+                            docsURL="https://posthog.com/docs/workflows/customerio-import"
+                            actionElementOverride={
+                                <>
+                                    <LemonButton type="primary" icon={<IconDownload />} onClick={openImportModal}>
+                                        Import from Customer.io
+                                    </LemonButton>
+                                    <LemonButton type="secondary" icon={<IconPlus />} onClick={openNewCategoryModal}>
+                                        Create category
+                                    </LemonButton>
+                                </>
+                            }
+                            customHog={BuilderHog3}
+                            isEmpty
+                        />
                     )}
                 </>
             )}
@@ -143,6 +168,8 @@ export function OptOutCategories(): JSX.Element {
                 }}
                 category={editingCategory}
             />
+
+            {isImportModalOpen && <CustomerIOImportModal />}
         </>
     )
 }

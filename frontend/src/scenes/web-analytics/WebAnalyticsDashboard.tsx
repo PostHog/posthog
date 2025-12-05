@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
+import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconShare, IconX } from '@posthog/icons'
 import { LemonBanner, LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -19,7 +19,9 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
 import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealthCheck'
@@ -41,21 +43,25 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
-import { QuerySchema } from '~/queries/schema/schema-general'
-import { ProductKey } from '~/types'
+import { ProductIntentContext, ProductKey, QuerySchema } from '~/queries/schema/schema-general'
+import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '~/types'
 
+import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
-import { WebAnalyticsPageReportsCTA } from './WebAnalyticsPageReportsCTA'
 import { MarketingAnalyticsFilters } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsFilters/MarketingAnalyticsFilters'
+import { MarketingAnalyticsSourceStatusBanner } from './tabs/marketing-analytics/frontend/components/MarketingAnalyticsSourceStatusBanner'
 import { marketingAnalyticsLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
-    const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
-
+    const { tiles: tilesFromLogic, productTab } = useValues(webAnalyticsLogic)
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
 
     return (
         <div
@@ -64,20 +70,21 @@ export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }):
                 compact ? 'gap-x-2 gap-y-2' : 'gap-x-4 gap-y-12'
             )}
         >
-            {tiles.map((tile, i) => {
-                if (tile.kind === 'query') {
-                    return <QueryTileItem key={i} tile={tile} />
-                } else if (tile.kind === 'tabs') {
-                    return <TabsTileItem key={i} tile={tile} />
-                } else if (tile.kind === 'replay') {
-                    return <WebAnalyticsRecordingsTile key={i} tile={tile} />
-                } else if (tile.kind === 'error_tracking') {
-                    return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
-                } else if (tile.kind === 'section') {
-                    return <SectionTileItem key={i} tile={tile} />
-                }
-                return null
-            })}
+            {emptyOnboardingContent ??
+                tiles.map((tile, i) => {
+                    if (tile.kind === 'query') {
+                        return <QueryTileItem key={i} tile={tile} />
+                    } else if (tile.kind === 'tabs') {
+                        return <TabsTileItem key={i} tile={tile} />
+                    } else if (tile.kind === 'replay') {
+                        return <WebAnalyticsRecordingsTile key={i} tile={tile} />
+                    } else if (tile.kind === 'error_tracking') {
+                        return <WebAnalyticsErrorTrackingTile key={i} tile={tile} />
+                    } else if (tile.kind === 'section') {
+                        return <SectionTileItem key={i} tile={tile} />
+                    }
+                    return null
+                })}
         </div>
     )
 }
@@ -106,6 +113,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
     const { getNewInsightUrl } = useValues(webAnalyticsLogic)
 
     const buttonsRow = [
+        <WebAnalyticsExport key="export-button" query={query} insightProps={insightProps} />,
         tile.canOpenInsight ? (
             <LemonButton
                 key="open-insight-button"
@@ -121,7 +129,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                     })
                 }}
             >
-                Open as new Insight
+                Open as new insight
             </LemonButton>
         ) : null,
         tile.canOpenModal ? (
@@ -207,6 +215,7 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 canOpenInsight: !!tab.canOpenInsight,
                 query: tab.query,
                 docs: tab.docs,
+                insightProps: tab.insightProps,
             }))}
             tileId={tile.tileId}
             getNewInsightUrl={getNewInsightUrl}
@@ -254,6 +263,7 @@ export const WebTabs = ({
         canOpenInsight: boolean
         query: QuerySchema
         docs: LearnMorePopoverProps | undefined
+        insightProps: InsightLogicProps
     }[]
     setActiveTabId: (id: string) => void
     getNewInsightUrl: (tileId: TileId, tabId: string) => string | undefined
@@ -269,7 +279,16 @@ export const WebTabs = ({
 
     const isVisualizationToggleEnabled = [TileId.SOURCES, TileId.DEVICES, TileId.PATHS].includes(tileId)
 
+    const activeTabData = tabs.find((t) => t.id === activeTabId)
+
     const buttonsRow = [
+        activeTab && activeTabData ? (
+            <WebAnalyticsExport
+                key="export-button"
+                query={activeTabData.query}
+                insightProps={activeTabData.insightProps}
+            />
+        ) : null,
         activeTab?.canOpenInsight && newInsightUrl ? (
             <LemonButton
                 key="open-insight-button"
@@ -414,9 +433,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
 
 const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+    if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
     }
 
@@ -478,29 +496,10 @@ const MarketingDashboard = (): JSX.Element => {
     return (
         <>
             {feedbackBanner}
+            <MarketingAnalyticsSourceStatusBanner />
             {component}
         </>
     )
-}
-
-const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
-        return []
-    }
-    return [
-        {
-            key: ProductTab.PAGE_REPORTS,
-            label: (
-                <div className="flex items-center gap-1">
-                    Page reports
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            link: '/web/page-reports',
-        },
-    ]
 }
 
 const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
@@ -529,12 +528,11 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
-                <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
+                <SceneContent className="WebAnalyticsDashboard">
                     <WebAnalyticsTabs />
                     {/* Empty fragment so tabs are not part of the sticky bar */}
                     <Filters tabs={<></>} />
 
-                    <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
                     <MainContent />
                 </SceneContent>
@@ -549,6 +547,10 @@ const WebAnalyticsTabs = (): JSX.Element => {
 
     const { setProductTab } = useActions(webAnalyticsLogic)
 
+    const handleShare = (): void => {
+        void copyToClipboard(window.location.href, 'link')
+    }
+
     return (
         <LemonTabs<ProductTab>
             activeKey={productTab}
@@ -556,11 +558,115 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                ...pageReportsTab(featureFlags),
+                {
+                    key: ProductTab.PAGE_REPORTS,
+                    label: (
+                        <div className="flex items-center gap-1">
+                            Page reports
+                            <LemonTag type="warning" className="uppercase">
+                                Beta
+                            </LemonTag>
+                        </div>
+                    ),
+                    link: '/web/page-reports',
+                },
                 ...marketingTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
+            rightSlot={
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconShare fontSize="16" />}
+                    tooltip="Share"
+                    tooltipPlacement="top"
+                    onClick={handleShare}
+                    data-attr="web-analytics-share-button"
+                />
+            }
         />
     )
+}
+
+const WebVitalsEmptyState = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    return (
+        <div className="col-span-full w-full">
+            <ProductIntroduction
+                productName="Web Vitals"
+                productKey={ProductKey.WEB_ANALYTICS}
+                thingName="web vital"
+                isEmpty={true}
+                titleOverride="Enable web vitals to get started"
+                description="Track Core Web Vitals like LCP, FID, and CLS to understand your site's performance. 
+                Enabling this will capture performance metrics from your visitors, which counts towards your event quota.
+                You can always disable this feature in the settings."
+                docsURL="https://posthog.com/docs/web-analytics/web-vitals"
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        onClick={() => updateCurrentTeam({ autocapture_web_vitals_opt_in: true })}
+                        data-attr="web-vitals-enable"
+                        disabledReason={currentTeam ? undefined : 'Loading...'}
+                    >
+                        Enable web vitals
+                    </LemonButton>
+                }
+            />
+        </div>
+    )
+}
+
+const getEmptyOnboardingContent = (
+    featureFlags: FeatureFlagsSet,
+    currentTeamLoading: boolean,
+    currentTeam: TeamType | TeamPublicType | null,
+    productTab: ProductTab
+): JSX.Element | null => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]) {
+        return null
+    }
+
+    if (currentTeamLoading && !currentTeam) {
+        return <LemonSkeleton className="col-span-full w-full" />
+    }
+
+    if (productTab === ProductTab.ANALYTICS && !currentTeam?.ingested_event) {
+        return (
+            <div className="col-span-full w-full">
+                <ProductIntroduction
+                    productName="Web Analytics"
+                    productKey={ProductKey.WEB_ANALYTICS}
+                    thingName="event"
+                    isEmpty={true}
+                    titleOverride="Nothing to investigate yet!"
+                    description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                    actionElementOverride={
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="primary"
+                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                data-attr="web-analytics-onboarding"
+                            >
+                                Open installation guide
+                            </LemonButton>
+                            <span className="text-muted-alt">or</span>
+                            <Link target="_blank" to="/web/web-vitals">
+                                Set up web vitals while you wait
+                            </Link>
+                        </div>
+                    }
+                />
+            </div>
+        )
+    }
+
+    if (productTab === ProductTab.WEB_VITALS && !currentTeam?.autocapture_web_vitals_opt_in) {
+        return <WebVitalsEmptyState />
+    }
+
+    return null
 }

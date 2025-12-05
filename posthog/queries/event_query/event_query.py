@@ -3,7 +3,7 @@ from typing import Any, Optional, Union
 
 from posthog.schema import PersonsOnEventsMode
 
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.models import Cohort, Filter, Property
@@ -95,7 +95,7 @@ class EventQuery(metaclass=ABCMeta):
         self._filter.hogql_context.modifiers.personsOnEventsMode = self._person_on_events_mode
 
         # Recreate the database with the legacy-alised PoE mode
-        self._filter.hogql_context.database = create_hogql_database(
+        self._filter.hogql_context.database = Database.create_for(
             team=self._team, modifiers=self._filter.hogql_context.modifiers
         )
 

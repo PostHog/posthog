@@ -1,4 +1,4 @@
-import { Counter, Histogram } from 'prom-client'
+import { Counter, Gauge, Histogram } from 'prom-client'
 
 import { InternalCaptureEvent } from '~/common/services/internal-capture'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -31,6 +31,16 @@ export const hogFunctionExecutionTimeSummary = new Histogram({
     labelNames: ['kind'],
 })
 
+const hogFunctionMonitoringPendingMessages = new Gauge({
+    name: 'cdp_hog_function_monitoring_pending_messages',
+    help: 'Number of monitoring messages queued and waiting to be flushed to Kafka. High values indicate accumulation and potential memory leak.',
+})
+
+const hogFunctionMonitoringPendingEvents = new Gauge({
+    name: 'cdp_hog_function_monitoring_pending_events',
+    help: 'Number of internal capture events queued and waiting to be flushed. High values indicate accumulation and potential memory leak.',
+})
+
 export type HogFunctionMonitoringMessage = {
     topic: string
     value: LogEntrySerialized | AppMetricType
@@ -54,8 +64,11 @@ export class HogFunctionMonitoringService {
     async flush() {
         const messages = [...this.messagesToProduce]
         this.messagesToProduce = []
+        hogFunctionMonitoringPendingMessages.set(0)
+
         const eventsToCapture = [...this.eventsToCapture]
         this.eventsToCapture = []
+        hogFunctionMonitoringPendingEvents.set(0)
 
         await Promise.all([
             ...messages.map((x) => {
@@ -104,6 +117,7 @@ export class HogFunctionMonitoringService {
             value: appMetric,
             key: appMetric.app_source_id,
         })
+        hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
 
     queueAppMetrics(metrics: MinimalAppMetric[], source: MetricLogSource) {
@@ -125,6 +139,7 @@ export class HogFunctionMonitoringService {
                 key: logEntry.instance_id,
             })
         })
+        hogFunctionMonitoringPendingMessages.set(this.messagesToProduce.length)
     }
 
     async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
@@ -184,6 +199,7 @@ export class HogFunctionMonitoringService {
                             timestamp: event.timestamp,
                             properties: event.properties,
                         })
+                        hogFunctionMonitoringPendingEvents.set(this.eventsToCapture.length)
                     }
                 })
             )

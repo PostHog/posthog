@@ -20,6 +20,7 @@ from posthog.temporal.proxy_service.common import (
     UpdateProxyRecordInputs,
     activity_update_proxy_record,
     get_grpc_client,
+    use_gateway_api,
 )
 from posthog.temporal.proxy_service.proto import DeleteRequest
 
@@ -91,11 +92,21 @@ async def delete_managed_proxy(inputs: DeleteManagedProxyInputs):
 
     client = await get_grpc_client()
 
+    # Use Gateway API (Envoy Gateway) for dev environment, Contour for others
+    use_gateway = use_gateway_api()
+
+    logger.info(
+        "Deleting proxy with use_gateway_api=%s for domain %s",
+        use_gateway,
+        inputs.domain,
+    )
+
     try:
         await client.Delete(
             DeleteRequest(
                 uuid=str(inputs.proxy_record_id),
                 domain=inputs.domain,
+                use_gateway_api=use_gateway,
             )
         )
     except grpc.aio.AioRpcError as e:

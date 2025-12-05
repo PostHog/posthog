@@ -206,6 +206,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             template_id: 'template-webhook',
             name: 'HTTP Webhook on team activity',
             description: 'Send a webhook when a team activity occurs',
+            inputs: {
+                content: {
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
+                },
+            },
         },
         {
             ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['activity-log'],
@@ -214,7 +219,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Discord when a team activity occurs',
             inputs: {
                 content: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
                 },
             },
         },
@@ -224,8 +229,8 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             name: 'Post to Microsoft Teams on team activity',
             description: 'Posts a message to Microsoft Teams when a team activity occurs',
             inputs: {
-                text: {
-                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} {event.properties.item_id}',
+                content: {
+                    value: '**{person.name}** {event.properties.activity} {event.properties.scope} `{event.properties.item_id}`',
                 },
             },
         },
@@ -291,7 +296,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         { type: 'header', text: { type: 'plain_text', text: '🔴 {event.properties.name}' } },
                         { type: 'section', text: { type: 'plain_text', text: 'New issue created' } },
-                        { type: 'section', text: { type: 'mrkdwn', text: '```{event.properties.description}```' } },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+                        },
                         {
                             type: 'context',
                             elements: [
@@ -352,6 +360,23 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
             },
         },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-created'],
+            template_id: 'template-gitlab',
+            name: 'GitLab issue on issue created',
+            description: 'Create an issue in GitLab when an issue is created.',
+            inputs: {
+                title: {
+                    value: '{event.properties.name}',
+                },
+                description: {
+                    value: '{event.properties.description}',
+                },
+                posthog_issue_id: {
+                    value: '{event.properties.distinct_id}',
+                },
+            },
+        },
     ],
     'error-tracking-issue-reopened': [
         {
@@ -392,7 +417,10 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                     value: [
                         { type: 'header', text: { type: 'plain_text', text: '🔄 {event.properties.name}' } },
                         { type: 'section', text: { type: 'plain_text', text: 'Issue reopened' } },
-                        { type: 'section', text: { type: 'mrkdwn', text: '```{event.properties.description}```' } },
+                        {
+                            type: 'section',
+                            text: { type: 'mrkdwn', text: '```{substring(event.properties.description, 1, 150)}```' },
+                        },
                         {
                             type: 'context',
                             elements: [
@@ -451,10 +479,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                         },
                         {
                             type: 'context',
-                            elements: [
-                                { type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' },
-                                { type: 'mrkdwn', text: 'Alert: <{source.url}|{source.name}>' },
-                            ],
+                            elements: [{ type: 'mrkdwn', text: 'Project: <{project.url}|{project.name}>' }],
                         },
                         { type: 'divider' },
                         {
@@ -463,6 +488,11 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                                 {
                                     url: '{project.url}/insights/{event.properties.insight_id}',
                                     text: { text: 'View Insight', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                                {
+                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                                    text: { text: 'View Alert', type: 'plain_text' },
                                     type: 'button',
                                 },
                             ],

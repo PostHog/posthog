@@ -11,7 +11,6 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 
 from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
 from posthog.auth import TemporaryTokenAuthentication
@@ -148,6 +147,9 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
             "multivariate": self.get_variants_for_feature_flag(validated_data),
         }
 
+        # Ensure the request method is set correctly for validation
+        self.context["request"].method = "POST"
+
         feature_flag_serializer = FeatureFlagSerializer(
             data={
                 "key": self.get_feature_flag_name(validated_data.get("name", "")),
@@ -183,6 +185,8 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
                 "multivariate": self.get_variants_for_feature_flag(validated_data),
             }
 
+            # Ensure the request method is set correctly for validation
+            self.context["request"].method = "PATCH"
             existing_flag_serializer = FeatureFlagSerializer(
                 feature_flag,
                 data={"filters": filters},
@@ -210,7 +214,7 @@ class WebExperimentsAPISerializer(serializers.ModelSerializer):
         return feature_flag_key
 
 
-class WebExperimentViewSet(FileSystemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class WebExperimentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "experiment"
     serializer_class = WebExperimentsAPISerializer
     authentication_classes = [TemporaryTokenAuthentication]

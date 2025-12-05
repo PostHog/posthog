@@ -6,8 +6,7 @@ from posthog.hogql.database.models import (
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
-    Table,
-    TableGroup,
+    TableNode,
 )
 from posthog.hogql.database.postgres_table import PostgresTable
 
@@ -208,23 +207,19 @@ exports: PostgresTable = PostgresTable(
 )
 
 
-class SystemTables(TableGroup):
-    tables: dict[str, Table | TableGroup] = {
-        "dashboards": dashboards,
-        "cohorts": cohorts,
-        "insights": insights,
-        "experiments": experiments,
-        "exports": exports,
-        "data_warehouse_sources": data_warehouse_sources,
-        "feature_flags": feature_flags,
-        "groups": groups,
-        "group_type_mappings": group_type_mappings,
-        "insight_variables": insight_variables,
-        "surveys": surveys,
-        "teams": teams,
+class SystemTables(TableNode):
+    name: str = "system"
+    children: dict[str, TableNode] = {
+        "dashboards": TableNode(name="dashboards", table=dashboards),
+        "cohorts": TableNode(name="cohorts", table=cohorts),
+        "insights": TableNode(name="insights", table=insights),
+        "experiments": TableNode(name="experiments", table=experiments),
+        "exports": TableNode(name="exports", table=exports),
+        "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
+        "feature_flags": TableNode(name="feature_flags", table=feature_flags),
+        "groups": TableNode(name="groups", table=groups),
+        "group_type_mappings": TableNode(name="group_type_mappings", table=group_type_mappings),
+        "insight_variables": TableNode(name="insight_variables", table=insight_variables),
+        "surveys": TableNode(name="surveys", table=surveys),
+        "teams": TableNode(name="teams", table=teams),
     }
-
-    def resolve_all_table_names(self) -> list[str]:
-        tables = super().resolve_all_table_names()
-
-        return [f"system.{table}" for table in tables]

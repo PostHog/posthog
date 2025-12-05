@@ -40,7 +40,7 @@ export type TreeDataItem = {
     /** The name of the item. */
     name: string
     /** What to show as the name. */
-    displayName?: React.ReactElement
+    displayName?: React.ReactElement | string
     /** Passthrough metadata */
     record?: Record<string, any>
     /** The side action to render for the item. */

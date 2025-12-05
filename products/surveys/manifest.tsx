@@ -1,6 +1,8 @@
 import { SurveysTabs } from 'scenes/surveys/surveysLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductKey } from '~/queries/schema/schema-general'
+
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
@@ -32,12 +34,14 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Surveys',
+            intents: [ProductKey.SURVEYS],
             category: 'Behavior',
             type: 'survey',
             href: urls.surveys(),
             iconType: 'survey',
             iconColor: ['var(--color-product-surveys-light)'] as FileSystemIconColor,
             sceneKey: 'Surveys',
+            sceneKeys: ['Survey', 'Surveys'],
         },
     ],
 }

@@ -186,12 +186,31 @@ export function observeLatencyByVersion(person: InternalPerson | undefined, star
 
 export const personProfileUpdateOutcomeCounter = new Counter({
     name: 'person_profile_update_outcome_total',
-    help: 'Outcome of person profile update operations',
+    help: 'Outcome of person profile update operations at event level',
     labelNames: ['outcome'], // outcome: changed, ignored, no_change, unsupported
 })
 
 export const personProfileIgnoredPropertiesCounter = new Counter({
     name: 'person_profile_ignored_properties_total',
-    help: 'Count of specific properties that were ignored during person profile updates',
+    help: 'Count of specific properties that were ignored during person profile updates at event level',
     labelNames: ['property'],
+})
+
+export const personProfileBatchUpdateOutcomeCounter = new Counter({
+    name: 'person_profile_batch_update_outcome_total',
+    help: 'Outcome of person profile update operations at batch level',
+    labelNames: ['outcome'], // outcome: changed, ignored, no_change
+})
+
+export const personProfileBatchIgnoredPropertiesCounter = new Counter({
+    name: 'person_profile_batch_ignored_properties_total',
+    help: 'Count of specific properties that were ignored during person profile updates at batch level',
+    labelNames: ['property'],
+})
+
+export const personJsonFieldSizeHistogram = new Histogram({
+    name: 'person_json_field_size_bytes',
+    help: 'Approximate size in bytes of serialized JSON fields (using string length as proxy for performance)',
+    labelNames: ['operation', 'field'], // operation: createPerson, updatePerson; field: properties, properties_last_updated_at, properties_last_operation
+    buckets: [100, 500, 1024, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576], // 100B, 500B, 1KB, 4KB, 8KB, 16KB, 32KB, 64KB, 128KB, 256KB, 512KB, 1MB
 })

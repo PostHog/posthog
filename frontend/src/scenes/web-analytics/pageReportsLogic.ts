@@ -355,7 +355,6 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         properties: pageUrl ? [createUrlPropertyFilter(pageUrl, stripQueryParams)] : [],
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                     },
-                    hidePersonsModal: true,
                     embedded: true,
                 }),
         ],

@@ -6,6 +6,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
+from django.conf import settings
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 
@@ -31,7 +32,7 @@ from posthog.api.documentation import PersonPropertiesSerializer, extend_schema
 from posthog.api.insight import capture_legacy_api_call
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_target_entity
-from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, SESSION_REPLAY_TASK_QUEUE, FunnelVizType
+from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.logging.timing import timed
 from posthog.metrics import LABEL_TEAM_ID
@@ -47,6 +48,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.deletion import reset_deleted_person_distinct_ids
 from posthog.models.person.missing_person import MissingPerson
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.person.util import delete_person
 from posthog.queries.actor_base_query import ActorBaseQuery, get_serialized_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -230,7 +232,13 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     stickiness_class = Stickiness
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
+        queryset = queryset.prefetch_related(
+            Prefetch(
+                "persondistinctid_set",
+                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
+                to_attr="distinct_ids_cache",
+            )
+        )
         queryset = queryset.only("id", "created_at", "properties", "uuid", "is_identified")
         return queryset
 
@@ -396,11 +404,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if distinct_ids := request.data.get("distinct_ids"):
             if len(distinct_ids) > 1000:
                 raise ValidationError("You can only pass 1000 distinct_ids in one call")
-            persons = self.get_queryset().filter(persondistinctid__distinct_id__in=distinct_ids).defer("properties")
+            # Optimize query by avoiding expensive JOIN - first get person_ids, then fetch persons
+            person_ids = PersonDistinctId.objects.filter(
+                team_id=self.team_id, distinct_id__in=distinct_ids
+            ).values_list("person_id", flat=True)
+            persons = self.get_queryset().filter(id__in=person_ids, team_id=self.team_id).defer("properties")
         elif ids := request.data.get("ids"):
             if len(ids) > 1000:
                 raise ValidationError("You can only pass 1000 ids in one call")
-            persons = self.get_queryset().filter(uuid__in=ids).defer("properties")
+            persons = self.get_queryset().filter(uuid__in=ids, team_id=self.team_id).defer("properties")
         else:
             raise ValidationError("You need to specify either distinct_ids or ids")
 
@@ -470,7 +482,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         person: Person = self.get_object()
         distinct_ids = person.distinct_ids
 
-        split_person.delay(person.id, request.data.get("main_distinct_id", None), None)
+        split_person.delay(person.id, person.team_id, request.data.get("main_distinct_id", None), None)
 
         log_activity(
             organization_id=self.organization.id,
@@ -685,7 +697,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         try:
             resp = capture_internal(
-                token=instance.team.api_token,
+                token=self.team.api_token,
                 event_name=event_name,
                 event_source="person_viewset",
                 distinct_id=distinct_id,
@@ -870,7 +882,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         temporal = sync_connect()
         input = RecordingsWithPersonInput(
             distinct_ids=person.distinct_ids,
-            team_id=person.team.id,
+            team_id=self.team_id,
         )
         workflow_id = f"delete-recordings-with-person-{person.uuid}-{uuid.uuid4()}"
 
@@ -879,7 +891,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "delete-recordings-with-person",
                 input,
                 id=workflow_id,
-                task_queue=SESSION_REPLAY_TASK_QUEUE,
+                task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(
                     maximum_attempts=2,
                     initial_interval=timedelta(minutes=1),

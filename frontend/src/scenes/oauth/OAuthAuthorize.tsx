@@ -29,6 +29,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         allTeams,
         oauthAuthorization,
         isOauthAuthorizationSubmitting,
+        isCanceling,
         redirectDomain,
         requiredAccessLevel,
     } = useValues(oauthAuthorizeLogic)
@@ -99,8 +100,14 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 type="tertiary"
                                 status="alt"
                                 htmlType="button"
-                                loading={isOauthAuthorizationSubmitting}
-                                disabledReason={isOauthAuthorizationSubmitting ? 'Processing...' : undefined}
+                                loading={isCanceling}
+                                disabledReason={
+                                    isCanceling
+                                        ? 'Canceling...'
+                                        : isOauthAuthorizationSubmitting
+                                          ? 'Processing...'
+                                          : undefined
+                                }
                                 onClick={(e) => {
                                     e.preventDefault()
                                     cancel()
@@ -112,7 +119,13 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 type="primary"
                                 htmlType="submit"
                                 loading={isOauthAuthorizationSubmitting}
-                                disabledReason={isOauthAuthorizationSubmitting ? 'Authorizing...' : undefined}
+                                disabledReason={
+                                    isOauthAuthorizationSubmitting
+                                        ? 'Authorizing...'
+                                        : isCanceling
+                                          ? 'Processing...'
+                                          : undefined
+                                }
                                 onClick={() => submitOauthAuthorization()}
                             >
                                 Authorize {oauthApplication?.name}

@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconChevronDown, IconMagicWand } from '@posthog/icons'
 
-import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
 import { ErrorTrackingException } from 'lib/components/Errors/types'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -20,7 +19,8 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
-import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
+import { useErrorTrackingExplainIssueMaxTool } from '../../ExplainIssueTool'
+import { ReleasePreviewPill } from '../../ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
 import { StacktraceGenericDisplay } from '../Stacktrace/StacktraceGenericDisplay'
@@ -41,17 +41,28 @@ export function StacktraceTab({
     timestamp,
     ...props
 }: StacktraceTabProps): JSX.Element {
-    const { loading } = useValues(exceptionCardLogic)
-    const { exceptionAttributes, exceptionList } = useValues(errorPropertiesLogic)
+    const { loading, issueId } = useValues(exceptionCardLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    const { exceptionAttributes, exceptionList, hasStacktrace, hasInAppFrames, exceptionType, release } =
+        useValues(errorPropertiesLogic)
     const showFixButton = hasResolvedStackFrames(exceptionList)
     const [showFixModal, setShowFixModal] = useState(false)
+    const { openMax } = useErrorTrackingExplainIssueMaxTool(issueId, exceptionType)
+
+    useEffect(() => {
+        if (!loading) {
+            if (hasStacktrace && !hasInAppFrames) {
+                setShowAllFrames(true)
+            }
+        }
+    }, [loading, hasStacktrace, hasInAppFrames, setShowAllFrames])
 
     return (
         <TabsPrimitiveContent {...props}>
             <SubHeader className="justify-between">
                 <div className="flex items-center gap-1">
                     <ExceptionAttributesPreview attributes={exceptionAttributes} loading={loading} />
-                    <ReleasePreviewPill />
+                    {release && <ReleasePreviewPill release={release} />}
                 </div>
                 <ButtonGroupPrimitive size="sm">
                     {showFixButton && (
@@ -62,6 +73,16 @@ export function StacktraceTab({
                         >
                             <IconMagicWand />
                             Get AI prompt
+                        </ButtonPrimitive>
+                    )}
+                    {openMax && (
+                        <ButtonPrimitive
+                            onClick={() => openMax()}
+                            className="px-2 h-[1.4rem]"
+                            tooltip="Ask PostHog AI for an explanation of this issue"
+                        >
+                            <IconMagicWand />
+                            Explain this issue
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
@@ -78,7 +99,7 @@ export function StacktraceTab({
                 issue={issue ?? undefined}
                 issueLoading={issueLoading}
             />
-            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} />
+            <FixModal isOpen={showFixModal} onClose={() => setShowFixModal(false)} issueId={issueId} />
         </TabsPrimitiveContent>
     )
 }
@@ -90,16 +111,10 @@ function StacktraceIssueDisplay({
 }: {
     issue?: ErrorTrackingRelationalIssue
     issueLoading: boolean
-} & Omit<StacktraceBaseDisplayProps, 'renderLoading' | 'renderEmpty'>): JSX.Element {
+} & Omit<StacktraceBaseDisplayProps, 'renderEmpty'>): JSX.Element {
     const { showAsText } = useValues(exceptionCardLogic)
     const componentProps = {
         ...stacktraceDisplayProps,
-        renderLoading: (renderHeader: (props: ExceptionHeaderProps) => JSX.Element) =>
-            renderHeader({
-                type: issue?.name ?? undefined,
-                value: issue?.description ?? undefined,
-                loading: issueLoading,
-            }),
         renderEmpty: () => <StacktraceEmptyDisplay />,
     }
     return showAsText ? <StacktraceTextDisplay {...componentProps} /> : <StacktraceGenericDisplay {...componentProps} />

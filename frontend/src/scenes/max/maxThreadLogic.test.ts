@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { partial } from 'kea-test-utils'
 import { expectLogic } from 'kea-test-utils'
@@ -10,15 +12,17 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
+import { EnhancedToolCall } from './Thread'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
+    MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
@@ -80,19 +84,17 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'mock-assistant-msg-1',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'mock-assistant-msg-1',
+                },
             ],
         })
     })
 
-    it('preserves only the latest reasoning message in threadGrouped', async () => {
+    it('groups assistant messages with thinking correctly', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([
                 {
@@ -102,36 +104,32 @@ describe('maxThreadLogic', () => {
                     id: 'human-1',
                 },
                 {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
+                    type: AssistantMessageType.Assistant,
+                    content: 'response',
                     status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
+                    id: 'assistant-1',
+                    meta: {
+                        thinking: [{ thinking: 'Processing request' }],
+                    },
                 },
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'response',
+                    status: 'completed',
+                    id: 'assistant-1',
+                    meta: {
+                        thinking: [{ thinking: 'Processing request' }],
                     },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'reasoning-2',
-                    },
-                ],
+                },
             ],
         })
     })
@@ -144,18 +142,6 @@ describe('maxThreadLogic', () => {
                     content: 'hello',
                     status: 'completed',
                     id: 'human-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
                 },
                 {
                     type: AssistantMessageType.Assistant,
@@ -172,35 +158,29 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-2',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-2',
+                },
             ],
         })
     })
 
-    it('preserves the reasoning message when the assistant message is without id', async () => {
+    it('groups assistant messages without id correctly', async () => {
         await expectLogic(logic, () => {
             logic.actions.setThread([
                 {
@@ -210,18 +190,6 @@ describe('maxThreadLogic', () => {
                     id: 'human-1',
                 },
                 {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-1',
-                },
-                {
-                    type: AssistantMessageType.Reasoning,
-                    content: 'hello',
-                    status: 'completed',
-                    id: 'reasoning-2',
-                },
-                {
                     type: AssistantMessageType.Assistant,
                     content: 'hello',
                     status: 'completed',
@@ -229,27 +197,17 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Reasoning,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'reasoning-2',
-                    },
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
             ],
         })
     })
@@ -271,21 +229,18 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
     })
@@ -294,7 +249,7 @@ describe('maxThreadLogic', () => {
         logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
         logic.mount()
 
-        // Human and assistant messages with IDs–should append to the last group
+        // Human and assistant messages with IDs–should append thinking message
         await expectLogic(logic, () => {
             logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
             logic.actions.setThread([
@@ -313,27 +268,24 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'assistant-1',
-                    },
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'assistant-1',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
     })
@@ -359,21 +311,17 @@ describe('maxThreadLogic', () => {
             ])
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                        id: 'human-1',
-                    },
-                ],
-                [
-                    {
-                        type: AssistantMessageType.Assistant,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                    id: 'human-1',
+                },
+                {
+                    type: AssistantMessageType.Assistant,
+                    content: 'hello',
+                    status: 'completed',
+                },
             ],
         })
     })
@@ -389,20 +337,17 @@ describe('maxThreadLogic', () => {
             logic.actions.askMax('hello')
         }).toMatchValues({
             threadGrouped: [
-                [
-                    {
-                        type: AssistantMessageType.Human,
-                        content: 'hello',
-                        status: 'completed',
-                    },
-                ],
-                [
-                    partial({
-                        type: AssistantMessageType.Reasoning,
-                        status: 'completed',
-                        id: 'loader',
-                    }),
-                ],
+                {
+                    type: AssistantMessageType.Human,
+                    content: 'hello',
+                    status: 'completed',
+                },
+                partial({
+                    type: AssistantMessageType.Assistant,
+                    meta: partial({ thinking: expect.any(Array) }),
+                    status: 'completed',
+                    id: 'loader',
+                }),
             ],
         })
         expect(streamSpy).toHaveBeenCalledTimes(1)
@@ -477,6 +422,83 @@ describe('maxThreadLogic', () => {
                 expect.any(Object)
             )
         })
+
+        it('sends form_answers in ui_context when provided', async () => {
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            const formAnswers = { q1: 'answer1', q2: 'answer2' }
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Form response', false, { form_answers: formAnswers })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Form response',
+                    ui_context: expect.objectContaining({
+                        form_answers: formAnswers,
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('merges form_answers with existing compiled context', async () => {
+            const streamSpy = mockStream()
+
+            // Add context data to maxContextLogic
+            maxContextLogicInstance.actions.addOrUpdateContextDashboard({
+                id: 1,
+                name: 'Test Dashboard',
+                description: 'Test description',
+                tiles: [],
+            } as any)
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            const formAnswers = { q1: 'answer1' }
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Form with context', false, { form_answers: formAnswers })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Form with context',
+                    ui_context: expect.objectContaining({
+                        dashboards: expect.any(Object),
+                        form_answers: formAnswers,
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('handles empty form_answers object', async () => {
+            const streamSpy = mockStream()
+
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('Empty form', false, { form_answers: {} })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['askMax', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'Empty form',
+                    ui_context: expect.objectContaining({
+                        form_answers: {},
+                    }),
+                }),
+                expect.any(Object)
+            )
+        })
     })
 
     describe('traceId functionality', () => {
@@ -540,7 +562,6 @@ describe('maxThreadLogic', () => {
                         content: 'invisible tool call',
                         status: 'completed',
                         id: 'tool-1',
-                        visible: false,
                         tool_call_id: 'tool-1',
                         ui_payload: {},
                     },
@@ -553,20 +574,18 @@ describe('maxThreadLogic', () => {
                 ])
             }).toMatchValues({
                 threadGrouped: [
-                    [
-                        {
-                            type: AssistantMessageType.Human,
-                            content: 'hello',
-                            status: 'completed',
-                            id: 'human-1',
-                        },
-                        {
-                            type: AssistantMessageType.Assistant,
-                            content: 'response',
-                            status: 'completed',
-                            id: 'assistant-1',
-                        },
-                    ],
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
                 ],
             })
         })
@@ -592,22 +611,18 @@ describe('maxThreadLogic', () => {
                 })
             }).toMatchValues({
                 threadGrouped: [
-                    [
-                        {
-                            type: AssistantMessageType.Human,
-                            content: 'test question',
-                            status: 'completed',
-                            id: 'human-1',
-                        },
-                    ],
-                    [
-                        {
-                            type: AssistantMessageType.Failure,
-                            content: 'Something went wrong',
-                            status: 'completed',
-                            id: 'failure-1',
-                        },
-                    ],
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'test question',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Failure,
+                        content: 'Something went wrong',
+                        status: 'completed',
+                        id: 'failure-1',
+                    },
                 ],
             })
         })
@@ -653,7 +668,7 @@ describe('maxThreadLogic', () => {
 
     describe('processNotebookUpdate', () => {
         it('navigates to notebook when not already on notebook page', async () => {
-            router.actions.push(urls.max())
+            router.actions.push(urls.ai())
 
             // Mock openNotebook to track its calls
             const openNotebookSpy = jest.spyOn(notebooksModel, 'openNotebook')
@@ -725,6 +740,7 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [
@@ -769,10 +785,11 @@ describe('maxThreadLogic', () => {
         })
 
         it('initializes threadRaw as empty array when conversation has no messages', async () => {
-            const conversationWithoutMessages = {
+            const conversationWithoutMessages: ConversationDetail = {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Empty conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
@@ -798,6 +815,7 @@ describe('maxThreadLogic', () => {
                 id: MOCK_CONVERSATION_ID,
                 status: ConversationStatus.Idle,
                 title: 'Test conversation',
+                user: MOCK_DEFAULT_BASIC_USER,
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
                 messages: [],
@@ -938,6 +956,768 @@ describe('maxThreadLogic', () => {
             expect(askMaxSpy).not.toHaveBeenCalled()
             expect(setQuestionSpy).toHaveBeenCalledWith('/remember ')
             expect(logic.values.question).toBe('/remember ')
+        })
+    })
+
+    describe('assistant update event handling', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+        })
+
+        it('setToolCallUpdate adds update to toolCallUpdateMap', async () => {
+            const updateEvent = {
+                id: 'update-1',
+                tool_call_id: 'tool-call-123',
+                content: 'Processing data...',
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setToolCallUpdate(updateEvent)
+            })
+
+            expect(logic.values.toolCallUpdateMap.get('tool-call-123')).toEqual(['Processing data...'])
+        })
+
+        it('setToolCallUpdate adds multiple updates for same tool call', async () => {
+            const toolCallId = 'tool-call-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setToolCallUpdate({
+                    id: 'update-1',
+                    tool_call_id: toolCallId,
+                    content: 'Step 1 complete',
+                })
+                logic.actions.setToolCallUpdate({
+                    id: 'update-2',
+                    tool_call_id: toolCallId,
+                    content: 'Step 2 complete',
+                })
+                logic.actions.setToolCallUpdate({
+                    id: 'update-3',
+                    tool_call_id: toolCallId,
+                    content: 'Step 3 complete',
+                })
+            })
+
+            expect(logic.values.toolCallUpdateMap.get(toolCallId)).toEqual([
+                'Step 1 complete',
+                'Step 2 complete',
+                'Step 3 complete',
+            ])
+        })
+
+        it('setToolCallUpdate ignores duplicate updates', async () => {
+            const toolCallId = 'tool-call-123'
+            const sameContent = 'Same update'
+
+            await expectLogic(logic, () => {
+                logic.actions.setToolCallUpdate({
+                    id: 'update-1',
+                    tool_call_id: toolCallId,
+                    content: sameContent,
+                })
+                logic.actions.setToolCallUpdate({
+                    id: 'update-2',
+                    tool_call_id: toolCallId,
+                    content: sameContent,
+                })
+            })
+
+            // Should only have one entry despite two calls
+            expect(logic.values.toolCallUpdateMap.get(toolCallId)).toEqual([sameContent])
+        })
+
+        it('setToolCallUpdate handles updates for different tool calls', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setToolCallUpdate({
+                    id: 'update-1',
+                    tool_call_id: 'tool-1',
+                    content: 'Tool 1 update',
+                })
+                logic.actions.setToolCallUpdate({
+                    id: 'update-2',
+                    tool_call_id: 'tool-2',
+                    content: 'Tool 2 update',
+                })
+            })
+
+            expect(logic.values.toolCallUpdateMap.get('tool-1')).toEqual(['Tool 1 update'])
+            expect(logic.values.toolCallUpdateMap.get('tool-2')).toEqual(['Tool 2 update'])
+        })
+
+        it('update messages are excluded from threadGrouped', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+                // UpdateMessages should not appear in thread directly
+                logic.actions.setToolCallUpdate({
+                    id: 'update-1',
+                    tool_call_id: 'tool-call-123',
+                    content: 'This should not appear',
+                })
+            }).toMatchValues({
+                threadGrouped: [
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'response',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('enhanceThreadToolCalls', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+        })
+
+        it('marks tool call as completed when corresponding tool call message exists', async () => {
+            const toolCallId = 'tool-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'test_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool completed successfully',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: toolCallId,
+                        ui_payload: {},
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls).toBeTruthy()
+            expect(enhancedToolCalls?.[0].status).toBe('completed')
+        })
+
+        it('marks tool call as in_progress when no completion message and still loading', async () => {
+            logic = maxThreadLogic({ conversationId: MOCK_TEMP_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(MOCK_IN_PROGRESS_CONVERSATION)
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'tool-123',
+                                name: 'test_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('in_progress')
+        })
+
+        it('marks tool call as failed when no completion and not loading', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'tool-123',
+                                name: 'test_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('failed')
+        })
+
+        it('attaches updates from toolCallUpdateMap to tool calls', async () => {
+            const toolCallId = 'tool-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setToolCallUpdate({
+                    id: 'update-1',
+                    tool_call_id: toolCallId,
+                    content: 'Progress update 1',
+                })
+                logic.actions.setToolCallUpdate({
+                    id: 'update-2',
+                    tool_call_id: toolCallId,
+                    content: 'Progress update 2',
+                })
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'test_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].updates).toEqual(['Progress update 1', 'Progress update 2'])
+        })
+
+        it('marks last todo_write tool call with isLastPlanningMessage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Planning',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'todo-1',
+                                name: 'todo_write',
+                                args: { todos: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'More planning',
+                        status: 'completed',
+                        id: 'assistant-2',
+                        tool_calls: [
+                            {
+                                id: 'todo-2',
+                                name: 'todo_write',
+                                args: { todos: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            })
+
+            const firstToolCall = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls?.[0] as EnhancedToolCall
+            const secondToolCall = (logic.values.threadGrouped[1] as AssistantMessage)
+                .tool_calls?.[0] as EnhancedToolCall
+
+            expect(firstToolCall?.isLastPlanningMessage).toBeFalsy()
+            expect(secondToolCall?.isLastPlanningMessage).toBeTruthy()
+        })
+
+        it('handles multiple tool calls in single message', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using multiple tools',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'tool-1',
+                                name: 'tool_one',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                            {
+                                id: 'tool-2',
+                                name: 'tool_two',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Tool 1 complete',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: 'tool-1',
+                        ui_payload: {},
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].status).toBe('completed')
+            expect(enhancedToolCalls?.[1].status).toBe('failed') // No completion message
+        })
+
+        it('handles tool calls with empty updates array', async () => {
+            const toolCallId = 'tool-123'
+
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: toolCallId,
+                                name: 'test_tool',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            })
+
+            const enhancedToolCalls = (logic.values.threadGrouped[0] as AssistantMessage)
+                .tool_calls as EnhancedToolCall[]
+            expect(enhancedToolCalls?.[0].updates).toEqual([])
+        })
+    })
+
+    describe('retryCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.retryCount).toBe(0)
+        })
+
+        it('increments on retryLastMessage', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.retryLastMessage()
+            }).toMatchValues({
+                retryCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetRetryCount', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetRetryCount()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.retryLastMessage()
+            logic.actions.retryLastMessage()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                retryCount: 0,
+            })
+        })
+    })
+
+    describe('cancelCount', () => {
+        it('starts at 0', () => {
+            expect(logic.values.cancelCount).toBe(0)
+        })
+
+        it('increments on stopGeneration', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 1,
+            })
+        })
+
+        it('increments multiple times', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.stopGeneration()
+            }).toMatchValues({
+                cancelCount: 3,
+            })
+        })
+
+        it('resets to 0 on resetCancelCount', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetCancelCount()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
+        })
+
+        it('resets to 0 on resetThread', async () => {
+            logic.actions.stopGeneration()
+            logic.actions.stopGeneration()
+
+            await expectLogic(logic, () => {
+                logic.actions.resetThread()
+            }).toMatchValues({
+                cancelCount: 0,
+            })
+        })
+    })
+
+    describe('multiQuestionFormPending selector', () => {
+        it('returns true when thread ends with AssistantMessage containing create_form tool call', async () => {
+            // With NodeInterrupt(None), no ToolCall message is created - the thread ends with the AssistantMessage
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer these questions:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [{ id: 'q1', question: 'What is your name?' }] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: true,
+            })
+        })
+
+        it('returns false when thread is empty', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+
+        it('returns false when last message is a ToolCall response (not a create_form tool call)', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Using a different tool',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'other-tool-tc-1',
+                                name: 'search',
+                                args: {},
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                    {
+                        type: AssistantMessageType.ToolCall,
+                        content: 'Search results',
+                        status: 'completed',
+                        id: 'tool-msg-1',
+                        tool_call_id: 'other-tool-tc-1',
+                        ui_payload: { search: {} },
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+
+        it('returns false when last message is an assistant message without tool calls', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Human,
+                        content: 'Hello',
+                        status: 'completed',
+                        id: 'human-1',
+                    },
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Thanks for your answers!',
+                        status: 'completed',
+                        id: 'assistant-1',
+                    },
+                ])
+            }).toMatchValues({
+                multiQuestionFormPending: false,
+            })
+        })
+    })
+
+    describe('submissionDisabledReason selector', () => {
+        it('returns "Please answer the questions above" when multiQuestionFormPending is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                submissionDisabledReason: 'Please answer the questions above',
+            })
+        })
+    })
+
+    describe('inputDisabled selector', () => {
+        it('returns true when multiQuestionFormPending is true', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setThread([
+                    {
+                        type: AssistantMessageType.Assistant,
+                        content: 'Please answer:',
+                        status: 'completed',
+                        id: 'assistant-1',
+                        tool_calls: [
+                            {
+                                id: 'create-form-tc-1',
+                                name: 'create_form',
+                                args: { questions: [] },
+                                type: 'tool_call',
+                            },
+                        ],
+                    },
+                ])
+            }).toMatchValues({
+                inputDisabled: true,
+            })
+        })
+    })
+
+    describe('agent mode functionality', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+        })
+
+        it('setAgentMode sets the agent mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAgentMode(AgentMode.SQL)
+            }).toMatchValues({
+                agentMode: AgentMode.SQL,
+            })
+        })
+
+        it('setAgentMode locks the agent mode by user', async () => {
+            expect(logic.values.agentModeLockedByUser).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setAgentMode(AgentMode.ProductAnalytics)
+            }).toMatchValues({
+                agentModeLockedByUser: true,
+            })
+        })
+
+        it('syncAgentModeFromConversation sets agent mode without locking', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.syncAgentModeFromConversation(AgentMode.SessionReplay)
+            }).toMatchValues({
+                agentMode: AgentMode.SessionReplay,
+                agentModeLockedByUser: false,
+            })
+        })
+
+        it('askMax resets agentModeLockedByUser', async () => {
+            mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+            expect(logic.values.agentModeLockedByUser).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test')
+            }).toMatchValues({
+                agentModeLockedByUser: false,
+            })
+        })
+
+        it('setConversation syncs agent mode when not locked by user', async () => {
+            const conversationWithAgentMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.ProductAnalytics,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithAgentMode)
+            }).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
+        it('setConversation does not sync agent mode when locked by user', async () => {
+            logic.actions.setAgentMode(AgentMode.SQL)
+            expect(logic.values.agentModeLockedByUser).toBe(true)
+
+            const conversationWithAgentMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.ProductAnalytics,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithAgentMode)
+            }).toMatchValues({
+                agentMode: AgentMode.SQL, // Should remain SQL, not switch to ProductAnalytics
+            })
+        })
+
+        it('askMax includes agent_mode in stream data', async () => {
+            const streamSpy = mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    agent_mode: AgentMode.SQL,
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('reconnectToStream includes current agent mode', async () => {
+            const streamSpy = mockStream()
+
+            logic.actions.setAgentMode(AgentMode.ProductAnalytics)
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    agent_mode: AgentMode.ProductAnalytics,
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('scene to agent mode mapping', () => {
+        it('does not auto-set mode when conversation already exists', async () => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            // Set a conversation first
+            logic.actions.setConversation(MOCK_CONVERSATION)
+
+            // Set agent mode manually
+            logic.actions.setAgentMode(AgentMode.SQL)
+
+            // Simulate what would happen if scene changed - directly call sync
+            // The logic should NOT change mode because conversation exists
+            logic.actions.syncAgentModeFromConversation(AgentMode.ProductAnalytics)
+
+            // Mode should update since syncAgentModeFromConversation doesn't check for conversation
+            // (that check is in the subscription, not the action)
+            await expectLogic(logic).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
+        it('syncAgentModeFromConversation does not lock agent mode', async () => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            // Sync should not lock
+            logic.actions.syncAgentModeFromConversation(AgentMode.SQL)
+
+            await expectLogic(logic).toMatchValues({
+                agentMode: AgentMode.SQL,
+                agentModeLockedByUser: false,
+            })
         })
     })
 })

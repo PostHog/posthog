@@ -16,9 +16,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.mixins import FileSystemViewSetMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -58,7 +56,6 @@ def log_notebook_activity(
     changes: Optional[list[Change]] = None,
 ) -> None:
     short_id = str(notebook.short_id)
-
     log_activity(
         organization_id=organization_id,
         team_id=team_id,
@@ -168,8 +165,14 @@ class NotebookSerializer(NotebookMinimalSerializer):
 
         changes = changes_between("Notebook", previous=before_update, current=updated_notebook)
 
+        activity = "updated"
+        if changes:
+            deleted_change = next((change for change in changes if change.field == "deleted"), None)
+            if deleted_change:
+                activity = "restored" if deleted_change.after is False else "deleted"
+
         log_notebook_activity(
-            activity="updated",
+            activity=activity,
             notebook=updated_notebook,
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
@@ -191,7 +194,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             OpenApiParameter("short_id", exclude=True),
             OpenApiParameter(
                 "created_by",
-                OpenApiTypes.INT,
+                OpenApiTypes.UUID,
                 description="The UUID of the Notebook's creator",
                 required=False,
             ),
@@ -236,9 +239,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         ],
     )
 )
-class NotebookViewSet(
-    FileSystemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet
-):
+class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "notebook"
     queryset = Notebook.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -348,9 +349,7 @@ class NotebookViewSet(
         if str(request.headers.get("If-None-Match")) == str(instance.version):
             return Response(None, 304)
 
-        response = Response(serializer.data)
-        log_api_file_system_view(request, instance)
-        return response
+        return Response(serializer.data)
 
     @action(methods=["GET"], detail=False)
     def recording_comments(self, request: Request, **kwargs):

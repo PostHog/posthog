@@ -11,13 +11,13 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 axum-client-ip = { workspace = true }
 chrono = { workspace = true, features = ["serde"] }
+common-cache = { path = "../common/cache" }
 common-cookieless = { path = "../common/cookieless" }
 common-database = { path = "../common/database" }
 common-redis = { path = "../common/redis" }
 common-types = { path = "../common/types" }
 envconfig = { workspace = true }
 governor = { workspace = true }
-tower_governor = "0.4.2"
 limiters = { path = "../common/limiters" }
 metrics = { workspace = true }
 tokio = { workspace = true }
@@ -27,11 +27,7 @@ bytes = { workspace = true }
 url = "2.5"
 once_cell = "1.18.0"
 rand = { workspace = true }
-redis = { version = "0.23.3", features = [
-    "tokio-comp",
-    "cluster",
-    "cluster-async",
-] }
+redis = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 json5 = "0.4"

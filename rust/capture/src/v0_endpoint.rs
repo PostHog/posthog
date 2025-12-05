@@ -6,7 +6,7 @@ use bytes::Bytes;
 use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Method};
 use axum_client_ip::InsecureClientIp;
-use chrono::{DateTime, Duration, Utc};
+use chrono::DateTime;
 use common_types::{CapturedEvent, RawEvent};
 use limiters::token_dropper::TokenDropper;
 use metrics::counter;
@@ -224,7 +224,7 @@ async fn handle_event_payload(
     debug!(context=?context, event_count=?events.len(), "handle_event_payload: evaluating quota limits");
     events = state
         .quota_limiter
-        .check_and_filter(&context, events)
+        .check_and_filter(&context.token, events)
         .await?;
 
     debug!(context=?context,
@@ -416,13 +416,6 @@ pub fn process_single_event(
         (_, false) => DataType::AnalyticsMain,
     };
 
-    // only should be used to check if historical topic
-    // rerouting should be applied to this event
-    let raw_event_timestamp = event
-        .timestamp
-        .as_ref()
-        .and_then(|ts| DateTime::parse_from_rfc3339(ts).ok());
-
     // redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if event.properties.contains_key("capture_internal") {
         "127.0.0.1".to_string()
@@ -454,18 +447,30 @@ pub fn process_single_event(
         context.now,
     );
 
+    let event_name = event.event.clone();
+
     let mut metadata = ProcessedEventMetadata {
         data_type,
         session_id: None,
         computed_timestamp: Some(computed_timestamp),
-        event_name: event.event.clone(),
+        event_name: event_name.clone(),
     };
+
+    if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
+        counter!(
+            "capture_events_rerouted_historical",
+            &[("reason", "timestamp")]
+        )
+        .increment(1);
+        metadata.data_type = DataType::AnalyticsHistorical;
+    }
 
     let event = CapturedEvent {
         uuid: event.uuid.unwrap_or_else(uuid_v7),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
+        session_id: None,
         ip: resolved_ip,
         data,
         now: context
@@ -473,44 +478,13 @@ pub fn process_single_event(
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        event: event_name,
+        timestamp: computed_timestamp,
         is_cookieless_mode: event
             .extract_is_cookieless_mode()
             .ok_or(CaptureError::InvalidCookielessMode)?,
+        historical_migration: metadata.data_type == DataType::AnalyticsHistorical,
     };
-
-    // if this event was historical but not assigned to the right topic
-    // by the submitting user (i.e. no historical prop flag in event)
-    // we should route it there using event#now if older than 1 day
-    let should_reroute_event = if raw_event_timestamp.is_some() {
-        let days_stale = Duration::days(historical_cfg.historical_rerouting_threshold_days);
-        let threshold = Utc::now() - days_stale;
-        let decision = raw_event_timestamp.unwrap().to_utc() <= threshold;
-        if decision {
-            counter!(
-                "capture_events_rerouted_historical",
-                &[("reason", "timestamp")]
-            )
-            .increment(1);
-        }
-        decision
-    } else {
-        let decision = historical_cfg.should_reroute(&event.key());
-        if decision {
-            counter!(
-                "capture_events_rerouted_historical",
-                &[("reason", "key_or_token")]
-            )
-            .increment(1);
-        }
-        decision
-    };
-
-    if metadata.data_type == DataType::AnalyticsMain
-        && historical_cfg.enable_historical_rerouting
-        && should_reroute_event
-    {
-        metadata.data_type = DataType::AnalyticsHistorical;
-    }
 
     Ok(ProcessedEvent { metadata, event })
 }
@@ -655,6 +629,7 @@ pub async fn process_replay_events<'a>(
     let event = CapturedEvent {
         uuid,
         distinct_id: distinct_id.clone(),
+        session_id: Some(session_id_str.to_string()),
         ip: context.client_ip.clone(),
         data: json!({
             "event": "$snapshot_items",
@@ -673,7 +648,10 @@ pub async fn process_replay_events<'a>(
             .to_rfc3339_opts(chrono::SecondsFormat::AutoSi, true),
         sent_at: context.sent_at,
         token: context.token.clone(),
+        event: "$snapshot_items".to_string(),
+        timestamp: computed_timestamp,
         is_cookieless_mode,
+        historical_migration: context.historical_migration,
     };
 
     sink.send(ProcessedEvent { metadata, event }).await
@@ -751,7 +729,7 @@ mod tests {
 
         let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and use the event timestamp directly since sent_at is None
@@ -785,7 +763,7 @@ mod tests {
             None,
         );
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and apply clock skew correction
@@ -816,7 +794,7 @@ mod tests {
             Some(true), // $ignore_sent_at = true
         );
 
-        let historical_cfg = router::HistoricalConfig::new(false, 1, None);
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
         let result = process_single_event(&event, historical_cfg, &context);
 
         // Should succeed and use timestamp directly, ignoring sent_at
@@ -827,5 +805,51 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         assert_eq!(processed.metadata.computed_timestamp, Some(expected));
+    }
+
+    #[test]
+    fn test_process_single_event_with_historical_migration_false() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let mut context = create_test_context(now, None);
+        context.historical_migration = false;
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Should have historical_migration=false in the event payload
+        assert!(!processed.event.historical_migration);
+        // Should be routed to AnalyticsMain
+        assert_eq!(processed.metadata.data_type, DataType::AnalyticsMain);
+    }
+
+    #[test]
+    fn test_process_single_event_with_historical_migration_true() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let mut context = create_test_context(now, None);
+        context.historical_migration = true;
+
+        let event = create_test_event(Some("2023-01-01T11:00:00Z".to_string()), None, None);
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let result = process_single_event(&event, historical_cfg, &context);
+
+        assert!(result.is_ok());
+        let processed = result.unwrap();
+
+        // Should have historical_migration=true in the event payload
+        assert!(processed.event.historical_migration);
+        // Should be routed to AnalyticsHistorical
+        assert_eq!(processed.metadata.data_type, DataType::AnalyticsHistorical);
     }
 }

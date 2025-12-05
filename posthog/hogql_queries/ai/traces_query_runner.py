@@ -69,14 +69,17 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
-        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
             pagination_limit = limit_value + offset_value + 1
 
+            # Determine ordering based on randomOrder parameter
+            order_clause = "rand()" if self.query.randomOrder else "max(timestamp) DESC"
+
             trace_ids_query = parse_select(
-                """
+                f"""
                 SELECT
                     groupArray(trace_id) as trace_ids,
                     min(first_ts) as min_timestamp,
@@ -88,10 +91,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         max(timestamp) as last_ts
                     FROM events
                     WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
-                      AND {conditions}
+                      AND {{conditions}}
                     GROUP BY trace_id
-                    ORDER BY max(timestamp) DESC
-                    LIMIT {limit}
+                    ORDER BY {order_clause}
+                    LIMIT {{limit}}
                 )
                 """,
             )
@@ -141,7 +144,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         # Create a narrowed date range if we have timestamps
         narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
 
-        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = self.paginator.execute_hogql_query(
                 query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={
@@ -253,7 +256,10 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                         ifNull(properties.$ai_span_name, properties.$ai_trace_name),
                         timestamp,
                     )
-                ) AS trace_name
+                ) AS trace_name,
+                countIf(
+                    isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
+                ) AS error_count
             FROM events
             WHERE event IN (
                 '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
@@ -284,7 +290,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 2,
+            "schema_version": 3,
         }
 
     @cached_property
@@ -344,6 +350,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "total_cost": "totalCost",
             "events": "events",
             "trace_name": "traceName",
+            "error_count": "errorCount",
         }
 
         generations = []
@@ -411,6 +418,15 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                     op=ast.CompareOperationOp.Eq,
                     left=ast.Field(chain=["person_id"]),
                     right=ast.Constant(value=self.query.personId),
+                )
+            )
+
+        if self.query.groupKey and self.query.groupTypeIndex is not None:
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=[f"$group_{self.query.groupTypeIndex}"]),
+                    right=ast.Constant(value=self.query.groupKey),
                 )
             )
 

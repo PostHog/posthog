@@ -1,4 +1,6 @@
-import { IconAreaChart, IconComment, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
+import { IconComment } from '@posthog/icons'
+
+import { IconAreaChart, IconGridView, IconLink, IconListView } from 'lib/lemon-ui/icons'
 import { allOperatorsMapping } from 'lib/utils'
 
 import {
@@ -10,6 +12,7 @@ import {
     SurveyQuestionDescriptionContentType,
     SurveyQuestionType,
     SurveySchedule,
+    SurveyTabPosition,
     SurveyType,
     SurveyWidgetType,
 } from '~/types'
@@ -60,6 +63,7 @@ export const defaultSurveyAppearance = {
     displayThankYouMessage: true,
     thankYouMessageHeader: 'Thank you for your feedback!',
     position: SurveyPosition.Right,
+    tabPosition: SurveyTabPosition.Right,
     widgetType: SurveyWidgetType.Tab,
     widgetLabel: 'Feedback',
     widgetColor: 'black',
@@ -115,6 +119,7 @@ export const defaultSurveyFieldValues = {
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 buttonText: 'Submit',
             },
         ],
@@ -269,6 +274,7 @@ export const defaultSurveyTemplates: SurveyTemplate[] = [
                 scale: SURVEY_RATING_SCALE.NPS_10_POINT,
                 lowerBoundLabel: 'Unlikely',
                 upperBoundLabel: 'Very likely',
+                isNpsQuestion: true,
                 skipSubmitButton: true,
             },
             {
@@ -628,11 +634,8 @@ export enum SURVEY_CREATED_SOURCE {
     SURVEY_FORM = 'survey_form',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
     EXPERIMENTS = 'experiments',
-}
-
-export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {
-    TEST = 'test', // new experience
-    CONTROL = 'control', // current state
+    INSIGHT_CROSS_SELL = 'insight_cross_sell',
+    CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {

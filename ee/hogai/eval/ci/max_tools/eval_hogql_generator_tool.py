@@ -8,7 +8,7 @@ from braintrust import EvalCase, Score
 from pydantic import BaseModel
 
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.database import Database
 
 from posthog.sync import database_sync_to_async
 
@@ -67,7 +67,7 @@ def call_generate_hogql_query(demo_org_team_user):
 @pytest.fixture
 async def database_schema(demo_org_team_user):
     team = demo_org_team_user[1]
-    database = await database_sync_to_async(create_hogql_database)(team=team)
+    database = await database_sync_to_async(Database.create_for)(team=team)
     context = HogQLContext(team=team, enable_select_queries=True, database=database)
     return await serialize_database_schema(database, context)
 
@@ -232,6 +232,13 @@ LIMIT 1000""",
                     instructions="Update the query to use variables.org for filtering. If variables.org is null, do not filter by organization. If variables.org is set, filter so that p.properties.org = variables.org.",
                 ),
                 expected="SELECT p.id AS person_id, p.properties.email AS email, p.properties.org AS organization FROM persons p WHERE p.properties.email NOT LIKE '%@test.com' AND (coalesce(variables.org, '') = '' OR p.properties.org = variables.org) ORDER BY p.created_at DESC LIMIT 1000",
+                metadata=metadata,
+            ),
+            EvalCase(
+                input=EvalInput(
+                    instructions="Show me daily event counts for 'buy_button_clicked' events from Nov 25-26 2025, formatted as YYYY-MM-DD in UTC timezone",
+                ),
+                expected="SELECT formatDateTime(toTimeZone(timestamp, 'UTC'), '%Y-%m-%d') AS day, count() FROM events WHERE event = 'buy_button_clicked' AND timestamp >= toDateTime('2025-11-25 00:00:00') AND timestamp <= toDateTime('2025-11-26 23:59:59') GROUP BY day ORDER BY day DESC",
                 metadata=metadata,
             ),
         ],

@@ -32,12 +32,12 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
-            return { scheduledAt: conditionResult.scheduledAt }
+            return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
-            return { nextAction: conditionResult.nextAction }
+            return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
-        return { nextAction: findContinueAction(invocation) }
+        return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 }
 
@@ -54,7 +54,7 @@ export async function checkConditions(
         const filterResults = await filterFunctionInstrumented({
             fn: invocation.hogFlow,
             filters: condition.filters,
-            filterGlobals: invocation.filterGlobals,
+            filterGlobals: { ...invocation.filterGlobals, variables: invocation.state.variables },
         })
 
         if (filterResults.match) {

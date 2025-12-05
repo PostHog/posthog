@@ -2,6 +2,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use common_types::{GroupType, Team, TeamId};
 use moka::sync::{Cache, CacheBuilder};
+use tracing::warn;
 
 use crate::{
     app_context::AppContext,
@@ -186,7 +187,12 @@ pub async fn do_team_lookups(
     for (token, lookup) in team_lookups {
         let (indices, task) = (lookup.indices, lookup.inner);
         match task.await.expect("Task was not cancelled") {
-            Ok(maybe_team) => results.insert(token, maybe_team),
+            Ok(maybe_team) => {
+                if maybe_team.is_none() {
+                    warn!("Received event for unknown team token: {}", token);
+                }
+                results.insert(token, maybe_team);
+            }
             Err(err) => return Err((indices[0], err).into()),
         };
     }

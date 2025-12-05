@@ -94,9 +94,6 @@ AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
 AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
-MAILJET_PUBLIC_KEY = get_from_env("MAILJET_PUBLIC_KEY", "", type_cast=str)
-MAILJET_SECRET_KEY = get_from_env("MAILJET_SECRET_KEY", "", type_cast=str)
-
 SQS_QUEUES = {
     "usage_reports": {
         "url": get_from_env("SQS_USAGE_REPORT_QUEUE_URL", optional=True),
@@ -125,3 +122,20 @@ HARMONIC_BASE_URL = get_from_env("HARMONIC_BASE_URL", "https://api.harmonic.ai",
 # Vercel Integration
 VERCEL_CLIENT_INTEGRATION_ID = get_from_env("VERCEL_CLIENT_INTEGRATION_ID", "", type_cast=str)
 VERCEL_CLIENT_INTEGRATION_SECRET = get_from_env("VERCEL_CLIENT_INTEGRATION_SECRET", "", type_cast=str)
+
+# SCIM Configuration
+# django-scim2 requires these settings
+SCIM_SERVICE_PROVIDER = {
+    "NETLOC": SITE_URL.replace("http://", "").replace("https://", ""),
+    "AUTHENTICATION_SCHEMES": [
+        {
+            "type": "oauthbearertoken",
+            "name": "OAuth Bearer Token",
+            "description": "Authentication scheme using the OAuth Bearer Token Standard",
+            "specUri": "https://www.rfc-editor.org/rfc/rfc6750.txt",
+            "documentationUri": "https://posthog.com/docs/settings/scim",
+        }
+    ],
+    # User model is already configured via AUTH_USER_MODEL = "posthog.User"
+    "GROUP_MODEL": "ee.models.rbac.role.Role",
+}

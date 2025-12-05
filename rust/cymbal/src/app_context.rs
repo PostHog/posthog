@@ -23,6 +23,7 @@ use crate::{
         chunk_id::ChunkIdFetcher,
         concurrency,
         hermesmap::HermesMapProvider,
+        proguard::ProguardProvider,
         saving::Saving,
         sourcemap::SourcemapProvider,
         Catalog, S3Client,
@@ -118,9 +119,8 @@ impl AppContext {
         // reference concurrency to 1 ensures this.
         let smp_atmostonce = concurrency::AtMostOne::new(smp_caching);
 
-        let hmp = HermesMapProvider {};
         let hmp_chunk = ChunkIdFetcher::new(
-            hmp,
+            HermesMapProvider {},
             s3_client.clone(),
             posthog_pool.clone(),
             config.object_storage_bucket.clone(),
@@ -128,19 +128,42 @@ impl AppContext {
         let hmp_caching = Caching::new(hmp_chunk, ss_cache.clone());
         // We skip the saving layer for HermesMapProvider, since it'll never fetch something from the outside world.
 
+        let pgp_chunk = ChunkIdFetcher::new(
+            ProguardProvider {},
+            s3_client.clone(),
+            posthog_pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+        let pgp_caching = Caching::new(pgp_chunk, ss_cache.clone());
+
         info!(
             "AppContext initialized, subscribed to topic {}",
             config.consumer.kafka_consumer_topic
         );
 
-        let catalog = Catalog::new(smp_atmostonce, hmp_caching);
+        let catalog = Catalog::new(smp_atmostonce, hmp_caching, pgp_caching);
         let resolver = Resolver::new(config);
 
         let team_manager = TeamManager::new(config);
 
         let geoip_client = GeoIpClient::new(config.maxmind_db_path.clone())?;
 
-        let redis_client = RedisClient::new(config.redis_url.clone()).await?;
+        let redis_client = RedisClient::with_config(
+            config.redis_url.clone(),
+            common_redis::CompressionConfig::disabled(),
+            common_redis::RedisValueFormat::default(),
+            if config.redis_response_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_response_timeout_ms))
+            },
+            if config.redis_connection_timeout_ms == 0 {
+                None
+            } else {
+                Some(Duration::from_millis(config.redis_connection_timeout_ms))
+            },
+        )
+        .await?;
         let redis_client = Arc::new(redis_client);
 
         // TODO - we expect here rather returning an UnhandledError because the limiter returns an Anyhow::Result,

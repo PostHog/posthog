@@ -1,9 +1,7 @@
 import type { ApiConfig } from './client'
 import type { createApiClient } from './generated'
 
-export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (
-    config
-) => {
+export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApiClient>[0] = (config) => {
     return {
         fetch: async (input) => {
             const headers = new Headers()
@@ -41,9 +39,7 @@ export const buildApiFetcher: (config: ApiConfig) => Parameters<typeof createApi
 
             if (!response.ok) {
                 const errorResponse = await response.json()
-                throw new Error(
-                    `Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`
-                )
+                throw new Error(`Failed request: [${response.status}] ${JSON.stringify(errorResponse)}`)
             }
 
             return response

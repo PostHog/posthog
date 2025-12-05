@@ -124,11 +124,15 @@ const recordingDisabledReason = (
 
 const recordingWarningReason = (
     recordingDuration: number | undefined,
-    minimumDuration: number | undefined
+    minimumDuration: number | undefined,
+    recordingStatus: string | undefined
 ): string | undefined => {
     if (recordingDuration && minimumDuration && recordingDuration < minimumDuration) {
         const minimumDurationInSeconds = minimumDuration / 1000
         return `There is a chance this recording was not captured because the event happened earlier than the ${minimumDurationInSeconds}s minimum session duration.`
+    }
+    if (recordingStatus === 'buffering') {
+        return 'The recorder was buffering at this time. There may not be a recording to watch.'
     }
     return undefined
 }
@@ -154,6 +158,7 @@ export function useRecordingButton({
         userClickedThrough()
         if (inModal) {
             const fiveSecondsBeforeEvent = timestamp ? dayjs(timestamp).valueOf() - 5000 : 0
+
             openSessionPlayer(
                 { id: sessionId ?? '', matching_events: matchingEvents ?? undefined },
                 Math.max(fiveSecondsBeforeEvent, 0)
@@ -162,7 +167,7 @@ export function useRecordingButton({
     }
 
     const disabledReason = recordingDisabledReason(sessionId, recordingStatus)
-    const warningReason = recordingWarningReason(recordingDuration, minimumDuration)
+    const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus)
     const to = inModal ? undefined : urls.replaySingle(sessionId ?? '')
 
     return { onClick, disabledReason, warningReason, to }

@@ -68,6 +68,8 @@ pub enum FrameError {
     JavaScript(#[from] JsResolveErr),
     #[error(transparent)]
     Hermes(#[from] HermesError),
+    #[error(transparent)]
+    Proguard(#[from] ProguardError),
     #[error("No symbol set for chunk id: {0}")]
     MissingChunkIdData(String),
 }
@@ -138,6 +140,20 @@ pub enum HermesError {
     NoTokenForColumn(u32, String),
 }
 
+#[derive(Debug, Error, Serialize, Deserialize)]
+pub enum ProguardError {
+    #[error("Data error: {0}")]
+    DataError(#[from] SymbolDataError),
+    #[error("Invalid mapping")]
+    InvalidMapping,
+    #[error("No proguard map uploaded for id: {0}")]
+    MissingMap(String),
+    #[error("No map ID sent with frame")]
+    NoMapId,
+    #[error("No original frames could be derived from this raw frame")]
+    NoOriginalFrames,
+}
+
 #[derive(Debug, Error, Clone)]
 pub enum EventError {
     #[error("Wrong event type: {0} for event {1}")]
@@ -169,6 +185,12 @@ impl From<JsResolveErr> for ResolveError {
 impl From<HermesError> for ResolveError {
     fn from(e: HermesError) -> Self {
         FrameError::Hermes(e).into()
+    }
+}
+
+impl From<ProguardError> for ResolveError {
+    fn from(e: ProguardError) -> Self {
+        FrameError::Proguard(e).into()
     }
 }
 

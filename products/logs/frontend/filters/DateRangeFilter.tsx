@@ -12,6 +12,14 @@ import { logsLogic } from '../logsLogic'
 const dateMapping: DateMappingOption[] = [
     { key: CUSTOM_OPTION_KEY, values: [] },
     {
+        key: 'Last 5 minutes',
+        values: ['-5M'],
+        getFormattedDate: (date: dayjs.Dayjs): string => {
+            return date.subtract(5, 'minute').format(DATE_TIME_FORMAT)
+        },
+        defaultInterval: 'minute',
+    },
+    {
         key: 'Last 30 minutes',
         values: ['-30M'],
         getFormattedDate: (date: dayjs.Dayjs): string => {
@@ -43,12 +51,6 @@ const dateMapping: DateMappingOption[] = [
         getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(7, 'd'), date.endOf('d')),
         defaultInterval: 'day',
     },
-    {
-        key: 'Last 30 days',
-        values: ['-30d'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.subtract(30, 'd'), date.endOf('d')),
-        defaultInterval: 'day',
-    },
 ]
 
 export const DateRangeFilter = (): JSX.Element => {
@@ -56,18 +58,17 @@ export const DateRangeFilter = (): JSX.Element => {
     const { setDateRange } = useActions(logsLogic)
 
     return (
-        <span className="rounded bg-surface-primary">
-            <DateFilter
-                size="small"
-                dateFrom={dateRange.date_from}
-                dateTo={dateRange.date_to}
-                dateOptions={dateMapping}
-                onChange={(changedDateFrom, changedDateTo) => {
-                    setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
-                }}
-                allowTimePrecision
-                allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
-            />
-        </span>
+        <DateFilter
+            size="small"
+            dateFrom={dateRange.date_from}
+            dateTo={dateRange.date_to}
+            dateOptions={dateMapping}
+            onChange={(changedDateFrom, changedDateTo) => {
+                setDateRange({ date_from: changedDateFrom, date_to: changedDateTo })
+            }}
+            allowTimePrecision
+            allowFixedRangeWithTime
+            allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks', 'months']}
+        />
     )
 }

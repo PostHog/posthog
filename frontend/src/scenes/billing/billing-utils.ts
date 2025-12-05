@@ -16,17 +16,22 @@ import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps,
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations'].includes(productType)
+    ['session_replay', 'realtime_destinations', 'data_warehouse'].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports'].includes(productType)
+    ['mobile_replay', 'batch_exports', 'data_warehouse_historical'].includes(productType)
 
-export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number =>
-    (product.subscribed && product.tiered
-        ? product.tiers?.[0]?.unit_amount_usd === '0'
-            ? product.tiers?.[0]?.up_to
-            : 0
-        : product.free_allocation) || 0
+export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
+    // If subscribed and has tiers, check if the first tier is free
+    if (product.subscribed && product.tiers && product.tiers.length > 0) {
+        if (product.tiers[0].unit_amount_usd === '0') {
+            return product.tiers[0].up_to || 0
+        }
+        return 0
+    }
+    // Otherwise use free_allocation (for unsubscribed products)
+    return product.free_allocation || 0
+}
 
 export const createGaugeItems = (
     product: BillingProductV2Type | BillingProductV2AddonType,

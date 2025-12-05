@@ -3,8 +3,9 @@ from typing import get_args
 from posthog.models.activity_logging.activity_log import ActivityScope, field_exclusions
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.test.activity_log_utils import ActivityLogTestHelper
-from posthog.warehouse.models import ExternalDataSource
-from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+
+from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
 
 class TestExternalDataSchemaActivityLogging(ActivityLogTestHelper):

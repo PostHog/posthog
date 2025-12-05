@@ -190,6 +190,12 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
                 actions.setURLOverrideSidebarOpen(inspectorSideBarOpen)
             }
         },
+        ['**/exporter']: (_, searchParams) => {
+            const playerSpeed = Number(searchParams.playerSpeed ?? 1)
+            if (values.speed !== playerSpeed) {
+                actions.setSpeed(playerSpeed)
+            }
+        },
     })),
 
     actionToUrl(() => ({

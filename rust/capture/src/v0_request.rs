@@ -168,6 +168,7 @@ impl RawRequest {
         Span::current().record("request_id", request_id);
 
         debug!(payload_len = bytes.len(), "from_bytes: decoding new event");
+        metrics::histogram!("capture_raw_payload_size").record(bytes.len() as f64);
 
         let mut payload = if cmp_hint == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
         {
@@ -203,9 +204,11 @@ impl RawRequest {
                     );
 
                     // Metric for exceeding payload sizes
-                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED).increment(1);
-
+                    metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
+                    metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                        .record((total_read + got) as f64);
                     report_dropped_events("event_too_big", 1);
+
                     return Err(CaptureError::EventTooBig(format!(
                         "Decompressed payload would exceed {} bytes (got {} bytes)",
                         limit,
@@ -270,6 +273,9 @@ impl RawRequest {
             })?;
             if s.len() > limit {
                 error!("from_bytes: request size limit reached");
+                metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "none").increment(1);
+                metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                    .record(s.len() as f64);
                 report_dropped_events("event_too_big", 1);
                 return Err(CaptureError::EventTooBig(format!(
                     "Uncompressed payload size limit {} exceeded: {}",
@@ -279,8 +285,10 @@ impl RawRequest {
             }
             s
         };
+        metrics::histogram!("capture_full_payload_size", "oversize" => "false")
+            .record(payload.len() as f64);
 
-        // TODO(eli): remove special casing and additional logging after migration is completed
+        // TODO: test removing legacy special casing against /i/v0/e/ and /batch/ using mirror deploy
         if path_is_legacy_endpoint(&path) {
             if is_likely_base64(payload.as_bytes(), Base64Option::Strict) {
                 debug!("from_bytes: payload still base64 after decoding step");

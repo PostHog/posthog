@@ -9,6 +9,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk, Choice, ChoiceDelta
 from openai.types.completion_usage import CompletionUsage
 from pytest_mock import MockerFixture
@@ -17,7 +19,6 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog import constants
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -156,9 +157,7 @@ class TestFetchSessionDataActivity:
                 return_value=(mock_raw_events_columns, []),  # Return columns but no events
             ),
         ):
-            with patch(
-                "posthog.temporal.ai.session_summary.summarize_session.logger.exception"
-            ) as mock_logger_exception:
+            with patch("temporalio.activity.logger.exception") as mock_logger_exception:
                 # Call the activity and expect an ExceptionToRetry to be raised
                 with pytest.raises(ExceptionToRetry):
                     await fetch_session_data_activity(input_data)
@@ -298,7 +297,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
         try:
             async with Worker(
                 activity_environment.client,
-                task_queue=constants.MAX_AI_TASK_QUEUE,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
                 workflows=WORKFLOWS,
                 activities=[stream_llm_single_session_summary_activity, fetch_session_data_activity],
                 workflow_runner=UnsandboxedWorkflowRunner(),
@@ -457,7 +456,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             results = []
             generator = execute_summarize_session_stream(
                 session_id=mock_session_id,
-                user_id=mock_user.id,
+                user=mock_user,
                 team=mock_team,
                 extra_summary_context=None,
                 local_reads_prod=False,
@@ -529,7 +528,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
                 list(
                     execute_summarize_session_stream(
                         session_id=mock_session_id,
-                        user_id=mock_user.id,
+                        user=mock_user,
                         team=mock_team,
                         extra_summary_context=None,
                         local_reads_prod=False,
@@ -616,7 +615,7 @@ class TestSummarizeSingleSessionStreamWorkflow:
             result = list(
                 execute_summarize_session_stream(
                     session_id=mock_session_id,
-                    user_id=mock_user.id,
+                    user=mock_user,
                     team=mock_team,
                     extra_summary_context=None,
                     local_reads_prod=False,

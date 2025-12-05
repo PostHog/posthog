@@ -49,6 +49,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.models import OrganizationDomain, User
+from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
     login_from_new_device_notification,
@@ -95,6 +96,8 @@ def logout(request):
         request.user.save()
 
     clear_two_factor_session_flags(request)
+
+    request.session.pop("reauth", None)
 
     if is_impersonated_session(request):
         restore_original_login(request)
@@ -246,28 +249,34 @@ class LoginSerializer(serializers.Serializer):
                 # TOTP flow
                 raise TwoFactorRequired()
             else:
-                # Email MFA flow
-                email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
-                if email_mfa_sent:
-                    # Increment the resend throttle counter so the initial send counts towards the limit
-                    resend_throttle = EmailMFAResendThrottle()
-                    resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
-                    raise EmailMFARequired(user.email)
-                else:
-                    # if we failed to send the email, we should fall through to allow login without MFA
-                    pass
+                # Email MFA flow - skip if this is a reauth (user already authenticated)
+                if not was_authenticated_before_login_attempt:
+                    email_mfa_sent = email_mfa_verifier.create_token_and_send_email_mfa_verification(request, user)
+                    if email_mfa_sent:
+                        # Increment the resend throttle counter so the initial send counts towards the limit
+                        resend_throttle = EmailMFAResendThrottle()
+                        resend_throttle.allow_request(request, None)  # type: ignore[arg-type]
+                        raise EmailMFARequired(user.email)
+                    else:
+                        # if we failed to send the email, we should fall through to allow login without MFA
+                        pass
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
 
+        # This is auto-handled for social auth providers, but we need to handle it manually for user/pass logins
+        request.session["reauth"] = "true" if was_authenticated_before_login_attempt else "false"
+        request.session.save()
+
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
+            backend_name = request.session.get("_auth_user_backend", "django.contrib.auth.backends.ModelBackend")
             login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, "email_password"
+                user.id, timezone.now(), short_user_agent, ip_address, backend_name
             )
 
         report_user_logged_in(user, social_provider="")

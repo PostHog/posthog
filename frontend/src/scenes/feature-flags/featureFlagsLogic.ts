@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -28,6 +28,7 @@ export enum FeatureFlagsTab {
     PERMISSIONS = 'permissions',
     PROJECTS = 'projects',
     SCHEDULE = 'schedule',
+    FEEDBACK = 'feedback',
 }
 
 export interface FeatureFlagsResult extends CountedPaginatedResponse<FeatureFlagType> {
@@ -189,8 +190,10 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
     }),
     listeners(({ actions, values }) => ({
         setFeatureFlagsFilters: async (_, breakpoint) => {
-            await breakpoint(300)
-            actions.loadFeatureFlags()
+            if (values.activeTab === FeatureFlagsTab.OVERVIEW) {
+                await breakpoint(300)
+                actions.loadFeatureFlags()
+            }
         },
         setActiveTab: () => {
             // Don't carry over pagination from previous tab
@@ -258,11 +261,6 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             pageFiltersFromUrl.page = page !== undefined ? parseInt(page) : undefined
 
             actions.setFeatureFlagsFilters({ ...DEFAULT_FILTERS, ...pageFiltersFromUrl })
-        },
-    })),
-    events(({ actions }) => ({
-        afterMount: () => {
-            actions.loadFeatureFlags()
         },
     })),
 ])

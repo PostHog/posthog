@@ -2,6 +2,8 @@
     z-index: var(--z-popover);
     display: flex;
     flex-direction: row;
+    isolation: isolate;
+    transform: translateZ(0);
     perspective: 80rem;
     perspective-origin: top;
 

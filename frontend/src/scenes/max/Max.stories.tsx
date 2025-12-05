@@ -7,28 +7,26 @@ import {
     generationFailureChunk,
     humanMessage,
     longResponseChunk,
+    sqlQueryResponseChunk,
 } from './__mocks__/chatResponse.mocks'
-import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import {
+    AssistantMessage,
     AssistantMessageType,
+    AssistantToolCallMessage,
     MultiVisualizationMessage,
     NotebookUpdateMessage,
-    PlanningMessage,
-    PlanningStepStatus,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
 } from '~/queries/schema/schema-assistant-messages'
 import { FunnelsQuery, TrendsQuery } from '~/queries/schema/schema-general'
-import { InsightShortId } from '~/types'
+import { recordings } from '~/scenes/session-recordings/__mocks__/recordings'
+import { FilterLogicalOperator, InsightShortId, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { MaxInstance, MaxInstanceProps } from './Max'
 import conversationList from './__mocks__/conversationList.json'
@@ -39,7 +37,7 @@ import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 
 const meta: Meta = {
-    title: 'Scenes-App/Max AI',
+    title: 'Scenes-App/PostHog AI',
     decorators: [
         mswDecorator({
             post: {
@@ -62,6 +60,7 @@ const meta: Meta = {
                         title: 'Test Conversation',
                         created_at: '2025-04-29T17:44:21.654307Z',
                         updated_at: '2025-04-29T17:44:29.184791Z',
+                        user: MOCK_DEFAULT_BASIC_USER,
                         messages: [],
                     },
                 ],
@@ -72,7 +71,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.ARTIFICIAL_HOG],
     },
 }
 export default meta
@@ -295,7 +293,42 @@ export const ThreadWithRateLimitNoRetryAfter: StoryFn = () => {
     return <Template />
 }
 
-export const ThreadWithForm: StoryFn = () => {
+export const ThreadWithBillingLimitExceeded: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                // Testing billing limit exceeded error (402 Payment Required)
+                res(
+                    ctx.status(402),
+                    ctx.json({
+                        detail: 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.',
+                    })
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(humanMessage.content)
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const ThreadWithQuickReplies: StoryFn = () => {
     useStorybookMocks({
         post: {
             '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
@@ -358,6 +391,62 @@ export const ThreadWithEmptyConversation: StoryFn = () => {
     }, [setConversationId])
 
     return <Template />
+}
+
+export const SharedThread: StoryFn = () => {
+    const sharedConversationId = 'shared-conversation-123'
+
+    useStorybookMocks({
+        get: {
+            '/api/environments/:team_id/conversations/': () => [200, conversationList],
+            [`/api/environments/:team_id/conversations/${sharedConversationId}/`]: () => [
+                200,
+                {
+                    id: sharedConversationId,
+                    status: 'idle',
+                    title: 'Shared Analysis: User Retention Insights',
+                    created_at: '2025-01-15T10:30:00.000000Z',
+                    updated_at: '2025-01-15T11:45:00.000000Z',
+                    user: {
+                        id: 1337, // Different user from MOCK_DEFAULT_BASIC_USER
+                        uuid: 'ANOTHER_USER_UUID',
+                        email: 'another@test.com',
+                        first_name: 'Another',
+                        last_name: 'User',
+                    },
+                    messages: [
+                        {
+                            id: 'msg-1',
+                            content: 'Can you analyze our user retention patterns and suggest improvements?',
+                            type: 'human',
+                            created_at: '2025-01-15T10:30:00.000000Z',
+                        },
+                        {
+                            id: 'msg-2',
+                            content:
+                                "I'll analyze your user retention patterns. Let me start by examining your data.\n\nBased on the analysis, I can see several key insights:\n\n1. **Day 1 retention**: 45% of users return the next day\n2. **Week 1 retention**: 28% of users are still active after 7 days\n3. **Month 1 retention**: 15% of users remain engaged after 30 days\n\n**Key findings:**\n- Mobile users have 20% higher retention than desktop users\n- Users who complete onboarding have 3x better retention\n- Peak usage occurs between 6-9 PM local time\n\n**Recommendations:**\n1. Improve onboarding completion rate\n2. Implement mobile-first features\n3. Add engagement features for the 6-9 PM window\n4. Create re-engagement campaigns for users who drop off after day 1",
+                            type: 'ai',
+                            created_at: '2025-01-15T11:45:00.000000Z',
+                        },
+                    ],
+                },
+            ],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+
+    useEffect(() => {
+        // Simulate loading a shared conversation via URL parameter
+        setConversationId(sharedConversationId)
+    }, [setConversationId])
+
+    return <Template />
+}
+SharedThread.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 export const ThreadWithInProgressConversation: StoryFn = () => {
@@ -594,6 +683,7 @@ export const ChatWithUIContext: StoryFn = () => {
                     title: 'Event Context Test',
                     created_at: '2025-04-29T17:44:21.654307Z',
                     updated_at: '2025-04-29T17:44:29.184791Z',
+                    user: MOCK_DEFAULT_BASIC_USER,
                     messages: [],
                 },
             ],
@@ -657,7 +747,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'query_insights' as ToolRegistration['identifier'],
             name: 'Query insights',
-            description: 'Max can query insights and their properties',
+            description: 'PostHog AI can query insights and their properties',
             context: {
                 available_insights: ['pageview_trends', 'user_retention', 'conversion_rates'],
                 active_filters: { date_from: '-7d', properties: [{ key: 'browser', value: 'Chrome' }] },
@@ -671,7 +761,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'manage_cohorts' as ToolRegistration['identifier'],
             name: 'Manage cohorts',
-            description: 'Max can manage cohorts and their properties',
+            description: 'PostHog AI can manage cohorts and their properties',
             context: {
                 existing_cohorts: [
                     { id: 1, name: 'Power Users', size: 1250 },
@@ -687,7 +777,7 @@ export const MaxInstanceWithContextualTools: StoryFn = () => {
         registerTool({
             identifier: 'feature_flags' as ToolRegistration['identifier'],
             name: 'Feature flags',
-            description: 'Max can manage feature flags and their properties',
+            description: 'PostHog AI can manage feature flags and their properties',
             context: {
                 active_flags: ['new-dashboard', 'beta-feature', 'experiment-checkout'],
                 flag_stats: { total: 15, active: 8, inactive: 7 },
@@ -768,28 +858,45 @@ export const NotebookUpdateComponent: StoryFn = () => {
 }
 
 export const PlanningComponent: StoryFn = () => {
-    const planningMessage: PlanningMessage = {
-        type: AssistantMessageType.Planning,
-        steps: [
+    // Planning is now derived from AssistantMessage with todo_write tool call
+    const planningMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: "I'll create a comprehensive analysis plan for you.",
+        id: 'planning-msg-1',
+        tool_calls: [
             {
-                description: 'Analyze user engagement metrics',
-                status: PlanningStepStatus.Completed,
-            },
-            {
-                description: 'Create conversion funnel visualization',
-                status: PlanningStepStatus.Completed,
-            },
-            {
-                description: 'Generate retention cohort analysis',
-                status: PlanningStepStatus.InProgress,
-            },
-            {
-                description: 'Compile comprehensive report',
-                status: PlanningStepStatus.Pending,
-            },
-            {
-                description: 'Export data to dashboard',
-                status: PlanningStepStatus.Pending,
+                id: 'todo_1',
+                name: 'todo_write',
+                type: 'tool_call',
+                args: {
+                    todos: [
+                        {
+                            content: 'Analyze user engagement metrics',
+                            status: 'completed',
+                            activeForm: 'Analyzing user engagement metrics',
+                        },
+                        {
+                            content: 'Create conversion funnel visualization',
+                            status: 'completed',
+                            activeForm: 'Creating conversion funnel visualization',
+                        },
+                        {
+                            content: 'Generate retention cohort analysis',
+                            status: 'in_progress',
+                            activeForm: 'Generating retention cohort analysis',
+                        },
+                        {
+                            content: 'Compile comprehensive report',
+                            status: 'pending',
+                            activeForm: 'Compiling comprehensive report',
+                        },
+                        {
+                            content: 'Export data to dashboard',
+                            status: 'pending',
+                            activeForm: 'Exporting data to dashboard',
+                        },
+                    ],
+                },
             },
         ],
     }
@@ -836,47 +943,20 @@ export const PlanningComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionComponent: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
-            {
-                id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.InProgress,
-                progress_text: 'Exploring data',
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
-            },
-            {
-                id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
-            },
-        ],
+export const ReasoningComponent: StoryFn = () => {
+    // Reasoning is now derived from AssistantMessage with meta.thinking
+    const reasoningMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: '',
+        id: 'reasoning-msg-1',
+        meta: {
+            thinking: [
+                {
+                    type: 'thinking',
+                    thinking: '*Analyzing user behavior patterns...*',
+                },
+            ],
+        },
     }
 
     useStorybookMocks({
@@ -888,9 +968,9 @@ export const TaskExecutionComponent: StoryFn = () => {
                             'event: conversation',
                             `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
                             'event: message',
-                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
                             'event: message',
-                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            `data: ${JSON.stringify(reasoningMessage)}`,
                         ])
                     )
                 ),
@@ -906,7 +986,7 @@ export const TaskExecutionComponent: StoryFn = () => {
         if (dataProcessingAccepted) {
             setTimeout(() => {
                 setConversationId(CONVERSATION_ID)
-                askMax('Execute analysis tasks')
+                askMax('Analyze user engagement')
             }, 0)
         }
     }, [dataProcessingAccepted, setConversationId, askMax])
@@ -918,46 +998,224 @@ export const TaskExecutionComponent: StoryFn = () => {
     return <Template />
 }
 
-export const TaskExecutionWithFailure: StoryFn = () => {
-    const taskExecutionMessage: TaskExecutionMessage = {
-        type: AssistantMessageType.TaskExecution,
-        tasks: [
+export const TaskExecutionComponent: StoryFn = () => {
+    // Task execution is now derived from AssistantMessage with regular tool calls
+    const taskExecutionMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Executing analysis tasks...',
+        id: 'task-exec-msg-1',
+        tool_calls: [
             {
                 id: 'task_1',
-                description: 'Loading user data',
-                prompt: 'Fetching last 30 days of user activity',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
             },
             {
                 id: 'task_2',
-                description: 'Analyzing engagement patterns',
-                prompt: 'Identifying peak usage times and user segments',
-                status: TaskExecutionStatus.Completed,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {
+                    commentary: 'Identifying peak usage times and user segments',
+                },
             },
             {
                 id: 'task_3',
-                description: 'Calculating conversion rates',
-                prompt: 'Processing funnel metrics across key paths',
-                status: TaskExecutionStatus.Failed,
-                task_type: 'create_insight',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
             },
             {
                 id: 'task_4',
-                description: 'Building visualizations',
-                prompt: 'Creating charts and graphs for insights',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'docs',
+                },
             },
             {
                 id: 'task_5',
-                description: 'Generating report',
-                prompt: 'Compiling findings into readable format',
-                status: TaskExecutionStatus.Pending,
-                task_type: 'create_insight',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
             },
         ],
+        meta: {
+            thinking: [
+                {
+                    thinking: 'Analyzing user engagement metrics...',
+                },
+            ],
+        },
+    }
+
+    // Tool call completion messages for the first two tasks
+    const toolCallCompletion1 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_1',
+        content: 'Successfully loaded user data for the last 30 days',
+        id: 'tool-completion-1',
+    }
+
+    const toolCallCompletion2 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_2',
+        content: 'Engagement pattern analysis completed',
+        id: 'tool-completion-2',
+    }
+
+    const updateMessages = [
+        {
+            tool_call_id: 'task_3',
+            content: 'Fetching last 30 days of user activity',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            tool_call_id: 'task_3',
+            content: 'Data loaded successfully',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            tool_call_id: 'task_4',
+            content: 'Processing funnel metrics across key paths',
+            id: 'task-exec-msg-1-1',
+        },
+        {
+            tool_call_id: 'task_5',
+            content: 'Exploring data...',
+            id: 'task-exec-msg-1-1',
+        },
+    ]
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: 'in_progress' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[0])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[1])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[2])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[3])}`,
+                        ])
+                    )
+                ),
+        },
+        get: {
+            '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic: ReturnType<typeof maxThreadLogic> = maxThreadLogic({
+        conversationId: 'in_progress',
+        conversation: null,
+        tabId: 'storybook',
+    })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                askMax('Execute analysis tasks')
+                setConversationId('in_progress')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+TaskExecutionComponent.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const TaskExecutionWithFailure: StoryFn = () => {
+    // Task execution with failure - tool calls with failed status
+    const taskExecutionMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Executing analysis with some failures...',
+        id: 'task-exec-fail-msg-1',
+        tool_calls: [
+            {
+                id: 'task_1',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
+            },
+            {
+                id: 'task_2',
+                name: 'search',
+                type: 'tool_call',
+                args: {
+                    kind: 'insights',
+                },
+            },
+            {
+                id: 'task_3',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+            {
+                id: 'task_4',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+            {
+                id: 'task_5',
+                name: 'create_and_query_insight',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call completion messages - task 1 and 2 complete, task 3 fails
+    const toolCallCompletion1 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_1',
+        content: 'Successfully loaded user data',
+        id: 'tool-completion-fail-1',
+    }
+
+    const toolCallCompletion2 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_2',
+        content: 'Engagement patterns analyzed',
+        id: 'tool-completion-fail-2',
+    }
+
+    const toolCallCompletion3 = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'task_3',
+        content: 'Failed to calculate conversion rates due to insufficient data',
+        id: 'tool-completion-fail-3',
     }
 
     useStorybookMocks({
@@ -975,6 +1233,12 @@ export const TaskExecutionWithFailure: StoryFn = () => {
                             })}`,
                             'event: message',
                             `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion3)}`,
                         ])
                     )
                 ),
@@ -1107,6 +1371,682 @@ export const MultiVisualizationInThread: StoryFn = () => {
     }
 
     return <Template />
+}
+
+export const ThreadWithSQLQueryOverflow: StoryFn = () => {
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me a complex SQL query')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+
+export const SearchSessionRecordingsEmpty: StoryFn = () => {
+    // This story demonstrates the search_session_recordings tool with nested filter groups
+    // showcasing the fix for proper rendering of nested OR/AND groups
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those recordings...',
+        id: 'search-recordings-msg',
+        tool_calls: [
+            {
+                id: 'search_tool_1',
+                name: 'search_session_recordings',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call result with nested filter groups: (Chrome AND Mac) OR (Firefox AND Windows)
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_tool_1',
+        content: 'Found recordings matching your criteria',
+        id: 'tool-result-1',
+        ui_payload: {
+            search_session_recordings: {
+                date_from: '-7d',
+                date_to: null,
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.Or,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: 'browser',
+                                    value: 'Chrome',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Mac OS X',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: 'browser',
+                                    value: 'Firefox',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Windows',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchSessionRecordingsEmpty.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const SearchSessionRecordingsWithResults: StoryFn = () => {
+    const toolCallMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Let me search for those recordings...',
+        id: 'search-recordings-with-results-msg',
+        tool_calls: [
+            {
+                id: 'search_tool_1',
+                name: 'search_session_recordings',
+                type: 'tool_call',
+                args: {},
+            },
+        ],
+    }
+
+    // Tool call result with filter for Microsoft Edge on Linux
+    const toolCallResult: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        tool_call_id: 'search_tool_1',
+        content: 'Found 2 recordings matching your criteria',
+        id: 'tool-result-with-recordings-1',
+        ui_payload: {
+            search_session_recordings: {
+                date_from: '-7d',
+                date_to: null,
+                duration: [],
+                filter_group: {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        {
+                            type: FilterLogicalOperator.And,
+                            values: [
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$browser',
+                                    value: 'Microsoft Edge',
+                                    operator: PropertyOperator.Exact,
+                                },
+                                {
+                                    type: PropertyFilterType.Event,
+                                    key: '$os',
+                                    value: 'Linux',
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            },
+        },
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me recordings where users are on Microsoft Edge with Linux',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Show me recordings where users are on Microsoft Edge with Linux')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+SearchSessionRecordingsWithResults.decorators = [
+    mswDecorator({
+        get: {
+            '/api/environments/:team_id/session_recordings': (req) => {
+                const version = req.url.searchParams.get('version')
+                return [
+                    200,
+                    {
+                        has_next: false,
+                        results: recordings,
+                        version,
+                    },
+                ]
+            },
+        },
+    }),
+]
+SearchSessionRecordingsWithResults.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultiQuestionForm: StoryFn = () => {
+    // Multi-question form with several questions - uses tool_calls format
+    const formQuestions = [
+        {
+            id: 'use_case',
+            question: 'What is your primary use case for PostHog?',
+            options: [
+                { value: 'Product Analytics' },
+                { value: 'A/B Testing' },
+                { value: 'Session Replay' },
+                { value: 'User Surveys' },
+            ],
+            allow_custom_answer: true,
+        },
+        {
+            id: 'team_size',
+            question: 'How large is your team?',
+            options: [
+                { value: 'Just me' },
+                { value: '2-10 people' },
+                { value: '11-50 people' },
+                { value: '50+ people' },
+            ],
+            allow_custom_answer: false,
+        },
+        {
+            id: 'experience',
+            question: 'How familiar are you with analytics tools?',
+            options: [{ value: 'Beginner' }, { value: 'Intermediate' }, { value: 'Expert' }],
+        },
+    ]
+
+    const multiQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'To help you better, I need to understand your needs. Please answer these quick questions:',
+        id: 'multi-question-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-tool-call-1',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    const toolCallResponseMessage: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        content: 'The user has not answered the questions yet.',
+        id: 'tool-call-response-1',
+        tool_call_id: 'create-form-tool-call-1',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me get started with PostHog',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Help me get started with PostHog')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithMultiQuestionForm.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithSingleQuestionForm: StoryFn = () => {
+    // Single question form - uses tool_calls format
+    const formQuestions = [
+        {
+            id: 'data_volume',
+            question: 'What is your approximate monthly event volume?',
+            options: [
+                { value: 'Under 1 million events' },
+                { value: '1-10 million events' },
+                { value: '10-100 million events' },
+                { value: 'Over 100 million events' },
+            ],
+            allow_custom_answer: true,
+        },
+    ]
+
+    const singleQuestionFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Before I proceed, I need to know:',
+        id: 'single-question-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-tool-call-2',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    const toolCallResponseMessage: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        content: 'The user has not answered the questions yet.',
+        id: 'tool-call-response-2',
+        tool_call_id: 'create-form-tool-call-2',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'What pricing plan should I choose?',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(singleQuestionFormMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('What pricing plan should I choose?')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithSingleQuestionForm.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultiQuestionFormLongContent: StoryFn = () => {
+    // Form with long questions and answers - agent asking for confirmation before research
+    const formQuestions = [
+        {
+            id: 'research_scope',
+            question:
+                'I found multiple potential areas to investigate regarding your user retention issues. Which aspect should I prioritize in my analysis?',
+            options: [
+                { value: 'Onboarding flow completion rates and drop-off points across different user segments' },
+                { value: 'Feature adoption patterns and correlation with long-term retention metrics' },
+                { value: 'User engagement frequency analysis including session duration and return visit patterns' },
+                { value: 'Cohort-based comparison of retained vs churned users over the past 6 months' },
+            ],
+            allow_custom_answer: true,
+        },
+        {
+            id: 'data_timeframe',
+            question:
+                'What time period should I focus on for this analysis? Longer periods provide more data but may include outdated patterns, while shorter periods give more recent insights but with less statistical significance.',
+            options: [
+                { value: 'Last 30 days - Most recent data, best for identifying current issues' },
+                { value: 'Last 90 days - Good balance of recency and data volume' },
+                { value: 'Last 6 months - Comprehensive view including seasonal variations' },
+                { value: 'Last 12 months - Full year analysis for long-term trend identification' },
+            ],
+            allow_custom_answer: false,
+        },
+        {
+            id: 'user_segment',
+            question:
+                'Should I focus on a specific user segment, or analyze all users? Focusing on a segment can provide more actionable insights for that group, while analyzing all users gives a broader picture.',
+            options: [
+                { value: 'All users - Comprehensive analysis across the entire user base' },
+                { value: 'New users (signed up in last 30 days) - Focus on early retention' },
+                { value: 'Power users (top 20% by activity) - Understand what keeps engaged users' },
+                { value: 'At-risk users (declining activity) - Identify churn prevention opportunities' },
+            ],
+            allow_custom_answer: true,
+        },
+        {
+            id: 'output_format',
+            question:
+                'How would you like me to present the findings? I can create different types of deliverables depending on your needs and who will be reviewing the results.',
+            options: [
+                {
+                    value: 'Executive summary with key findings and recommended actions (best for stakeholder presentations)',
+                },
+                { value: 'Detailed analytical report with methodology, data tables, and statistical analysis' },
+                { value: 'Interactive dashboard with visualizations that you can explore and filter' },
+                { value: 'Prioritized list of action items with expected impact and implementation complexity' },
+            ],
+            allow_custom_answer: true,
+        },
+    ]
+
+    const longContentFormMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content:
+            "I've analyzed your request and identified several areas that need investigation. Before I proceed with the deep research, I need to confirm a few things to ensure I focus on what matters most to you.",
+        id: 'long-content-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-tool-call-3',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    const toolCallResponseMessage: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        content: 'The user has not answered the questions yet.',
+        id: 'tool-call-response-3',
+        tool_call_id: 'create-form-tool-call-3',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(longContentFormMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax(
+                    'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.'
+                )
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithMultiQuestionFormLongContent.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
+}
+
+export const ThreadWithMultiQuestionFormNoCustomAnswer: StoryFn = () => {
+    // Form without custom answer options - uses tool_calls format
+    const formQuestions = [
+        {
+            id: 'priority',
+            question: 'What is your top priority right now?',
+            options: [
+                { value: 'Growing user base' },
+                { value: 'Improving retention' },
+                { value: 'Increasing conversion' },
+                { value: 'Boosting engagement' },
+            ],
+            allow_custom_answer: false,
+        },
+        {
+            id: 'timeline',
+            question: 'What is your timeline?',
+            options: [{ value: 'This week' }, { value: 'This month' }, { value: 'This quarter' }],
+            allow_custom_answer: false,
+        },
+    ]
+
+    const formMessage: AssistantMessage = {
+        type: AssistantMessageType.Assistant,
+        content: 'Please select from the following options:',
+        id: 'no-custom-form-msg',
+        tool_calls: [
+            {
+                id: 'create-form-tool-call-4',
+                name: 'create_form',
+                args: { questions: formQuestions },
+                type: 'tool_call',
+            },
+        ],
+    }
+
+    const toolCallResponseMessage: AssistantToolCallMessage = {
+        type: AssistantMessageType.ToolCall,
+        content: 'The user has not answered the questions yet.',
+        id: 'tool-call-response-4',
+        tool_call_id: 'create-form-tool-call-4',
+    }
+
+    useStorybookMocks({
+        post: {
+            '/api/environments/:team_id/conversations/': (_, res, ctx) =>
+                res(
+                    ctx.text(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me prioritize my analytics work',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(formMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResponseMessage)}`,
+                        ])
+                    )
+                ),
+        },
+    })
+
+    const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+    const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+    const { askMax } = useActions(threadLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+
+    useEffect(() => {
+        if (dataProcessingAccepted) {
+            setTimeout(() => {
+                setConversationId(CONVERSATION_ID)
+                askMax('Help me prioritize my analytics work')
+            }, 0)
+        }
+    }, [dataProcessingAccepted, setConversationId, askMax])
+
+    if (!dataProcessingAccepted) {
+        return <></>
+    }
+
+    return <Template />
+}
+ThreadWithMultiQuestionFormNoCustomAnswer.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: false,
+    },
 }
 
 function generateChunk(events: string[]): string {

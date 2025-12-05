@@ -13,6 +13,7 @@ from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.service import BatchExportField, BatchExportInsertInputs, HttpBatchExportInputs
 from posthog.models import BatchExportRun
+from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_logger
@@ -27,6 +28,7 @@ from products.batch_exports.backend.temporal.batch_exports import (
 )
 from products.batch_exports.backend.temporal.metrics import get_bytes_exported_metric, get_rows_exported_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
+from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, json_dumps_bytes
 from products.batch_exports.backend.temporal.utils import handle_non_retryable_errors
 
@@ -173,12 +175,27 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
         if inputs.batch_export_schema is not None:
             raise NotImplementedError("Batch export schema is not supported for HTTP export")
 
+        if inputs.batch_export_model is not None:
+            if inputs.batch_export_model.name != "events":
+                raise NotImplementedError("HTTP export only supports the events model")
+            if inputs.batch_export_model.schema is not None:
+                raise NotImplementedError("HTTP export does not support schemas")
+
         fields = http_default_fields()
         columns = [field["alias"] for field in fields]
 
         interval_start = await maybe_resume_from_heartbeat(inputs)
 
         is_backfill = inputs.get_is_backfill()
+
+        filters = inputs.batch_export_model.filters if inputs.batch_export_model is not None else None
+        if filters is not None and len(filters) > 0:
+            filters_str, extra_query_parameters = await database_sync_to_async(compose_filters_clause)(
+                filters, team_id=inputs.team_id, values=None
+            )
+        else:
+            filters_str = ""
+            extra_query_parameters = None
 
         record_iterator = iter_records(
             client=client,
@@ -188,7 +205,8 @@ async def insert_into_http_activity(inputs: HttpInsertInputs) -> BatchExportResu
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             fields=fields,
-            extra_query_parameters=None,
+            extra_query_parameters=extra_query_parameters,
+            filters_str=filters_str,
             backfill_details=inputs.backfill_details,
             is_backfill=is_backfill,
         )

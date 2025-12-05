@@ -2,6 +2,7 @@ import os
 import json
 import datetime as dt
 import operator
+import collections.abc
 
 import pytest
 
@@ -66,23 +67,28 @@ async def assert_clickhouse_records_in_bigquery(
     backfill_details: BackfillDetails | None = None,
     expect_duplicates: bool = False,
     expected_fields: list[str] | None = None,
+    timestamp_columns: collections.abc.Sequence[str] = (),
 ) -> None:
     """Assert ClickHouse records are written to a given BigQuery table.
 
     Arguments:
         bigquery_client: A BigQuery client used to read inserted records.
-        clickhouse_client: A ClickHouseClient used to read records that are expected to be exported.
+        clickhouse_client: A ClickHouseClient used to read records that are expected to
+            be exported.
         team_id: The ID of the team that we are testing for.
         table_id: BigQuery table id where records are exported to.
         dataset_id: BigQuery dataset containing the table where records are exported to.
         date_ranges: Ranges of records we should expect to have been exported.
-        min_ingested_timestamp: A datetime used to assert a minimum bound for 'bq_ingested_timestamp'.
+        min_ingested_timestamp: A datetime used to assert a minimum bound for
+            'bq_ingested_timestamp'.
         exclude_events: Event names to be excluded from the export.
         include_events: Event names to be included in the export.
         batch_export_model: Model used in the batch export.
         use_json_type: Whether to use JSON type for known fields.
         expect_duplicates: Whether duplicates are expected (e.g. when testing retrying logic).
         expected_fields: The expected fields to be exported.
+        timestamp_columns: Columns that are exported as UNIX timestamp, and should be
+            interpreted as datetime
     """
     if use_json_type is True:
         json_columns = ["properties", "set", "set_once", "person_properties"]
@@ -103,7 +109,11 @@ async def assert_clickhouse_records_in_bigquery(
                 inserted_bq_ingested_timestamp.append(v)
                 continue
 
-            if k in json_columns:
+            elif isinstance(v, int) and k in timestamp_columns:
+                inserted_record[k] = dt.datetime.fromtimestamp(v, tz=dt.UTC)
+                continue
+
+            elif k in json_columns:
                 assert (
                     isinstance(v, dict) or v is None
                 ), f"Expected '{k}' to be JSON, but it was not deserialized to dict"

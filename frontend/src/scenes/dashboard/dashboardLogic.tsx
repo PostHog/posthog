@@ -211,12 +211,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /*
          * Dashboard filters & variables.
          */
-        setDates: (date_from: string | null, date_to: string | null) => ({
+        setDates: (date_from: string | null, date_to: string | null | undefined, explicitDate?: boolean) => ({
             date_from,
             date_to,
+            explicitDate,
         }),
         setProperties: (properties: AnyPropertyFilter[] | null) => ({ properties }),
         setBreakdownFilter: (breakdown_filter: BreakdownFilter | null) => ({ breakdown_filter }),
+        setExternalFilters: (filters: DashboardFilter) => ({ filters }),
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
@@ -295,7 +297,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
 
                     try {
-                        const apiUrl = values.apiUrl('force_cache', values.urlFilters, values.urlVariables)
+                        const apiUrl = values.apiUrl('force_cache', values.filtersOverrideForLoad, values.urlVariables)
                         const dashboardResponse: Response = await api.getResponse(apiUrl)
                         const dashboard: DashboardType<InsightModel> | null = await getJSONOrNull(dashboardResponse)
 
@@ -322,7 +324,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         props.id,
                         {
                             layoutSize: values.currentLayoutSize,
-                            filtersOverride: values.urlFilters,
+                            filtersOverride: values.filtersOverrideForLoad,
                             variablesOverride: values.urlVariables,
                         },
                         // onMessage callback - handles both metadata and tiles
@@ -824,18 +826,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
+        externalFilters: [
+            {} as DashboardFilter,
+            {
+                setExternalFilters: (_: DashboardFilter, { filters }: { filters: DashboardFilter }) => filters,
+            },
+        ],
+
         intermittentFilters: [
             {
                 date_from: undefined,
                 date_to: undefined,
                 properties: undefined,
                 breakdown_filter: undefined,
+                explicitDate: undefined,
             } as DashboardFilter,
             {
-                setDates: (state, { date_from, date_to }) => ({
+                setDates: (state, { date_from, date_to, explicitDate }) => ({
                     ...state,
                     date_from,
                     date_to,
+                    explicitDate,
                 }),
                 setProperties: (state, { properties }) => ({
                     ...state,
@@ -850,6 +861,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     date_to: undefined,
                     properties: undefined,
                     breakdown_filter: undefined,
+                    explicitDate: undefined,
                 }),
             },
         ],
@@ -880,15 +892,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (canAutoPreview, hasIntermittentFilters) => !canAutoPreview && hasIntermittentFilters,
         ],
         urlFilters: [() => [router.selectors.searchParams], (searchParams) => parseURLFilters(searchParams)],
+        filtersOverrideForLoad: [
+            (s) => [s.externalFilters, s.urlFilters],
+            (externalFilters, urlFilters) => combineDashboardFilters(externalFilters, urlFilters),
+        ],
         effectiveEditBarFilters: [
-            (s) => [s.dashboard, s.urlFilters, s.intermittentFilters],
-            (dashboard, urlFilters, intermittentFilters) => {
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters, s.intermittentFilters],
+            (dashboard, externalFilters, urlFilters, intermittentFilters) => {
                 const effectiveEditBarFilters = combineDashboardFilters(
                     dashboard?.persisted_filters || {},
+                    externalFilters,
                     urlFilters,
                     intermittentFilters
                 )
                 return effectiveEditBarFilters
+            },
+        ],
+        effectiveRefreshFilters: [
+            (s) => [s.dashboard, s.externalFilters, s.urlFilters],
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                externalFilters: DashboardFilter,
+                urlFilters: DashboardFilter
+            ): DashboardFilter => {
+                return combineDashboardFilters(dashboard?.persisted_filters || {}, externalFilters, urlFilters)
             },
         ],
         effectiveDashboardVariableOverrides: [
@@ -1326,6 +1353,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: sharedListeners.reportRefreshTiming,
         setRefreshStatuses: sharedListeners.reportRefreshTiming,
         setRefreshStatus: sharedListeners.reportRefreshTiming,
+        setPageVisibility: ({ visible }) => {
+            if (!visible) {
+                cache.disposables.dispose('autoRefreshInterval')
+            } else if (values.autoRefresh.enabled) {
+                actions.resetInterval()
+            }
+        },
         loadDashboardFailure: () => {
             const { action, dashboardQueryId, startTime } = values.dashboardLoadData
 
@@ -1440,7 +1474,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     uuid(),
                     'force_blocking',
                     undefined,
-                    values.urlFilters,
+                    values.effectiveRefreshFilters,
                     values.urlVariables,
                     tile.filters_overrides
                 )
@@ -1527,7 +1561,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             queryId,
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
-                            values.urlFilters,
+                            values.effectiveRefreshFilters,
                             values.urlVariables,
                             tile.filters_overrides
                         )
@@ -1804,6 +1838,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
+        setExternalFilters: () => {
+            if (values.tiles.length > 0) {
+                actions.refreshDashboardItems({
+                    action: RefreshDashboardItemsAction.Preview,
+                    forceRefresh: false,
+                })
+            }
+        },
         overrideVariableValue: () => {
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
@@ -1922,7 +1964,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 currentLocation.hashParams,
             ]
         },
-        setDates: ({ date_from, date_to }) => {
+        setDates: ({ date_from, date_to, explicit_date }) => {
             if (!values.canAutoPreview) {
                 return
             }
@@ -1934,6 +1976,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 ...urlFilters,
                 date_from,
                 date_to,
+                explicitDate: explicit_date ?? values.intermittentFilters.explicitDate,
             }
 
             const newSearchParams = {

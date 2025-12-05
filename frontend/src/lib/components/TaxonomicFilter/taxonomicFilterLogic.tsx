@@ -71,6 +71,8 @@ import {
     TeamType,
 } from '~/types'
 
+import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
+
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
@@ -297,6 +299,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getValue: (eventDefinition: Record<string, any>) =>
                             'id' in eventDefinition ? eventDefinition.name : eventDefinition.value,
                         ...eventTaxonomicGroupProps,
+                    },
+                    {
+                        name: 'Activity log properties',
+                        searchPlaceholder: 'activity log properties',
+                        type: TaxonomicFilterGroupType.ActivityLogProperties,
+                        options: getProductEventPropertyFilterOptions('activity-log').map((value) => ({
+                            name: value,
+                            value,
+                            group: TaxonomicFilterGroupType.EventProperties,
+                        })),
+                        getIcon: getPropertyDefinitionIcon,
+                        getPopoverHeader: () => 'Activity log properties',
+                    },
+                    {
+                        name: 'Workflow variables',
+                        searchPlaceholder: 'variable key',
+                        type: TaxonomicFilterGroupType.WorkflowVariables,
+                        categoryLabel: () => 'Workflow variables',
+                        render: HogFlowTaxonomicFilters,
+                        getPopoverHeader: () => 'Workflow variables',
                     },
                     {
                         name: 'Actions',

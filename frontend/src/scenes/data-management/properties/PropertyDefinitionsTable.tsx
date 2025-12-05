@@ -18,7 +18,6 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
@@ -85,7 +84,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     type: sceneConfigurations[Scene.PropertyDefinition].iconType || 'default_icon_type',
                 }}
             />
-            <SceneDivider />
             <LemonBanner type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link

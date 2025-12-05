@@ -2,7 +2,7 @@
 
 from dlt.common import pendulum
 
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 DEFAULT_START_DATE = pendulum.datetime(year=2000, month=1, day=1)
 PAGE_SIZE = 100
@@ -23,6 +23,19 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.Integer,
         }
     ],
+}
+
+# CLUDGE: refactor this to EndpointConfig like in tiktok_ads/settings.py
+PARTITION_FIELDS: dict[str, str] = {
+    "brands": "created_at",
+    "groups": "created_at",
+    "organizations": "created_at",
+    "sla_policies": "created_at",
+    "ticket_events": "created_at",
+    "ticket_fields": "created_at",
+    "ticket_metric_events": "time",
+    "tickets": "created_at",
+    "users": "created_at",
 }
 
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)

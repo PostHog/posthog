@@ -7,6 +7,8 @@ import datetime as dt
 import ipaddress
 from dataclasses import asdict, dataclass
 
+from django.conf import settings
+
 import grpc.aio
 import requests
 import dns.resolver
@@ -22,7 +24,6 @@ from temporalio.client import (
 )
 from temporalio.exceptions import ActivityError, ApplicationError, RetryState
 
-from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
 from posthog.models import ProxyRecord
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import async_connect
@@ -35,6 +36,7 @@ from posthog.temporal.proxy_service.common import (
     get_grpc_client,
     record_exists,
     update_record,
+    use_gateway_api,
 )
 from posthog.temporal.proxy_service.monitor import MonitorManagedProxyInputs
 from posthog.temporal.proxy_service.proto import CertificateState_READY, CreateRequest, StatusRequest
@@ -166,11 +168,21 @@ async def create_managed_proxy(inputs: CreateManagedProxyInputs):
 
     client = await get_grpc_client()
 
+    # Use Gateway API (Envoy Gateway) for dev environment, Contour for others
+    use_gateway = use_gateway_api()
+
+    logger.info(
+        "Creating proxy with use_gateway_api=%s for domain %s",
+        use_gateway,
+        inputs.domain,
+    )
+
     try:
         await client.Create(
             CreateRequest(
                 uuid=str(inputs.proxy_record_id),
                 domain=inputs.domain,
+                use_gateway_api=use_gateway,
             )
         )
     except grpc.aio.AioRpcError as e:
@@ -249,7 +261,7 @@ async def schedule_monitor_job(inputs: ScheduleMonitorJobInputs):
                     )
                 ),
                 id=f"monitor-proxy-{inputs.proxy_record_id}",
-                task_queue=GENERAL_PURPOSE_TASK_QUEUE,
+                task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 retry_policy=temporalio.common.RetryPolicy(
                     initial_interval=dt.timedelta(seconds=30),
                     maximum_interval=dt.timedelta(minutes=5),

@@ -4,7 +4,7 @@ import collections.abc
 from concurrent.futures import ThreadPoolExecutor
 
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.logger import get_write_only_logger
@@ -49,6 +49,9 @@ async def create_worker(
     max_concurrent_workflow_tasks: int | None = None,
     max_concurrent_activities: int | None = None,
     metric_prefix: str | None = None,
+    use_pydantic_converter: bool = False,
+    target_memory_usage: float | None = None,
+    target_cpu_usage: float | None = None,
 ) -> Worker:
     """Connect to Temporal server and return a Worker.
 
@@ -72,6 +75,11 @@ async def create_worker(
             worker can handle. Defaults to 50.
         metric_prefix: Prefix to apply to metrics emitted by this worker, if
             left unset (`None`) Temporal will default to "temporal_".
+        use_pydantic_converter: Flag to enable Pydantic data converter
+        target_memory_usage: Fraction of available memory to use, between 0.0 and 1.0.
+            If not set, worker will use max_concurrent_{activities, workflow_tasks} to dictate number of slots.
+        target_cpu_usage: Fraction of available CPU to use, between 0.0 and 1.0.
+            Defaults to 1.0. Only takes effect if target_memory_usage is set.
     """
 
     runtime = Runtime(
@@ -101,21 +109,44 @@ async def create_worker(
         client_cert,
         client_key,
         runtime=runtime,
+        use_pydantic_converter=use_pydantic_converter,
     )
 
-    worker = Worker(
-        client,
-        task_queue=task_queue,
-        workflows=workflows,
-        activities=activities,
-        workflow_runner=UnsandboxedWorkflowRunner(),
-        graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-        interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
-        activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
-        max_concurrent_activities=max_concurrent_activities or 50,
-        max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
-        # Worker will flush heartbeats every
-        # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
-        max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
-    )
+    if target_memory_usage is not None:
+        worker = Worker(
+            client,
+            task_queue=task_queue,
+            workflows=workflows,
+            activities=activities,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            tuner=WorkerTuner.create_resource_based(
+                target_memory_usage=target_memory_usage,
+                target_cpu_usage=target_cpu_usage or 1.0,
+                workflow_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_workflow_tasks or 50),
+                activity_config=ResourceBasedSlotConfig(maximum_slots=max_concurrent_activities or 50),
+            ),
+            # Worker will flush heartbeats every
+            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
+            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+        )
+    else:
+        worker = Worker(
+            client,
+            task_queue=task_queue,
+            workflows=workflows,
+            activities=activities,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
+            interceptors=[PostHogClientInterceptor(), BatchExportsMetricsInterceptor()],
+            activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
+            max_concurrent_activities=max_concurrent_activities or 50,
+            max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,
+            # Worker will flush heartbeats every
+            # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
+            max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
+        )
+
     return worker

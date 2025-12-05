@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconPlus } from '@posthog/icons'
 import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -24,7 +25,7 @@ import { IntegrationKind, IntegrationType } from '~/types'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
-const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
+const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github', 'gitlab']
 
 type onSubmitFormType = (integrationId: number, config: Record<string, string>) => void
 
@@ -50,6 +51,8 @@ export const ExternalReferences = (): JSX.Element | null => {
     const onClickCreateIssue = (integration: IntegrationType): void => {
         if (integration.kind === 'github') {
             createGitHubIssueForm(issue, integration, createExternalReference)
+        } else if (integration.kind === 'gitlab') {
+            createGitLabIssueForm(issue, integration, createExternalReference)
         } else if (integration && integration.kind === 'linear') {
             createLinearIssueForm(issue, integration, createExternalReference)
         }
@@ -58,7 +61,17 @@ export const ExternalReferences = (): JSX.Element | null => {
     return (
         <div>
             {externalReferences.map((reference) => (
-                <Link key={reference.id} to={reference.external_url} target="_blank">
+                <Link
+                    key={reference.id}
+                    to={reference.external_url}
+                    target="_blank"
+                    onClick={() => {
+                        posthog.capture('error_tracking_external_issue_clicked', {
+                            issue_id: issue.id,
+                            integration_kind: reference.integration.kind,
+                        })
+                    }}
+                >
                     <ButtonPrimitive fullWidth disabled={issueLoading}>
                         <IntegrationIcon kind={reference.integration.kind} />
                         {reference.integration.display_name}
@@ -109,6 +122,7 @@ function SetupIntegrationsButton(): JSX.Element {
             to={urls.errorTrackingConfiguration({ tab: 'error-tracking-integrations' })}
             buttonProps={{ variant: 'panel', fullWidth: true, menuItem: true }}
             tooltip="Go to integrations configuration"
+            target="_blank"
         >
             Setup integrations
         </Link>
@@ -150,6 +164,41 @@ const createGitHubIssueForm = (
         },
         onSubmit: ({ title, body, repositories }) => {
             onSubmit(integration.id, { repository: repositories[0], title, body })
+        },
+    })
+}
+
+const createGitLabIssueForm = (
+    issue: ErrorTrackingRelationalIssue,
+    integration: IntegrationType,
+    onSubmit: onSubmitFormType
+): void => {
+    const posthogUrl = window.location.origin + window.location.pathname
+    const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
+
+    LemonDialog.openForm({
+        title: 'Create GitLab issue',
+        shouldAwaitSubmit: true,
+        initialValues: {
+            title: issue.name,
+            body: body,
+            integrationId: integration.id,
+        },
+        content: (
+            <div className="flex flex-col gap-y-2">
+                <LemonField name="title" label="Title">
+                    <LemonInput data-attr="issue-title" placeholder="Issue title" size="small" />
+                </LemonField>
+                <LemonField name="body" label="Body">
+                    <LemonTextArea data-attr="issue-body" placeholder="Start typing..." />
+                </LemonField>
+            </div>
+        ),
+        errors: {
+            title: (title) => (!title ? 'You must enter a title' : undefined),
+        },
+        onSubmit: ({ title, body }) => {
+            onSubmit(integration.id, { title, body })
         },
     })
 }

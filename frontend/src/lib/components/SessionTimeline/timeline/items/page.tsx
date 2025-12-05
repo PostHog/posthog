@@ -1,11 +1,11 @@
-import { ItemCategory, ItemLoaderFactory, ItemRenderer, TimelineItem } from '..'
+import { ItemCategory, ItemRenderer, TimelineItem } from '..'
 
 import { IconEye } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
-import { Dayjs, dayjs } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 
 import { RuntimeIcon } from 'products/error_tracking/frontend/components/RuntimeIcon'
 
@@ -30,6 +30,7 @@ export const pageRenderer: ItemRenderer<PageItem> = {
                         {getUrlPathname(item.payload.url)}
                     </Link>
                 }
+                descriptionTitle={item.payload.url}
             />
         )
     },
@@ -54,16 +55,6 @@ export class PageItemLoader extends EventLoader<PageItem> {
                 url: evt[2],
             },
         } as PageItem
-    }
-}
-
-export const pageLoader: ItemLoaderFactory<PageItem> = (sessionId: string, timestamp: Dayjs) => {
-    const pageLoader = new PageItemLoader(sessionId, timestamp)
-    return {
-        hasPrevious: pageLoader.hasPrevious.bind(pageLoader),
-        previous: pageLoader.previous.bind(pageLoader),
-        hasNext: pageLoader.hasNext.bind(pageLoader),
-        next: pageLoader.next.bind(pageLoader),
     }
 }
 

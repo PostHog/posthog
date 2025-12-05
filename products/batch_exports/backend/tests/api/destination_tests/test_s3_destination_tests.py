@@ -1,19 +1,15 @@
 import uuid
-import functools
 
 import pytest
 
 from django.conf import settings
 
-import aioboto3
-
 from products.batch_exports.backend.api.destination_tests.s3 import S3EnsureBucketTestStep, Status
+from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 pytestmark = [pytest.mark.asyncio]
 
 TEST_ROOT_BUCKET = "test-destination-tests"
-SESSION = aioboto3.Session()
-create_test_client = functools.partial(SESSION.client, endpoint_url=settings.OBJECT_STORAGE_ENDPOINT)
 
 
 @pytest.fixture
@@ -44,16 +40,6 @@ async def minio_client(bucket_name):
         await delete_all_from_s3(minio_client, bucket_name, key_prefix="/")
 
         await minio_client.delete_bucket(Bucket=bucket_name)
-
-
-async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
-    """Delete all objects in bucket_name under key_prefix."""
-    response = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=key_prefix)
-
-    if "Contents" in response:
-        for obj in response["Contents"]:
-            if "Key" in obj:
-                await minio_client.delete_object(Bucket=bucket_name, Key=obj["Key"])
 
 
 async def test_s3_check_bucket_exists_test_step(bucket_name, minio_client):

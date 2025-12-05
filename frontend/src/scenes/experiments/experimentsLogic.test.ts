@@ -55,12 +55,6 @@ describe('experimentsLogic', () => {
     })
 
     describe('feature flag modal filters', () => {
-        it('loads feature flags on mount', async () => {
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(api.get).toHaveBeenCalledWith(expect.stringMatching(/api\/projects\/\d+\/feature_flags\/\?/))
-        })
-
         it('updates filters and triggers new API call', async () => {
             api.get.mockClear()
 

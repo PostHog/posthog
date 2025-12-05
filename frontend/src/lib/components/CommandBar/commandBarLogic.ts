@@ -57,17 +57,10 @@ export const commandBarLogic = kea<commandBarLogicType>([
                 if (shouldIgnoreInput(event)) {
                     return
                 }
-                if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+                if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K') && event.shiftKey) {
                     event.preventDefault()
-                    if (event.shiftKey) {
-                        // cmd+shift+k opens actions
-                        actions.toggleActionsBar()
-                    } else {
-                        // cmd+k opens search
-                        actions.toggleSearchBar()
-                    }
-                } else if (event.shiftKey && event.key === '?') {
-                    actions.toggleShortcutOverview()
+                    // cmd+shift+k opens actions
+                    actions.toggleActionsBar()
                 }
             }
             window.addEventListener('keydown', onKeyDown)

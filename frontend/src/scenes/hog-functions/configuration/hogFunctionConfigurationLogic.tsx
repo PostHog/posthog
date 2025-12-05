@@ -478,6 +478,24 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         enabled: res.enabled,
                     })
 
+                    // Capture error tracking specific alert event
+                    if (
+                        res.template?.id === 'error-tracking-issue-created' ||
+                        res.template?.id === 'error-tracking-issue-reopened'
+                    ) {
+                        const triggerEvent =
+                            res.template.id === 'error-tracking-issue-created'
+                                ? '$error_tracking_issue_created'
+                                : '$error_tracking_issue_reopened'
+
+                        posthog.capture('error_tracking_alert_created', {
+                            trigger_event: triggerEvent,
+                            subtemplate_id: res.template.id,
+                            has_custom_filters: res.filters && Object.keys(res.filters).length > 1,
+                            enabled: res.enabled,
+                        })
+                    }
+
                     lemonToast.success('Configuration saved')
                     refreshTreeItem('hog_function/', res.id)
 
@@ -704,9 +722,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         useMapping: [
-            (s) => [s.hogFunction, s.template],
-            // If the function has mappings, or the template has mapping templates, we use mappings
-            (hogFunction, template) => Array.isArray(hogFunction?.mappings) || template?.mapping_templates?.length,
+            (s) => [s.hogFunction, s.mappingTemplates],
+            (hogFunction: HogFunctionType | null, mappingTemplates: HogFunctionMappingType[]) => {
+                return Array.isArray(hogFunction?.mappings) || mappingTemplates.length > 0
+            },
         ],
         defaultFormState: [
             (s) => [s.template, s.hogFunction],

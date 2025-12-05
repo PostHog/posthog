@@ -12,7 +12,8 @@ from google.oauth2 import service_account
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.pipelines.pipeline.utils import table_from_py_list
 from posthog.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 def google_sheets_client() -> gspread.Client:
@@ -129,4 +130,4 @@ def google_sheets_source(
 
         yield table_from_py_list(values)
 
-    return SourceResponse(name=worksheet_name, items=get_rows(), primary_keys=primary_keys)
+    return SourceResponse(name=worksheet_name, items=get_rows, primary_keys=primary_keys)

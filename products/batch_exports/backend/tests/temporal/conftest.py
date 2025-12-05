@@ -14,7 +14,6 @@ from infi.clickhouse_orm import Database
 from psycopg import sql
 from temporalio.testing import ActivityEnvironment
 
-from posthog import constants
 from posthog.conftest import create_clickhouse_tables
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
@@ -288,7 +287,7 @@ async def setup_postgres_test_db(postgres_config):
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
-        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
+        task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
         workflows=workflows,
         activities=activities,
         interceptors=[BatchExportsMetricsInterceptor()],

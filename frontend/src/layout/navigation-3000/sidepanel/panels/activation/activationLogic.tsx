@@ -20,7 +20,6 @@ import { reverseProxyCheckerLogic } from 'lib/components/ReverseProxyChecker/rev
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { availableOnboardingProducts } from 'scenes/onboarding/utils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
@@ -28,11 +27,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import {
     ActivationTaskStatus,
     EventDefinitionType,
     OnboardingStepKey,
-    ProductKey,
     ReplayTabs,
     TeamBasicType,
     type TeamPublicType,
@@ -97,6 +96,7 @@ export const activationLogic = kea<activationLogicType>([
         runTask: (id: ActivationTask) => ({ id }),
         markTaskAsCompleted: (id: ActivationTask) => ({ id }),
         markTaskAsSkipped: (id: ActivationTask) => ({ id }),
+        unmarkTaskAsSkipped: (id: ActivationTask) => ({ id }),
         toggleShowHiddenSections: () => ({}),
         addIntentForSection: (section: ActivationSection) => ({ section }),
         toggleSectionOpen: (section: ActivationSection) => ({ section }),
@@ -357,6 +357,22 @@ export const activationLogic = kea<activationLogicType>([
                     [id]: ActivationTaskStatus.SKIPPED,
                 },
             })
+        },
+        unmarkTaskAsSkipped: ({ id }) => {
+            const skipped = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.SKIPPED
+
+            if (!skipped) {
+                return
+            }
+
+            posthog.capture('activation sidebar task unskipped', {
+                task: id,
+            })
+
+            const onboardingTasks = { ...values.currentTeam?.onboarding_tasks }
+            delete onboardingTasks[id]
+
+            actions.updateCurrentTeam({ onboarding_tasks: onboardingTasks })
         },
         markTaskAsCompleted: ({ id }) => {
             const completed = values.currentTeam?.onboarding_tasks?.[id] === ActivationTaskStatus.COMPLETED

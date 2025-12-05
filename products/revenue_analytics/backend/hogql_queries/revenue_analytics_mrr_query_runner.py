@@ -4,6 +4,7 @@ from decimal import Decimal
 
 from posthog.schema import (
     CachedRevenueAnalyticsMRRQueryResponse,
+    DatabaseSchemaManagedViewTableKind,
     HogQLQueryResponse,
     ResolvedDateRangeResponse,
     RevenueAnalyticsMRRQuery,
@@ -19,11 +20,8 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 
-from products.revenue_analytics.backend.views import (
-    RevenueAnalyticsBaseView,
-    RevenueAnalyticsRevenueItemView,
-    RevenueAnalyticsSubscriptionView,
-)
+from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView, RevenueAnalyticsRevenueItemView
+from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCHEMAS
 
 from .revenue_analytics_query_runner import RevenueAnalyticsQueryRunner
 
@@ -49,7 +47,12 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     cached_response: CachedRevenueAnalyticsMRRQueryResponse
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        subqueries = list(self.revenue_subqueries(RevenueAnalyticsRevenueItemView))
+        subqueries = list(
+            RevenueAnalyticsQueryRunner.revenue_subqueries(
+                VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM],
+                self.database,
+            )
+        )
         if not subqueries:
             columns = ["breakdown_by", "period_start", "amount"]
             return ast.SelectQuery.empty(columns={key: UnknownDatabaseField(name=key) for key in columns})
@@ -351,14 +354,34 @@ class RevenueAnalyticsMRRQueryRunner(RevenueAnalyticsQueryRunner[RevenueAnalytic
     # items at the end of the query for all of the subscriptions which ended in this period
     # to allow us to properly calculate churn
     def _revenue_item_subquery(self, view: RevenueAnalyticsBaseView) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Not doing "SELECT *" here because it'll use an arbitrary order for the columns
+        # since this is expanded to the order stored in Postgres for the saved query (see resolver.py)
+        #
+        # Since Postgres jsonb does NOT store the columns in the same order they were inserted
+        # doing "SELECT *" will cause this to fail the `UNION ALL` below since we have a likely different
+        # order for the columns when creating the fake subscription query below
+        #
+        # This poses some problems because we need to expose all possible fields here if we wanna
+        # be able to UNION ALL so we'll just reimport the fields in the right orders from the schema
+        #
+        # :NERD: It stores them by key length and then alphabetically
+        # https://www.postgresql.org/docs/17/datatype-json.html
         queries: list[ast.SelectQuery | ast.SelectSetQuery] = [
             ast.SelectQuery(
-                select=[ast.Field(chain=["*"])],
+                select=[
+                    ast.Field(chain=[field])
+                    for field in VIEW_SCHEMAS[
+                        DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_REVENUE_ITEM
+                    ].fields.keys()
+                ],
                 select_from=ast.JoinExpr(table=ast.Field(chain=[view.name])),
             ),
         ]
 
-        subscription_views = self.revenue_subqueries(RevenueAnalyticsSubscriptionView)
+        subscription_views = RevenueAnalyticsQueryRunner.revenue_subqueries(
+            VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind.REVENUE_ANALYTICS_SUBSCRIPTION],
+            self.database,
+        )
         subscription_view = next(
             (subscription_view for subscription_view in subscription_views if subscription_view.prefix == view.prefix),
             None,

@@ -5,7 +5,6 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
@@ -179,6 +178,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setWebVitalsPercentile: (percentile: WebVitalsPercentile) => ({ percentile }),
         setWebVitalsTab: (tab: WebVitalsMetric) => ({ tab }),
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
+        setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
+        resetTileVisibility: () => true,
     }),
     loaders(({ values }) => ({
         // load the status check query here and pass the response into the component, so the response
@@ -575,6 +576,19 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 }),
             },
         ],
+        hiddenTiles: [
+            [] as TileId[],
+            persistConfig,
+            {
+                setTileVisibility: (state, { tileId, visible }) => {
+                    if (visible) {
+                        return state.filter((id) => id !== tileId)
+                    }
+                    return state.includes(tileId) ? state : [...state, tileId]
+                },
+                resetTileVisibility: () => [],
+            },
+        ],
     }),
     windowValues({
         isGreaterThanMd: (window: Window) => window.innerWidth > 768,
@@ -905,10 +919,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 s.featureFlags,
                 s.isGreaterThanMd,
-                s.currentTeam,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
                 s.marketingTiles,
+                s.hiddenTiles,
             ],
             (
                 productTab,
@@ -926,10 +940,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles
+                marketingTiles,
+                hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
                 const sampling = { enabled: false, forceSamplingRate: { numerator: 1, denominator: 10 } }
@@ -980,27 +994,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                       }
                     : undefined
 
-                // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
-
-                const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_analytics_config
-                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
-                              name: e.eventName,
-                              event: e.eventName,
-                              custom_name: e.eventName,
-                              math: PropertyMathType.Sum,
-                              kind: NodeKind.EventsNode,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          })) as EventsNode[])
-                        : []
-
-                const conversionRevenueSeries =
-                    conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
-                        : []
-
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
                         dashboardItemId: getDashboardItemId(tile, tab, false),
@@ -1044,7 +1037,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     },
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
-                    canOpenInsight: true,
+                    canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                 })
 
                 const createTableTab = (
@@ -1061,6 +1054,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'visitors',
                         'views',
                         source?.includeBounceRate ? 'bounce_rate' : null,
+                        source?.includeAvgTimeOnPage ? 'avg_time_on_page' : null,
                         'cross_sell',
                     ].filter(isNotNil)
 
@@ -1073,7 +1067,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         title,
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
                         ...tab,
                     }
 
@@ -1102,7 +1095,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 embedded: true,
                                 hideTooltipOnScroll: true,
                             },
-                            canOpenInsight: true,
+                            canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                             canOpenModal: false,
                         }
                     }
@@ -1130,6 +1123,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             showActions: true,
                             columns,
                         },
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     }
                 }
 
@@ -1141,7 +1136,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         dateRange: dateRange,
                         filterTestAccounts: filterTestAccounts,
                         filterGroup: replayFilters.filter_group,
-                        columns: ['error', 'users', 'occurrences'],
+                        columns: ['error', 'users', 'occurrences', 'last_seen'],
                         limit: 4,
                     })
                 } catch (e) {
@@ -1173,13 +1168,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     kind: NodeKind.TrendsQuery,
                                     dateRange,
                                     interval,
-                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).flatMap((metric) =>
-                                        [PropertyMathType.P75, PropertyMathType.P90, PropertyMathType.P99].map((math) =>
-                                            createSeries(metric, math)
-                                        )
+                                    series: (['INP', 'LCP', 'CLS', 'FCP'] as WebVitalsMetric[]).map((metric) =>
+                                        createSeries(metric, webVitalsPercentile)
                                     ),
                                     trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                                    compareFilter,
                                     filterTestAccounts,
                                     properties: webAnalyticsFilters,
                                 },
@@ -1245,9 +1237,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
+                        canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                     },
                     {
                         kind: 'tabs',
@@ -1272,25 +1264,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                     ? createGraphsTrendsTab(GraphsTab.NUM_SESSION, 'Unique sessions', 'Sessions', [
                                           sessionsSeries,
                                       ])
-                                    : null,
-                                !conversionGoal && revenueEventsSeries?.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.REVENUE_EVENTS,
-                                          <span>
-                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Revenue',
-                                          revenueEventsSeries,
-                                          {
-                                              display:
-                                                  revenueEventsSeries.length > 1
-                                                      ? ChartDisplayType.ActionsAreaGraph
-                                                      : ChartDisplayType.ActionsLineGraph,
-                                          },
-                                          {
-                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                          }
-                                      )
                                     : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
@@ -1318,16 +1291,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               formula: 'A / B',
                                               aggregationAxisFormat: 'percentage_scaled',
                                           }
-                                      )
-                                    : null,
-                                conversionGoal && conversionRevenueSeries.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_REVENUE,
-                                          <span>
-                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Conversion Revenue',
-                                          conversionRevenueSeries
                                       )
                                     : null,
                             ] as (TabsTileTab | null)[]
@@ -1366,6 +1329,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -1409,6 +1374,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -1775,7 +1742,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               embedded: true,
                                           },
                                           insightProps: createInsightProps(TileId.GEOGRAPHY, GeographyTab.MAP),
-                                          canOpenInsight: true,
+                                          canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                                       }
                                     : null,
                                 shouldShowGeoIPQueries
@@ -1855,7 +1822,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                   embedded: true,
                               },
                               insightProps: createInsightProps(TileId.RETENTION),
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               canOpenModal: true,
                               docs: {
                                   url: 'https://posthog.com/docs/web-analytics/dashboard#retention',
@@ -2109,7 +2076,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
@@ -2137,7 +2104,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                               insightProps: createInsightProps(TileId.FRUSTRATING_PAGES, 'table'),
                               canOpenModal: true,
-                              canOpenInsight: false,
+                              canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
                               docs: {
                                   title: 'Frustrating Pages',
                                   description: (
@@ -2180,6 +2147,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     .filter((tile) =>
                         preAggregatedEnabled ? TILES_ALLOWED_ON_PRE_AGGREGATED.includes(tile.tileId) : true
                     )
+                    .filter((tile) => !hiddenTiles.includes(tile.tileId))
             },
         ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
@@ -2262,9 +2230,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.delete('compare_filter')
             }
 
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2281,7 +2246,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+            if (productTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
@@ -2338,14 +2303,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
-            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
-            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
-                productTab = ProductTab.ANALYTICS
-            }
-
             if (
                 ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
                     productTab
@@ -2468,8 +2425,10 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 const isPreAggregatedEnabled =
                     values.featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES] &&
                     action?.modifiers?.useWebAnalyticsPreAggregatedTables
+                const hasConversionGoalPreAggFlag =
+                    values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_CONVERSION_GOAL_PREAGG]
 
-                if (isPreAggregatedEnabled && values.conversionGoal) {
+                if (isPreAggregatedEnabled && values.conversionGoal && !hasConversionGoalPreAggFlag) {
                     actions.setConversionGoal(null)
                     lemonToast.info(
                         'Your conversion goal has been cleared as the new query engine does not support it (yet!)'

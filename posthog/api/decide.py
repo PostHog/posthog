@@ -35,7 +35,7 @@ from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import get_ip_address, label_for_team_id_to_track, load_data_from_request
 from posthog.utils_cors import cors_response
 
-from products.error_tracking.backend.api.error_tracking import get_suppression_rules
+from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -590,7 +590,12 @@ def _session_recording_config_response(request: HttpRequest, team: Team) -> Unio
 
             rrweb_script_config = None
 
-            if (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
+            recorder_script = team.extra_settings.get("recorder_script") if team.extra_settings else None
+            if recorder_script:
+                rrweb_script_config = {
+                    "script": recorder_script,
+                }
+            elif (settings.SESSION_REPLAY_RRWEB_SCRIPT is not None) and (
                 "*" in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
                 or str(team.id) in settings.SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS
             ):

@@ -13,6 +13,15 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    #[envconfig(default = "10485760")] // 10MB
+    pub kafka_consumer_max_partition_fetch_bytes: u32,
+
+    #[envconfig(default = "10000")] // 10 seconds
+    pub kafka_topic_metadata_refresh_interval_ms: u32,
+
+    #[envconfig(default = "30000")] // 30 seconds
+    pub kafka_metadata_max_age_ms: u32,
+
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
     #[envconfig(from = "HOSTNAME")]
@@ -86,6 +95,12 @@ pub struct Config {
     #[envconfig(default = "5")] // 5 seconds
     pub commit_interval_secs: u64,
 
+    #[envconfig(default = "1000")] // 1000 messages
+    pub kafka_consumer_batch_size: usize,
+
+    #[envconfig(default = "500")] // 1/2 second
+    pub kafka_consumer_batch_timeout_ms: u64,
+
     #[envconfig(default = "120")] // 120 seconds (2 minutes)
     pub flush_interval_secs: u64,
 
@@ -131,11 +146,19 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub checkpoint_full_upload_interval: u32,
 
+    // number of hours prior to "now" that the checkpoint import mechanism
+    // will search for valid checkpoint attempts in a DR recovery scenario
+    #[envconfig(default = "24")]
+    pub checkpoint_import_window_hours: u32,
+
     #[envconfig(default = "us-east-1")]
     pub aws_region: String,
 
-    #[envconfig(default = "300")] // 5 minutes in seconds
-    pub s3_timeout_secs: u64,
+    #[envconfig(default = "120")] // 2 minutes
+    pub s3_operation_timeout_secs: u64,
+
+    #[envconfig(default = "20")] // 20 seconds
+    pub s3_attempt_timeout_secs: u64,
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
@@ -227,6 +250,11 @@ impl Config {
         Duration::from_secs(self.commit_interval_secs)
     }
 
+    /// Get kafka consumer batch timeout as Duration
+    pub fn kafka_consumer_batch_timeout(&self) -> Duration {
+        Duration::from_millis(self.kafka_consumer_batch_timeout_ms)
+    }
+
     /// Get flush interval as Duration
     pub fn flush_interval(&self) -> Duration {
         Duration::from_secs(self.flush_interval_secs)
@@ -261,15 +289,11 @@ impl Config {
                 .parse()
                 .with_context(|| format!("Failed to parse scientific notation: {s}"))?;
             if float_val < 0.0 {
-                return Err(anyhow::anyhow!(
-                    "Storage capacity cannot be negative: {}",
-                    s
-                ));
+                return Err(anyhow::anyhow!("Storage capacity cannot be negative: {s}"));
             }
             if float_val > u64::MAX as f64 {
                 return Err(anyhow::anyhow!(
-                    "Storage capacity exceeds maximum value: {}",
-                    s
+                    "Storage capacity exceeds maximum value: {s}"
                 ));
             }
             return Ok(float_val as u64);
@@ -298,9 +322,14 @@ impl Config {
         Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
     }
 
-    /// Get S3 timeout as Duration
-    pub fn s3_timeout(&self) -> Duration {
-        Duration::from_secs(self.s3_timeout_secs)
+    /// Get S3 per-operation (including all retries) timeout as Duration
+    pub fn s3_operation_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_operation_timeout_secs)
+    }
+
+    /// Get S3 per-attempt timeout as Duration
+    pub fn s3_attempt_timeout(&self) -> Duration {
+        Duration::from_secs(self.s3_attempt_timeout_secs)
     }
 
     /// Build Kafka producer configuration

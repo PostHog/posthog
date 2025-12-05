@@ -67,7 +67,7 @@ EXAMPLE_FULL = {
     },
     "filters": {
         "events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}],
-        "actions": [{"id": "9", "name": "Test Action", "type": "actions", "order": 1}],
+        "actions": [{"id": "999999", "name": "Test Action", "type": "actions", "order": 1}],
         "filter_test_accounts": True,
     },
 }
@@ -193,8 +193,9 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         sync_template_to_db(geoip_template)
 
         # Create the action referenced in EXAMPLE_FULL
-        if not Action.objects.filter(id=9, team=self.team).exists():
-            Action.objects.create(id=9, name="Test Action", team=self.team, created_by=self.user)
+        # Use a high ID to avoid conflicts with auto-incrementing sequence
+        if not Action.objects.filter(id=999999, team=self.team).exists():
+            Action.objects.create(id=999999, name="Test Action", team=self.team, created_by=self.user)
 
     def _get_function_activity(
         self,
@@ -2164,3 +2165,45 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response.json()["attr"] == "template_id"
         assert "No template found for id 'nonexistent-template-id'" in response.json()["detail"]
         assert HogFunction.objects.count() == initial_count, "No HogFunction should be created on error"
+
+    def test_list_with_custom_limit_parameter(self):
+        """
+        Test that the limit parameter allows fetching more than the default 100 items.
+        This verifies the frontend fix that adds limit=300 to HogFunction list requests.
+        """
+        # Create 150 hog functions (more than the default page size of 100)
+        for i in range(150):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/",
+                data={
+                    "name": f"Test Function {i:03d}",
+                    "hog": "return event",
+                    "type": "destination",
+                    "enabled": False,
+                },
+            )
+            assert response.status_code == status.HTTP_201_CREATED, f"Failed to create function {i}: {response.json()}"
+
+        # Test 1: Without limit parameter (should return default 100 due to pagination)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 100, "Without limit, should return default page size of 100"
+        assert response.json()["count"] == 150, "Total count should be 150"
+
+        # Test 2: With limit=50 (should return only 50)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=50")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 50, "With limit=50, should return 50 items"
+        assert response.json()["count"] == 150, "Total count should still be 150"
+
+        # Test 3: With limit=300 (should return all 150)
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=300")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 150, "With limit=300, should return all 150 items"
+        assert response.json()["count"] == 150, "Total count should be 150"
+
+        # Test 4: Verify that pagination still works with offset
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?limit=50&offset=100")
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()["results"]) == 50, "With limit=50 and offset=100, should return last 50 items"
+        assert response.json()["count"] == 150, "Total count should still be 150"

@@ -72,6 +72,22 @@ function createInitialExceptionsPayload(personId: string): DataTableNode {
     }
 }
 
+function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
+    return {
+        kind: NodeKind.DataTableNode,
+        full: true,
+        showEventFilter: false,
+        hiddenColumns: [PERSON_DISPLAY_NAME_COLUMN_NAME],
+        source: {
+            kind: NodeKind.EventsQuery,
+            select: ['*', 'properties.$survey_name', 'properties.$lib', 'timestamp'],
+            personId: personId,
+            event: 'survey sent',
+            after: '-90d',
+        },
+    }
+}
+
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
@@ -111,6 +127,7 @@ export const personsLogic = kea<personsLogicType>([
         setDistinctId: (distinctId: string) => ({ distinctId }),
         setEventsQuery: (eventsQuery: DataTableNode | null) => ({ eventsQuery }),
         setExceptionsQuery: (exceptionsQuery: DataTableNode | null) => ({ exceptionsQuery }),
+        setSurveyResponsesQuery: (surveyResponsesQuery: DataTableNode | null) => ({ surveyResponsesQuery }),
     }),
     loaders(({ values, actions, props }) => ({
         persons: [
@@ -158,6 +175,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                     }
 
@@ -181,6 +200,8 @@ export const personsLogic = kea<personsLogicType>([
                             actions.setEventsQuery(eventsQuery)
                             const exceptionsQuery = createInitialExceptionsPayload(person.id)
                             actions.setExceptionsQuery(exceptionsQuery)
+                            const surveyResponsesQuery = createInitialSurveyResponsesPayload(person.id)
+                            actions.setSurveyResponsesQuery(surveyResponsesQuery)
                         }
                         return person
                     }
@@ -289,6 +310,12 @@ export const personsLogic = kea<personsLogicType>([
                 setExceptionsQuery: (_, { exceptionsQuery }) => exceptionsQuery,
             },
         ],
+        surveyResponsesQuery: [
+            null as DataTableNode | null,
+            {
+                setSurveyResponsesQuery: (_, { surveyResponsesQuery }) => surveyResponsesQuery,
+            },
+        ],
     })),
     selectors(() => ({
         apiDocsURL: [
@@ -352,7 +379,7 @@ export const personsLogic = kea<personsLogicType>([
             ],
         ],
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
-        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE]],
+        feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
             (person): string | null => {

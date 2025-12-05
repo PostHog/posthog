@@ -11,7 +11,6 @@ import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/T
 
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
-import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 import { PropertiesTab } from './Tabs/PropertiesTab'
 import { SessionTab } from './Tabs/SessionTab'
 import { StacktraceTab } from './Tabs/StacktraceTab'
@@ -30,7 +29,8 @@ export interface ExceptionCardProps extends Omit<ExceptionCardContentProps, 'tim
 }
 
 export function ExceptionCard({ issue, issueLoading, event, eventLoading, label }: ExceptionCardProps): JSX.Element {
-    const { setLoading } = useActions(exceptionCardLogic)
+    const cardLogicProps = { issueId: issue?.id ?? 'no-issue' }
+    const { setLoading } = useActions(exceptionCardLogic(cardLogicProps))
 
     useEffect(() => {
         setLoading(eventLoading)
@@ -42,8 +42,8 @@ export function ExceptionCard({ issue, issueLoading, event, eventLoading, label 
     } as ErrorPropertiesLogicProps
 
     return (
-        <BindLogic logic={errorPropertiesLogic} props={props}>
-            <BindLogic logic={releasePreviewLogic} props={props}>
+        <BindLogic logic={exceptionCardLogic} props={cardLogicProps}>
+            <BindLogic logic={errorPropertiesLogic} props={props}>
                 <ExceptionCardContent
                     issue={issue}
                     timestamp={event?.timestamp}
@@ -60,7 +60,7 @@ function ExceptionCardContent({ issue, issueLoading, timestamp, label }: Excepti
     const { setCurrentTab } = useActions(exceptionCardLogic)
 
     return (
-        <LemonCard hoverEffect={false} className="p-0 relative overflow-hidden">
+        <LemonCard hoverEffect={false} className="p-0 relative overflow-y-auto w-full border-0 rounded-none">
             <TabsPrimitive value={currentTab} onValueChange={setCurrentTab}>
                 <div className="flex justify-between h-[2rem] items-center w-full px-2 border-b">
                     <TabsPrimitiveList className="flex justify-between w-full h-full items-center">

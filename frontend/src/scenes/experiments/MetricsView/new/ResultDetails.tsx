@@ -1,12 +1,17 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
+import { useState } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonTable, LemonTableColumns, LemonTabs } from '@posthog/lemon-ui'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { VariantTag } from 'scenes/experiments/ExperimentView/components'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -98,6 +103,65 @@ function convertExperimentResultToFunnelSteps(
     return funnelSteps
 }
 
+function SqlCollapsible({
+    hogql,
+    clickhouseSql,
+    showClickhouseSql,
+}: {
+    hogql?: string
+    clickhouseSql?: string
+    showClickhouseSql: boolean
+}): JSX.Element {
+    const [activeTab, setActiveTab] = useState<'hogql' | 'clickhouse'>('hogql')
+
+    return (
+        <LemonCollapse
+            panels={[
+                {
+                    key: 'sql',
+                    header: 'SQL',
+                    content: showClickhouseSql ? (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={setActiveTab}
+                            tabs={[
+                                {
+                                    key: 'hogql',
+                                    label: 'HogQL',
+                                    content: hogql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {hogql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No HogQL available</div>
+                                    ),
+                                },
+                                {
+                                    key: 'clickhouse',
+                                    label: 'ClickHouse',
+                                    content: clickhouseSql ? (
+                                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                                            {clickhouseSql}
+                                        </CodeSnippet>
+                                    ) : (
+                                        <div className="text-muted">No SQL available</div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    ) : hogql ? (
+                        <CodeSnippet language={Language.SQL} thing="query" className="text-sm">
+                            {hogql}
+                        </CodeSnippet>
+                    ) : (
+                        <div className="text-muted">No SQL available</div>
+                    ),
+                },
+            ]}
+        />
+    )
+}
+
 export function ResultDetails({
     experiment,
     result,
@@ -107,11 +171,13 @@ export function ResultDetails({
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
 }): JSX.Element {
+    const { featureFlags } = useValues(experimentLogic)
+
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
             title: 'Variant',
-            render: (_, item) => <VariantTag experimentId={experiment.id} variantKey={item.key} />,
+            render: (_, item) => <VariantTag variantKey={item.key} />,
         },
         {
             key: 'total-users',
@@ -239,6 +305,11 @@ export function ResultDetails({
                     metric={metric}
                 />
             )}
+            <SqlCollapsible
+                hogql={result.hogql}
+                clickhouseSql={result.clickhouse_sql}
+                showClickhouseSql={!!featureFlags[FEATURE_FLAGS.EXPERIMENTS_SHOW_SQL]}
+            />
         </div>
     )
 }

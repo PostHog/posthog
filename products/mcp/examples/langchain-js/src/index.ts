@@ -1,10 +1,11 @@
 import { ChatPromptTemplate, MessagesPlaceholder } from '@langchain/core/prompts'
 import { ChatOpenAI } from '@langchain/openai'
-import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/langchain'
-import { AgentExecutor, createToolCallingAgent } from 'langchain/agents'
 import 'dotenv/config'
+import { AgentExecutor, createToolCallingAgent } from 'langchain/agents'
 
-async function analyzeProductUsage() {
+import { PostHogAgentToolkit } from '@posthog/agent-toolkit/integrations/langchain'
+
+async function analyzeProductUsage(): Promise<void> {
     const agentToolkit = new PostHogAgentToolkit({
         posthogPersonalApiKey: process.env.POSTHOG_PERSONAL_API_KEY!,
         posthogApiBaseUrl: process.env.POSTHOG_API_BASE_URL || 'https://us.posthog.com',
@@ -38,7 +39,7 @@ async function analyzeProductUsage() {
         maxIterations: 5,
     })
 
-    const result = await agentExecutor.invoke({
+    await agentExecutor.invoke({
         input: `Please analyze our product usage:
         
         1. Get all available insights (limit 100) and pick the 5 most relevant ones
@@ -49,7 +50,7 @@ async function analyzeProductUsage() {
     })
 }
 
-async function main() {
+async function main(): Promise<void> {
     try {
         await analyzeProductUsage()
     } catch (error) {

@@ -25,7 +25,7 @@ pub async fn create_job<'c, E>(
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    let id = Uuid::now_v7();
+    let id = data.id.unwrap_or_else(Uuid::now_v7);
 
     if should_compress_vm_state {
         data.vm_state = compress_vm_state(data.vm_state)?;
@@ -110,7 +110,7 @@ where
             vm_states.push(vm_state);
         }
 
-        ids.push(Uuid::now_v7());
+        ids.push(d.id.unwrap_or_else(Uuid::now_v7));
         team_ids.push(d.team_id);
         function_ids.push(d.function_id);
         created_at.push(now);
@@ -237,7 +237,7 @@ pub async fn bulk_create_jobs_copy(
         .from_writer(buffer);
 
     for j in jobs {
-        let new_id = Uuid::now_v7();
+        let new_id = j.id.unwrap_or_else(Uuid::now_v7);
         ids.push(new_id);
 
         let mut vm_state = j.vm_state;

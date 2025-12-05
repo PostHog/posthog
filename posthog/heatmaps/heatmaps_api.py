@@ -1,5 +1,9 @@
 from datetime import date, datetime
-from typing import Any, List, Literal  # noqa: UP035
+from typing import Any, List, Literal, cast  # noqa: UP035
+
+from django.core.exceptions import FieldError
+from django.db.models import Q
+from django.http import HttpResponse
 
 from rest_framework import request, response, serializers, status, viewsets
 
@@ -14,9 +18,22 @@ from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.auth import TemporaryTokenAuthentication
-from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS, is_url_allowed
+from posthog.models import User
+from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.rate_limit import (
+    AIBurstRateThrottle,
+    AISustainedRateThrottle,
+    ClickHouseBurstRateThrottle,
+    ClickHouseSustainedRateThrottle,
+)
+from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
@@ -282,3 +299,256 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
 class LegacyHeatmapViewSet(HeatmapViewSet):
     param_derived_from_user_current_team = "team_id"
+
+
+# Heatmap Screenshot functionality
+
+
+class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    snapshots = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SavedHeatmap
+        fields = [
+            "id",
+            "short_id",
+            "name",
+            "url",
+            "data_url",
+            "target_widths",
+            "type",
+            "status",
+            "has_content",
+            "snapshots",
+            "deleted",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
+        read_only_fields = [
+            "id",
+            "short_id",
+            "status",
+            "has_content",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "exception",
+        ]
+
+    def get_snapshots(self, obj: SavedHeatmap) -> list[dict]:
+        # Expose metadata of generated snapshots (width + readiness)
+        snaps = []
+        for snap in obj.snapshots.all():
+            snaps.append(
+                {
+                    "width": snap.width,
+                    "has_content": bool(snap.content or snap.content_location),
+                }
+            )
+        snaps.sort(key=lambda s: s["width"])
+        return snaps
+
+
+class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    authentication_classes = [TemporaryTokenAuthentication]
+    queryset = SavedHeatmap.objects.all()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    @action(methods=["GET"], detail=True)
+    def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
+        screenshot = self.get_object()
+        if screenshot.deleted:
+            return response.Response(status=status.HTTP_404_NOT_FOUND)
+
+        # Pick requested width or default
+        try:
+            requested_width = int(request.query_params.get("width", 1024))
+        except (ValueError, TypeError):
+            return response.Response(
+                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Try exact match snapshot
+        snapshot = screenshot.snapshots.filter(width=requested_width).first()
+
+        # If not found, pick closest by absolute difference among available snapshots
+        if not snapshot:
+            all_snaps = list(screenshot.snapshots.all())
+            if all_snaps:
+                snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
+
+        if not snapshot:
+            # Nothing generated yet
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+        if snapshot.content:
+            http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
+            http_response["Content-Disposition"] = (
+                f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
+            )
+            return http_response
+        elif snapshot.content_location:
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(
+                {**response_serializer.data, "error": "Content location not implemented yet"},
+                status=status.HTTP_501_NOT_IMPLEMENTED,
+            )
+        else:
+            response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
+            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+
+
+class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
+    widths = serializers.ListField(
+        child=serializers.IntegerField(min_value=100, max_value=3000), required=False, allow_empty=False
+    )
+
+    def validate_url(self, value: str) -> str:
+        ok, err = is_url_allowed(value)
+        if not ok:
+            raise serializers.ValidationError(err or "URL not allowed")
+        return value
+
+    class Meta:
+        model = SavedHeatmap
+        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        extra_kwargs = {
+            "name": {"required": False, "allow_null": True},
+            "url": {"required": True},
+            "data_url": {"required": False, "allow_null": True},
+            "type": {"required": False, "default": SavedHeatmap.Type.SCREENSHOT},
+            "deleted": {"required": False},
+        }
+
+
+class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.GenericViewSet):
+    scope_object = "INTERNAL"
+    throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
+    serializer_class = HeatmapScreenshotResponseSerializer
+    authentication_classes = [TemporaryTokenAuthentication]
+    queryset = SavedHeatmap.objects.all()
+    lookup_field = "short_id"
+
+    def get_throttles(self):
+        if self.action == "create":
+            # More restrictive rate limiting for expensive screenshot generation
+            return [AIBurstRateThrottle(), AISustainedRateThrottle()]
+        return super().get_throttles()
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team)
+
+    def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        qs = (
+            self.safely_get_queryset(self.get_queryset())
+            .filter(deleted=False)
+            .select_related("created_by")
+            .order_by("-updated_at")
+        )
+
+        type_param = request.query_params.get("type")
+        status_param = request.query_params.get("status")
+        search = request.query_params.get("search")
+        created_by_param = request.query_params.get("created_by")
+        order = request.query_params.get("order")
+
+        if type_param:
+            qs = qs.filter(type=type_param)
+        if status_param:
+            qs = qs.filter(status=status_param)
+        if search:
+            qs = qs.filter(Q(url__icontains=search) | Q(name__icontains=search))
+        if created_by_param:
+            try:
+                qs = qs.filter(created_by_id=int(created_by_param))
+            except (ValueError, TypeError):
+                return response.Response(
+                    {"error": "Invalid created_by parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                )
+        if order:
+            try:
+                qs = qs.order_by(order)
+            except FieldError:
+                return response.Response({"error": f"Invalid order field: {order}"}, status=status.HTTP_400_BAD_REQUEST)
+
+        limit = int(request.query_params.get("limit", 100))
+        offset = int(request.query_params.get("offset", 0))
+        count = qs.count()
+        results = qs[offset : offset + limit]
+
+        data = HeatmapScreenshotResponseSerializer(results, many=True).data
+        return response.Response({"results": data, "count": count}, status=status.HTTP_200_OK)
+
+    def create(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        serializer = SavedHeatmapRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        name = serializer.validated_data.get("name")
+        url = serializer.validated_data["url"]
+        data_url = serializer.validated_data.get("data_url") or url
+        widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
+        heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+
+        screenshot = SavedHeatmap.objects.create(
+            team=self.team,
+            name=name,
+            url=url,
+            data_url=data_url,
+            target_widths=widths,
+            type=heatmap_type,
+            created_by=cast(User, request.user),
+            status=SavedHeatmap.Status.PROCESSING
+            if heatmap_type == SavedHeatmap.Type.SCREENSHOT
+            else SavedHeatmap.Status.COMPLETED,
+        )
+
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=screenshot.short_id or str(screenshot.id),
+            scope="Heatmap",
+            activity="created",
+            detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
+            was_impersonated=getattr(request, "was_impersonated", False),
+        )
+
+        if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
+            generate_heatmap_screenshot.delay(screenshot.id)
+
+        return response.Response(HeatmapScreenshotResponseSerializer(screenshot).data, status=status.HTTP_201_CREATED)
+
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        updated = serializer.save()
+
+        log_activity(
+            organization_id=cast(User, request.user).current_organization_id
+            if hasattr(request.user, "current_organization_id")
+            else None,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            item_id=updated.short_id or str(updated.id),
+            scope="Heatmap",
+            activity="updated",
+            detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
+            was_impersonated=getattr(request, "was_impersonated", False),
+        )
+        return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

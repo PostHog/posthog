@@ -69,16 +69,18 @@ class TestLLMAnalytics:
         # Step 2: Prepare test event data
         logger.info("Step 2: Preparing $ai_generation event")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",
             "properties": {
                 "$ai_model": "gpt-4",
                 "$ai_provider": "openai",
-                "$ai_completion_tokens": 150,
-                "$ai_prompt_tokens": 50,
+                "$ai_output_tokens": 150,
+                "$ai_input_tokens": 50,
                 "custom_property": "test_value",
             },
         }
@@ -191,8 +193,8 @@ class TestLLMAnalytics:
         # Verify standard properties
         assert event_properties.get("$ai_model") == "gpt-4"
         assert event_properties.get("$ai_provider") == "openai"
-        assert event_properties.get("$ai_completion_tokens") == 150
-        assert event_properties.get("$ai_prompt_tokens") == 50
+        assert event_properties.get("$ai_output_tokens") == 150
+        assert event_properties.get("$ai_input_tokens") == 50
         assert event_properties.get("custom_property") == "test_value"
 
         # Verify blob properties were replaced with S3 URLs
@@ -235,8 +237,10 @@ class TestLLMAnalytics:
 
         logger.info("Step 2: Preparing $ai_generation event with separate properties")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",
@@ -245,8 +249,8 @@ class TestLLMAnalytics:
         properties_data = {
             "$ai_model": "gpt-3.5-turbo",
             "$ai_provider": "openai",
-            "$ai_completion_tokens": 100,
-            "$ai_prompt_tokens": 25,
+            "$ai_output_tokens": 100,
+            "$ai_input_tokens": 25,
             "custom_property": "separate_test",
         }
 
@@ -343,8 +347,8 @@ class TestLLMAnalytics:
 
         assert event_properties.get("$ai_model") == "gpt-3.5-turbo"
         assert event_properties.get("$ai_provider") == "openai"
-        assert event_properties.get("$ai_completion_tokens") == 100
-        assert event_properties.get("$ai_prompt_tokens") == 25
+        assert event_properties.get("$ai_output_tokens") == 100
+        assert event_properties.get("$ai_input_tokens") == 25
         assert event_properties.get("custom_property") == "separate_test"
 
         assert "$ai_input" in event_properties
@@ -444,6 +448,7 @@ class TestLLMAnalytics:
             logger.info(f"Sending {event_type} event")
 
             event_data = {
+                "uuid": str(uuid.uuid4()),
                 "event": event_type,
                 "distinct_id": distinct_id,
                 "$set": {"test_user": True, "event_type_test": event_type},
@@ -506,6 +511,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with application/json blob")
         distinct_id_json = f"{base_distinct_id}_json"
         event_data_json = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_json,
             "$set": {"test_user": True, "content_type_test": "json"},
@@ -538,6 +544,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with text/plain blob")
         distinct_id_text = f"{base_distinct_id}_text"
         event_data_text = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_text,
             "$set": {"test_user": True, "content_type_test": "text"},
@@ -570,6 +577,7 @@ class TestLLMAnalytics:
         logger.info("Sending event with application/octet-stream blob")
         distinct_id_binary = f"{base_distinct_id}_binary"
         event_data_binary = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": distinct_id_binary,
             "$set": {"test_user": True, "content_type_test": "binary"},
@@ -639,6 +647,7 @@ class TestLLMAnalytics:
         client = function_test_client
 
         event_data = {
+            "uuid": str(uuid.uuid4()),
             "event": "$ai_generation",
             "distinct_id": f"test_user_{uuid.uuid4().hex[:8]}",
         }
@@ -680,16 +689,18 @@ class TestLLMAnalytics:
 
         logger.info("Step 2: Preparing $ai_generation event")
         distinct_id = f"test_user_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
 
         event_data = {
+            "uuid": event_uuid,
             "event": "$ai_generation",
             "distinct_id": distinct_id,
             "timestamp": "2024-01-15T10:30:00Z",
             "properties": {
                 "$ai_model": "gpt-4-compressed",
                 "$ai_provider": "openai",
-                "$ai_completion_tokens": 75,
-                "$ai_prompt_tokens": 30,
+                "$ai_output_tokens": 75,
+                "$ai_input_tokens": 30,
                 "compression": "gzip",
             },
         }

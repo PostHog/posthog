@@ -13,7 +13,7 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, SimpleSource
 from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -24,7 +24,8 @@ from posthog.temporal.data_imports.sources.postgres.postgres import (
     get_schemas as get_postgres_schemas,
     postgres_source,
 )
-from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
+
+from products.data_warehouse.backend.types import ExternalDataSourceType, IncrementalField
 
 PostgresErrors = {
     "password authentication failed for user": "Invalid user or password",
@@ -36,7 +37,11 @@ PostgresErrors = {
 
 
 @SourceRegistry.register
-class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDatabaseHostMixin):
+    def __init__(self, source_name: str = "Postgres"):
+        super().__init__()
+        self.source_name = source_name
+
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.POSTGRES
@@ -103,7 +108,35 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
+            featured=True,
         )
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "NoSuchTableError": None,
+            "is not permitted to log in": None,
+            "Tenant or user not found connection to server": None,
+            "FATAL: Tenant or user not found": None,
+            "error received from server in SCRAM exchange: Wrong password": None,
+            "could not translate host name": None,
+            "timeout expired connection to server at": None,
+            "password authentication failed for user": None,
+            "No primary key defined for table": None,
+            "failed: timeout expired": None,
+            "SSL connection has been closed unexpectedly": None,
+            "Address not in tenant allow_list": None,
+            "FATAL: no such database": None,
+            "does not exist": None,
+            "timestamp too small": None,
+            "QueryTimeoutException": None,
+            "TemporaryFileSizeExceedsLimitException": None,
+            "Name or service not known": None,
+            "Network is unreachable": None,
+            "InsufficientPrivilege": None,
+            "OperationalError: connection failed: connection to server at": None,
+            "password authentication failed connection": None,
+            "connection timeout expired": None,
+        }
 
     def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
@@ -176,21 +209,21 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                     return False, value
 
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
         except BaseSSHTunnelForwarderError as e:
             return (
                 False,
                 e.value
-                or "Could not connect to Postgres via the SSH tunnel. Please check all connection details are valid.",
+                or f"Could not connect to {self.source_name} via the SSH tunnel. Please check all connection details are valid.",
             )
         except Exception as e:
             capture_exception(e)
-            return False, "Could not connect to Postgres. Please check all connection details are valid."
+            return False, f"Could not connect to {self.source_name}. Please check all connection details are valid."
 
         return True, None
 
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
-        from posthog.warehouse.models.external_data_schema import ExternalDataSchema
+        from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 
         ssh_tunnel = self.make_ssh_tunnel_func(config)
 

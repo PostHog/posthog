@@ -1,15 +1,15 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
+from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.chat_agent.dashboards.nodes import DashboardCreationNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.hogai.graph import AssistantGraph
-from ee.hogai.graph.dashboards.nodes import DashboardCreationNode
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import NodePath
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -21,18 +21,7 @@ def call_root_for_dashboard_creation(demo_org_team_user):
     graph = (
         AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
         .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            {
-                "create_dashboard": AssistantNodeName.END,
-                "insights": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "session_summarization": AssistantNodeName.END,
-                "insights_search": AssistantNodeName.END,
-                "create_and_query_insight": AssistantNodeName.END,
-                "root": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
-        )
+        .add_root(lambda state: AssistantNodeName.END)
         .compile(checkpointer=DjangoCheckpointer())
     )
 
@@ -172,11 +161,13 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
     )
 
 
-@pytest.mark.django_db
-@patch("ee.hogai.graph.base.get_stream_writer", return_value=MagicMock())
-async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfig, demo_org_team_user):
+async def eval_tool_call_dashboard_creation(pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
-    dashboard_creation_node = DashboardCreationNode(demo_org_team_user[1], demo_org_team_user[2])
+    dashboard_creation_node = DashboardCreationNode(
+        demo_org_team_user[1],
+        demo_org_team_user[2],
+        node_path=(NodePath(name="create_dashboard", message_id="msg_id", tool_call_id="tool_call_id"),),
+    )
 
     async def task_with_context(messages):
         state = AssistantState(

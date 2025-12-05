@@ -96,11 +96,9 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
     # This is used by both the query itself and the actors query
     def _inner_aggregation_query(self):
         if self.context.funnelsFilter.funnelOrderType == "strict":
-            inner_event_query = self._get_inner_event_query_for_udf(
-                entity_name="events", skip_step_filter=True, skip_entity_filter=True
-            )
+            inner_event_query = self._get_inner_event_query_for_udf(skip_step_filter=True, skip_entity_filter=True)
         else:
-            inner_event_query = self._get_inner_event_query_for_udf(entity_name="events")
+            inner_event_query = self._get_inner_event_query_for_udf()
 
         # stores the steps as an array of integers from 1 to max_steps
         # so if the event could be step_0, step_1 or step_4, it looks like [1,2,0,0,5]
@@ -208,8 +206,6 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
-        order_by = ",".join([f"step_{i+1} DESC" for i in reversed(range(self.context.max_steps))])
-
         other_aggregation = "['Other']" if self._query_has_array_breakdown() else "'Other'"
 
         use_breakdown_limit = self.context.breakdown and self.context.breakdownType in [
@@ -223,6 +219,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if use_breakdown_limit
             else "breakdown"
         )
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
 
         s = parse_select(
             f"""
@@ -252,6 +249,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ]
         )
 
+        order_by = ",".join([f"step_{i + 1} DESC" for i in reversed(range(self.context.max_steps))])
         # Weird: unless you reference row_number in this outer block, it doesn't work correctly
         s = cast(
             ast.SelectQuery,
@@ -266,6 +264,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             FROM
                 {{s}}
             GROUP BY final_prop
+            ORDER BY {order_by}
             LIMIT {self.get_breakdown_limit() + 1 if use_breakdown_limit else DEFAULT_RETURNED_ROWS}
         """,
                 {"s": s},

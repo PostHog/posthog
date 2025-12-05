@@ -6,8 +6,11 @@ import socket
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Optional
 from urllib.parse import urlencode
+
+if TYPE_CHECKING:
+    import aiohttp
 
 from django.conf import settings
 from django.db import models
@@ -36,7 +39,7 @@ from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
 
-from products.workflows.backend.providers import MailjetProvider, SESProvider, TwilioProvider
+from products.workflows.backend.providers import SESProvider, TwilioProvider
 
 logger = structlog.get_logger(__name__)
 
@@ -73,10 +76,12 @@ class Integration(models.Model):
         LINKEDIN_ADS = "linkedin-ads"
         REDDIT_ADS = "reddit-ads"
         TIKTOK_ADS = "tiktok-ads"
+        BING_ADS = "bing-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
         GITHUB = "github"
+        GITLAB = "gitlab"
         META_ADS = "meta-ads"
         TWILIO = "twilio"
         CLICKUP = "clickup"
@@ -119,6 +124,8 @@ class Integration(models.Model):
         if self.kind == "github":
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
+            return self.integration_id or "unknown ID"
+        if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
@@ -165,6 +172,7 @@ class OauthIntegration:
         "linkedin-ads",
         "reddit-ads",
         "tiktok-ads",
+        "bing-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -310,6 +318,19 @@ class OauthIntegration:
                 scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "bing-ads":
+            if not settings.BING_ADS_CLIENT_ID or not settings.BING_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Bing Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                token_url="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+                client_id=settings.BING_ADS_CLIENT_ID,
+                client_secret=settings.BING_ADS_CLIENT_SECRET,
+                scope="https://ads.microsoft.com/msads.manage offline_access openid profile",
+                id_path="id",
+                name_path="userPrincipalName",
             )
         elif kind == "intercom":
             if not settings.INTERCOM_APP_CLIENT_ID or not settings.INTERCOM_APP_CLIENT_SECRET:
@@ -531,6 +552,28 @@ class OauthIntegration:
 
         integration_id = dot_get(config, oauth_config.id_path)
 
+        # Bing Ads id_token is a JWT, extract user ID from it
+        if kind == "bing-ads" and not integration_id:
+            try:
+                id_token = config.get("id_token")
+                if id_token:
+                    parts = id_token.split(".")
+                    if len(parts) >= 2:
+                        payload = parts[1]
+                        decoded = base64.urlsafe_b64decode(payload + "===")
+                        jwt_data = json.loads(decoded)
+
+                        bing_user_id = jwt_data.get("oid")
+                        bing_username = jwt_data.get("preferred_username")
+                        if bing_user_id:
+                            config["id"] = bing_user_id
+                            config["userPrincipalName"] = bing_username
+                            integration_id = bing_user_id
+                else:
+                    logger.error("Bing Ads OAuth response missing id_token", config_keys=list(config.keys()))
+            except Exception:
+                logger.exception("Failed to decode Bing Ads JWT")
+
         # Reddit access token is a JWT, extract user ID from it
         if kind == "reddit-ads" and not integration_id:
             try:
@@ -624,8 +667,10 @@ class OauthIntegration:
         """
         Refresh the access token for the integration if necessary
         """
-
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
+
+        # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
+        self.integration.errors = ""
 
         # Reddit uses HTTP Basic Auth for token refresh
         if self.integration.kind == "reddit-ads":
@@ -649,6 +694,18 @@ class OauthIntegration:
                     "grant_type": "refresh_token",
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+        elif self.integration.kind == "bing-ads":
+            # Microsoft Azure AD requires scope parameter on token refresh
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                    "scope": oauth_config.scope,
+                },
             )
         else:
             res = requests.post(
@@ -681,6 +738,7 @@ class OauthIntegration:
             self.integration.config["refreshed_at"] = int(time.time())
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
+
         self.integration.save()
 
 
@@ -701,9 +759,8 @@ class SlackIntegration:
     def client(self) -> WebClient:
         return WebClient(self.integration.sensitive_config["access_token"])
 
-    @property
-    def async_client(self) -> AsyncWebClient:
-        return AsyncWebClient(self.integration.sensitive_config["access_token"])
+    def async_client(self, session: Optional["aiohttp.ClientSession"] = None) -> AsyncWebClient:
+        return AsyncWebClient(self.integration.sensitive_config["access_token"], session=session)
 
     def list_channels(self, should_include_private_channels: bool, authed_user: str) -> list[dict]:
         # NOTE: Annoyingly the Slack API has no search so we have to load all channels...
@@ -1138,40 +1195,38 @@ class EmailIntegration:
         self.integration = integration
 
     @property
-    def mailjet_provider(self) -> MailjetProvider:
-        return MailjetProvider()
-
-    @property
     def ses_provider(self) -> SESProvider:
         return SESProvider()
 
     @classmethod
-    def create_native_integration(cls, config: dict, team_id: int, created_by: User | None = None) -> Integration:
+    def create_native_integration(
+        cls, config: dict, team_id: int, organization_id: str, created_by: User | None = None
+    ) -> Integration:
         email_address: str = config["email"]
         name: str = config["name"]
         domain: str = email_address.split("@")[1]
-        provider: str = config.get("provider", "mailjet")  # Default to mailjet for backward compatibility
+        provider: str = config.get("provider", "ses")
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
 
-        # Check if any other integration already exists in a different team with the same domain
-        if Integration.objects.filter(kind="email", config__domain=domain).exclude(team_id=team_id).exists():
-            raise ValidationError(
-                f"An email integration with domain {domain} already exists in another project. Try a different domain or contact support if you believe this is a mistake."
-            )
+        # Check if any other integration already exists in a different team with the same domain,
+        # if so, ensure this team is part of the same organization. If not, we block creation.
+        same_domain_integrations = Integration.objects.filter(kind="email", config__domain=domain)
+        for integration in same_domain_integrations:
+            if str(integration.team.organization.id) != str(organization_id):
+                raise ValidationError(
+                    f"An email integration with domain {domain} already exists in another organization. Try a different domain or contact support if you believe this is a mistake."
+                )
 
         # Create domain in the appropriate provider
         if provider == "ses":
             ses = SESProvider()
             ses.create_email_domain(domain, team_id=team_id)
-        elif provider == "mailjet":
-            mailjet = MailjetProvider()
-            mailjet.create_email_domain(domain, team_id=team_id)
         elif provider == "maildev" and settings.DEBUG:
             pass
         else:
-            raise ValueError(f"Invalid provider: must be either 'ses' or 'mailjet'")
+            raise ValueError(f"Invalid provider: must be 'ses'")
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -1195,40 +1250,13 @@ class EmailIntegration:
 
         return integration
 
-    @classmethod
-    def integration_from_keys(
-        cls, api_key: str, secret_key: str, team_id: int, created_by: User | None = None
-    ) -> Integration:
-        integration, created = Integration.objects.update_or_create(
-            team_id=team_id,
-            kind="email",
-            integration_id=api_key,
-            defaults={
-                "config": {
-                    "api_key": api_key,
-                    "vendor": "mailjet",
-                },
-                "sensitive_config": {
-                    "secret_key": secret_key,
-                },
-                "created_by": created_by,
-            },
-        )
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
-
-        return integration
-
     def verify(self):
         domain = self.integration.config.get("domain")
-        provider = self.integration.config.get("provider", "mailjet")
+        provider = self.integration.config.get("provider", "ses")
 
         # Use the appropriate provider for verification
         if provider == "ses":
             verification_result = self.ses_provider.verify_email_domain(domain, team_id=self.integration.team_id)
-        elif provider == "mailjet":
-            verification_result = self.mailjet_provider.verify_email_domain(domain)
         elif provider == "maildev":
             verification_result = {
                 "status": "success",
@@ -1411,6 +1439,7 @@ class GitHubIntegration:
             self.integration.config["expires_in"] = expires_in
             self.integration.config["refreshed_at"] = int(time.time())
             self.integration.sensitive_config["access_token"] = config["token"]
+            self.integration.errors = ""
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
             self.integration.save()
@@ -1743,6 +1772,82 @@ class GitHubIntegration:
                 "error": f"Failed to list pull requests: {response.text}",
                 "status_code": response.status_code,
             }
+
+
+class GitLabIntegration:
+    integration: Integration
+
+    @staticmethod
+    def get(hostname: str, endpoint: str, project_access_token: str) -> dict:
+        response = requests.get(
+            f"{hostname}/api/v4/{endpoint}",
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
+
+        return response.json()
+
+    @staticmethod
+    def post(hostname: str, endpoint: str, project_access_token: str, json: dict) -> dict:
+        response = requests.post(
+            f"{hostname}/api/v4/{endpoint}",
+            json=json,
+            headers={"PRIVATE-TOKEN": project_access_token},
+        )
+
+        return response.json()
+
+    @classmethod
+    def create_integration(self, hostname, project_id, project_access_token, team_id, user) -> Integration:
+        project = self.get(hostname, f"projects/{project_id}", project_access_token)
+
+        integration = Integration.objects.create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.GITLAB,
+            integration_id=project.get("name_with_namespace"),
+            config={
+                "hostname": hostname,
+                "path_with_namespace": project.get("path_with_namespace"),
+                "project_id": project.get("id"),
+            },
+            sensitive_config={"access_token": project_access_token},
+            created_by=user,
+        )
+
+        return integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "gitlab":
+            raise Exception("GitLabIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @property
+    def project_path(self) -> str:
+        return dot_get(self.integration.config, "path_with_namespace")
+
+    @property
+    def hostname(self) -> str:
+        return dot_get(self.integration.config, "hostname")
+
+    def create_issue(self, config: dict[str, str]):
+        title: str = config.pop("title")
+        description: str = config.pop("body")
+
+        hostname = self.integration.config.get("hostname")
+        project_id = self.integration.config.get("project_id")
+        access_token = self.integration.sensitive_config.get("access_token")
+
+        issue = GitLabIntegration.post(
+            hostname,
+            f"projects/{project_id}/issues",
+            access_token,
+            {
+                "title": title,
+                "description": description,
+                "labels": "posthog",
+            },
+        )
+
+        return {"issue_id": issue["iid"]}
 
 
 class MetaAdsIntegration:

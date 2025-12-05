@@ -23,6 +23,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpBehaviouralEvents: true,
                 cdpCohortMembership: true,
                 cdpApi: true,
+                evaluationScheduler: true,
                 logsIngestion: true,
             }
 
@@ -101,6 +102,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 cdpApi: true,
                 // NOTE: This is temporary until we have removed plugins
                 appManagementSingleton: true,
+            }
+        case PluginServerMode.evaluation_scheduler:
+            return {
+                evaluationScheduler: true,
             }
         case PluginServerMode.ingestion_logs:
             return {

@@ -12,7 +12,8 @@ from temporalio.service import RPCError
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
-from posthog.warehouse.types import IncrementalField, IncrementalFieldType
+
+from products.data_warehouse.backend.types import IncrementalField, IncrementalFieldType
 
 
 class TemporalIOResource(StrEnum):
@@ -176,7 +177,7 @@ def temporalio_source(
 
         return SourceResponse(
             name=resource.value,
-            items=workflows,
+            items=lambda: workflows,
             primary_keys=["id", "run_id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning
@@ -194,7 +195,7 @@ def temporalio_source(
 
         return SourceResponse(
             name=resource.value,
-            items=workflows,
+            items=lambda: workflows,
             primary_keys=["id"],
             partition_count=1,  # this enables partitioning
             partition_size=1,  # this enables partitioning

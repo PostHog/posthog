@@ -3,6 +3,8 @@ import { QueryResult } from 'pg'
 
 import { Properties } from '@posthog/plugin-scaffold'
 
+import { sanitizeJsonbValue } from '~/utils/db/utils'
+
 import {
     Group,
     GroupTypeIndex,
@@ -120,7 +122,7 @@ export class PostgresGroupRepository
                 teamId,
                 groupKey,
                 groupTypeIndex,
-                JSON.stringify(groupProperties),
+                sanitizeJsonbValue(groupProperties),
                 createdAt.toISO(),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
@@ -164,7 +166,7 @@ export class PostgresGroupRepository
                 groupKey,
                 groupTypeIndex,
                 createdAt.toISO(),
-                JSON.stringify(groupProperties),
+                sanitizeJsonbValue(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
             ],
@@ -206,7 +208,7 @@ export class PostgresGroupRepository
                 groupTypeIndex,
                 expectedVersion,
                 createdAt.toISO(),
-                JSON.stringify(groupProperties),
+                sanitizeJsonbValue(groupProperties),
                 JSON.stringify(propertiesLastUpdatedAt),
                 JSON.stringify(propertiesLastOperation),
             ],

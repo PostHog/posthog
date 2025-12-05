@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ActivityScope, Breadcrumb } from '~/types'
 
@@ -217,7 +216,6 @@ export function DataPipelinesScene(): JSX.Element {
                 }}
                 actions={<SceneAction />}
             />
-            <SceneDivider />
             <DataPipelineTabs action={<SceneAction />} />
         </SceneContent>
     )

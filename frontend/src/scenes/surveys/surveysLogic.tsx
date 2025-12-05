@@ -7,7 +7,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ProductIntentContext } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { SURVEY_CREATED_SOURCE, SURVEY_PAGE_SIZE, SurveyTemplate } from 'scenes/surveys/constants'
@@ -17,9 +16,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { ActivityScope, AvailableFeature, Breadcrumb, ProductKey, ProgressStatus, Survey } from '~/types'
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope, AvailableFeature, Breadcrumb, ProgressStatus, Survey } from '~/types'
 
 import type { surveysLogicType } from './surveysLogicType'
 
@@ -113,6 +114,8 @@ export const surveysLogic = kea<surveysLogicType>([
             ['currentTeam', 'currentTeamLoading'],
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
+            sidePanelSdkDoctorLogic,
+            ['augmentedData as sdkDoctorData'],
         ],
         actions: [teamLogic, ['loadCurrentTeam', 'addProductIntent']],
     })),
@@ -309,14 +312,6 @@ export const surveysLogic = kea<surveysLogicType>([
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
 
-            actions.addProductIntent({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEYS_VIEWED,
-                metadata: {
-                    surveys_count: values.data.surveysCount,
-                },
-            })
-
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
             }
@@ -403,6 +398,22 @@ export const surveysLogic = kea<surveysLogicType>([
             (s) => [s.currentTeam],
             (currentTeam) => {
                 return !currentTeam?.surveys_opt_in
+            },
+        ],
+        teamSdkVersions: [
+            (s) => [s.sdkDoctorData],
+            (sdkDoctorData): Record<string, string | null> => {
+                const versions: Record<string, string | null> = {}
+
+                for (const [sdkType, sdkInfo] of Object.entries(sdkDoctorData ?? {})) {
+                    if (sdkInfo?.allReleases?.length) {
+                        // sdk doctor uses 'web' but we use 'posthog-js' in SURVEY_SDK_REQUIREMENTS...
+                        const key = sdkType === 'web' ? 'posthog-js' : sdkType
+                        versions[key] = sdkInfo.allReleases[0]?.version ?? null
+                    }
+                }
+
+                return versions
             },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [

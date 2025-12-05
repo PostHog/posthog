@@ -1,12 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router } from 'kea-router'
 
-import { IconBook, IconGraph, IconHogQL, IconPlug, IconRewindPlay } from '@posthog/icons'
+import { IconBook } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { IconSurveys } from 'lib/lemon-ui/icons'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -16,6 +15,7 @@ import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
@@ -24,6 +24,7 @@ import { Breadcrumb, Conversation, ConversationDetail, ConversationStatus, SideP
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
+import { MaxUIContext } from './maxTypes'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -87,7 +88,11 @@ export const maxLogic = kea<maxLogicType>([
 
     actions({
         setQuestion: (question: string) => ({ question }), // update the form input
-        askMax: (prompt: string | null) => ({ prompt }), // used by maxThreadLogic to start a conversation
+        askMax: (prompt: string | null, addToThread: boolean = true, uiContext?: Partial<MaxUIContext>) => ({
+            prompt,
+            addToThread,
+            uiContext,
+        }), // used by maxThreadLogic to start a conversation
         scrollThreadToBottom: (behavior?: 'instant' | 'smooth') => ({ behavior }),
         openConversation: (conversationId: string) => ({ conversationId }),
         setConversationId: (conversationId: string) => ({ conversationId }),
@@ -172,6 +177,7 @@ export const maxLogic = kea<maxLogicType>([
             null as SuggestionGroup | null,
             {
                 setActiveGroup: (_, { group }) => group,
+                setQuestion: (state, { question }) => (question === '' ? null : state),
             },
         ],
 
@@ -272,7 +278,7 @@ export const maxLogic = kea<maxLogicType>([
                     {
                         key: Scene.Max,
                         name: 'AI',
-                        path: urls.max(),
+                        path: urls.ai(),
                         iconType: 'chat',
                     },
                     ...(conversationHistoryVisible || searchParams.from === 'history'
@@ -280,7 +286,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: 'Chat history',
-                                  path: urls.maxHistory(),
+                                  path: urls.aiHistory(),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -290,7 +296,7 @@ export const maxLogic = kea<maxLogicType>([
                               {
                                   key: Scene.Max,
                                   name: chatTitle || 'Chat',
-                                  path: urls.max(conversationId),
+                                  path: urls.ai(conversationId),
                                   iconType: 'chat' as const,
                               },
                           ]
@@ -441,12 +447,12 @@ export const maxLogic = kea<maxLogicType>([
     }),
 
     tabAwareUrlToAction(({ actions, values }) => ({
-        [urls.maxHistory()]: () => {
+        [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
             }
         },
-        [urls.max()]: (_, search) => {
+        [urls.ai()]: (_, search) => {
             if (search.ask && !search.chat && !values.question) {
                 window.setTimeout(() => {
                     // ensure maxThreadLogic is mounted
@@ -468,19 +474,19 @@ export const maxLogic = kea<maxLogicType>([
     tabAwareActionToUrl(({ values }) => ({
         toggleConversationHistory: () => {
             if (values.conversationHistoryVisible) {
-                return [urls.maxHistory(), {}, router.values.location.hash]
+                return [urls.aiHistory(), {}, router.values.location.hash]
             } else if (values.conversationId) {
-                return [urls.max(values.conversationId), {}, router.values.location.hash]
+                return [urls.ai(values.conversationId), {}, router.values.location.hash]
             }
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         startNewConversation: () => {
-            return [urls.max(), {}, router.values.location.hash]
+            return [urls.ai(), {}, router.values.location.hash]
         },
         setConversationId: ({ conversationId }) => {
             // Only set the URL parameter if this is a new conversation (using frontendConversationId)
             if (conversationId && conversationId === values.frontendConversationId) {
-                return [urls.max(conversationId), {}, router.values.location.hash, { replace: true }]
+                return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
             }
             // Return undefined to not update URL for existing conversations
             return undefined
@@ -503,7 +509,7 @@ export function getScrollableContainer(element?: Element | null): HTMLElement | 
 export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
     {
         label: 'Product analytics',
-        icon: <IconGraph />,
+        icon: iconForType('product_analytics'),
         suggestions: [
             {
                 content: 'Create a funnel of the Pirate Metrics (AARRR)',
@@ -521,33 +527,33 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Calculate a conversion rate for <events or actions>…',
             },
         ],
-        tooltip: 'Max can generate insights from natural language and tweak existing ones.',
+        tooltip: 'PostHog AI can generate insights from natural language and tweak existing ones.',
     },
     {
         label: 'SQL',
-        icon: <IconHogQL />,
+        icon: iconForType('insight/hog'),
         suggestions: [
             {
                 content: 'Write an SQL query to…',
             },
         ],
         url: urls.sqlEditor(),
-        tooltip: 'Max can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
+        tooltip: 'PostHog AI can generate SQL queries for your PostHog data, both analytics and the data warehouse.',
     },
     {
         label: 'Session replay',
-        icon: <IconRewindPlay />,
+        icon: iconForType('session_replay'),
         suggestions: [
             {
                 content: 'Find recordings for…',
             },
         ],
         url: productUrls.replay(),
-        tooltip: 'Max can find session recordings for you.',
+        tooltip: 'PostHog AI can find session recordings for you.',
     },
     {
         label: 'SDK setup',
-        icon: <IconPlug />,
+        icon: iconForType('sql_editor'),
         suggestions: [
             {
                 content: 'How can I set up the session replay in <a framework or language>…',
@@ -571,11 +577,41 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'How can I set up the product analytics in…',
             },
         ],
-        tooltip: 'Max can help you set up PostHog SDKs in your stack.',
+        tooltip: 'PostHog AI can help you set up PostHog SDKs in your stack.',
+    },
+    {
+        label: 'Feature flags',
+        icon: iconForType('feature_flag'),
+        suggestions: [
+            {
+                content: 'Create a flag to gradually roll out…',
+            },
+            {
+                content: 'Create a flag that starts at 10% rollout for…',
+            },
+            {
+                content: 'Create a multivariate flag for…',
+            },
+            {
+                content: 'Create a beta testing flag for…',
+            },
+        ],
+    },
+    {
+        label: 'Experiments',
+        icon: iconForType('experiment'),
+        suggestions: [
+            {
+                content: 'Create an experiment to test…',
+            },
+            {
+                content: 'Set up an A/B test with a 70/30 split between control and test for…',
+            },
+        ],
     },
     {
         label: 'Surveys',
-        icon: <IconSurveys />,
+        icon: iconForType('survey'),
         suggestions: [
             {
                 content: 'Create a survey to collect NPS responses from users',
@@ -591,7 +627,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
             },
         ],
         url: urls.surveys(),
-        tooltip: 'Max can help you create surveys to collect feedback from your users.',
+        tooltip: 'PostHog AI can help you create surveys to collect feedback from your users.',
     },
     {
         label: 'Docs',

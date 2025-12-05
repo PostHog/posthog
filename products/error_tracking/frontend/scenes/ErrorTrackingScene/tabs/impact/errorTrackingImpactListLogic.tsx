@@ -1,14 +1,18 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { Params } from 'scenes/sceneTypes'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 
 import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { errorTrackingIssueCorrelationQuery } from 'products/error_tracking/frontend/queries'
+import { syncSearchParams, updateSearchParams } from 'products/error_tracking/frontend/utils'
 
 import type { errorTrackingImpactListLogicType } from './errorTrackingImpactListLogicType'
 
@@ -89,11 +93,44 @@ export const errorTrackingImpactListLogic = kea<errorTrackingImpactListLogicType
         },
         setEvents: () => {
             posthog.capture('error_tracking_impact_event_selected')
-            actions.loadIssues()
+            if (values.events && values.events.length > 0) {
+                actions.loadIssues()
+            }
         },
     })),
 
     subscriptions(({ actions }) => ({
         events: () => actions.setSelectedIssueIds([]),
     })),
+
+    actionToUrl(({ values }) => {
+        const buildURL = (): [
+            string,
+            Params,
+            Record<string, any>,
+            {
+                replace: boolean
+            },
+        ] => {
+            return syncSearchParams(router, (params: Params) => {
+                updateSearchParams(params, 'events', values.events, null)
+                return params
+            })
+        }
+
+        return {
+            setEvents: () => buildURL(),
+        }
+    }),
+
+    urlToAction(({ actions, values }) => {
+        const urlToAction = (_: any, params: Params): void => {
+            if (params.events && !equal(params.events, values.events)) {
+                actions.setEvents(params.events)
+            }
+        }
+        return {
+            '*': urlToAction,
+        }
+    }),
 ])

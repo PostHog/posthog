@@ -1,8 +1,12 @@
+from .ashby.source import AshbySource
 from .bigquery.source import BigQuerySource
+from .bing_ads.source import BingAdsSource
 from .braze.source import BrazeSource
 from .chargebee.source import ChargebeeSource
 from .common.registry import SourceRegistry
+from .customer_io.source import CustomerIOSource
 from .doit.source import DoItSource
+from .github.source import GithubSource
 from .google_ads.source import GoogleAdsSource
 from .google_sheets.source import GoogleSheetsSource
 from .hubspot.source import HubspotSource
@@ -23,14 +27,20 @@ from .salesforce.source import SalesforceSource
 from .shopify.source import ShopifySource
 from .snowflake.source import SnowflakeSource
 from .stripe.source import StripeSource
+from .supabase.source import SupabaseSource
 from .temporalio.source import TemporalIOSource
 from .tiktok_ads.source import TikTokAdsSource
 from .vitally.source import VitallySource
 from .zendesk.source import ZendeskSource
 
 __all__ = [
+    "AshbySource",
+    "SupabaseSource",
+    "CustomerIOSource",
+    "GithubSource",
     "SourceRegistry",
     "BigQuerySource",
+    "BingAdsSource",
     "BrazeSource",
     "ChargebeeSource",
     "DoItSource",

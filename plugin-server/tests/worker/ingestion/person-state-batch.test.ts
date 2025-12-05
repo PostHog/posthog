@@ -8,6 +8,7 @@ import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/pipelines/results'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
+import { PersonsStore } from '~/worker/ingestion/persons/persons-store'
 
 import { TopicMessage } from '../../../src/kafka/producer'
 import {
@@ -25,7 +26,7 @@ import { PostgresUse } from '../../../src/utils/db/postgres'
 import { defaultRetryConfig } from '../../../src/utils/retries'
 import { UUIDT } from '../../../src/utils/utils'
 import { uuidFromDistinctId } from '../../../src/worker/ingestion/person-uuid'
-import { BatchWritingPersonsStoreForBatch } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '../../../src/worker/ingestion/persons/batch-writing-person-store'
 import { PersonContext } from '../../../src/worker/ingestion/persons/person-context'
 import { PersonEventProcessor } from '../../../src/worker/ingestion/persons/person-event-processor'
 import { PersonMergeService } from '../../../src/worker/ingestion/persons/person-merge-service'
@@ -35,7 +36,6 @@ import {
     createDefaultSyncMergeMode,
 } from '../../../src/worker/ingestion/persons/person-merge-types'
 import { PersonPropertyService } from '../../../src/worker/ingestion/persons/person-property-service'
-import { PersonsStoreForBatch } from '../../../src/worker/ingestion/persons/persons-store-for-batch'
 import { PostgresPersonRepository } from '../../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { fetchDistinctIdValues } from '../../../src/worker/ingestion/persons/repositories/test-helpers'
 import {
@@ -80,7 +80,7 @@ async function createPerson(
     return result.person
 }
 
-async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStoreForBatch, kafkaAcks: Promise<void>) {
+async function flushPersonStoreToKafka(hub: Hub, personStore: PersonsStore, kafkaAcks: Promise<void>) {
     const kafkaMessages = await personStore.flush()
     await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((message) => message.topicMessage))
     await hub.db.kafkaProducer.flush()
@@ -137,6 +137,7 @@ describe('PersonState.processEvent()', () => {
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
         jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
         jest.spyOn(personRepository, 'updatePerson')
 
         defaultRetryConfig.RETRY_INTERVAL_DEFAULT = 0
@@ -169,7 +170,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             personRepository,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
@@ -188,8 +189,7 @@ describe('PersonState.processEvent()', () => {
         const processor = new PersonEventProcessor(
             context,
             propertyService ?? new PersonPropertyService(context),
-            mergeService ?? new PersonMergeService(context),
-            false // forceDisablePersonProcessing = false (default)
+            mergeService ?? new PersonMergeService(context)
         )
         return processor
     }
@@ -208,7 +208,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             personRepository,
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
         )
@@ -243,7 +243,7 @@ describe('PersonState.processEvent()', () => {
             ...event,
         }
 
-        const personsStore = new BatchWritingPersonsStoreForBatch(
+        const personsStore = new BatchWritingPersonsStore(
             customPersonRepository ??
                 (customHub ? new PostgresPersonRepository(customHub.db.postgres) : personRepository),
             customHub ? customHub.db.kafkaProducer : hub.db.kafkaProducer
@@ -339,52 +339,6 @@ describe('PersonState.processEvent()', () => {
             expect(personPrimaryTeam.uuid).not.toEqual(personOtherTeam.uuid)
         })
 
-        it('returns an ephemeral user object when $process_person_profile=false', async () => {
-            const event_uuid = new UUIDT().toString()
-
-            const hubParam = undefined
-            const processPerson = false
-            const [result, kafkaAcks] = await personProcessor(
-                {
-                    event: '$pageview',
-                    distinct_id: newUserDistinctId,
-                    uuid: event_uuid,
-                    properties: { $set: { should_be_dropped: 100 } },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson
-            ).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                const fakePerson = result.value
-                expect(fakePerson).toEqual(
-                    expect.objectContaining({
-                        team_id: teamId,
-                        uuid: newUserUuid, // deterministic even though no user rows were created
-                        properties: {}, // empty even though there was a $set attempted
-                        created_at: DateTime.utc(1970, 1, 1, 0, 0, 5), // fake person created_at
-                    })
-                )
-                expect(fakePerson.force_upgrade).toBeUndefined()
-            }
-
-            // verify there is no Postgres person
-            const persons = await fetchPostgresPersonsH()
-            expect(persons.length).toEqual(0)
-
-            // verify there are no Postgres distinct_ids
-            const distinctIds = await fetchDistinctIdValues(
-                hub.db.postgres,
-                isOkResult(result) ? (result.value as InternalPerson) : ({} as InternalPerson)
-            )
-            expect(distinctIds).toEqual(expect.arrayContaining([]))
-        })
-
         it('overrides are created only when distinct_id is in posthog_personlessdistinctid', async () => {
             // oldUserDistinctId exists, and 'old2' will merge into it, but not create an override
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
@@ -442,7 +396,7 @@ describe('PersonState.processEvent()', () => {
                     expect.objectContaining({
                         distinct_id: 'new2',
                         person_id: newUserUuid,
-                        version: '1',
+                        version: 1,
                     }),
                 ])
             )
@@ -450,117 +404,6 @@ describe('PersonState.processEvent()', () => {
             // old2 has no override, because it wasn't in posthog_personlessdistinctid
             const chOverridesOld = await fetchOverridesForDistinctId('old2')
             expect(chOverridesOld.length).toEqual(0)
-        })
-
-        it('force_upgrade works', async () => {
-            const _oldPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-
-            const hubParam = undefined
-            let processPerson = true
-            const [_person, kafkaAcks] = await personProcessor(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson
-            ).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-
-            // Using the `distinct_id` again with `processPerson=false` results in
-            // `force_upgrade=true` and real Person `uuid` and `created_at`
-            processPerson = false
-            const event_uuid = new UUIDT().toString()
-            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [result2, kafkaAcks2] = await personProcessor(
-                {
-                    event: '$pageview',
-                    distinct_id: newUserDistinctId,
-                    uuid: event_uuid,
-                    properties: { $set: { should_be_dropped: 100 } },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson,
-                timestampParam
-            ).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks2
-
-            expect(result2.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result2)) {
-                const fakePerson = result2.value
-                expect(fakePerson).toEqual(
-                    expect.objectContaining({
-                        team_id: teamId,
-                        uuid: oldUserUuid, // *old* user, because it existed before the merge
-                        properties: {}, // empty even though there was a $set attempted
-                        created_at: timestamp, // *not* the fake person created_at
-                        force_upgrade: true,
-                    })
-                )
-            }
-        })
-
-        it('force_upgrade is ignored if team.person_processing_opt_out is true', async () => {
-            mainTeam.person_processing_opt_out = true
-            const _oldPerson = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, [
-                { distinctId: oldUserDistinctId },
-            ])
-
-            const hubParam = undefined
-            let processPerson = true
-            const [_person, kafkaAcks] = await personProcessor(
-                {
-                    event: '$identify',
-                    distinct_id: newUserDistinctId,
-                    properties: {
-                        $anon_distinct_id: oldUserDistinctId,
-                    },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson
-            ).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-
-            // Using the `distinct_id` again with `processPerson=false` results in
-            // `force_upgrade=true` and real Person `uuid` and `created_at`
-            processPerson = false
-            const event_uuid = new UUIDT().toString()
-            const timestampParam = timestamp.plus({ minutes: 5 }) // Event needs to happen after Person creation
-            const [result2, kafkaAcks2] = await personProcessor(
-                {
-                    event: '$pageview',
-                    distinct_id: newUserDistinctId,
-                    uuid: event_uuid,
-                    properties: { $set: { should_be_dropped: 100 } },
-                },
-                undefined,
-                undefined,
-                hubParam,
-                processPerson,
-                timestampParam
-            ).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks2
-
-            expect(result2.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result2)) {
-                const fakePerson = result2.value
-                expect(fakePerson.force_upgrade).toBeUndefined()
-            }
         })
 
         it('creates person if they are new', async () => {
@@ -597,73 +440,6 @@ describe('PersonState.processEvent()', () => {
             // verify Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
-        })
-
-        it('does not attach existing person properties to $process_person_profile=false events', async () => {
-            const originalEventUuid = new UUIDT().toString()
-            const [result, kafkaAcks] = await personProcessor({
-                event: '$pageview',
-                distinct_id: newUserDistinctId,
-                uuid: originalEventUuid,
-                properties: { $set: { c: 420 } },
-            }).processEvent()
-            await hub.db.kafkaProducer.flush()
-            await kafkaAcks
-
-            expect(result.type).toBe(PipelineResultType.OK)
-            if (isOkResult(result)) {
-                const person = result.value
-                expect(person).toEqual(
-                    expect.objectContaining({
-                        id: expect.any(String),
-                        uuid: newUserUuid,
-                        properties: { $creator_event_uuid: originalEventUuid, c: 420 },
-                        created_at: timestamp,
-                        version: 0,
-                        is_identified: false,
-                    })
-                )
-
-                // verify Postgres persons
-                const persons = sortPersons(await fetchPostgresPersonsH())
-                expect(persons.length).toEqual(1)
-                expect(persons[0]).toEqual(person)
-
-                // verify Postgres distinct_ids
-                const distinctIds = await fetchDistinctIdValues(hub.db.postgres, person as InternalPerson)
-                expect(distinctIds).toEqual(expect.arrayContaining([newUserDistinctId]))
-            }
-
-            // OK, a person now exists with { c: 420 }, let's prove the properties come back out
-            // of the DB.
-            const [personVerifyResult] = await personProcessor({
-                event: '$pageview',
-                distinct_id: newUserDistinctId,
-                uuid: new UUIDT().toString(),
-                properties: {},
-            }).processEvent()
-            expect(personVerifyResult.type).toBe(PipelineResultType.OK)
-            if (isOkResult(personVerifyResult)) {
-                expect(personVerifyResult.value.properties).toEqual({ $creator_event_uuid: originalEventUuid, c: 420 })
-            }
-
-            // But they don't when $process_person_profile=false
-            const [processPersonFalseResult] = await personProcessor(
-                {
-                    event: '$pageview',
-                    distinct_id: newUserDistinctId,
-                    uuid: new UUIDT().toString(),
-                    properties: {},
-                },
-                undefined,
-                undefined,
-                hub,
-                false
-            ).processEvent()
-            expect(processPersonFalseResult.type).toBe(PipelineResultType.OK)
-            if (isOkResult(processPersonFalseResult)) {
-                expect(processPersonFalseResult.value.properties).toEqual({})
-            }
         })
 
         it('handles person being created in a race condition', async () => {
@@ -920,13 +696,13 @@ describe('PersonState.processEvent()', () => {
             ])
         })
 
-        it('updates person properties - always update for person events', async () => {
+        it('skips database write when only filtered properties change (batch-level filtering)', async () => {
             await createPerson(hub, timestamp, { $current_url: 123 }, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
             ])
 
             const propertyService = personPropertyService({
-                event: '$set',
+                event: '$pageview',
                 distinct_id: newUserDistinctId,
                 properties: {
                     $set: { $current_url: 4 },
@@ -940,7 +716,7 @@ describe('PersonState.processEvent()', () => {
                 expect.objectContaining({
                     id: expect.any(String),
                     uuid: newUserUuid,
-                    properties: { $current_url: 4 }, // Here we keep 4 for passing forward to PoE
+                    properties: { $current_url: 4 },
                     created_at: timestamp,
                     is_identified: false,
                 })
@@ -948,7 +724,6 @@ describe('PersonState.processEvent()', () => {
 
             expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
 
-            // verify Postgres persons
             const persons = sortPersons(await fetchPostgresPersonsH())
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(
@@ -957,10 +732,52 @@ describe('PersonState.processEvent()', () => {
                     uuid: newUserUuid,
                     created_at: timestamp,
                     is_identified: false,
-                    properties: { $current_url: 4 },
+                    properties: { $current_url: 123 },
+                    version: 0,
+                })
+            )
+        })
+
+        it('writes to database when non-filtered properties change', async () => {
+            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, newUserUuid, [
+                { distinctId: newUserDistinctId },
+            ])
+
+            const propertyService = personPropertyService({
+                event: '$pageview',
+                distinct_id: newUserDistinctId,
+                properties: {
+                    $set: { name: 'Jane' },
+                },
+            })
+            const [person, kafkaAcks] = await propertyService.updateProperties()
+            const context = propertyService.getContext()
+            await flushPersonStoreToKafka(hub, context.personStore, kafkaAcks)
+
+            expect(person).toEqual(
+                expect.objectContaining({
+                    id: expect.any(String),
+                    uuid: newUserUuid,
+                    properties: { name: 'Jane' },
+                    created_at: timestamp,
+                    is_identified: false,
+                })
+            )
+
+            expect(personRepository.fetchPerson).toHaveBeenCalledTimes(1)
+
+            const persons = sortPersons(await fetchPostgresPersonsH())
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: person.id,
+                    uuid: newUserUuid,
+                    created_at: timestamp,
+                    is_identified: false,
+                    properties: { name: 'Jane' },
                     version: 1,
                 })
-            ) // We updated PG as it's a person event
+            )
         })
 
         it('updates person properties - always update if undefined before', async () => {
@@ -1083,7 +900,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service,
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: personInitial, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: personInitial,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1237,7 +1059,12 @@ describe('PersonState.processEvent()', () => {
             // create mock merge service
             const mergeService = personMergeService(event)
             jest.spyOn(mergeService, 'handleIdentifyOrAlias').mockReturnValue(
-                Promise.resolve({ success: true, person: mergeDeletedPerson, kafkaAck: Promise.resolve() })
+                Promise.resolve({
+                    success: true,
+                    person: mergeDeletedPerson,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             )
 
             const personS = personProcessor(event, undefined, mergeService)
@@ -1331,9 +1158,9 @@ describe('PersonState.processEvent()', () => {
                 })
             )
 
-            expect(personRepository.updatePerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.createPerson).toHaveBeenCalledTimes(1)
+            expect(personRepository.updatePerson).not.toHaveBeenCalled()
 
-            // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toEqual(
@@ -1342,17 +1169,16 @@ describe('PersonState.processEvent()', () => {
                     uuid: newUserUuid,
                     properties: { foo: 'bar' },
                     created_at: timestamp,
-                    version: 1,
+                    version: 0,
                     is_identified: true,
                 })
             )
 
-            // verify Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
         })
 
-        it(`marks is_identified to be updated when no changes to distinct_ids but $anon_distinct_id passe`, async () => {
+        it(`skips database write when is_identified doesn't change (batch-level filtering)`, async () => {
             await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, [
                 { distinctId: newUserDistinctId },
                 { distinctId: oldUserDistinctId },
@@ -1384,7 +1210,6 @@ describe('PersonState.processEvent()', () => {
             })
             expect(mergeService.getUpdateIsIdentified()).toBeTruthy()
 
-            // verify Postgres persons
             const persons = await fetchPostgresPersonsH()
             expect(persons.length).toEqual(1)
             expect(persons[0]).toMatchObject({
@@ -1393,7 +1218,7 @@ describe('PersonState.processEvent()', () => {
                 created_at: timestamp,
                 is_identified: false,
                 properties: {},
-                version: 1,
+                version: 0,
             })
         })
 
@@ -1443,6 +1268,394 @@ describe('PersonState.processEvent()', () => {
             // verify Postgres distinct_ids
             const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
             expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`merges two persons and applies $set properties from multiple $identify events in same batch`, async () => {
+            // When two persons exist (one for anon_distinct_id, one for distinct_id) and multiple
+            // $identify events with different $set properties are processed in the same batch,
+            // all $set properties from all events should be applied to the merged person.
+
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+
+            const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
+                const fullEvent = {
+                    team_id: teamId,
+                    properties: {},
+                    ...event,
+                }
+                const context = new PersonContext(
+                    fullEvent as any,
+                    mainTeam,
+                    distinctId,
+                    timestamp,
+                    true,
+                    hub.db.kafkaProducer,
+                    sharedPersonsStore,
+                    0,
+                    createDefaultSyncMergeMode()
+                )
+                return new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context)
+                )
+            }
+
+            // Events for anon distinct_id (oldUserDistinctId) - these create a person
+            const anonEvent1 = createProcessorWithSharedStore(
+                {
+                    event: 'Application Installed',
+                    distinct_id: oldUserDistinctId,
+                    properties: {},
+                },
+                oldUserDistinctId
+            )
+            await anonEvent1.processEvent()
+
+            const anonEvent2 = createProcessorWithSharedStore(
+                {
+                    event: '$screen',
+                    distinct_id: oldUserDistinctId,
+                    properties: { $screen_name: '/welcome' },
+                },
+                oldUserDistinctId
+            )
+            await anonEvent2.processEvent()
+
+            // Event for main distinct_id - $feature_flag_called creates the person
+            const featureFlagProcessor = createProcessorWithSharedStore(
+                {
+                    event: '$feature_flag_called',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $feature_flag: 'test-flag',
+                        $feature_flag_response: true,
+                    },
+                },
+                newUserDistinctId
+            )
+            await featureFlagProcessor.processEvent()
+
+            // First $identify - merges anon into main
+            const identify1Processor = createProcessorWithSharedStore(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                        $set: {
+                            hasAddedInternship: false,
+                            hasAddedLanguages: false,
+                            isTempUser: true,
+                            wasOpenedOnMobileDevice: true,
+                        },
+                    },
+                },
+                newUserDistinctId
+            )
+            await identify1Processor.processEvent()
+
+            // Second $identify - same merge but with different $set properties
+            const identify2Processor = createProcessorWithSharedStore(
+                {
+                    event: '$identify',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $anon_distinct_id: oldUserDistinctId,
+                        $set: {
+                            email: null,
+                            firstName: null,
+                            onboardingStatus: { completed: false },
+                            isTempUser: true,
+                        },
+                    },
+                },
+                newUserDistinctId
+            )
+            const [identify2Result] = await identify2Processor.processEvent()
+            expect(identify2Result.type).toBe(PipelineResultType.OK)
+
+            // More events after identify
+            const postIdentifyEvent = createProcessorWithSharedStore(
+                {
+                    event: 'answer_onboarding_question',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $set: {
+                            selectedAge: null,
+                            lastSearchResultCount: 37,
+                            selfAttributedReferrer: 'C2',
+                            primarySelectedJobGroupType: 'TRAINING',
+                        },
+                    },
+                },
+                newUserDistinctId
+            )
+            await postIdentifyEvent.processEvent()
+
+            // Flush all at once
+            const kafkaMessages = await sharedPersonsStore.flush()
+            await hub.db.kafkaProducer.queueMessages(kafkaMessages.map((m) => m.topicMessage))
+            await hub.db.kafkaProducer.flush()
+
+            // Verify Postgres person
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+
+            // The person should have properties from BOTH $identify events AND the post-identify event
+            expect(persons[0]).toMatchObject({
+                uuid: expect.any(String),
+                is_identified: true,
+            })
+
+            // Check specific properties from second $identify
+            expect(persons[0].properties).toMatchObject({
+                onboardingStatus: { completed: false },
+                isTempUser: true,
+            })
+
+            // Check properties from first $identify
+            expect(persons[0].properties).toMatchObject({
+                hasAddedInternship: false,
+                wasOpenedOnMobileDevice: true,
+            })
+
+            // Check properties from post-identify event
+            expect(persons[0].properties).toMatchObject({
+                selectedAge: null,
+                lastSearchResultCount: 37,
+                selfAttributedReferrer: 'C2',
+                primarySelectedJobGroupType: 'TRAINING',
+            })
+
+            // Verify both distinct_ids are linked
+            const distinctIds = await fetchDistinctIdValues(hub.db.postgres, persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining([oldUserDistinctId, newUserDistinctId]))
+        })
+
+        it(`setCachedPersonForUpdate with null overwrites existing cached person updates`, async () => {
+            // Calling setCachedPersonForUpdate(distinctId, null) destroys any existing cached
+            // person updates for that distinctId, causing pending property updates to be lost
+            // when the batch is flushed.
+
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+
+            // Helper to create processor with shared store
+            const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
+                const fullEvent = {
+                    team_id: teamId,
+                    properties: {},
+                    ...event,
+                }
+                const context = new PersonContext(
+                    fullEvent as any,
+                    mainTeam,
+                    distinctId,
+                    timestamp,
+                    true,
+                    hub.db.kafkaProducer,
+                    sharedPersonsStore,
+                    0,
+                    createDefaultSyncMergeMode()
+                )
+                return new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context)
+                )
+            }
+
+            // Simulate Thread 2: Process events for anon-id first, creating person B
+            // First event creates the person
+            const anonEvent1 = createProcessorWithSharedStore(
+                {
+                    event: '$set',
+                    distinct_id: oldUserDistinctId,
+                    properties: {
+                        $set: {
+                            initialProperty: 'initial-value',
+                        },
+                    },
+                },
+                oldUserDistinctId
+            )
+            await anonEvent1.processEvent()
+
+            // Second event adds pending updates to properties_to_set
+            const anonEvent2 = createProcessorWithSharedStore(
+                {
+                    event: '$set',
+                    distinct_id: oldUserDistinctId,
+                    properties: {
+                        $set: {
+                            anonProperty: 'from-anon-events',
+                        },
+                    },
+                },
+                oldUserDistinctId
+            )
+            await anonEvent2.processEvent()
+
+            // Verify person B was created and has pending updates cached
+            const cachedPersonB = sharedPersonsStore.getCachedPersonForUpdateByDistinctId(teamId, oldUserDistinctId)
+            expect(cachedPersonB).not.toBeNull()
+            // The initial property is in properties (written to DB during createPerson)
+            expect(cachedPersonB?.properties).toMatchObject({
+                initialProperty: 'initial-value',
+            })
+            // The second property is in properties_to_set (pending flush)
+            expect(cachedPersonB?.properties_to_set).toMatchObject({
+                anonProperty: 'from-anon-events',
+            })
+
+            // Call setCachedPersonForUpdate with null - this overwrites the cached person
+            sharedPersonsStore.setCachedPersonForUpdate(teamId, oldUserDistinctId, null)
+
+            // Verify the cache was destroyed
+            const cachedAfterNull = sharedPersonsStore.getCachedPersonForUpdateByDistinctId(teamId, oldUserDistinctId)
+            expect(cachedAfterNull).toBeUndefined()
+
+            // Create another person for a different distinct_id
+            const mainEvent = createProcessorWithSharedStore(
+                {
+                    event: '$feature_flag_called',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $set: {
+                            mainProperty: 'from-main-events',
+                        },
+                    },
+                },
+                newUserDistinctId
+            )
+            await mainEvent.processEvent()
+
+            // Flush the batch
+            await sharedPersonsStore.flush()
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(2)
+
+            // The pending property update (anonProperty) was lost because the cache was cleared
+            const personWithAnonProperty = persons.find((p) => 'anonProperty' in p.properties)
+            expect(personWithAnonProperty).toBeUndefined()
+        })
+
+        it(`fetchForUpdate preserves cached person when DB query returns null but cache was populated concurrently`, async () => {
+            // When fetchForUpdate's DB query returns null, it checks if the cache was populated
+            // by another concurrent operation before caching null. If the cache now has data,
+            // it returns the cached person instead of overwriting with null.
+
+            const sharedPersonsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
+
+            // Helper to create processor with shared store
+            const createProcessorWithSharedStore = (event: Partial<PluginEvent>, distinctId: string) => {
+                const fullEvent = {
+                    team_id: teamId,
+                    properties: {},
+                    ...event,
+                }
+                const context = new PersonContext(
+                    fullEvent as any,
+                    mainTeam,
+                    distinctId,
+                    timestamp,
+                    true,
+                    hub.db.kafkaProducer,
+                    sharedPersonsStore,
+                    0,
+                    createDefaultSyncMergeMode()
+                )
+                return new PersonEventProcessor(
+                    context,
+                    new PersonPropertyService(context),
+                    new PersonMergeService(context)
+                )
+            }
+
+            // Thread 2: Process events for anon-id, creating person B with pending updates
+            const anonEvent1 = createProcessorWithSharedStore(
+                {
+                    event: '$set',
+                    distinct_id: oldUserDistinctId,
+                    properties: {
+                        $set: {
+                            initialProperty: 'initial-value',
+                        },
+                    },
+                },
+                oldUserDistinctId
+            )
+            await anonEvent1.processEvent()
+
+            const anonEvent2 = createProcessorWithSharedStore(
+                {
+                    event: '$set',
+                    distinct_id: oldUserDistinctId,
+                    properties: {
+                        $set: {
+                            anonProperty: 'from-anon-events',
+                        },
+                    },
+                },
+                oldUserDistinctId
+            )
+            await anonEvent2.processEvent()
+
+            // Verify person B was cached with pending updates
+            const cachedPersonB = sharedPersonsStore.getCachedPersonForUpdateByDistinctId(teamId, oldUserDistinctId)
+            expect(cachedPersonB).not.toBeNull()
+            expect(cachedPersonB?.properties_to_set).toMatchObject({
+                anonProperty: 'from-anon-events',
+            })
+
+            // Simulate the check-then-set pattern used in fetchForUpdate:
+            // Only cache null if the cache is still empty
+            const currentCache = sharedPersonsStore.getCachedPersonForUpdateByDistinctId(teamId, oldUserDistinctId)
+            if (currentCache === undefined) {
+                sharedPersonsStore.setCachedPersonForUpdate(teamId, oldUserDistinctId, null)
+            }
+
+            // The cache should be preserved because currentCache was defined
+            const cachedAfterCheck = sharedPersonsStore.getCachedPersonForUpdateByDistinctId(teamId, oldUserDistinctId)
+            expect(cachedAfterCheck).not.toBeNull()
+            expect(cachedAfterCheck).not.toBeUndefined()
+            expect(cachedAfterCheck?.properties_to_set).toMatchObject({
+                anonProperty: 'from-anon-events',
+            })
+
+            // Create another person
+            const mainEvent = createProcessorWithSharedStore(
+                {
+                    event: '$set',
+                    distinct_id: newUserDistinctId,
+                    properties: {
+                        $set: {
+                            mainProperty: 'from-main-events',
+                        },
+                    },
+                },
+                newUserDistinctId
+            )
+            await mainEvent.processEvent()
+
+            await sharedPersonsStore.flush()
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(2)
+
+            // Both persons should have their properties preserved
+            const personWithAnonProperty = persons.find((p) => 'anonProperty' in p.properties)
+            expect(personWithAnonProperty).toBeDefined()
+            expect(personWithAnonProperty?.properties).toMatchObject({
+                anonProperty: 'from-anon-events',
+            })
+
+            const personWithMainProperty = persons.find((p) => 'mainProperty' in p.properties)
+            expect(personWithMainProperty).toBeDefined()
+            expect(personWithMainProperty?.properties).toMatchObject({
+                mainProperty: 'from-main-events',
+            })
         })
 
         it(`add distinct id and marks user as is_identified when passed $anon_distinct_id person exists and distinct_id does not`, async () => {
@@ -1640,13 +1853,13 @@ describe('PersonState.processEvent()', () => {
                         id: expect.any(String),
                         properties: '{}',
                         created_at: timestampch,
-                        version: '1',
+                        version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
                         id: expect.any(String),
                         is_deleted: 1,
-                        version: '100',
+                        version: 100,
                     }),
                 ])
             )
@@ -1840,13 +2053,13 @@ describe('PersonState.processEvent()', () => {
                         id: expect.any(String),
                         properties: JSON.stringify({ a: 1, b: 3, c: 4, d: 6, e: 7, f: 9 }),
                         created_at: timestampch,
-                        version: '1',
+                        version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
                         id: expect.any(String),
                         is_deleted: 1,
-                        version: '100',
+                        version: 100,
                     }),
                 ])
             )
@@ -1942,7 +2155,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
             await state.handleIdentifyOrAlias()
             expect(state.merge).toHaveBeenCalledWith(oldUserDistinctId, newUserDistinctId, teamId, timestamp)
@@ -1959,7 +2177,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -1977,7 +2200,12 @@ describe('PersonState.processEvent()', () => {
                 hub
             )
             jest.spyOn(state, 'merge').mockImplementation(() => {
-                return Promise.resolve({ success: true, person: undefined, kafkaAck: Promise.resolve() })
+                return Promise.resolve({
+                    success: true,
+                    person: undefined,
+                    kafkaAck: Promise.resolve(),
+                    needsPersonUpdate: true,
+                })
             })
 
             await state.handleIdentifyOrAlias()
@@ -2050,13 +2278,13 @@ describe('PersonState.processEvent()', () => {
                         id: expect.any(String),
                         properties: '{}',
                         created_at: timestampch,
-                        version: '1',
+                        version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
                         id: expect.any(String),
                         is_deleted: 1,
-                        version: '100',
+                        version: 100,
                     }),
                 ])
             )
@@ -2543,13 +2771,13 @@ describe('PersonState.processEvent()', () => {
                         id: firstUserUuid,
                         properties: '{}',
                         created_at: timestampch,
-                        version: '1',
+                        version: 1,
                         is_identified: 1,
                     }),
                     expect.objectContaining({
                         id: secondUserUuid,
                         is_deleted: 1,
-                        version: '100',
+                        version: 100,
                     }),
                 ])
             )
@@ -3079,7 +3307,7 @@ describe('PersonState.processEvent()', () => {
             )
             const context = mergeService.getContext()
 
-            const batchStore = context.personStore as BatchWritingPersonsStoreForBatch
+            const batchStore = context.personStore as BatchWritingPersonsStore
 
             batchStore.setCachedPersonForUpdate(
                 teamId,
@@ -3970,7 +4198,7 @@ describe('PersonState.processEvent()', () => {
                         ...event,
                     }
 
-                    const personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+                    const personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
                     const context = new PersonContext(
                         fullEvent as any,
@@ -3986,8 +4214,7 @@ describe('PersonState.processEvent()', () => {
                     const processor = new PersonEventProcessor(
                         context,
                         new PersonPropertyService(context),
-                        new PersonMergeService(context),
-                        false // forceDisablePersonProcessing = false (default)
+                        new PersonMergeService(context)
                     )
                     return processor
                 }
@@ -4108,6 +4335,7 @@ describe('PersonState.processEvent()', () => {
                             success: true,
                             person: mockPerson,
                             kafkaAck: Promise.resolve(),
+                            needsPersonUpdate: true,
                         })
 
                         const [result] = await processor.processEvent()
@@ -4117,166 +4345,6 @@ describe('PersonState.processEvent()', () => {
                             expect(result.value).toEqual(mockPerson)
                         }
                     }
-                })
-            })
-        })
-
-        describe('forceDisablePersonProcessing functionality', () => {
-            let personsStore: BatchWritingPersonsStoreForBatch
-
-            beforeEach(() => {
-                personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
-            })
-
-            function createPersonEventProcessorWithForceDisable(
-                event: Partial<PluginEvent>,
-                forceDisablePersonProcessing: boolean = false,
-                processPerson: boolean = true
-            ) {
-                const fullEvent = {
-                    team_id: teamId,
-                    properties: {},
-                    ...event,
-                }
-
-                const context = new PersonContext(
-                    fullEvent as any,
-                    mainTeam,
-                    event.distinct_id!,
-                    timestamp,
-                    processPerson,
-                    hub.db.kafkaProducer,
-                    personsStore,
-                    0,
-                    createDefaultSyncMergeMode()
-                )
-                const processor = new PersonEventProcessor(
-                    context,
-                    new PersonPropertyService(context),
-                    new PersonMergeService(context),
-                    forceDisablePersonProcessing
-                )
-                return processor
-            }
-
-            describe('when forceDisablePersonProcessing is true', () => {
-                it('should skip all personless processing and return fake person immediately', async () => {
-                    const processor = createPersonEventProcessorWithForceDisable(
-                        {
-                            event: '$pageview',
-                            distinct_id: 'test-user-123',
-                        },
-                        true, // forceDisablePersonProcessing = true
-                        false // processPerson = false (triggers personless mode)
-                    )
-
-                    const [result, kafkaAck] = await processor.processEvent()
-
-                    expect(result.type).toBe(PipelineResultType.OK)
-                    if (isOkResult(result)) {
-                        const person = result.value
-                        expect(person.team_id).toBe(teamId)
-                        expect(person.properties).toEqual({})
-                        expect(person.uuid).toBeDefined()
-                        expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z') // Fake person creation date
-                    }
-
-                    // Verify kafkaAck is resolved
-                    await expect(kafkaAck).resolves.toBeUndefined()
-                })
-
-                it('should not perform any database operations when forceDisablePersonProcessing is true', async () => {
-                    const processor = createPersonEventProcessorWithForceDisable(
-                        {
-                            event: '$pageview',
-                            distinct_id: 'test-user-456',
-                        },
-                        true, // forceDisablePersonProcessing = true
-                        false // processPerson = false
-                    )
-
-                    // Spy on person store methods to ensure they're not called
-                    const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
-                    const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
-
-                    const [result] = await processor.processEvent()
-
-                    expect(result.type).toBe(PipelineResultType.OK)
-                    // Verify no database operations were performed
-                    expect(fetchForCheckingSpy).not.toHaveBeenCalled()
-                    expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
-                })
-
-                it('should work with different distinct IDs', async () => {
-                    const distinctIds = ['user-1', 'user-2', 'user-3']
-
-                    for (const distinctId of distinctIds) {
-                        const processor = createPersonEventProcessorWithForceDisable(
-                            {
-                                event: '$pageview',
-                                distinct_id: distinctId,
-                            },
-                            true, // forceDisablePersonProcessing = true
-                            false // processPerson = false
-                        )
-
-                        const [result] = await processor.processEvent()
-
-                        expect(result.type).toBe(PipelineResultType.OK)
-                        if (isOkResult(result)) {
-                            expect(result.value.team_id).toBe(teamId)
-                            expect(result.value.properties).toEqual({})
-                        }
-                    }
-                })
-            })
-
-            describe('when forceDisablePersonProcessing is false', () => {
-                it('should perform normal personless processing', async () => {
-                    const processor = createPersonEventProcessorWithForceDisable(
-                        {
-                            event: '$pageview',
-                            distinct_id: 'test-user-normal',
-                        },
-                        false, // forceDisablePersonProcessing = false
-                        false // processPerson = false
-                    )
-
-                    const [result] = await processor.processEvent()
-
-                    expect(result.type).toBe(PipelineResultType.OK)
-                    if (isOkResult(result)) {
-                        const person = result.value
-                        expect(person.team_id).toBe(teamId)
-                        expect(person.properties).toEqual({})
-                        expect(person.uuid).toBeDefined()
-                        // Should still create a fake person, but through normal personless processing
-                        expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z')
-                    }
-                })
-
-                it('should perform database operations when forceDisablePersonProcessing is false', async () => {
-                    const processor = createPersonEventProcessorWithForceDisable(
-                        {
-                            event: '$pageview',
-                            distinct_id: 'test-user-db-ops',
-                        },
-                        false, // forceDisablePersonProcessing = false
-                        false // processPerson = false
-                    )
-
-                    // Spy on person store methods
-                    const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValue(null)
-                    const addPersonlessDistinctIdSpy = jest
-                        .spyOn(personsStore, 'addPersonlessDistinctId')
-                        .mockResolvedValue(false)
-
-                    const [result] = await processor.processEvent()
-
-                    expect(result.type).toBe(PipelineResultType.OK)
-                    // Verify database operations were performed
-                    expect(fetchForCheckingSpy).toHaveBeenCalledWith(teamId, 'test-user-db-ops')
-                    expect(addPersonlessDistinctIdSpy).toHaveBeenCalledWith(teamId, 'test-user-db-ops')
                 })
             })
         })

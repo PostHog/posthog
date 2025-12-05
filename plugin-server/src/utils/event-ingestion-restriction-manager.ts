@@ -9,6 +9,8 @@ export enum RestrictionType {
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
 }
 
+export type IngestionPipeline = 'analytics' | 'session_recordings'
+
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 /*
@@ -24,6 +26,7 @@ export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
  */
 export class EventIngestionRestrictionManager {
     private hub: Hub
+    private pipeline: IngestionPipeline
     private staticDropEventList: Set<string>
     private staticSkipPersonList: Set<string>
     private staticForceOverflowList: Set<string>
@@ -33,14 +36,21 @@ export class EventIngestionRestrictionManager {
     constructor(
         hub: Hub,
         options: {
+            pipeline?: IngestionPipeline
             staticDropEventTokens?: string[]
             staticSkipPersonTokens?: string[]
             staticForceOverflowTokens?: string[]
         } = {}
     ) {
-        const { staticDropEventTokens = [], staticSkipPersonTokens = [], staticForceOverflowTokens = [] } = options
+        const {
+            pipeline = 'analytics',
+            staticDropEventTokens = [],
+            staticSkipPersonTokens = [],
+            staticForceOverflowTokens = [],
+        } = options
 
         this.hub = hub
+        this.pipeline = pipeline
         this.staticDropEventList = new Set(staticDropEventTokens)
         this.staticSkipPersonList = new Set(staticSkipPersonTokens)
         this.staticForceOverflowList = new Set(staticForceOverflowTokens)
@@ -87,7 +97,37 @@ export class EventIngestionRestrictionManager {
                     try {
                         const parsedArray = parseJSON(redisResult[1] as string)
                         if (Array.isArray(parsedArray)) {
-                            result[restrictionType] = new Set(parsedArray)
+                            // Convert array items to strings
+                            // New format: [{"token": "token1", "pipelines": ["analytics", "session_recordings"]}, ...]
+                            // Old format entries (plain strings) are ignored
+                            const items = parsedArray.flatMap((item) => {
+                                if (typeof item === 'string') {
+                                    // Old format - ignore these entries
+                                    return []
+                                } else if (typeof item === 'object' && item !== null && 'token' in item) {
+                                    // New format - check if this pipeline is in the pipelines array
+                                    const pipelines: unknown = item.pipelines
+                                    const appliesToPipeline =
+                                        Array.isArray(pipelines) && pipelines.includes(this.pipeline)
+
+                                    if (appliesToPipeline) {
+                                        if ('distinct_id' in item && item.distinct_id) {
+                                            return [`${item.token}:distinct_id:${item.distinct_id}`]
+                                        } else if ('session_id' in item && item.session_id) {
+                                            return [`${item.token}:session_id:${item.session_id}`]
+                                        } else if ('event_name' in item && item.event_name) {
+                                            return [`${item.token}:event_name:${item.event_name}`]
+                                        } else if ('event_uuid' in item && item.event_uuid) {
+                                            return [`${item.token}:event_uuid:${item.event_uuid}`]
+                                        } else {
+                                            return [item.token]
+                                        }
+                                    }
+                                    return []
+                                }
+                                return []
+                            })
+                            result[restrictionType] = new Set(items)
                         } else {
                             logger.warn(`Expected array for ${restrictionType} but got different JSON type`)
                             result[restrictionType] = new Set()
@@ -114,77 +154,133 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    shouldDropEvent(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticDropEventList.has(token) ||
-            (tokenDistinctIdKey && this.staticDropEventList.has(tokenDistinctIdKey))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.DROP_EVENT_FROM_INGESTION]
-
-        if (!dropSet) {
-            return false
-        }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+    shouldDropEvent(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            eventName,
+            eventUuid,
+            this.staticDropEventList,
+            RestrictionType.DROP_EVENT_FROM_INGESTION
+        )
     }
 
-    shouldSkipPerson(token?: string, distinctId?: string): boolean {
-        if (!token) {
-            return false
-        }
-
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticSkipPersonList.has(token) ||
-            (tokenDistinctIdKey && this.staticSkipPersonList.has(tokenDistinctIdKey))
-        ) {
-            return true
-        }
-
-        if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
-            return false
-        }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
-
-        const dropSet = this.latestDynamicConfig[RestrictionType.SKIP_PERSON_PROCESSING]
-
-        if (!dropSet) {
-            return false
-        }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+    shouldSkipPerson(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            eventName,
+            eventUuid,
+            this.staticSkipPersonList,
+            RestrictionType.SKIP_PERSON_PROCESSING
+        )
     }
 
-    shouldForceOverflow(token?: string, distinctId?: string): boolean {
+    shouldForceOverflow(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            eventName,
+            eventUuid,
+            this.staticForceOverflowList,
+            RestrictionType.FORCE_OVERFLOW_FROM_INGESTION
+        )
+    }
+
+    private checkRestriction(
+        token: string | undefined,
+        distinctId: string | undefined,
+        sessionId: string | undefined,
+        eventName: string | undefined,
+        eventUuid: string | undefined,
+        staticList: Set<string>,
+        restrictionType: RestrictionType
+    ): boolean {
         if (!token) {
             return false
         }
 
-        const tokenDistinctIdKey = distinctId ? `${token}:${distinctId}` : undefined
-        if (
-            this.staticForceOverflowList.has(token) ||
-            (tokenDistinctIdKey && this.staticForceOverflowList.has(tokenDistinctIdKey))
-        ) {
+        const keys = this.buildLookupKeys(token, distinctId, sessionId, eventName, eventUuid)
+
+        if (this.matchesStaticList(token, keys, staticList)) {
             return true
         }
 
+        return this.matchesDynamicConfig(token, keys, restrictionType)
+    }
+
+    private buildLookupKeys(
+        token: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): {
+        tokenDistinctIdKey?: string
+        tokenSessionIdKey?: string
+        tokenEventNameKey?: string
+        tokenEventUuidKey?: string
+        tokenDistinctIdKeyLegacy?: string
+    } {
+        return {
+            tokenDistinctIdKey: distinctId ? `${token}:distinct_id:${distinctId}` : undefined,
+            tokenSessionIdKey: sessionId ? `${token}:session_id:${sessionId}` : undefined,
+            tokenEventNameKey: eventName ? `${token}:event_name:${eventName}` : undefined,
+            tokenEventUuidKey: eventUuid ? `${token}:event_uuid:${eventUuid}` : undefined,
+            tokenDistinctIdKeyLegacy: distinctId ? `${token}:${distinctId}` : undefined,
+        }
+    }
+
+    private matchesStaticList(
+        token: string,
+        keys: {
+            tokenDistinctIdKey?: string
+            tokenSessionIdKey?: string
+            tokenEventNameKey?: string
+            tokenEventUuidKey?: string
+            tokenDistinctIdKeyLegacy?: string
+        },
+        staticList: Set<string>
+    ): boolean {
+        // Static config only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id
+        return (
+            staticList.has(token) ||
+            (!!keys.tokenDistinctIdKey && staticList.has(keys.tokenDistinctIdKey)) ||
+            (!!keys.tokenDistinctIdKeyLegacy && staticList.has(keys.tokenDistinctIdKeyLegacy))
+        )
+    }
+
+    private matchesDynamicConfig(
+        token: string,
+        keys: {
+            tokenDistinctIdKey?: string
+            tokenSessionIdKey?: string
+            tokenEventNameKey?: string
+            tokenEventUuidKey?: string
+        },
+        restrictionType: RestrictionType
+    ): boolean {
         if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
@@ -193,11 +289,17 @@ export class EventIngestionRestrictionManager {
             logger.warn('Error triggering background refresh for dynamic config', { error })
         })
 
-        const dropSet = this.latestDynamicConfig[RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]
-
-        if (!dropSet) {
+        const configSet = this.latestDynamicConfig[restrictionType]
+        if (!configSet) {
             return false
         }
-        return dropSet.has(token) || (!!tokenDistinctIdKey && dropSet.has(tokenDistinctIdKey))
+
+        return (
+            configSet.has(token) ||
+            (!!keys.tokenDistinctIdKey && configSet.has(keys.tokenDistinctIdKey)) ||
+            (!!keys.tokenSessionIdKey && configSet.has(keys.tokenSessionIdKey)) ||
+            (!!keys.tokenEventNameKey && configSet.has(keys.tokenEventNameKey)) ||
+            (!!keys.tokenEventUuidKey && configSet.has(keys.tokenEventUuidKey))
+        )
     }
 }

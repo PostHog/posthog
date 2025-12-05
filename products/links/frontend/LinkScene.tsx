@@ -18,13 +18,13 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AVAILABLE_DOMAINS, AvailableDomain, LinkLogicProps, linkLogic } from './linkLogic'
@@ -74,6 +74,15 @@ const DOMAIN_OPTIONS: LemonSelectOptions<AvailableDomain> = AVAILABLE_DOMAINS.ma
 export function LinkScene({ id }: LinkLogicProps): JSX.Element {
     const { link, linkLoading, isLinkSubmitting, isEditingLink, linkMissing } = useValues(linkLogic)
     const { submitLinkRequest, loadLink, editLink, deleteLink } = useActions(linkLogic)
+
+    const linkId = link?.id && link?.id !== 'new' ? link.id : null
+
+    useFileSystemLogView({
+        type: 'link',
+        ref: linkId,
+        enabled: Boolean(linkId && !linkLoading),
+        deps: [linkId, linkLoading],
+    })
 
     if (linkMissing) {
         return <NotFound object="link" />
@@ -177,8 +186,6 @@ export function LinkScene({ id }: LinkLogicProps): JSX.Element {
                         </>
                     }
                 />
-
-                <SceneDivider />
 
                 <div className="space-y-4">
                     <div className="flex gap-8">

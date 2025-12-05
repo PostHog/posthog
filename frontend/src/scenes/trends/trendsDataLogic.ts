@@ -53,6 +53,7 @@ const POSSIBLY_FRACTIONAL_MATH_TYPES: Set<MathType> = new Set(
 )
 
 export const INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD: Record<IntervalType, number> = {
+    second: 300,
     minute: 10,
     hour: 6,
     day: 7,
@@ -169,7 +170,22 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
             (results, display, lifecycleFilter): IndexedTrendResult[] => {
                 const defaultLifecyclesOrder = ['new', 'resurrecting', 'returning', 'dormant']
                 let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
-                if (
+
+                // want the previous bars to show before current bars
+                if (display === ChartDisplayType.ActionsUnstackedBar && indexedResults.some((x) => x.compare)) {
+                    indexedResults.sort((a, b) => {
+                        if (a.compare_label === b.compare_label) {
+                            return 0
+                        }
+                        if (a.compare_label === 'previous') {
+                            return -1
+                        }
+                        if (b.compare_label === 'previous') {
+                            return 1
+                        }
+                        return 0
+                    })
+                } else if (
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {

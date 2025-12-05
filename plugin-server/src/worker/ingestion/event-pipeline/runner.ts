@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Message } from 'node-rdkafka'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
@@ -13,7 +14,7 @@ import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
-import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
 import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
@@ -27,6 +28,7 @@ import {
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
 import { prepareEventStep } from './prepareEventStep'
+import { processPersonlessStep } from './processPersonlessStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
 
@@ -37,6 +39,9 @@ export type EventPipelineResult = {
     lastStep: string
     eventToEmit?: RawKafkaEvent
     error?: string
+    // For ingestion lag metric
+    inputHeaders?: EventHeaders
+    inputMessage?: Message
 }
 
 export type EventPipelinePipelineResult = PipelineResult<EventPipelineResult>
@@ -55,7 +60,7 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    personsStoreForBatch: PersonsStoreForBatch
+    personsStore: PersonsStore
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
     headers?: EventHeaders
@@ -64,7 +69,7 @@ export class EventPipelineRunner {
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        personsStoreForBatch: PersonsStoreForBatch,
+        personsStore: PersonsStore,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
     ) {
@@ -72,7 +77,7 @@ export class EventPipelineRunner {
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.personsStoreForBatch = personsStoreForBatch
+        this.personsStore = personsStore
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)
         this.headers = headers
@@ -232,32 +237,22 @@ export class EventPipelineRunner {
         }
         const [normalizedEvent, timestamp] = normalizeResult.value
 
-        const personStepResult = await this.runPipelineStep<
-            [PluginEvent, Person, Promise<void>],
-            typeof processPersonsStep
-        >(
-            processPersonsStep,
-            [
-                this,
-                normalizedEvent,
-                team,
-                timestamp,
-                processPerson,
-                this.personsStoreForBatch,
-                forceDisablePersonProcessing,
-            ],
+        const personProcessingResult = await this.processPersonForEvent(
+            normalizedEvent,
+            team,
+            timestamp,
+            processPerson,
+            forceDisablePersonProcessing,
             event.team_id,
-            true,
             kafkaAcks,
             warnings
         )
 
-        if (!isOkResult(personStepResult)) {
-            // TODO: We pass kafkaAcks, so the side effects should be merged, but this needs to be refactored
-            return personStepResult
+        if (!isOkResult(personProcessingResult)) {
+            return personProcessingResult
         }
 
-        const [postPersonEvent, person, personKafkaAck] = personStepResult.value
+        const { event: postPersonEvent, person, kafkaAck: personKafkaAck } = personProcessingResult.value
         kafkaAcks.push(personKafkaAck)
 
         const prepareResult = await this.runStep<PreIngestionEvent, typeof prepareEventStep>(
@@ -311,6 +306,74 @@ export class EventPipelineRunner {
         }
 
         return ok(successResult, kafkaAcks, warnings)
+    }
+
+    private async processPersonForEvent(
+        event: PluginEvent,
+        team: Team,
+        timestamp: DateTime,
+        processPerson: boolean,
+        forceDisablePersonProcessing: boolean,
+        teamId: number,
+        kafkaAcks: Promise<unknown>[],
+        warnings: PipelineWarning[]
+    ): Promise<PipelineResult<{ event: PluginEvent; person: Person; kafkaAck: Promise<void> }>> {
+        let postPersonEvent = event
+        let person: Person
+        let personKafkaAck: Promise<void> = Promise.resolve()
+        let shouldProcessPerson = processPerson
+        let forceUpgrade = false
+
+        // If personless mode, check if we need to force upgrade
+        if (!processPerson) {
+            const personlessResult = await this.runPipelineStep<Person, typeof processPersonlessStep>(
+                processPersonlessStep,
+                [event, team, timestamp, this.personsStore, forceDisablePersonProcessing],
+                teamId,
+                true,
+                kafkaAcks,
+                warnings
+            )
+
+            if (!isOkResult(personlessResult)) {
+                return personlessResult
+            }
+
+            person = personlessResult.value
+            forceUpgrade = !!person.force_upgrade
+            shouldProcessPerson = forceUpgrade
+        }
+
+        // Run full person processing if needed (either processPerson=true or force_upgrade)
+        if (shouldProcessPerson) {
+            const personStepResult = await this.runPipelineStep<
+                [PluginEvent, Person, Promise<void>],
+                typeof processPersonsStep
+            >(
+                processPersonsStep,
+                [this, event, team, timestamp, true, this.personsStore],
+                teamId,
+                true,
+                kafkaAcks,
+                warnings
+            )
+
+            if (!isOkResult(personStepResult)) {
+                return personStepResult
+            }
+
+            const [processedEvent, processedPerson, ack] = personStepResult.value
+            postPersonEvent = processedEvent
+            person = processedPerson
+            personKafkaAck = ack
+
+            // Preserve force_upgrade flag if it was set by personless step
+            if (forceUpgrade) {
+                person.force_upgrade = true
+            }
+        }
+
+        return ok({ event: postPersonEvent, person: person!, kafkaAck: personKafkaAck })
     }
 
     registerLastStep(stepName: string, eventToEmit?: RawKafkaEvent): EventPipelineResult {

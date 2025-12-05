@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCalendar, IconEye, IconList, IconSearch, IconTableOfContents } from '@posthog/icons'
+import { IconCalendar, IconEye, IconList, IconRefresh, IconSearch, IconTableOfContents } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -16,7 +16,7 @@ import {
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconEyeHidden, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 import { pluralize } from 'lib/utils'
 
 import { LogEntryLevel } from '~/types'
@@ -182,7 +182,7 @@ export function LogsViewer({
                 <div className="flex items-center gap-2 flex-1 min-w-100">
                     <LemonInput
                         type="search"
-                        placeholder="Search for messages containing…"
+                        placeholder="Search messages or invocation ID…"
                         fullWidth
                         onChange={(value) => setFilters({ search: value })}
                         value={filters.search}
@@ -249,7 +249,7 @@ export function LogsViewer({
                         type="secondary"
                         icon={
                             <IconWithCount count={hiddenLogs.length}>
-                                {hiddenLogs.length ? <IconEye /> : <IconEyeHidden />}
+                                {hiddenLogs.length ? <IconEye /> : <IconRefresh />}
                             </IconWithCount>
                         }
                         disabledReason={

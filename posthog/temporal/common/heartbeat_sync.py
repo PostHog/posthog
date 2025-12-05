@@ -1,3 +1,5 @@
+import time
+import socket
 import threading
 from contextvars import copy_context
 from typing import Any
@@ -21,7 +23,8 @@ class HeartbeaterSync:
     def heartbeat_regularly(self, stop_event: threading.Event, interval: int, details: tuple[Any, ...]):
         while not stop_event.is_set():
             try:
-                activity.heartbeat(*details)
+                extra_payload = {"host": socket.gethostname(), "ts": time.time()}
+                activity.heartbeat(*details, extra_payload)
                 self.log_debug("Heartbeat")
             except Exception as e:
                 self.log_debug(f"Heartbeat failed {e}", exc_info=e)

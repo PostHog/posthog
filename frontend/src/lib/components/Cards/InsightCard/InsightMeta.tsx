@@ -27,6 +27,9 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
+import { SurveyOpportunityButton } from 'scenes/surveys/components/SurveyOpportunityButton'
+import { isSurveyableFunnelInsight } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -66,6 +69,7 @@ interface InsightMetaProps
         | 'filtersOverride'
         | 'variablesOverride'
         | 'placement'
+        | 'surveyOpportunity'
     > {
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
@@ -97,11 +101,12 @@ export function InsightMeta({
     showDetailsControls = true,
     moreButtons,
     placement,
+    surveyOpportunity,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
     const { setInsightFeedback } = useActions(insightLogic)
-    const { exportContext } = useValues(insightDataLogic(insightProps))
+    const { exportContext, insightData } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -155,6 +160,15 @@ export function InsightMeta({
             </div>
         ) : null
 
+    const surveyOpportunityButton =
+        surveyOpportunity &&
+        featureFlags[FEATURE_FLAGS.SURVEYS_FUNNELS_CROSS_SELL] &&
+        isSurveyableFunnelInsight(insight) ? (
+            <div className="flex">
+                <SurveyOpportunityButton insight={insight} disableAutoPromptSubmit={true} />
+            </div>
+        ) : null
+
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
         return (
@@ -203,6 +217,7 @@ export function InsightMeta({
                     query={insight.query}
                     lastRefresh={insight.last_refresh}
                     hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                    resolvedDateRange={insightData?.resolved_date_range}
                 />
             }
             content={
@@ -238,6 +253,7 @@ export function InsightMeta({
                                         : urls.insightEdit(short_id)
                                 }
                                 fullWidth
+                                {...getOverrideWarningPropsForButton(filtersOverride, variablesOverride)}
                             >
                                 Edit
                             </LemonButton>
@@ -413,7 +429,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
-            extraControls={feedbackButtons}
+            extraControls={surveyOpportunityButton ?? feedbackButtons}
         />
     )
 }

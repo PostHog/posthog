@@ -164,6 +164,9 @@ def sync_execute(
     ):
         workload = Workload.ONLINE
 
+    if tags.workload == Workload.ENDPOINTS:
+        workload = Workload.ENDPOINTS
+
     if workload == Workload.DEFAULT:
         workload = get_default_clickhouse_workload_type()
 
@@ -196,11 +199,13 @@ def sync_execute(
     if tags.product == Product.MAX_AI or tags.service_name == "temporal-worker-max-ai":
         ch_user = ClickHouseUser.MAX_AI
 
+    if tags.product == Product.ENDPOINTS:
+        ch_user = ClickHouseUser.ENDPOINTS
+
     while True:
         settings = {
             **core_settings,
             "log_comment": tags.to_json(),
-            "query_id": query_id,
         }
         if workload == Workload.OFFLINE:
             # disabling hedged requests for offline queries reduces the likelihood of these queries bleeding over into the

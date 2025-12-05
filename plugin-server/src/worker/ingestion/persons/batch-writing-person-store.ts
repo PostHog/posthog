@@ -30,12 +30,16 @@ import {
     personFlushOperationsCounter,
     personMethodCallsPerBatchHistogram,
     personOptimisticUpdateConflictsPerBatchCounter,
+    personProfileBatchIgnoredPropertiesCounter,
+    personProfileBatchUpdateOutcomeCounter,
+    personPropertyKeyUpdateCounter,
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
+import { isFilteredPersonUpdateProperty } from './person-property-utils'
+import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
-import { PersonsStore } from './persons-store'
-import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 import { PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
@@ -99,29 +103,13 @@ interface CacheMetrics {
     checkCacheMisses: number
 }
 
-export class BatchWritingPersonsStore implements PersonsStore {
-    private options: BatchWritingPersonsStoreOptions
-
-    constructor(
-        private personRepository: PersonRepository,
-        private kafkaProducer: KafkaProducerWrapper,
-        options?: Partial<BatchWritingPersonsStoreOptions>
-    ) {
-        this.options = { ...DEFAULT_OPTIONS, ...options }
-    }
-
-    forBatch(): PersonsStoreForBatch {
-        return new BatchWritingPersonsStoreForBatch(this.personRepository, this.kafkaProducer, this.options)
-    }
-}
-
 /**
  * This class is used to write persons to the database in batches.
  * It will use a cache to avoid reading the same person from the database multiple times.
  * And will accumulate all changes for the same person in a single batch. At the
  * end of the batch processing, it flushes all changes to the database.
  */
-export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, BatchWritingStore {
+export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore {
     private personCheckCache: Map<string, InternalPerson | null>
     private distinctIdToPersonId: Map<string, string>
     private personUpdateCache: Map<string, PersonUpdate | null>
@@ -155,12 +143,109 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         }
     }
 
+    /**
+     * Check if a person update should trigger a database write.
+     * Returns the outcome: 'changed' (should write), 'ignored' (filtered properties only), or 'no_change' (no properties changed)
+     *
+     * Also tracks metrics for ignored properties at the batch level.
+     */
+    private getPersonUpdateOutcome(update: PersonUpdate): 'changed' | 'ignored' | 'no_change' {
+        const hasNonPropertyChanges =
+            update.is_identified !== update.original_is_identified ||
+            !update.created_at.equals(update.original_created_at)
+
+        if (hasNonPropertyChanges) {
+            return 'changed'
+        }
+
+        const hasPropertyChanges =
+            Object.keys(update.properties_to_set).length > 0 || update.properties_to_unset.length > 0
+
+        if (!hasPropertyChanges) {
+            return 'no_change'
+        }
+
+        // If force_update is set (from $identify, $set events), bypass filtering and always write
+        if (update.force_update) {
+            return 'changed'
+        }
+
+        // If there are properties to unset, always write
+        if (update.properties_to_unset.length > 0) {
+            return 'changed'
+        }
+
+        // Check if there are any properties_to_set that should trigger an update
+        const ignoredProperties: string[] = []
+        const hasPropertyTriggeringUpdate = Object.keys(update.properties_to_set).some((key) => {
+            // Check if this is a new property (not in current properties)
+            const isNewProperty = !(key in update.properties)
+            const valueChanged = update.properties[key] !== update.properties_to_set[key]
+
+            if (!valueChanged) {
+                return false
+            }
+
+            if (isNewProperty) {
+                return true
+            }
+
+            const isFiltered = isFilteredPersonUpdateProperty(key)
+            if (isFiltered) {
+                ignoredProperties.push(key)
+                return false
+            }
+            return true
+        })
+
+        if (!hasPropertyTriggeringUpdate) {
+            // Only track as ignored if ALL properties are filtered
+            ignoredProperties.forEach((property) => {
+                personProfileBatchIgnoredPropertiesCounter.labels({ property }).inc()
+            })
+            return 'ignored'
+        }
+
+        return 'changed'
+    }
+
     async flush(): Promise<FlushResult[]> {
         const flushStartTime = performance.now()
+
+        // Track outcomes for all person updates that were actually modified and filter to only those that should write
         const updateEntries = Array.from(this.personUpdateCache.entries()).filter(
             (entry): entry is [string, PersonUpdate] => {
                 const [_, update] = entry
-                return update !== null && update.needs_write
+
+                // Skip null entries - these are deleted persons or cleared cache entries
+                if (!update) {
+                    return false
+                }
+
+                // Skip entries not marked for write - these are read-only cache entries from fetchForUpdate
+                // that were cached but never modified (no events tried to update their properties)
+                if (!update.needs_write) {
+                    return false
+                }
+
+                // Determine outcome and track metrics for this person update
+                const outcome = this.getPersonUpdateOutcome(update)
+                personProfileBatchUpdateOutcomeCounter.labels({ outcome }).inc()
+
+                // Track which property keys caused person updates (only for 'changed' outcomes)
+                if (outcome === 'changed') {
+                    const metricsKeys = new Set<string>()
+                    Object.keys(update.properties_to_set).forEach((key) => {
+                        metricsKeys.add(getMetricKey(key))
+                    })
+                    update.properties_to_unset.forEach((key) => {
+                        metricsKeys.add(getMetricKey(key))
+                    })
+                    metricsKeys.forEach((key) => personPropertyKeyUpdateCounter.labels({ key: key }).inc())
+                }
+
+                // Only write to database if outcome is 'changed'
+                return outcome === 'changed'
             }
         )
 
@@ -417,8 +502,20 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                         this.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
                         return person
                     } else {
-                        this.setCachedPersonForUpdate(teamId, distinctId, null)
-                        return null
+                        // Before caching null, check if another async operation populated
+                        // the cache while we were awaiting the DB query. This can happen when:
+                        // 1. This operation starts DB query for a distinct ID (cache empty)
+                        // 2. Another operation creates a person for that distinct ID and caches it
+                        // 3. This DB query returns null (person didn't exist when query started)
+                        // 4. Without this check, we would overwrite the other operation's cached person
+                        //
+                        // From this point, all operations are synchronous to avoid further race conditions.
+                        const currentCache = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+                        if (currentCache === undefined) {
+                            this.setCachedPersonForUpdate(teamId, distinctId, null)
+                            return null
+                        }
+                        return currentCache === null ? null : toInternalPerson(currentCache)
                     }
                 } finally {
                     this.fetchPromisesForUpdate.delete(cacheKey)
@@ -447,6 +544,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
         distinctId: string,
+        forceUpdate?: boolean,
         _tx?: PersonRepositoryTransaction
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         const [updatedPerson, kafkaMessages] = this.addPersonPropertiesUpdateToBatch(
@@ -454,7 +552,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             propertiesToSet,
             propertiesToUnset,
             otherUpdates,
-            distinctId
+            distinctId,
+            forceUpdate
         )
         return Promise.resolve([updatedPerson, kafkaMessages, false])
     }
@@ -571,8 +670,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         return await (tx || this.personRepository).addPersonlessDistinctIdForMerge(teamId, distinctId)
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
-        return await this.personRepository.personPropertiesSize(personId)
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        return await this.personRepository.personPropertiesSize(personId, teamId)
     }
 
     reportBatch(): void {
@@ -598,6 +697,23 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, this.cacheMetrics.updateCacheMisses)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, this.cacheMetrics.checkCacheHits)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, this.cacheMetrics.checkCacheMisses)
+    }
+
+    reset(): void {
+        this.personCheckCache.clear()
+        this.distinctIdToPersonId.clear()
+        this.personUpdateCache.clear()
+        this.fetchPromisesForUpdate.clear()
+        this.fetchPromisesForChecking.clear()
+        this.methodCountsPerDistinctId.clear()
+        this.databaseOperationCountsPerDistinctId.clear()
+        this.updateLatencyPerDistinctIdSeconds.clear()
+        this.cacheMetrics = {
+            updateCacheHits: 0,
+            updateCacheMisses: 0,
+            checkCacheHits: 0,
+            checkCacheMisses: 0,
+        }
     }
 
     // Private implementation methods
@@ -690,14 +806,16 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         if (result !== undefined) {
             this.cacheMetrics.updateCacheHits++
             // Return a deep copy to prevent modifications from affecting the cached object
-            return result === null
-                ? null
-                : {
-                      ...result,
-                      properties: { ...result.properties },
-                      properties_to_set: { ...result.properties_to_set },
-                      properties_to_unset: [...result.properties_to_unset],
-                  }
+            if (result === null) {
+                return null
+            }
+
+            return {
+                ...result,
+                properties: { ...result.properties },
+                properties_to_set: { ...result.properties_to_set },
+                properties_to_unset: [...result.properties_to_unset],
+            }
         } else {
             this.cacheMetrics.updateCacheMisses++
             return undefined
@@ -732,21 +850,40 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         if (existingPersonUpdate) {
             // Merge the properties and changesets from both updates
-            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(existingPersonUpdate, {
-                properties: person.properties,
-                is_identified: person.is_identified,
-            } as Partial<InternalPerson>)
+            const mergedPersonUpdate = this.mergeUpdateIntoPersonUpdate(
+                existingPersonUpdate,
+                {
+                    properties: person.properties,
+                    is_identified: person.is_identified,
+                } as Partial<InternalPerson>,
+                false
+            )
 
             // Handle fields that are specific to PersonUpdate - merge properties_to_set and properties_to_unset
+            // with proper conflict resolution (last write wins)
             mergedPersonUpdate.properties_to_set = {
                 ...existingPersonUpdate.properties_to_set,
                 ...person.properties_to_set,
             }
+            // Remove from properties_to_set any keys that are in the incoming properties_to_unset
+            for (const key of person.properties_to_unset) {
+                delete mergedPersonUpdate.properties_to_set[key]
+            }
+
             mergedPersonUpdate.properties_to_unset = [
                 ...new Set([...existingPersonUpdate.properties_to_unset, ...person.properties_to_unset]),
             ]
+            // Remove from properties_to_unset any keys that are in the incoming properties_to_set
+            const keysToSet = new Set(Object.keys(person.properties_to_set))
+            mergedPersonUpdate.properties_to_unset = mergedPersonUpdate.properties_to_unset.filter(
+                (key) => !keysToSet.has(key)
+            )
 
             mergedPersonUpdate.created_at = DateTime.min(existingPersonUpdate.created_at, person.created_at)
+            mergedPersonUpdate.needs_write = existingPersonUpdate.needs_write || person.needs_write
+
+            // Handle force_update with || operator - once true, stays true
+            mergedPersonUpdate.force_update = existingPersonUpdate.force_update || person.force_update
 
             this.personUpdateCache.set(this.getPersonIdCacheKey(teamId, person.id), mergedPersonUpdate)
         } else {
@@ -895,7 +1032,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        forceUpdate?: boolean
     ): [InternalPerson, TopicMessage[]] {
         const existingUpdate = this.getCachedPersonForUpdateByDistinctId(person.team_id, distinctId)
 
@@ -934,6 +1072,12 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
 
         personUpdate.needs_write = true
 
+        // Set force_update flag with || operator - once set to true by a $identify/$set event, it stays true
+        // This ensures that if any event in the batch requires forcing an update, the whole batch is written
+        if (forceUpdate !== undefined) {
+            personUpdate.force_update = personUpdate.force_update || forceUpdate
+        }
+
         this.setCachedPersonForUpdate(person.team_id, distinctId, personUpdate)
         return [toInternalPerson(personUpdate), []]
     }
@@ -943,8 +1087,14 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         this.incrementDatabaseOperation(operation as MethodName, personUpdate.distinct_id)
         // Convert PersonUpdate back to InternalPerson for database call
         const person = toInternalPerson(personUpdate)
-        // Create update object without version field (updatePerson handles version internally)
-        const { version, ...updateFields } = person
+        // Always pass all mutable fields for consistent query plans
+        const updateFields = {
+            properties: person.properties,
+            properties_last_updated_at: person.properties_last_updated_at,
+            properties_last_operation: person.properties_last_operation,
+            is_identified: person.is_identified,
+            created_at: person.created_at,
+        }
 
         this.incrementCount('updatePersonNoAssert', personUpdate.distinct_id)
         this.incrementDatabaseOperation('updatePersonNoAssert', personUpdate.distinct_id)
@@ -1168,6 +1318,8 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
             needs_write: personUpdate.needs_write,
             properties_to_set: personUpdate.properties_to_set,
             properties_to_unset: personUpdate.properties_to_unset,
+            original_is_identified: personUpdate.original_is_identified,
+            original_created_at: personUpdate.original_created_at,
         }
 
         return updatedPersonUpdate

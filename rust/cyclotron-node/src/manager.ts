@@ -38,6 +38,7 @@ export class CyclotronManager {
 
         // TODO: Why is this type of job snake case whereas the dequeue return type is camel case?
         const jobInitInternal = {
+            id: job.id,
             team_id: job.teamId,
             function_id: job.functionId,
             queue_name: job.queueName,
@@ -58,6 +59,7 @@ export class CyclotronManager {
             job.scheduled ??= new Date().toISOString()
 
             return {
+                id: job.id,
                 team_id: job.teamId,
                 function_id: job.functionId,
                 queue_name: job.queueName,

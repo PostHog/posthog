@@ -26,7 +26,8 @@ class KafkaDebugKafkaTable:
           kafka_host=",".join(self.brokers),
           topic=self.topic,
           group=self.consumer_group,
-          serialization=self.serialization
+          serialization=self.serialization,
+          use_named_collection=False
           )}
       SETTINGS input_format_values_interpret_expressions=0, kafka_handle_error_mode='stream'
     """

@@ -4,6 +4,7 @@ export enum ItemCategory {
     ERROR_TRACKING = 'exceptions',
     CUSTOM_EVENTS = 'custom events',
     PAGE_VIEWS = 'pageviews',
+    CONSOLE_LOGS = 'console logs',
 }
 
 export interface TimelineItem {
