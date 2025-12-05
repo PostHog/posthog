@@ -1,4 +1,5 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { workflowE2eLagGauge, workflowE2eLagSummary } from '~/main/ingestion-queues/metrics'
 
 import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -37,27 +38,40 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
-        // const trackE2eLag = (invocation: CyclotronJobInvocation) => {
-        //     const capturedAt = invocation.state?.event?.captured_at
-        //     if (capturedAt) {
-        //         logger.info('🦔', `-----> Workflow E2E lag: ${capturedAt}`)
-        //         const e2eLag = Date.now() - new Date(capturedAt).getTime()
-        //         workflowE2eLagSummary.observe(e2eLag)
-        //     }
-        // }
+        const trackE2eLag = (result: CyclotronJobInvocationResult) => {
+            if (!result.finished) {
+                return
+            }
+            const capturedAt = (result.invocation as CyclotronJobInvocationHogFunction).state?.globals?.event
+                ?.captured_at
+            if (capturedAt) {
+                const e2eLag = Date.now() - new Date(capturedAt).getTime()
+                workflowE2eLagSummary.observe(e2eLag)
+                workflowE2eLagGauge
+                    .labels({
+                        team_id: result.invocation.teamId.toString(),
+                        hog_function_id: result.invocation.functionId,
+                    })
+                    .set(e2eLag)
+            }
+        }
 
-        // TODOdin: Consider this location for tracking e2e lag / or in each individual execute function
         return await Promise.all(
             loadedInvocations.map((item) => {
+                let executePromise: Promise<CyclotronJobInvocationResult>
                 if (isNativeHogFunction(item.hogFunction)) {
-                    return this.nativeDestinationExecutorService.execute(item)
+                    executePromise = this.nativeDestinationExecutorService.execute(item)
                 } else if (isLegacyPluginHogFunction(item.hogFunction)) {
-                    return this.pluginDestinationExecutorService.execute(item)
+                    executePromise = this.pluginDestinationExecutorService.execute(item)
                 } else if (isSegmentPluginHogFunction(item.hogFunction)) {
-                    return this.segmentDestinationExecutorService.execute(item)
+                    executePromise = this.segmentDestinationExecutorService.execute(item)
                 } else {
-                    return this.hogExecutor.executeWithAsyncFunctions(item)
+                    executePromise = this.hogExecutor.executeWithAsyncFunctions(item)
                 }
+                return executePromise.then((result) => {
+                    trackE2eLag(result)
+                    return result
+                })
             })
         )
     }
