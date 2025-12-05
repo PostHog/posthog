@@ -87,7 +87,7 @@ class PageUrlSearchQueryRunner(WebAnalyticsQueryRunner[WebPageURLSearchQueryResp
             limit_context=self.limit_context,
         )
 
-        results = [PageURL(url=str(row[0]) if row[0] is not None else "", count=0) for row in response.results]
+        results = [PageURL(url=str(row[0]) if row[0] is not None else "") for row in response.results]
 
         return WebPageURLSearchQueryResponse(
             results=results,

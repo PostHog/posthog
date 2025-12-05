@@ -30,7 +30,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
     const { pagesUrls, pageUrl, isLoading, dateFilter } = useValues(pageReportsLogic)
     const { setPageUrl, setPageUrlSearchTerm, loadPages, setDates } = useActions(pageReportsLogic)
 
-    const options = pagesUrls.map((option: { url: string; count: number }) => ({
+    const options = pagesUrls.map((option: { url: string }) => ({
         key: option.url,
         label: option.url,
     }))

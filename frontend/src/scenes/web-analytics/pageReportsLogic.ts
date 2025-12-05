@@ -36,7 +36,6 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 export interface PageURLSearchResult {
     url: string
-    count: number
 }
 
 /**
@@ -53,13 +52,13 @@ export function createUrlPropertyFilter(url: string, stripQueryParams: boolean):
     if (parsed.isValid && parsed.host && parsed.pathname) {
         return [
             {
-                key: 'host',
+                key: '$host',
                 value: parsed.host,
                 operator: PropertyOperator.Exact,
                 type: PropertyFilterType.Event,
             },
             {
-                key: 'pathname',
+                key: '$pathname',
                 value: parsed.pathname,
                 operator: PropertyOperator.Exact,
                 type: PropertyFilterType.Event,
