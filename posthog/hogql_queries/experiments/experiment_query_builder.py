@@ -1444,7 +1444,7 @@ class ExperimentQueryBuilder:
                     MAX(if(
                         completion_events.completion_timestamp IS NOT NULL
                         AND completion_events.completion_timestamp >= start_events.start_timestamp + {retention_window_start_interval}
-                        AND completion_events.completion_timestamp < start_events.start_timestamp + {retention_window_end_interval},
+                        AND completion_events.completion_timestamp <= start_events.start_timestamp + {retention_window_end_interval},
                         1,
                         0
                     )) AS value
@@ -1623,7 +1623,7 @@ class ExperimentQueryBuilder:
         return parse_expr(
             """
             completion_events.completion_timestamp >= start_events.start_timestamp
-            AND completion_events.completion_timestamp < start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
+            AND completion_events.completion_timestamp <= start_events.start_timestamp + toIntervalSecond({retention_window_end_seconds})
             """,
             placeholders={
                 "retention_window_end_seconds": ast.Constant(value=retention_window_end_seconds),
