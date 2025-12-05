@@ -29,7 +29,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
@@ -63,8 +63,8 @@ UNPAIRED_SURROGATE_PATTERN_2 = re.compile(
     rb"(\\u[dD][89A-Fa-f][0-9A-Fa-f]{2}\\u[dD][c-fC-F][0-9A-Fa-f]{2})|(\\u[dD][c-fC-F][0-9A-Fa-f]{2})"
 )
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
+
 
 NON_RETRYABLE_ERROR_TYPES = (
     # Raised on errors that are related to database operation.
@@ -217,7 +217,6 @@ class PostgreSQLClient:
         self.connection_timeout = connection_timeout
 
         self.logger = LOGGER.bind(host=host, port=port, database=database, user=user)
-        self.external_logger = EXTERNAL_LOGGER.bind(host=host, port=port, database=database, user=user)
         self._connection: None | psycopg.AsyncConnection = None
 
     @classmethod
@@ -794,9 +793,9 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
         data_interval_end=inputs.data_interval_end,
         batch_export_id=inputs.batch_export_id,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to PostgreSQL (using internal stage): %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -826,7 +825,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
@@ -863,7 +862,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         f"No matching columns found in the destination table '{inputs.schema}.{inputs.table_name}'"
                     )
             except psycopg.errors.InsufficientPrivilege:
-                external_logger.warning(
+                logger.warning(
                     "Insufficient privileges to get table columns for table '%s.%s'; "
                     "will assume all columns are present. If this results in an error, please grant SELECT "
                     "permissions on this table or ensure the destination table is using the latest schema "
