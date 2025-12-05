@@ -5,8 +5,6 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from flaky import flaky
-
 from posthog.models.team.team import Team
 from posthog.tasks.test.test_usage_report import freeze_time
 from posthog.temporal.data_imports.settings import import_data_activity_sync
@@ -188,7 +186,7 @@ def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, team, **
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, team, **kwargs):
     job_inputs = {
         "host": "host.com",

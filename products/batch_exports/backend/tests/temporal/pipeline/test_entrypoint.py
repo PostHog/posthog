@@ -7,6 +7,7 @@ import pytest
 
 from django.conf import settings
 
+import pytest_asyncio
 from temporalio import activity, workflow
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
@@ -32,7 +33,7 @@ from products.batch_exports.backend.temporal.utils import handle_non_retryable_e
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def batch_export(
     ateam,
     # temporal_client,

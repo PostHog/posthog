@@ -14,6 +14,7 @@ from django.conf import settings
 from django.test.utils import override_settings
 
 import pyarrow as pa
+import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel
@@ -219,7 +220,7 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_sessio
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def minio_client():
     """Manage an S3 client to interact with a MinIO bucket."""
     async with create_test_client(

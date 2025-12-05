@@ -12,7 +12,6 @@ from django.db import IntegrityError, connection, connections
 from django.test import TransactionTestCase
 from django.utils import timezone
 
-from flaky import flaky
 from parameterized import parameterized
 
 from posthog.models import Cohort, FeatureFlag, Person
@@ -6484,7 +6483,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase, QueryMatchingTest)
                 "default-flag": True,
             }
 
-    @flaky(max_runs=3, min_passes=1)
+    @pytest.mark.flaky(reruns=2)
     def test_hash_key_overrides_with_race_conditions_on_person_creation_and_deletion(self, *args):
         org = Organization.objects.create(name="test")
         user = User.objects.create_and_join(org, "a@b.com", "kkk")

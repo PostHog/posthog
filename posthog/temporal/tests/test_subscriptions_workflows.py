@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, call, patch
 
 from django.conf import settings
 
+import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.client import Client
 from temporalio.testing import WorkflowEnvironment
@@ -33,7 +34,7 @@ from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscr
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def subscriptions_worker(temporal_client: Client):
     """Spin up a Temporal worker for subscription workflows/activities."""
 
