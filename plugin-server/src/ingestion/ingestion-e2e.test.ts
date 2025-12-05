@@ -2570,4 +2570,72 @@ describe('Event Pipeline E2E tests', () => {
             expect(eventNames).toEqual(['$create_alias', 'anonymous event 1', 'anonymous event 2'])
         })
     })
+
+    testWithTeamIngester('Should not share cached person data between batches', {}, async (ingester, hub, team) => {
+        const distinctId = 'user-across-batches'
+
+        // First batch: Create a person with initial properties
+        const batch1Events = [
+            new EventBuilder(team, distinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: { batch1_prop: 'value1', shared_prop: 'batch1' },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(batch1Events))
+        await waitForKafkaMessages(hub)
+
+        // Verify batch 1 wrote correctly
+        let person: InternalPerson
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            expect(persons[0].properties).toMatchObject({
+                batch1_prop: 'value1',
+                shared_prop: 'batch1',
+            })
+            person = persons[0]
+        })
+
+        // Simulate another pod/process modifying the person directly in the database.
+        // This is the key test: if the cache isn't cleared between batches, the next
+        // batch won't see this external modification.
+        const { PostgresUse } = await import('../utils/db/postgres')
+        await hub.db.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `UPDATE posthog_person SET properties = properties || $1::jsonb WHERE id = $2`,
+            [JSON.stringify({ external_prop: 'external_value' }), person!.id],
+            'test-external-update'
+        )
+
+        // Second batch: Update the same person with new properties
+        // If the store wasn't reset, it would use stale cached data (missing external_prop)
+        const batch2Events = [
+            new EventBuilder(team, distinctId)
+                .withEvent('$identify')
+                .withProperties({
+                    $set: { batch2_prop: 'value2', shared_prop: 'batch2' },
+                })
+                .build(),
+        ]
+
+        await ingester.handleKafkaBatch(createKafkaMessages(batch2Events))
+        await waitForKafkaMessages(hub)
+
+        // Verify batch 2 wrote correctly and preserved the external modification
+        await waitForExpect(async () => {
+            const persons = await fetchPostgresPersons(hub.db, team.id)
+            expect(persons.length).toBe(1)
+            // Should have properties from both batches AND the external modification
+            // If cache wasn't cleared, external_prop would be missing
+            expect(persons[0].properties).toMatchObject({
+                batch1_prop: 'value1',
+                batch2_prop: 'value2',
+                shared_prop: 'batch2',
+                external_prop: 'external_value',
+            })
+        })
+    })
 })
