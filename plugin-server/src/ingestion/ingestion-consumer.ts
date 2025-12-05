@@ -31,8 +31,7 @@ import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writ
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
 import {
     createApplyCookielessProcessingStep,
-    createApplyDropRestrictionsStep,
-    createApplyForceOverflowRestrictionsStep,
+    createApplyEventRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
     createDropExceptionEventsStep,
     createParseHeadersStep,
@@ -249,9 +248,8 @@ export class IngestionConsumer {
                 builder.sequentially((b) =>
                     b
                         .pipe(createParseHeadersStep())
-                        .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
                         .pipe(
-                            createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
+                            createApplyEventRestrictionsStep(this.eventIngestionRestrictionManager, {
                                 overflowEnabled: this.overflowEnabled(),
                                 overflowTopic: this.overflowTopic || '',
                                 preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
