@@ -27783,6 +27783,10 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SlashCommandName": {
+            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "type": "string"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
