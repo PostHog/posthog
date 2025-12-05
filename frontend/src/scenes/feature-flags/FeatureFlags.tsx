@@ -343,10 +343,30 @@ export function OverViewTab({
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
                 const releaseText = groupFilters(featureFlag.filters, undefined, aggregationLabel)
-                return typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
-                    <LemonTag type="highlight">{releaseText}</LemonTag>
-                ) : (
-                    releaseText
+                const variants = featureFlag.filters?.multivariate?.variants
+                const isMultivariate = variants && variants.length > 0
+
+                return (
+                    <div className="flex flex-col gap-1">
+                        {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                            <LemonTag type="highlight">{releaseText}</LemonTag>
+                        ) : (
+                            releaseText
+                        )}
+                        {isMultivariate && (
+                            <div className="flex flex-wrap justify-evenly gap-x-2 gap-y-1">
+                                {variants.map((variant) => (
+                                    <Tooltip key={variant.key} title={variant.name || variant.key} placement="top">
+                                        <span>
+                                            <LemonTag type="muted" size="small">
+                                                {variant.key}: {variant.rollout_percentage}%
+                                            </LemonTag>
+                                        </span>
+                                    </Tooltip>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 )
             },
         },
