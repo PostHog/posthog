@@ -1925,6 +1925,8 @@ class IntervalType(StrEnum):
     DAY = "day"
     WEEK = "week"
     MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
 
 
 class LLMTraceEvent(BaseModel):

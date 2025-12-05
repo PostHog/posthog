@@ -13,7 +13,7 @@ from posthog.models.team import Team, WeekStartDay
 from posthog.queries.util import get_earliest_timestamp, get_trunc_func_ch
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, relative_date_parse_with_delta_mapping
 
-IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month"]
+IntervalLiteral = Literal["second", "minute", "hour", "day", "week", "month", "quarter", "year"]
 ORDERED_INTERVALS = [
     IntervalType.SECOND,
     IntervalType.MINUTE,
@@ -21,6 +21,8 @@ ORDERED_INTERVALS = [
     IntervalType.DAY,
     IntervalType.WEEK,
     IntervalType.MONTH,
+    IntervalType.QUARTER,
+    IntervalType.YEAR,
 ]
 
 
@@ -208,12 +210,20 @@ class QueryDateRange:
             return start
         elif interval_name == "month":
             return start.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif interval_name == "quarter":
+            quarter_month = ((start.month - 1) // 3) * 3 + 1
+            return start.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        elif interval_name == "year":
+            return start.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
 
     def interval_relativedelta(self) -> relativedelta:
         return relativedelta(
             days=self.interval_count if self.interval_name == "day" else 0,
             weeks=self.interval_count if self.interval_name == "week" else 0,
-            months=self.interval_count if self.interval_name == "month" else 0,
+            months=self.interval_count
+            if self.interval_name == "month"
+            else (self.interval_count * 3 if self.interval_name == "quarter" else 0),
+            years=self.interval_count if self.interval_name == "year" else 0,
             hours=self.interval_count if self.interval_name == "hour" else 0,
             minutes=self.interval_count if self.interval_name == "minute" else 0,
             seconds=self.interval_count if self.interval_name == "second" else 0,
@@ -380,6 +390,8 @@ PERIOD_MAP: dict[str, timedelta | relativedelta] = {
     "day": timedelta(days=1),
     "week": timedelta(weeks=1),
     "month": relativedelta(months=1),
+    "quarter": relativedelta(months=3),
+    "year": relativedelta(years=1),
 }
 
 
@@ -475,5 +487,10 @@ def date_to_start_of_interval(date: datetime, interval: IntervalType, team: Team
             return (date - timedelta(days=week_start_alignment_days)).replace(hour=0, minute=0, second=0, microsecond=0)
         case IntervalType.MONTH:
             return date.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        case IntervalType.QUARTER:
+            quarter_month = ((date.month - 1) // 3) * 3 + 1
+            return date.replace(month=quarter_month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        case IntervalType.YEAR:
+            return date.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
         case _:
             raise ValueError(f"Unsupported interval {interval}")

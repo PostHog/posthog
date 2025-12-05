@@ -71,6 +71,8 @@ const DEFAULT_OPTIONS: LemonSelectOption<IntervalType>[] = [
     { value: 'day', label: 'Day' },
     { value: 'week', label: 'Week' },
     { value: 'month', label: 'Month' },
+    { value: 'quarter', label: 'Quarter' },
+    { value: 'year', label: 'Year' },
 ]
 
 export function IntervalFilterStandalone({

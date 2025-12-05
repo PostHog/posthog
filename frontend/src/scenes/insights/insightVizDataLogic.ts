@@ -425,6 +425,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
                         }
+                        enabledIntervals.quarter = {
+                            ...enabledIntervals.quarter,
+                            disabledReason:
+                                'Grouping by quarter is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.year = {
+                            ...enabledIntervals.year,
+                            disabledReason:
+                                'Grouping by year is not supported on insights with weekly active users series.',
+                        }
                     }
                 }
 

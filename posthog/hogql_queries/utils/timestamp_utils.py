@@ -240,7 +240,13 @@ def format_label_date(
         "minute": "%-d-%b %H:%M",
         "hour": "%-d-%b %H:%M",
         "month": "%b %Y",
+        "quarter": "Q%q %Y",
+        "year": "%Y",
     }
     labels_format = date_formats.get(interval, date_formats["day"])
+
+    if interval == "quarter":
+        quarter = (input_date.month - 1) // 3 + 1
+        return f"Q{quarter} {input_date.year}"
 
     return input_date.strftime(labels_format)

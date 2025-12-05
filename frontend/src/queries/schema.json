@@ -17258,7 +17258,7 @@
             "type": "string"
         },
         "IntervalType": {
-            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             "type": "string"
         },
         "LLMTrace": {

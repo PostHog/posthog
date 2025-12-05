@@ -1,4 +1,4 @@
-export type IntervalKeyType = 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalKeyType = 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 
 export type Intervals = {
     [key in IntervalKeyType]: {
@@ -29,5 +29,13 @@ export const intervals: Intervals = {
     month: {
         label: 'month',
         newDateFrom: '-90d',
+    },
+    quarter: {
+        label: 'quarter',
+        newDateFrom: '-1y',
+    },
+    year: {
+        label: 'year',
+        newDateFrom: '-5y',
     },
 }
