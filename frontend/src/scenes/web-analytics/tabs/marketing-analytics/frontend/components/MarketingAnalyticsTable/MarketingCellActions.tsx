@@ -1,11 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useState } from 'react'
 
-import { IconChevronRight, IconTrash } from '@posthog/icons'
-
-import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
 import { MarketingAnalyticsItem, NativeMarketingSource } from '~/queries/schema/schema-general'
 import { CellActionProps, RowActionProps } from '~/queries/types'
@@ -14,6 +10,7 @@ import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsS
 import { IntegrationSettingsModal, IntegrationSettingsTab } from '../settings/IntegrationSettingsModal'
 import {
     CampaignMappingInfo,
+    MappingTypes,
     SourceMappingStatus,
     getAutoMatchedCampaigns,
     getAvailableIntegrationsForCampaign,
@@ -22,16 +19,11 @@ import {
     getGlobalCampaignMapping,
     getSourceMappingStatus,
 } from './marketingMappingUtils'
-
-/** Maximum characters to show in menu titles before truncating */
-const MENU_TITLE_MAX_LENGTH = 20
-/** Maximum characters to show in row action labels before truncating */
-const ROW_LABEL_MAX_LENGTH = 15
-
-/** Truncates a string with ellipsis if it exceeds maxLength */
-function truncateWithEllipsis(value: string, maxLength: number): string {
-    return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value
-}
+import {
+    buildCampaignMappingMenuItems,
+    buildRowMappingMenuItems,
+    buildSourceMappingMenuItems,
+} from './marketingMenuBuilders'
 
 /**
  * Extract the string value from a cell value.
@@ -48,6 +40,7 @@ function extractStringValue(value: unknown): string {
     return String(value).trim()
 }
 
+/** Cell Action Components */
 export interface MapSourceCellActionsProps extends CellActionProps {
     onOpenIntegrationSettings?: (integration: NativeMarketingSource, utmValue: string) => void
 }
@@ -73,7 +66,7 @@ export function MapSourceCellActions({
     )
 
     const handleRemoveCustomMapping = (): void => {
-        if (mappingStatus.type !== 'custom') {
+        if (mappingStatus.type !== MappingTypes.Custom) {
             return
         }
         const customMappings = { ...marketingAnalyticsConfig?.custom_source_mappings }
@@ -89,66 +82,17 @@ export function MapSourceCellActions({
         updateCustomSourceMappings(customMappings)
     }
 
-    // For default mappings, disable the entire Mapping menu
-    if (mappingStatus.type === 'default') {
-        const menuItems: LemonMenuItems = [
-            {
-                title: `"${truncateWithEllipsis(utmSource, MENU_TITLE_MAX_LENGTH)}"`,
-                items: [
-                    {
-                        label: 'Mapping',
-                        icon: <IconLink />,
-                        sideIcon: <IconChevronRight />,
-                        disabledReason: 'This matches a default mapping, so it cannot be modified.',
-                    },
-                ],
-            },
-        ]
-        return <LemonMenuOverlay items={menuItems} />
-    }
+    const menuItems = buildSourceMappingMenuItems({
+        utmSource,
+        mappingStatus,
+        availableIntegrations,
+        onOpenIntegrationSettings,
+        onRemoveMapping: handleRemoveCustomMapping,
+    })
 
-    // Build mapping submenu items - either map to integration or remove existing mapping
-    const mappingSubmenuItems: LemonMenuItem[] = []
-
-    // If not mapped, show available integrations to map to
-    if (mappingStatus.type === 'unmapped' && availableIntegrations.length > 0) {
-        availableIntegrations.forEach((integration) => {
-            mappingSubmenuItems.push({
-                label: `Map to ${integration}`,
-                icon: <DataWarehouseSourceIcon type={integration} size="xsmall" disableTooltip />,
-                onClick: () => onOpenIntegrationSettings?.(integration, utmSource),
-            })
-        })
-    }
-
-    // If custom mapped, show remove option
-    if (mappingStatus.type === 'custom') {
-        mappingSubmenuItems.push({
-            label: `Remove mapping from ${mappingStatus.integration}`,
-            icon: <IconTrash />,
-            status: 'danger' as const,
-            onClick: handleRemoveCustomMapping,
-        })
-    }
-
-    if (mappingSubmenuItems.length === 0) {
+    if (!menuItems) {
         return null
     }
-
-    // Build top-level menu with Mapping as parent
-    const menuItems: LemonMenuItems = [
-        {
-            title: `"${truncateWithEllipsis(utmSource, MENU_TITLE_MAX_LENGTH)}"`,
-            items: [
-                {
-                    label: 'Mapping',
-                    icon: <IconLink />,
-                    sideIcon: <IconChevronRight />,
-                    items: mappingSubmenuItems,
-                },
-            ],
-        },
-    ]
 
     return <LemonMenuOverlay items={menuItems} />
 }
@@ -183,7 +127,6 @@ export function MapCampaignCellActions({
     const existingMappings: CampaignMappingInfo[] = getCampaignMappings(utmCampaign, marketingAnalyticsConfig)
 
     // Get available integrations for new mappings (only those with data and not auto-matched)
-    // Note: getAvailableIntegrationsForCampaign already returns empty if globally mapped
     const availableIntegrations = getAvailableIntegrationsForCampaign(utmCampaign, marketingAnalyticsConfig).filter(
         (integration) => !!integrationCampaignTables[integration] && !autoMatchedIntegrations.has(integration)
     )
@@ -209,79 +152,23 @@ export function MapCampaignCellActions({
         updateCampaignNameMappings(campaignMappings)
     }
 
-    // If already mapped globally and no existing mappings to remove, show disabled state
-    if (globalMapping && existingMappings.length === 0) {
-        const menuItems: LemonMenuItems = [
-            {
-                title: `"${truncateWithEllipsis(utmCampaign, MENU_TITLE_MAX_LENGTH)}"`,
-                items: [
-                    {
-                        label: 'Mapping',
-                        icon: <IconLink />,
-                        sideIcon: <IconChevronRight />,
-                        disabledReason: `Already mapped to ${globalMapping.integration}: ${globalMapping.campaignName}`,
-                    },
-                ],
-            },
-        ]
-        return <LemonMenuOverlay items={menuItems} />
-    }
+    const menuItems = buildCampaignMappingMenuItems({
+        utmCampaign,
+        globalMapping,
+        existingMappings,
+        availableIntegrations,
+        onOpenIntegrationSettings,
+        onRemoveMapping: handleRemoveCampaignMapping,
+    })
 
-    // Build mapping submenu items - either map to integration or remove existing mappings
-    const mappingSubmenuItems: LemonMenuItem[] = []
-
-    // If not mapped globally, show available integrations to map to
-    if (availableIntegrations.length > 0) {
-        availableIntegrations.forEach((integration) => {
-            mappingSubmenuItems.push({
-                label: `Map to ${integration}`,
-                icon: <DataWarehouseSourceIcon type={integration} size="xsmall" disableTooltip />,
-                onClick: () => onOpenIntegrationSettings?.(integration, utmCampaign),
-            })
-        })
-    }
-
-    // If has existing mappings, show remove options
-    if (existingMappings.length > 0) {
-        existingMappings.forEach((mapping) => {
-            mappingSubmenuItems.push({
-                label: `Remove from ${mapping.integration}: ${mapping.campaignName}`,
-                icon: <IconTrash />,
-                status: 'danger' as const,
-                onClick: () => handleRemoveCampaignMapping(mapping.integration, mapping.campaignName),
-            })
-        })
-    }
-
-    if (mappingSubmenuItems.length === 0) {
+    if (!menuItems) {
         return null
     }
-
-    // Build top-level menu with Mapping as parent
-    const menuItems: LemonMenuItems = [
-        {
-            title: `"${truncateWithEllipsis(utmCampaign, MENU_TITLE_MAX_LENGTH)}"`,
-            items: [
-                {
-                    label: 'Mapping',
-                    icon: <IconLink />,
-                    sideIcon: <IconChevronRight />,
-                    items: mappingSubmenuItems,
-                },
-            ],
-        },
-    ]
 
     return <LemonMenuOverlay items={menuItems} />
 }
 
-interface IntegrationSettingsModalState {
-    isOpen: boolean
-    integration: NativeMarketingSource | null
-    initialTab: IntegrationSettingsTab
-    initialUtmValue: string
-}
-
+/** Row Action Component */
 export interface MarketingRowActionsProps extends RowActionProps {
     onOpenSourceSettings?: (integration: NativeMarketingSource, utmValue: string) => void
     onOpenCampaignSettings?: (integration: NativeMarketingSource, utmValue: string) => void
@@ -332,7 +219,7 @@ export function MarketingRowActions({
 
     // Handle source mapping removal
     const handleRemoveSourceMapping = (): void => {
-        if (sourceMappingStatus.type !== 'custom') {
+        if (sourceMappingStatus.type !== MappingTypes.Custom) {
             return
         }
         const customMappings = { ...marketingAnalyticsConfig?.custom_source_mappings }
@@ -370,133 +257,33 @@ export function MarketingRowActions({
         updateCampaignNameMappings(campaignMappings)
     }
 
-    // Build source mapping submenu
-    const buildSourceMappingItems = (): LemonMenuItem | null => {
-        if (!sourceValue) {
-            return null
-        }
+    const menuItems = buildRowMappingMenuItems({
+        sourceValue,
+        campaignValue,
+        sourceMappingStatus,
+        availableSourceIntegrations,
+        globalCampaignMapping,
+        existingCampaignMappings,
+        availableCampaignIntegrations,
+        onOpenSourceSettings,
+        onOpenCampaignSettings,
+        onRemoveSourceMapping: handleRemoveSourceMapping,
+        onRemoveCampaignMapping: handleRemoveCampaignMapping,
+    })
 
-        // For default mappings, disable the entire menu
-        if (sourceMappingStatus.type === 'default') {
-            return {
-                label: `Source: "${truncateWithEllipsis(sourceValue, ROW_LABEL_MAX_LENGTH)}"`,
-                icon: <IconLink />,
-                disabledReason: 'This matches a default mapping, so it cannot be modified.',
-            }
-        }
-
-        const submenuItems: LemonMenuItem[] = []
-
-        // If not mapped, show available integrations
-        if (sourceMappingStatus.type === 'unmapped' && availableSourceIntegrations.length > 0) {
-            availableSourceIntegrations.forEach((integration) => {
-                submenuItems.push({
-                    label: `Map to ${integration}`,
-                    icon: <DataWarehouseSourceIcon type={integration} size="xsmall" disableTooltip />,
-                    onClick: () => onOpenSourceSettings?.(integration, sourceValue),
-                })
-            })
-        }
-
-        // If custom mapped, show remove option
-        if (sourceMappingStatus.type === 'custom') {
-            submenuItems.push({
-                label: `Remove mapping from ${sourceMappingStatus.integration}`,
-                icon: <IconTrash />,
-                status: 'danger' as const,
-                onClick: handleRemoveSourceMapping,
-            })
-        }
-
-        if (submenuItems.length === 0) {
-            return null
-        }
-
-        return {
-            label: `Source: "${truncateWithEllipsis(sourceValue, ROW_LABEL_MAX_LENGTH)}"`,
-            icon: <IconLink />,
-            sideIcon: <IconChevronRight />,
-            items: submenuItems,
-        }
-    }
-
-    // Build campaign mapping submenu
-    const buildCampaignMappingItems = (): LemonMenuItem | null => {
-        if (!campaignValue) {
-            return null
-        }
-
-        // If already mapped globally and no existing mappings to remove, show disabled state
-        if (globalCampaignMapping && existingCampaignMappings.length === 0) {
-            return {
-                label: `Campaign: "${truncateWithEllipsis(campaignValue, ROW_LABEL_MAX_LENGTH)}"`,
-                icon: <IconLink />,
-                disabledReason: `Already mapped to ${globalCampaignMapping.integration}: ${globalCampaignMapping.campaignName}`,
-            }
-        }
-
-        const submenuItems: LemonMenuItem[] = []
-
-        // If available integrations, show map options
-        if (availableCampaignIntegrations.length > 0) {
-            availableCampaignIntegrations.forEach((integration) => {
-                submenuItems.push({
-                    label: `Map to ${integration}`,
-                    icon: <DataWarehouseSourceIcon type={integration} size="xsmall" disableTooltip />,
-                    onClick: () => onOpenCampaignSettings?.(integration, campaignValue),
-                })
-            })
-        }
-
-        // If has existing mappings, show remove options
-        if (existingCampaignMappings.length > 0) {
-            existingCampaignMappings.forEach((mapping) => {
-                submenuItems.push({
-                    label: `Remove from ${mapping.integration}: ${mapping.campaignName}`,
-                    icon: <IconTrash />,
-                    status: 'danger' as const,
-                    onClick: () => handleRemoveCampaignMapping(mapping.integration, mapping.campaignName),
-                })
-            })
-        }
-
-        if (submenuItems.length === 0) {
-            return null
-        }
-
-        return {
-            label: `Campaign: "${truncateWithEllipsis(campaignValue, ROW_LABEL_MAX_LENGTH)}"`,
-            icon: <IconLink />,
-            sideIcon: <IconChevronRight />,
-            items: submenuItems,
-        }
-    }
-
-    // Build the menu items
-    const mappingItems: LemonMenuItem[] = []
-
-    const sourceItem = buildSourceMappingItems()
-    if (sourceItem) {
-        mappingItems.push(sourceItem)
-    }
-
-    const campaignItem = buildCampaignMappingItems()
-    if (campaignItem) {
-        mappingItems.push(campaignItem)
-    }
-
-    if (mappingItems.length === 0) {
+    if (!menuItems) {
         return null
     }
 
-    const menuItems: LemonMenuItems = [
-        {
-            title: 'Mapping',
-            items: mappingItems,
-        },
-    ]
-
     return <LemonMenuOverlay items={menuItems} />
+}
+
+/** Hook for using cell actions with modal */
+interface IntegrationSettingsModalState {
+    isOpen: boolean
+    integration: NativeMarketingSource | null
+    initialTab: IntegrationSettingsTab
+    initialUtmValue: string
 }
 
 export interface UseMarketingCellActionsReturn {

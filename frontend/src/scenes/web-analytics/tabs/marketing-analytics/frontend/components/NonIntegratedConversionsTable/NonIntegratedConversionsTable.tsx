@@ -1,4 +1,4 @@
-import './MarketingAnalyticsTableStyleOverride.scss'
+import '../MarketingAnalyticsTable/MarketingAnalyticsTableStyleOverride.scss'
 
 import { useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
@@ -25,7 +25,7 @@ import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from '../../logic/marketingAnalyticsTilesLogic'
 import { MarketingAnalyticsCell } from '../../shared'
-import { useMarketingCellActions } from './MarketingCellActions'
+import { useMarketingCellActions } from '../MarketingAnalyticsTable/MarketingCellActions'
 
 // Unique ID counter for this component
 let uniqueNodeId = 0
@@ -113,6 +113,7 @@ export const NonIntegratedConversionsTable = (): JSX.Element | null => {
             embedded: false,
             showOpenEditorButton: false,
             showReload: true,
+            showExport: true,
         }
     }, [allConversionGoals.length, dateFrom, dateTo, compareFilter, selectColumns, draftConversionGoal])
 

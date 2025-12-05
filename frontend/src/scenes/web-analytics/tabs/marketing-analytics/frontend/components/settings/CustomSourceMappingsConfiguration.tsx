@@ -12,16 +12,20 @@ const SEPARATOR = ','
 
 export interface CustomSourceMappingsConfigurationProps {
     sourceFilter?: string
+    initialUtmValue?: string
 }
 
 export function CustomSourceMappingsConfiguration({
     sourceFilter,
+    initialUtmValue,
 }: CustomSourceMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
 
     const customMappings = marketingAnalyticsConfig?.custom_source_mappings || {}
-    const [inputValues, setInputValues] = useState<Record<string, string>>({})
+    const [inputValues, setInputValues] = useState<Record<string, string>>(() =>
+        sourceFilter && initialUtmValue ? { [sourceFilter]: initialUtmValue } : {}
+    )
 
     const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 

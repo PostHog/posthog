@@ -381,7 +381,8 @@ export function DataTable({
                                         data-attr="datatable-sort-asc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
                                                     : [key]
                                             setQuery?.({
@@ -400,7 +401,8 @@ export function DataTable({
                                         data-attr="datatable-sort-desc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
                                                     : [`${key}\n DESC`]
                                             setQuery?.({

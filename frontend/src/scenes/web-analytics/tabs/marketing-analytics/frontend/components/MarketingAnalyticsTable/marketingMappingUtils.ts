@@ -188,10 +188,16 @@ export function getAvailableIntegrationsForCampaign(
     return [...VALID_NATIVE_MARKETING_SOURCES]
 }
 
+export enum MappingTypes {
+    Unmapped = 'unmapped',
+    Default = 'default',
+    Custom = 'custom',
+}
+
 export type SourceMappingStatus =
-    | { type: 'unmapped' }
-    | { type: 'default'; integration: NativeMarketingSource }
-    | { type: 'custom'; integration: NativeMarketingSource }
+    | { type: MappingTypes.Unmapped }
+    | { type: MappingTypes.Default; integration: NativeMarketingSource }
+    | { type: MappingTypes.Custom; integration: NativeMarketingSource }
 
 /**
  * Get detailed mapping status for a UTM source
@@ -201,7 +207,7 @@ export function getSourceMappingStatus(
     config: MarketingAnalyticsConfig | null
 ): SourceMappingStatus {
     if (!utmSource) {
-        return { type: 'unmapped' }
+        return { type: MappingTypes.Unmapped }
     }
 
     const normalizedSource = utmSource.toLowerCase().trim()
@@ -210,7 +216,7 @@ export function getSourceMappingStatus(
     for (const integration of VALID_NATIVE_MARKETING_SOURCES) {
         const defaults = MARKETING_DEFAULT_SOURCE_MAPPINGS[integration] || []
         if (defaults.some((d) => d.toLowerCase() === normalizedSource)) {
-            return { type: 'default', integration }
+            return { type: MappingTypes.Default, integration }
         }
     }
 
@@ -218,11 +224,11 @@ export function getSourceMappingStatus(
     const customMappings = config?.custom_source_mappings || {}
     for (const [integration, sources] of Object.entries(customMappings)) {
         if ((sources as string[]).some((s) => s.toLowerCase() === normalizedSource)) {
-            return { type: 'custom', integration: integration as NativeMarketingSource }
+            return { type: MappingTypes.Custom, integration: integration as NativeMarketingSource }
         }
     }
 
-    return { type: 'unmapped' }
+    return { type: MappingTypes.Unmapped }
 }
 
 export type CampaignMappingInfo = {
