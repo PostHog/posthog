@@ -2,10 +2,10 @@
 
 This document summarizes the automated checks executed after every DuckLake copy workflow. Both workflows (data modeling and data imports) run verification activities that issue direct DuckDB comparisons between the Delta source and the freshly created DuckLake table. YAML config files add configurable SQL checks (for example, a row-count delta), while the workflow code enforces structural comparisons (schema, partitions, key cardinality, null ratios). Together they catch schema drift or data loss before the workflow completes.
 
-| Workflow | Verification Activity | Config File |
-|----------|----------------------|-------------|
-| Data Modeling | `verify_ducklake_copy_activity` in `posthog/temporal/data_modeling/ducklake_copy_workflow.py` | `data_modeling.yaml` |
-| Data Imports | `verify_data_imports_ducklake_copy_activity` in `posthog/temporal/data_imports/ducklake_copy_data_imports_workflow.py` | `data_imports.yaml` |
+| Workflow      | Verification Activity                                                                                                  | Config File          |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| Data Modeling | `verify_ducklake_copy_activity` in `posthog/temporal/data_modeling/ducklake_copy_workflow.py`                          | `data_modeling.yaml` |
+| Data Imports  | `verify_data_imports_ducklake_copy_activity` in `posthog/temporal/data_imports/ducklake_copy_data_imports_workflow.py` | `data_imports.yaml`  |
 
 ## How verification works
 
@@ -33,12 +33,12 @@ Both workflows follow the same pattern:
 
 Both workflows run the same types of checks, but with different prefixes:
 
-| Check Type | Data Modeling | Data Imports | Description |
-| ---------- | ------------- | ------------ | ----------- |
-| Schema hash | `model.schema_hash` | `data_imports.schema_hash` | Compares Delta source schema with DuckLake table schema. Fails if they differ. Prevents silent schema drift. |
-| Partition counts | `model.partition_counts` | `data_imports.partition_counts` | When a partition column is available, compares row counts per partition between source and DuckLake. Any mismatch fails verification. |
-| Key cardinality | `model.key_cardinality.<column>` | `data_imports.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers. |
-| Null ratio | `model.null_ratio.<column>` | `data_imports.null_ratio.<column>` | Ensures DuckLake null counts for columns marked non-nullable match the Delta source. |
+| Check Type       | Data Modeling                    | Data Imports                            | Description                                                                                                                           |
+| ---------------- | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Schema hash      | `model.schema_hash`              | `data_imports.schema_hash`              | Compares Delta source schema with DuckLake table schema. Fails if they differ. Prevents silent schema drift.                          |
+| Partition counts | `model.partition_counts`         | `data_imports.partition_counts`         | When a partition column is available, compares row counts per partition between source and DuckLake. Any mismatch fails verification. |
+| Key cardinality  | `model.key_cardinality.<column>` | `data_imports.key_cardinality.<column>` | For each inferred key column, compares `COUNT(DISTINCT column)` between Delta and DuckLake to catch dropped/duplicate identifiers.    |
+| Null ratio       | `model.null_ratio.<column>`      | `data_imports.null_ratio.<column>`      | Ensures DuckLake null counts for columns marked non-nullable match the Delta source.                                                  |
 
 Additionally, YAML-defined checks (like `row_count_delta_vs_ducklake`) can be configured per workflow in the respective YAML files.
 

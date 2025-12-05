@@ -9,7 +9,7 @@ import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
-from posthog.ducklake.verification import DuckLakeCopyVerificationQuery
+from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports import ducklake_copy_data_imports_workflow as ducklake_module
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
@@ -315,7 +315,7 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
         name="row_count_check",
         sql="SELECT ABS((SELECT COUNT(*) FROM delta_scan(?)) - (SELECT COUNT(*) FROM {ducklake_table})) AS diff",
         description="Compare row counts",
-        parameters=("source_table_uri",),
+        parameters=(DuckLakeCopyVerificationParameter.SOURCE_TABLE_URI,),
         expected_value=0.0,
         tolerance=0.0,
     )

@@ -39,10 +39,10 @@ For local dev the defaults are:
 
 Each workflow is gated by its own feature flag (evaluated via `feature_enabled`). Create or update the appropriate flag locally to target the team you are testing with—otherwise the copy workflow will be skipped even if the rest of the configuration is correct.
 
-| Workflow | Feature Flag |
-|----------|--------------|
+| Workflow      | Feature Flag                           |
+| ------------- | -------------------------------------- |
 | Data Modeling | `ducklake-data-modeling-copy-workflow` |
-| Data Imports | `ducklake-data-imports-copy-workflow` |
+| Data Imports  | `ducklake-data-imports-copy-workflow`  |
 
 ## Target bucket layout
 
