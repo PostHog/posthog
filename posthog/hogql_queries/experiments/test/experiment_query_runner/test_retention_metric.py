@@ -249,19 +249,21 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
             {
                 # Control variant
                 "control_1": _create_events_for_user("control", "user_c1", 5),  # Day 5 - TOO EARLY
-                "control_2": _create_events_for_user("control", "user_c2", 7),  # Day 7 - COUNTS
+                "control_2": _create_events_for_user("control", "user_c2", 7),  # Day 7 - COUNTS (start boundary)
                 "control_3": _create_events_for_user("control", "user_c3", 10),  # Day 10 - COUNTS
                 "control_4": _create_events_for_user("control", "user_c4", 13),  # Day 13 - COUNTS
-                "control_5": _create_events_for_user("control", "user_c5", 14),  # Day 14 - TOO LATE
+                "control_5": _create_events_for_user(
+                    "control", "user_c5", 14
+                ),  # Day 14 - COUNTS (end boundary, inclusive)
                 "control_6": _create_events_for_user("control", "user_c6", 20),  # Day 20 - TOO LATE
                 "control_7": _create_events_for_user("control", "user_c7", None),  # Never returns
                 # Test variant
                 "test_1": _create_events_for_user("test", "user_t1", 6),  # Day 6 - TOO EARLY
-                "test_2": _create_events_for_user("test", "user_t2", 7),  # Day 7 - COUNTS
+                "test_2": _create_events_for_user("test", "user_t2", 7),  # Day 7 - COUNTS (start boundary)
                 "test_3": _create_events_for_user("test", "user_t3", 9),  # Day 9 - COUNTS
                 "test_4": _create_events_for_user("test", "user_t4", 12),  # Day 12 - COUNTS
                 "test_5": _create_events_for_user("test", "user_t5", 13),  # Day 13 - COUNTS
-                "test_6": _create_events_for_user("test", "user_t6", 14),  # Day 14 - TOO LATE
+                "test_6": _create_events_for_user("test", "user_t6", 14),  # Day 14 - COUNTS (end boundary, inclusive)
                 "test_7": _create_events_for_user("test", "user_t7", None),  # Never returns
             },
             self.team,
@@ -279,21 +281,21 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         control_variant = result.baseline
         test_variant = result.variant_results[0]
 
-        # Control: 7 users started, 3 retained (days 7, 10, 13)
+        # Control: 7 users started, 4 retained (days 7, 10, 13, 14 - all within [7,14] inclusive)
         self.assertEqual(control_variant.number_of_samples, 7)
-        self.assertEqual(control_variant.sum, 3)
+        self.assertEqual(control_variant.sum, 4)
 
-        # Test: 7 users started, 4 retained (days 7, 9, 12, 13)
+        # Test: 7 users started, 5 retained (days 7, 9, 12, 13, 14 - all within [7,14] inclusive)
         self.assertEqual(test_variant.number_of_samples, 7)
-        self.assertEqual(test_variant.sum, 4)
+        self.assertEqual(test_variant.sum, 5)
 
         # Verify ratio-specific fields
         self.assertEqual(control_variant.denominator_sum, 7)
         self.assertEqual(control_variant.denominator_sum_squares, 7)
-        self.assertEqual(control_variant.numerator_denominator_sum_product, 3)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 4)
         self.assertEqual(test_variant.denominator_sum, 7)
         self.assertEqual(test_variant.denominator_sum_squares, 7)
-        self.assertEqual(test_variant.numerator_denominator_sum_product, 4)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 5)
 
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
@@ -831,3 +833,167 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_b_variant.denominator_sum, 6)
         self.assertEqual(test_b_variant.denominator_sum_squares, 6)
         self.assertEqual(test_b_variant.numerator_denominator_sum_product, 5)
+
+    @parameterized.expand([("disable_new_query_builder", False), ("enable_new_query_builder", True)])
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_same_start_and_end_window(self, name, use_new_query_builder):
+        """
+        Test that retention window [N, N] captures events exactly on day N.
+        This validates the fix for the half-open interval bug where [7,7] previously gave 0 results.
+
+        User feedback: "I had to do [7,8] to capture events at exactly 7 days (10080 mins)"
+        Fix: Changed query from < to <= to make interval closed [start, end] instead of half-open [start, end)
+        """
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.save()
+
+        # Create a retention metric with [7, 7] window (same start and end)
+        # This should capture events that happen exactly on day 7
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="signup",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="login",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=7,
+            retention_window_end=7,  # Same as start - should capture only day 7
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        experiment.save()
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control group: 4 users sign up, 2 return exactly on day 7
+        for i in range(4):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # All 4 users sign up
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+            # Users 0 and 1 return exactly on day 7 (should be captured by [7,7])
+            if i < 2:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-09T12:01:00Z",  # Exactly 7 days later
+                    properties={feature_flag_property: "control"},
+                )
+
+            # User 2 returns on day 6 (should NOT be captured by [7,7])
+            elif i == 2:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-08T12:01:00Z",  # 6 days later
+                    properties={feature_flag_property: "control"},
+                )
+
+            # User 3 returns on day 8 (should NOT be captured by [7,7])
+            elif i == 3:
+                _create_event(
+                    team=self.team,
+                    event="login",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-10T12:01:00Z",  # 8 days later
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test group: 3 users sign up, all 3 return exactly on day 7
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # All 3 users sign up
+            _create_event(
+                team=self.team,
+                event="signup",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+            # All 3 users return exactly on day 7
+            _create_event(
+                team=self.team,
+                event="login",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-09T12:01:00Z",  # Exactly 7 days later
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        result = runner.calculate()
+
+        assert isinstance(result, ExperimentQueryResponse)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # Control: 4 started, 2 retained (50% - only those on exactly day 7)
+        self.assertEqual(control_variant.number_of_samples, 4)
+        self.assertEqual(control_variant.sum, 2)
+
+        # Test: 3 started, 3 retained (100% - all on exactly day 7)
+        self.assertEqual(test_variant.number_of_samples, 3)
+        self.assertEqual(test_variant.sum, 3)
+
+        # Verify ratio-specific fields
+        self.assertEqual(control_variant.denominator_sum, 4)
+        self.assertEqual(control_variant.denominator_sum_squares, 4)
+        self.assertEqual(control_variant.numerator_denominator_sum_product, 2)
+        self.assertEqual(test_variant.denominator_sum, 3)
+        self.assertEqual(test_variant.denominator_sum_squares, 3)
+        self.assertEqual(test_variant.numerator_denominator_sum_product, 3)
