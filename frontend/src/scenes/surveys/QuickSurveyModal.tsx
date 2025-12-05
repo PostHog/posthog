@@ -7,9 +7,15 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, LemonText
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
 import { SurveyPopupToggle } from 'scenes/surveys/SurveySettings'
+import { SdkVersionWarnings } from 'scenes/surveys/components/SdkVersionWarnings'
+import { getSurveyVersionWarnings } from 'scenes/surveys/surveyVersionRequirements'
+import { surveysSdkLogic } from 'scenes/surveys/surveysSdkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { Survey } from '~/types'
+
 import { EventSelector } from './quick-create/components/EventSelector'
+import { ExceptionFilters } from './quick-create/components/ExceptionFilters'
 import { FunnelSequence } from './quick-create/components/FunnelSequence'
 import { URLInput } from './quick-create/components/URLInput'
 import { VariantSelector } from './quick-create/components/VariantSelector'
@@ -37,14 +43,20 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
     const { setSurveyFormValue, setCreateMode } = useActions(quickSurveyFormLogic(logicProps))
 
     const { currentTeam } = useValues(teamLogic)
+    const { teamSdkVersions } = useValues(surveysSdkLogic)
     const shouldShowSurveyToggle = useRef(!currentTeam?.surveys_opt_in).current
+
+    const versionWarnings = useMemo(
+        () => getSurveyVersionWarnings(previewSurvey as Survey, teamSdkVersions),
+        [previewSurvey, teamSdkVersions]
+    )
 
     const handleSubmit = (mode: QuickSurveyCreateMode): void => {
         setCreateMode(mode)
     }
 
     return (
-        <>
+        <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
             {info && <LemonBanner type="info">{info}</LemonBanner>}
 
             <div className="grid grid-cols-2 gap-6 mt-2">
@@ -135,28 +147,26 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                         </div>
                     )}
 
-                    <BindLogic logic={quickSurveyFormLogic} props={logicProps}>
-                        {context.type === QuickSurveyType.FEATURE_FLAG && (
-                            <>
-                                <VariantSelector variants={context.flag.filters?.multivariate?.variants || []} />
-                                <EventSelector />
-                            </>
-                        )}
+                    {context.type === QuickSurveyType.FEATURE_FLAG && (
+                        <>
+                            <VariantSelector variants={context.flag.filters?.multivariate?.variants || []} />
+                            <EventSelector />
+                        </>
+                    )}
 
-                        {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
+                    {context.type === QuickSurveyType.FUNNEL && <FunnelSequence steps={context.funnel.steps} />}
 
-                        {context.type === QuickSurveyType.EXPERIMENT && (
-                            <>
-                                <VariantSelector
-                                    variants={context.experiment.parameters?.feature_flag_variants || []}
-                                    defaultOptionText="All users exposed to this experiment"
-                                />
-                                <EventSelector />
-                            </>
-                        )}
+                    {context.type === QuickSurveyType.EXPERIMENT && (
+                        <>
+                            <VariantSelector
+                                variants={context.experiment.parameters?.feature_flag_variants || []}
+                                defaultOptionText="All users exposed to this experiment"
+                            />
+                            <EventSelector />
+                        </>
+                    )}
 
-                        <URLInput />
-                    </BindLogic>
+                    <URLInput />
                 </div>
 
                 <div>
@@ -166,12 +176,16 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                 </div>
             </div>
 
-            <div className="mt-6">
+            {context.type === QuickSurveyType.ERROR_TRACKING && <ExceptionFilters />}
+
+            <div className="flex flex-col gap-3 mt-4">
                 {shouldShowSurveyToggle && (
-                    <div className="mb-4 p-4 border rounded bg-warning-highlight">
+                    <div className="p-4 border rounded bg-warning-highlight">
                         <SurveyPopupToggle />
                     </div>
                 )}
+
+                <SdkVersionWarnings warnings={versionWarnings} />
 
                 {submitDisabledReason && (
                     <LemonBanner type="error" className="mb-4">
@@ -223,7 +237,7 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                     </div>
                 </div>
             </div>
-        </>
+        </BindLogic>
     )
 }
 

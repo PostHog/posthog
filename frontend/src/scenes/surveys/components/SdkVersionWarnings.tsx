@@ -19,7 +19,7 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyVersionWarnin
     )
 
     return (
-        <LemonBanner type="warning" className="mt-2" hideIcon>
+        <LemonBanner type="warning" hideIcon>
             <div className="flex items-start gap-2">
                 <div>
                     <p className="font-semibold mb-1">SDK version warning</p>
@@ -30,7 +30,7 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyVersionWarnin
                                 <ul className="list-none pl-2 mt-0.5">
                                     {featureWarnings.map((warning, idx) => (
                                         <li key={idx} className="text-secondary">
-                                            {warning.sdkType} requires v{warning.minVersion}+ (you have v
+                                            Requires {warning.sdkType} v{warning.minVersion}+ (you have v
                                             {warning.currentVersion})
                                         </li>
                                     ))}
