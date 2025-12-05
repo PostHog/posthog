@@ -132,10 +132,12 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                         <LemonSelect
                             value={selectedEndpointName}
                             onChange={(value) => setSelectedEndpointName(value)}
-                            options={endpoints.map((endpoint) => ({
-                                value: endpoint.name,
-                                label: endpoint.name,
-                            }))}
+                            options={endpoints
+                                .filter((endpoint) => endpoint.query.kind === NodeKind.HogQLQuery)
+                                .map((endpoint) => ({
+                                    value: endpoint.name,
+                                    label: endpoint.name,
+                                }))}
                             placeholder="Select an endpoint to update"
                             className="w-1/3"
                         />
