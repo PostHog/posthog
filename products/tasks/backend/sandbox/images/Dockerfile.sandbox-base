@@ -74,9 +74,9 @@ RUN cd /scripts && \
     -o runAgent.mjs && \
     chmod +x runAgent.mjs
 
-# Configure git for commits
-RUN git config --global user.email "joshua@posthog.com" && \
-    git config --global user.name "PostHog AI"
+# Configure git for commits - TODO: Use user's email and name
+RUN git config --global user.email "array@posthog.com" && \
+    git config --global user.name "Array"
 
 # This is required for the Claude Code SDK to allow --dangerously-skip-permissions as the root user
 ENV IS_SANDBOX=1
