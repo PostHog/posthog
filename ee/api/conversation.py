@@ -291,9 +291,6 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         """
         conversation = self.get_object()
 
-        if conversation.user != request.user or conversation.team != self.team:
-            return Response({"error": "Cannot access other users' conversations"}, status=status.HTTP_400_BAD_REQUEST)
-
         serializer = AppendMessageSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
