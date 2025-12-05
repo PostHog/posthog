@@ -82,13 +82,6 @@ class OrganizationFeatureFlagView(
         successful_projects = []
         failed_projects = []
 
-        filters = flag_to_copy.get_filters()
-        if flag_to_copy.has_encrypted_payloads:
-            # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
-            # that will be re-encrypted by the serializer if needed
-            encrypted_payloads = filters.get("payloads", {})
-            filters["payloads"] = get_decrypted_flag_payloads(encrypted_payloads, should_decrypt=True)
-
         for target_project_id in target_project_ids:
             # Target project does not exist
             target_team = Team.objects.filter(project_id=target_project_id).first()
@@ -174,6 +167,15 @@ class OrganizationFeatureFlagView(
                             prop["value"] = name_to_dest_cohort_id[cohort_name]
                         except (ValueError, TypeError):
                             continue
+
+            # Get fresh filters for each target project because the cohort replacement logic above
+            # mutates the filters object. This ensures each copy gets the correct cohort mappings.
+            filters = flag_to_copy.get_filters()
+            if flag_to_copy.has_encrypted_payloads:
+                # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
+                # that will be re-encrypted by the serializer if needed
+                encrypted_payloads = filters.get("payloads", {})
+                filters["payloads"] = get_decrypted_flag_payloads(encrypted_payloads, should_decrypt=True)
 
             flag_data = {
                 "key": flag_to_copy.key,
