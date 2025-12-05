@@ -750,12 +750,14 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions, cache }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
         fetchNextLogsPageFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
