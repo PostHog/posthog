@@ -73,13 +73,13 @@ def is_team_exempt_from_rate_limits(team_id: int) -> bool:
     return isinstance(region_config, list) and team_id in region_config
 
 
-class AppendMessageSerializer(serializers.Serializer):
+class MessageMinimalSerializer(serializers.Serializer):
     """Serializer for appending a message to an existing conversation without triggering AI processing."""
 
     content = serializers.CharField(required=True, max_length=10000)
 
 
-class MessageSerializer(serializers.Serializer):
+class MessageSerializer(MessageMinimalSerializer):
     content = serializers.CharField(
         required=True,
         allow_null=True,  # Null content means we're continuing previous generation or resuming streaming
@@ -162,7 +162,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if self.action == "create":
             return MessageSerializer
         if self.action == "append_message":
-            return AppendMessageSerializer
+            return MessageMinimalSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
