@@ -8,7 +8,7 @@ ADD COLUMN IF NOT EXISTS historical_migration Bool
 
 ADD_HISTORICAL_MIGRATION_COLUMN_INDEX = """
 ALTER TABLE {table}
-ADD INDEX IF NOT EXISTS historical_migration_minmax (historical_migration) TYPE minmax GRANULARITY 1
+ADD INDEX IF NOT EXISTS minmax_historical_migration (historical_migration) TYPE minmax GRANULARITY 1
 """
 
 operations = [
@@ -26,7 +26,7 @@ operations = [
     ),
     run_sql_with_exceptions(
         ADD_HISTORICAL_MIGRATION_COLUMN_EVENTS.format(table="events"),
-        node_roles=[NodeRole.COORDINATOR],
+        node_roles=[NodeRole.COORDINATOR, NodeRole.DATA],
         sharded=False,
         is_alter_on_replicated_table=False,
     ),
