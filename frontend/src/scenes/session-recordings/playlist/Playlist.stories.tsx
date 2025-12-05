@@ -18,21 +18,9 @@ type ObjectType = { id: string | number }
 const ListItem = ({ item }: { item: ObjectType }): JSX.Element => <div className="p-1">Object {item.id}</div>
 
 const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
-    const mainContent = ({ activeItem }: { activeItem: SessionRecordingType }): JSX.Element => (
-        <div className="flex items-center justify-center h-full">
-            {activeItem ? `Object ${activeItem.id} selected` : 'Select an item from the list'}
-        </div>
-    )
-
     return (
         <div className="h-96 min-w-[40rem]">
-            <Playlist
-                title="Title"
-                sections={[]}
-                listEmptyState={<div>No items</div>}
-                content={mainContent}
-                {...props}
-            />
+            <Playlist title="Title" sections={[]} listEmptyState={<div>No items</div>} {...props} />
         </div>
     )
 }
