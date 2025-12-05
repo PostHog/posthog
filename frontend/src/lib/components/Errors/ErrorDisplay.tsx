@@ -49,7 +49,7 @@ export function ErrorDisplayContent(): JSX.Element {
     const [showAllFrames, setShowAllFrames] = useState(false)
     return (
         <div className="flex flex-col deprecated-space-y-2 pb-2">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between gap-2 items-center">
                 <div className="flex flex-row gap-2 flex-wrap">
                     <TitledSnack
                         type="success"
