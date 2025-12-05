@@ -168,8 +168,7 @@ class OrganizationFeatureFlagView(
                         except (ValueError, TypeError):
                             continue
 
-            # Get fresh filters for each target project because the cohort replacement logic above
-            # mutates the filters object. This ensures each copy gets the correct cohort mappings.
+            # Retrieve filters per iteration since cohort replacement logic mutates the dict
             filters = flag_to_copy.get_filters()
             if flag_to_copy.has_encrypted_payloads:
                 # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
