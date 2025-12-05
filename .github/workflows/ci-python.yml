@@ -167,13 +167,16 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v4
+              with:
+                  ref: master
+                  fetch-depth: 1
 
             - name: Restore incident state from cache
               id: cache
               uses: actions/cache/restore@v4
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  key: master-ci-incident-test
 
             - name: Read incident state
               id: incident
@@ -192,16 +195,16 @@ jobs:
                     echo "No incident found"
                   fi
 
-            # Get commit info for better messages (use PR head, not merge commit)
+            # Get commit info from master
             - name: Get commit info
               id: commit
               run: |
-                  # Use github.sha for push events, github.event.pull_request.head.sha for PRs
-                  sha="${{ github.event.pull_request.head.sha || github.sha }}"
+                  sha="$(git rev-parse HEAD)"
                   echo "short_sha=${sha:0:7}" >> $GITHUB_OUTPUT
-                  echo "message=$(git log -1 --pretty=%s $sha | head -c 50)" >> $GITHUB_OUTPUT
-                  echo "author=$(git log -1 --pretty=%an $sha)" >> $GITHUB_OUTPUT
+                  echo "message=$(git log -1 --pretty=%s | head -c 50)" >> $GITHUB_OUTPUT
+                  echo "author=$(git log -1 --pretty=%an)" >> $GITHUB_OUTPUT
                   echo "url=${{ github.server_url }}/${{ github.repository }}/commit/$sha" >> $GITHUB_OUTPUT
+                  echo "sha=$sha" >> $GITHUB_OUTPUT
 
             # New incident - post initial alert
             - name: Post new incident to Slack (TEST)
@@ -248,13 +251,12 @@ jobs:
             - name: Save new incident state (TEST)
               if: steps.incident.outputs.exists == 'false'
               run: |
-                  sha="${{ github.event.pull_request.head.sha || github.sha }}"
                   jq -n \
                     --arg channel "${{ steps.slack_new.outputs.channel_id }}" \
                     --arg ts "${{ steps.slack_new.outputs.ts }}" \
                     --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
                     --arg firstFailure "Python CI (TEST)" \
-                    --arg firstCommit "$sha" \
+                    --arg firstCommit "${{ steps.commit.outputs.sha }}" \
                     --argjson failCount 1 \
                     --argjson commitCount 1 \
                     '{channel: $channel, ts: $ts, since: $since, firstFailure: $firstFailure, failCount: $failCount, commitCount: $commitCount, commits: [$firstCommit]}' > .master-ci-incident
@@ -267,14 +269,14 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  gh cache delete master-ci-incident || true
+                  gh cache delete master-ci-incident-test || true
 
             - name: Save incident to cache
               if: steps.incident.outputs.exists == 'false'
               uses: actions/cache/save@v4
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  key: master-ci-incident-test
 
             # Existing incident - update count and add thread reply
             - name: Calculate new counts
@@ -285,8 +287,8 @@ jobs:
                   fail_count=$(( ${{ steps.incident.outputs.failCount }} + 1 ))
                   echo "failCount=$fail_count" >> $GITHUB_OUTPUT
 
-                  # Check if this commit is new (use PR head, not merge commit)
-                  current_sha="${{ github.event.pull_request.head.sha || github.sha }}"
+                  # Check if this commit is new
+                  current_sha="${{ steps.commit.outputs.sha }}"
                   if jq -e --arg sha "$current_sha" '.commits | index($sha)' .master-ci-incident > /dev/null 2>&1; then
                     # Commit already tracked
                     echo "commitCount=${{ steps.incident.outputs.commitCount }}" >> $GITHUB_OUTPUT
@@ -344,11 +346,10 @@ jobs:
             - name: Update incident state with new counts (TEST)
               if: steps.incident.outputs.exists == 'true'
               run: |
-                  current_sha="${{ github.event.pull_request.head.sha || github.sha }}"
                   jq \
                     --argjson failCount ${{ steps.new_count.outputs.failCount }} \
                     --argjson commitCount ${{ steps.new_count.outputs.commitCount }} \
-                    --arg newCommit "$current_sha" \
+                    --arg newCommit "${{ steps.commit.outputs.sha }}" \
                     '.failCount = $failCount | .commitCount = $commitCount | if (.commits | index($newCommit)) then . else .commits += [$newCommit] end' \
                     .master-ci-incident > .master-ci-incident.tmp
                   mv .master-ci-incident.tmp .master-ci-incident
@@ -360,11 +361,11 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
-                  gh cache delete master-ci-incident || true
+                  gh cache delete master-ci-incident-test || true
 
             - name: Save updated incident to cache
               if: steps.incident.outputs.exists == 'true'
               uses: actions/cache/save@v4
               with:
                   path: .master-ci-incident
-                  key: master-ci-incident
+                  key: master-ci-incident-test
