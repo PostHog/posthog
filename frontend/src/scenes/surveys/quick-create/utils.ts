@@ -1,6 +1,7 @@
 import { SurveyQuestionType } from 'posthog-js'
 
 import { EventsNode } from '~/queries/schema/schema-general'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'
@@ -82,6 +83,35 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     question: 'Hog mode is now available!',
                     description: 'You can never have too many hedgehogs.',
                     buttonText: 'Check it out 👉',
+                }
+            }
+        case QuickSurveyType.COHORT:
+            return {
+                key: `cohort-${context.cohortId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.COHORTS,
+                defaults: {
+                    name: `Cohort ${context.cohortName ?? context.cohortId} - Quick feedback ${randomId}`,
+                    question: 'Ask your cohort a question',
+                    targeting_flag_filters: {
+                        groups: [
+                            {
+                                properties: [
+                                    {
+                                        key: 'id',
+                                        value: context.cohortId,
+                                        type: PropertyFilterType.Cohort,
+                                        operator: PropertyOperator.In,
+                                        cohort_name: 'Static cohort',
+                                    },
+                                ],
+                                rollout_percentage: 100,
+                                variant: null,
+                            },
+                        ],
+                        multivariate: null,
+                        payloads: {},
+                    },
                 },
             }
 

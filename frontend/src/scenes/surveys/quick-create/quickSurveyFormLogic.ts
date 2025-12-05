@@ -45,6 +45,7 @@ export interface QuickSurveyFormValues {
     conditions: Survey['conditions']
     appearance: Survey['appearance']
     linkedFlagId?: number | null
+    targeting_flag_filters?: Survey['targeting_flag_filters']
 }
 
 export interface QuickSurveyFormLogicProps {
@@ -140,6 +141,9 @@ export const quickSurveyFormLogic = kea<quickSurveyFormLogicType>([
                     appearance: formValues.appearance,
                     ...(formValues.linkedFlagId ? { linked_flag_id: formValues.linkedFlagId } : {}),
                     ...(shouldLaunch ? { start_date: dayjs().toISOString() } : {}),
+                    ...(formValues.targeting_flag_filters
+                        ? { targeting_flag_filters: formValues.targeting_flag_filters }
+                        : {}),
                 }
 
                 const response = await api.surveys.create(surveyData)

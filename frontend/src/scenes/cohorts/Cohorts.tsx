@@ -20,6 +20,8 @@ import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -33,9 +35,23 @@ export const scene: SceneExport = {
 }
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsLoading, pagination, cohortFilters, shouldShowEmptyState, cohortSorting } =
-        useValues(cohortsSceneLogic)
-    const { deleteCohort, exportCohortPersons, setCohortFilters, setCohortSorting } = useActions(cohortsSceneLogic)
+    const {
+        cohorts,
+        cohortsLoading,
+        pagination,
+        cohortFilters,
+        shouldShowEmptyState,
+        cohortSorting,
+        quickSurveyModalState,
+    } = useValues(cohortsSceneLogic)
+    const {
+        deleteCohort,
+        exportCohortPersons,
+        setCohortFilters,
+        setCohortSorting,
+        openQuickSurveyModal,
+        closeQuickSurveyModal,
+    } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
 
     const columns: LemonTableColumns<CohortType> = [
@@ -134,6 +150,18 @@ export function Cohorts(): JSX.Element {
                                     fullWidth
                                 >
                                     Export all columns for users
+                                </LemonButton>
+                                <LemonButton
+                                    onClick={() => {
+                                        if (cohort.id === 'new') {
+                                            return
+                                        }
+                                        openQuickSurveyModal(cohort.id, cohort.name)
+                                    }}
+                                    tooltip="Create a survey that targets the cohort"
+                                    fullWidth
+                                >
+                                    Create survey
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton
@@ -272,6 +300,18 @@ export function Cohorts(): JSX.Element {
                     setCohortSorting(sorting)
                 }}
                 useURLForSorting={false}
+            />
+            <QuickSurveyModal
+                context={{
+                    type: QuickSurveyType.COHORT,
+                    cohortId: quickSurveyModalState.cohortId,
+                    cohortName: quickSurveyModalState.cohortName,
+                }}
+                info="This survey will display to all users in this cohort."
+                isOpen={quickSurveyModalState.isOpen}
+                onCancel={() => {
+                    closeQuickSurveyModal()
+                }}
             />
         </SceneContent>
     )

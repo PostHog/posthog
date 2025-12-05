@@ -40,6 +40,16 @@ const DEFAULT_COHORT_FILTERS: CohortFilters = {
 
 const COHORTS_PER_PAGE = 100
 
+type QuickSurveyModalState =
+    | {
+          isOpen: false
+      }
+    | {
+          isOpen: true
+          cohortId: number
+          cohortName?: string
+      }
+
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     path(['scenes', 'cohorts', 'cohortsSceneLogic']),
     tabAwareScene(),
@@ -51,6 +61,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
+        openQuickSurveyModal: (cohortId: number) => ({ cohortId }),
+        closeQuickSurveyModal: true,
     })),
     reducers({
         cohortFilters: [
@@ -82,6 +94,23 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                     return {
                         ...state,
                         results: state.results.filter((c) => c.id !== cohort.id),
+                    }
+                },
+            },
+        ],
+        quickSurveyModalState: [
+            { isOpen: false } as QuickSurveyModalState,
+            {
+                openQuickSurveyModal: (_, { cohortId, cohortName }) => {
+                    return {
+                        isOpen: true,
+                        cohortId,
+                        cohortName,
+                    }
+                },
+                closeQuickSurveyModal: () => {
+                    return {
+                        isOpen: false,
                     }
                 },
             },

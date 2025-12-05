@@ -8,6 +8,7 @@ export type QuickSurveyContext =
     | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
     | { type: QuickSurveyType.ANNOUNCEMENT }
     | { type: QuickSurveyType.ERROR_TRACKING; exceptionType: string; exceptionMessage?: string | null }
+    | { type: QuickSurveyType.COHORT; cohortId: number; cohortName?: string }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
@@ -21,4 +22,5 @@ export enum QuickSurveyType {
     EXPERIMENT = 'experiment',
     ANNOUNCEMENT = 'announcement',
     ERROR_TRACKING = 'error_tracking',
+    COHORT = 'cohort',
 }
