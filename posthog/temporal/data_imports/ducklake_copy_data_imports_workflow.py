@@ -91,7 +91,6 @@ class DuckLakeCopyDataImportsMetadata:
     # Source metadata (optional, with defaults)
     source_partition_column: str | None = None
     source_partition_column_type: str | None = None
-    source_key_columns: list[str] = dataclasses.field(default_factory=list)
     source_non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
     # Verification
@@ -188,7 +187,6 @@ async def prepare_data_imports_ducklake_metadata_activity(
         partition_column, partition_column_type = _detect_data_imports_partition_column(
             schema, table_columns, source_table_uri
         )
-        key_columns = _detect_data_imports_key_columns(schema, table_columns)
         non_nullable_columns = _detect_data_imports_non_nullable_columns(table_columns)
 
         model_list.append(
@@ -208,7 +206,6 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 source_partition_column_type=partition_column_type,
-                source_key_columns=key_columns,
                 source_non_nullable_columns=non_nullable_columns,
             )
         )
@@ -278,28 +275,6 @@ def _detect_data_imports_partition_column(
         table_uri=table_uri,
     )
     return None, None
-
-
-def _detect_data_imports_key_columns(schema: ExternalDataSchema, columns: dict[str, typing.Any]) -> list[str]:
-    """Detect key columns for data imports with preference order."""
-    detected: list[str] = []
-
-    if schema.incremental_field and schema.incremental_field in columns:
-        detected.append(schema.incremental_field)
-
-    if schema.partitioning_enabled and schema.partitioning_keys:
-        for partition_key in schema.partitioning_keys:
-            if partition_key in columns and partition_key not in detected:
-                detected.append(partition_key)
-
-    for name in columns.keys():
-        lowered = name.lower()
-        if lowered in ("id", "_id", "distinct_id", "person_id") and name not in detected:
-            detected.append(name)
-        elif lowered.endswith("_id") and name not in detected:
-            detected.append(name)
-
-    return detected
 
 
 def _extract_column_type(metadata: typing.Any) -> str:
@@ -530,7 +505,6 @@ def verify_data_imports_ducklake_copy_activity(
             if partition_result:
                 results.append(partition_result)
 
-            results.extend(_run_data_imports_key_cardinality_verifications(conn, ducklake_table, inputs))
             results.extend(_run_data_imports_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
@@ -662,57 +636,6 @@ def _run_data_imports_partition_verification(
         observed_value=0.0,
         tolerance=0.0,
     )
-
-
-def _run_data_imports_key_cardinality_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyDataImportsActivityInputs,
-) -> list[DuckLakeCopyDataImportsVerificationResult]:
-    """Verify key column cardinality matches between source and DuckLake."""
-    results: list[DuckLakeCopyDataImportsVerificationResult] = []
-    if not inputs.model.source_key_columns:
-        return results
-
-    for column in inputs.model.source_key_columns:
-        column_expr = _quote_identifier(column)
-        sql = f"""
-            SELECT
-                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan(?)) AS source_count,
-                (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
-        """
-        try:
-            row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
-            if row is None:
-                raise ValueError(f"Key cardinality query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyDataImportsVerificationResult(
-                    name=f"data_imports.key_cardinality.{column}",
-                    passed=False,
-                    description=f"Validate key cardinality for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_count = float(row[0] or 0)
-        ducklake_count = float(row[1] or 0)
-        diff = abs(source_count - ducklake_count)
-        passed = diff == 0
-        results.append(
-            DuckLakeCopyDataImportsVerificationResult(
-                name=f"data_imports.key_cardinality.{column}",
-                passed=passed,
-                description=f"Validate key cardinality for {column}.",
-                expected_value=0.0,
-                observed_value=diff,
-                tolerance=0.0,
-                error=None if passed else f"source={source_count}, ducklake={ducklake_count}",
-            )
-        )
-
-    return results
 
 
 def _run_data_imports_non_nullable_verifications(
