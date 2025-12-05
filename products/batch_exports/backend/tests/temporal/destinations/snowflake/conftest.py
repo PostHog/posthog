@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+import pytest_asyncio
 import snowflake.connector
 
 from posthog.batch_exports.models import BatchExport
@@ -65,7 +66,7 @@ def snowflake_config(database, schema) -> dict[str, str]:
     return config
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def snowflake_batch_export(
     ateam, table_name, snowflake_config, interval, exclude_events, temporal_client
 ) -> AsyncGenerator[BatchExport, None]:

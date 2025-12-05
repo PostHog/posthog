@@ -4,6 +4,7 @@ import datetime as dt
 
 import pytest
 
+import pytest_asyncio
 from psycopg import sql
 
 from posthog.batch_exports.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
@@ -45,7 +46,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def clean_up_s3_bucket(s3_client, bucket_name, key_prefix):
     """Clean-up S3 bucket used in Redshift copy activity."""
     yield

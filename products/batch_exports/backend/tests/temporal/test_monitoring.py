@@ -46,14 +46,14 @@ async def clickhouse_db_setup(clickhouse_client):
     await create_clickhouse_tables_and_views(clickhouse_client)
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def truncate(clickhouse_client):
     """Fixture to automatically truncate sharded_events after a test."""
     yield
     await truncate_events(clickhouse_client)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def batch_export(ateam, temporal_client):
     """Provide a batch export for tests, not intended to be used."""
     destination_data = {
@@ -85,7 +85,7 @@ async def batch_export(ateam, temporal_client):
     await adelete_batch_export(batch_export, temporal_client)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_batch_export_runs(
     generate_test_data,
     data_interval_start: dt.datetime,

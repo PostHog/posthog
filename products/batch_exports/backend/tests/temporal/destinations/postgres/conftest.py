@@ -3,6 +3,7 @@ import pytest
 from django.conf import settings
 
 import psycopg
+import pytest_asyncio
 
 
 @pytest.fixture
@@ -17,7 +18,7 @@ def postgres_config():
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_connection(postgres_config, setup_postgres_test_db):
     connection = await psycopg.AsyncConnection.connect(
         user=postgres_config["user"],
@@ -56,7 +57,7 @@ def table_name(ateam, interval):
     return f"test_table_{ateam.pk}_{interval}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def postgres_batch_export(ateam, table_name, postgres_config, interval, exclude_events, temporal_client):
     from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 

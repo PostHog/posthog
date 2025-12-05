@@ -4,6 +4,7 @@ import random
 
 import pytest
 
+import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
@@ -102,7 +103,7 @@ def materialized_slot_error(team, property_definition):
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def aproperty_definition(ateam):
     """Create a test property definition (async)."""
     return await sync_to_async(PropertyDefinition.objects.create)(
@@ -113,7 +114,7 @@ async def aproperty_definition(ateam):
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def amaterialized_slot(ateam, aproperty_definition):
     """Create a test materialized column slot (async)."""
     return await sync_to_async(MaterializedColumnSlot.objects.create)(

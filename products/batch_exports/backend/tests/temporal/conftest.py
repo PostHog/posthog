@@ -72,7 +72,7 @@ def team(organization):
     team.delete()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def aorganization():
     name = f"BatchExportsTestOrg-{random.randint(1, 99999)}"
     org = await sync_to_async(Organization.objects.create)(name=name, is_ai_data_processing_approved=True)
@@ -82,7 +82,7 @@ async def aorganization():
     await sync_to_async(org.delete)()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def ateam(aorganization):
     name = f"BatchExportsTestTeam-{random.randint(1, 99999)}"
     team = await sync_to_async(Team.objects.create)(organization=aorganization, name=name)
@@ -115,7 +115,7 @@ async def clickhouse_client():
         yield client
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_client():
     """Provide a temporalio.client.Client to use in tests."""
     client = await connect(
@@ -130,7 +130,7 @@ async def temporal_client():
     yield client
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def workflows(request):
     """Return Temporal workflows to initialize a test worker.
 
@@ -145,7 +145,7 @@ async def workflows(request):
         return WORKFLOWS
 
 
-@pytest.fixture()
+@pytest_asyncio.fixture()
 async def activities(request):
     """Return Temporal activities to initialize a test worker.
 
@@ -209,7 +209,7 @@ def batch_export_schema(request) -> dict | None:
         return None
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def setup_postgres_test_db(postgres_config):
     """Fixture to manage a database for Redshift and Postgres export testing.
 
@@ -277,7 +277,7 @@ async def setup_postgres_test_db(postgres_config):
     await connection.close()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def temporal_worker(temporal_client, workflows, activities):
     worker = temporalio.worker.Worker(
         temporal_client,
@@ -373,7 +373,7 @@ def test_person_properties(request):
     return {"utm_medium": "referral", "$initial_os": "Linux"}
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_test_data(
     ateam,
     clickhouse_client,
@@ -465,7 +465,7 @@ async def generate_test_data(
     return (events_to_export_created, persons_to_export_created)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def generate_test_persons_data(ateam, clickhouse_client, data_interval_start, data_interval_end):
     """Generate test persons data in ClickHouse."""
     persons, _ = await generate_test_persons_in_clickhouse(

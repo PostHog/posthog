@@ -9,6 +9,8 @@ import datetime as dt
 
 import pytest
 
+import pytest_asyncio
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeClient,
     SnowflakeInsertInputs,
@@ -23,7 +25,7 @@ pytestmark = [
 ]
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def snowflake_client(snowflake_config, database, schema):
     """Create a SnowflakeClient with a test database and schema set up and cleaned up after tests."""
 

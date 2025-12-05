@@ -1,5 +1,3 @@
-import pytest
-
 import pytest_asyncio
 
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import (
@@ -15,7 +13,7 @@ async def clickhouse_db_setup(clickhouse_client, django_db_setup):
     await create_clickhouse_tables_and_views(clickhouse_client)
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def truncate(clickhouse_client):
     """Fixture to automatically truncate data after a test.
 
