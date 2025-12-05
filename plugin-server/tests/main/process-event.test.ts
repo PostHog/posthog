@@ -57,7 +57,7 @@ export async function createPerson(
         false,
         new UUIDT().toString(),
         primaryDistinctId,
-        extraDistinctIds.length > 0 ? extraDistinctIds : undefined
+        extraDistinctIds
     )
     if (!result.success) {
         throw new Error('Failed to create person')
