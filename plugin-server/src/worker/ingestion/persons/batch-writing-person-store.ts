@@ -938,13 +938,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                 primaryDistinctId.distinctId,
                 fromInternalPerson(person, primaryDistinctId.distinctId)
             )
-            const secondaryDistinctId = extraDistinctIds?.[0]
-            if (secondaryDistinctId) {
-                this.setDistinctIdToPersonId(teamId, secondaryDistinctId.distinctId, person.id)
+            for (const extraDistinctId of extraDistinctIds || []) {
+                this.setDistinctIdToPersonId(teamId, extraDistinctId.distinctId, person.id)
                 this.setCachedPersonForUpdate(
                     teamId,
-                    secondaryDistinctId.distinctId,
-                    fromInternalPerson(person, secondaryDistinctId.distinctId)
+                    extraDistinctId.distinctId,
+                    fromInternalPerson(person, extraDistinctId.distinctId)
                 )
             }
         }
