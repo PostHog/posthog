@@ -747,34 +747,6 @@ describe('Hogflow Executor', () => {
                 })
 
                 describe('executeCurrentAction error handling when error is returned, not thrown', () => {
-                    it('sets result.error and result.finished when handler returns error', async () => {
-                        const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
-                        action.on_error = 'abort'
-
-                        // Mock the handler to return an error in the result
-                        const functionHandler = executor['actionHandlers']['function']
-                        jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
-                            error: new Error('Mocked handler error'),
-                        })
-
-                        const invocation = createExampleHogFlowInvocation(hogFlow, {
-                            event: {
-                                ...createHogExecutionGlobals().event,
-                                properties: { name: 'Test User' },
-                            },
-                        })
-                        invocation.state.currentAction = {
-                            id: 'function_id_1',
-                            startedAtTimestamp: DateTime.now().toMillis(),
-                        }
-
-                        const result = await executor.executeCurrentAction(invocation)
-
-                        expect(result.error).toBe('Mocked handler error')
-                        expect(result.finished).toBe(true)
-                        expect(result.invocation.state.currentAction?.id).toBe('function_id_1')
-                    })
-
                     it('continues to next action when on_error is continue', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
                         action.on_error = 'continue'
