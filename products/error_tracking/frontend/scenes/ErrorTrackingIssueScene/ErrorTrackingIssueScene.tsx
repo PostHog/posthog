@@ -30,15 +30,16 @@ import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
+import { StatusIndicator } from '../../components/Indicators'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
+import { IssueStatusButton } from '../../components/IssueStatusButton'
 import { IssueTasks } from '../../components/IssueTasks'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
-import { IssueStatusSelect } from './ScenePanel/IssueStatusSelect'
 import { SimilarIssuesList } from './ScenePanel/SimilarIssuesList'
 import {
     ErrorTrackingIssueSceneCategory,
@@ -79,12 +80,13 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     resourceType={{ type: 'error_tracking' }}
                                     actions={
                                         <div className="flex items-center gap-1">
+                                            <StatusIndicator status={issue.status} withTooltip />
                                             <IssueAssigneeSelect
                                                 assignee={issue.assignee}
                                                 onChange={updateAssignee}
                                                 disabled={issue.status != 'active'}
                                             />
-                                            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                            <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         </div>
                                     }
                                 />
