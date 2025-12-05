@@ -1807,6 +1807,9 @@ const api = {
 
             return result
         },
+        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        },
         async listVersions(name: string): Promise<EndpointVersion[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
