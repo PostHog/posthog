@@ -17484,7 +17484,6 @@
                     "type": "number"
                 },
                 "isSupportTrace": {
-                    "description": "Whether this trace was created during a support agent impersonation session",
                     "type": "boolean"
                 },
                 "outputCost": {
@@ -29884,7 +29883,6 @@
                     "$ref": "#/definitions/DateRange"
                 },
                 "filterSupportTraces": {
-                    "description": "Filter out traces from support agent impersonation sessions",
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
