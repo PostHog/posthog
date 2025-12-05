@@ -794,14 +794,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.multiQuestionFormPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (
-                formPending,
-                multiQuestionFormPending,
-                question,
-                threadLoading,
-                activeStreamingThreads
-            ): string | undefined => {
+            (s) => [s.formPending, s.multiQuestionFormPending, s.threadLoading, s.activeStreamingThreads],
+            (formPending, multiQuestionFormPending, threadLoading, activeStreamingThreads): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
@@ -813,10 +807,6 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
 
                 if (multiQuestionFormPending) {
                     return 'Please answer the questions above'
-                }
-
-                if (!question) {
-                    return 'I need some input first'
                 }
 
                 // Prevent submission if there are active streaming threads
