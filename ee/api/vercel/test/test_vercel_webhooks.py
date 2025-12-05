@@ -14,7 +14,7 @@ from ee.api.vercel.test.base import VercelTestBase
 class TestVercelWebhooks(VercelTestBase):
     def setUp(self):
         super().setUp()
-        self.url = "/api/vercel/webhooks"
+        self.url = "/webhooks/vercel"
         self.secret = "test_webhook_secret"
 
     def _sign_payload(self, payload: dict) -> str:
