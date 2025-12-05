@@ -339,6 +339,13 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.error) {
+                    // handler rethrows, and second handler calls maybeContinueToNextActionOnError
+                    // which checks on_error for "continue", so we don't need to worry about it here
+                    // TODOdin: Consider moving this further down; are we doing anything important here that we don't want to skip?
+                    throw handlerResult.error
+                }
+
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                 }
