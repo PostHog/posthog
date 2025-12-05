@@ -24,7 +24,7 @@ from django.db import connection
 
 import structlog
 from posthoganalytics import capture_exception
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge
 
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
@@ -55,19 +55,6 @@ CACHE_SIZE_SAMPLE_LIMIT = 1000
 
 # Consolidated HyperCache metrics with namespace labels
 # These replace cache-specific metrics in flags_cache.py and team_metadata_cache.py
-
-HYPERCACHE_BATCH_REFRESH_COUNTER = Counter(
-    "posthog_hypercache_batch_refresh",
-    "Batch refresh operations for HyperCaches",
-    labelnames=["namespace", "result"],
-)
-
-HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM = Histogram(
-    "posthog_hypercache_batch_refresh_duration_seconds",
-    "Time taken for batch refresh operations",
-    labelnames=["namespace"],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float("inf")),
-)
 
 HYPERCACHE_TEAMS_PROCESSED_COUNTER = Counter(
     "posthog_hypercache_teams_processed",
