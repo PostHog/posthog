@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import { isEventFilter } from 'lib/components/UniversalFilters/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -176,6 +177,26 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                         <SessionRecordingsPlaylist
                                             logicKey={`groups-recordings-${groupKey}-${groupTypeIndex}`}
                                             updateSearchParams
+                                            pinnedFilters={{
+                                                type: FilterLogicalOperator.And,
+                                                values: [
+                                                    {
+                                                        type: FilterLogicalOperator.And,
+                                                        values: [
+                                                            {
+                                                                type: 'events',
+                                                                name: 'All events',
+                                                                properties: [
+                                                                    {
+                                                                        key: `$group_${groupTypeIndex} = '${groupKey}'`,
+                                                                        type: 'hogql',
+                                                                    },
+                                                                ],
+                                                            } as ActionFilter,
+                                                        ],
+                                                    },
+                                                ],
+                                            }}
                                             filters={{
                                                 duration: [
                                                     {
@@ -185,26 +206,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                                                         operator: PropertyOperator.GreaterThan,
                                                     },
                                                 ],
-                                                filter_group: {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            type: FilterLogicalOperator.And,
-                                                            values: [
-                                                                {
-                                                                    type: 'events',
-                                                                    name: 'All events',
-                                                                    properties: [
-                                                                        {
-                                                                            key: `$group_${groupTypeIndex} = '${groupKey}'`,
-                                                                            type: 'hogql',
-                                                                        },
-                                                                    ],
-                                                                } as ActionFilter,
-                                                            ],
-                                                        },
-                                                    ],
-                                                },
+                                                filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
                                             }}
                                             onFiltersChange={(filters) => {
                                                 const eventFilters =

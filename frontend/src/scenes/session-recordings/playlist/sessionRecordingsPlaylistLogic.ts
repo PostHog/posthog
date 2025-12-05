@@ -169,8 +169,16 @@ const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
     date_from: '-30d',
 }
 
-export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFilters => {
-    return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+export const getDefaultFilters = (
+    personUUID?: PersonUUID,
+    pinnedFilters?: UniversalFiltersGroup
+): RecordingUniversalFilters => {
+    const defaultFilters = personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
+    if (!pinnedFilters) {
+        return defaultFilters
+    }
+    defaultFilters['filter_group'] = { ...defaultFilters.filter_group, ...pinnedFilters }
+    return defaultFilters
 }
 
 /**
@@ -423,6 +431,7 @@ export interface SessionRecordingPlaylistLogicProps {
     autoPlay?: boolean
     filters?: RecordingUniversalFilters
     onFiltersChange?: (filters: RecordingUniversalFilters) => void
+    pinnedFilters?: UniversalFiltersGroup
     pinnedRecordings?: (SessionRecordingType | string)[]
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
@@ -660,11 +669,15 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             return getDefaultFilters(props.personUUID)
                         }
 
+                        // Always set pinned filters last, so they are not overwritten by the others
+                        const filter_group = { ...state.filter_group, ...filters.filter_group, ...props.pinnedFilters }
+
                         return {
                             ...state,
                             // if we're setting a relative date_from, then we need to clear the existing date_to
                             date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
                             ...filters,
+                            filter_group,
                         }
                     } catch (e) {
                         posthog.captureException(e)
