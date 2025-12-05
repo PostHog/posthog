@@ -158,8 +158,17 @@ async def producer():
         await producer.stop()
 
 
+@pytest.fixture
+def log_mode(request):
+    """Allow configuring log mode for tests."""
+    try:
+        return request.param
+    except AttributeError:
+        return "ALL"
+
+
 @pytest_asyncio.fixture(autouse=True, scope="function")
-async def configure_logger_auto(log_capture, queue, producer):
+async def configure_logger_auto(log_capture, queue, producer, log_mode):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
@@ -179,6 +188,7 @@ async def configure_logger_auto(log_capture, queue, producer):
             producer=producer,
             cache_logger_on_first_use=False,
             loop=loop,
+            default_mode=log_mode,
         )
 
     yield
@@ -631,6 +641,111 @@ async def test_logger_produces_to_kafka_from_activity(activity_environment, prod
             team_id_row_counter += 1
 
         sync_execute(f"TRUNCATE {log_entries_table}")
+
+
+@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@pytest.mark.parametrize(
+    "activity_environment",
+    ACTIVITY_INFOS,
+    indirect=True,
+)
+@pytest.mark.parametrize("log_capture", [False], indirect=True)
+@pytest.mark.parametrize("log_mode", ["WRITE"], indirect=True)
+async def test_logger_skips_produce_with_log_mode_write(activity_environment, producer, log_capture, queue):
+    """Test logger does not produce with log mode 'WRITE'.
+
+    Unless explicitly requested with ``write_only=False``.
+    """
+    structlog.contextvars.bind_contextvars(team_id=2)
+
+    def log_sync():
+        """A simple function that logs with multiple loggers."""
+        logger = structlog.get_logger("test_logger_skips_produce_with_log_mode_write")
+        logger.info("Hi! This is a write only %s log from an activity", "info")
+        logger.info("Log explicitly produced", write_only=False)
+
+    async def log():
+        """A simple async function that logs with multiple loggers."""
+        logger = structlog.get_logger("test_logger_skips_produce_with_log_mode_write")
+        logger.info("Hi! This is sync a write only %s log from an activity", "info")
+        logger.info("Log explicitly produced", write_only=False)
+        await logger.ainfo("Hi! This is an async write only %s log from an activity", "info")
+
+    activities = map(temporalio.activity.defn, (log, log_sync))
+    log_counts = (3, 2)
+
+    expected_log_count = 0
+    for log_count, activity in zip(log_counts, activities):
+        with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+            if fut := activity_environment.run(activity):
+                await fut
+
+        for _ in range(10):
+            # Let the loop run so messages have a chance to be inserted
+            # Although we don't expect any messages, we should ensure that this is not
+            # because the loop didn't have a chance to run
+            await asyncio.sleep(0)
+
+        # One log explicitly produced on each activity
+        assert len(queue.entries) == 1 or len(queue.entries) == 2
+        await queue.join()
+        assert len(producer.entries) == 1 or len(producer.entries) == 2
+
+        expected_log_count += log_count
+        assert len(log_capture.write_entries) == expected_log_count
+        # One log explicitly produced on each activity
+        assert len(log_capture.produce_entries) == 1 or len(log_capture.produce_entries) == 2
+
+
+@freezegun.freeze_time("2023-11-02 10:00:00.123123")
+@pytest.mark.parametrize(
+    "activity_environment",
+    ACTIVITY_INFOS,
+    indirect=True,
+)
+@pytest.mark.parametrize("log_capture", [False], indirect=True)
+@pytest.mark.parametrize("log_mode", ["PRODUCE"], indirect=True)
+async def test_logger_skips_write_with_log_mode_produce(activity_environment, producer, log_capture, queue):
+    """Test logger does not write with log mode 'PRODUCE'.
+
+    Unless explicitly requested with ``produce_only=False``.
+    """
+    structlog.contextvars.bind_contextvars(team_id=2)
+
+    def log_sync():
+        """A simple function that logs with multiple loggers."""
+        logger = structlog.get_logger("test_logger_skips_produce_with_log_mode_produce")
+        logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Log explicitly written", produce_only=False)
+
+    async def log():
+        """A simple async function that logs with multiple loggers."""
+        logger = structlog.get_logger("test_logger_skips_produce_with_log_mode_produce")
+        logger.info("Hi! This is an external %s log from an activity", "info")
+        logger.info("Log explicitly written", produce_only=False)
+        await logger.ainfo("Hi! This is an external %s log from an activity", "info")
+
+    activities = map(temporalio.activity.defn, (log, log_sync))
+    log_counts = (3, 2)
+
+    expected_log_count = 0
+    for log_count, activity in zip(log_counts, activities):
+        with freezegun.freeze_time("2023-11-03 10:00:00.123123"):
+            if fut := activity_environment.run(activity):
+                await fut
+
+        for _ in range(10):
+            # Let the loop run so messages have a chance to be inserted
+            await asyncio.sleep(0)
+
+        expected_log_count += log_count
+        assert len(queue.entries) == expected_log_count
+        await queue.join()
+        assert len(producer.entries) == expected_log_count
+
+        # One log explicitly written on each activity
+        assert len(log_capture.write_entries) == 1 or len(log_capture.write_entries) == 2
+        assert len(log_capture.produce_entries) == expected_log_count
 
 
 FIRST_WORKFLOW_TEAM_ID = 60

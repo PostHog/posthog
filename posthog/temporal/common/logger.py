@@ -116,6 +116,7 @@ class LogMessages(typing.TypedDict):
 
 
 DEFAULT_SERIALIZER = functools.partial(json.dumps, default=str)
+LOG_MODE = typing.Literal["ALL", "WRITE", "PRODUCE"]
 
 
 class LogMessagesRenderer:
@@ -128,6 +129,7 @@ class LogMessagesRenderer:
         self,
         event_key: str = "event",
         json_serializer: typing.Callable[[structlog.types.EventDict], str] = DEFAULT_SERIALIZER,
+        default_mode: LOG_MODE = "ALL",
     ):
         """Initialize renderer.
 
@@ -139,16 +141,17 @@ class LogMessagesRenderer:
         """
         self.json_serializer = json_serializer
         self.event_key = event_key
+        self.default_mode = default_mode
 
     def __call__(self, logger: Logger, name: str, event_dict: structlog.types.EventDict) -> LogMessages:
         """Return rendered messages meant for `Logger.process`.
 
         The 'write_only' and 'produce_only' context keys can be used to limit what gets
-        rendered. These are set by users when logging. By default, messages for both
-        writing and producing will be rendered.
+        rendered. These are set by users when logging. When omitted,
+        ``self.default_mode`` controls which messages are rendered.
         """
-        write_only = event_dict.pop("write_only", False)
-        produce_only = event_dict.pop("produce_only", False)
+        write_only = event_dict.pop("write_only", self.default_mode == "WRITE")
+        produce_only = event_dict.pop("produce_only", self.default_mode == "PRODUCE")
 
         write_message = None
         if not produce_only:
@@ -370,8 +373,9 @@ class WrapperLogger(structlog.BoundLoggerBase):
         >>> logger = structlog.get_logger()
         >>> await logger.ainfo("Hello World")
 
-        Do **NOT** use in workflow context! Async variants run in a separate thread, and
-        Temporal does not allow threads to be spawned in workflow context!
+        Do **NOT** use async variants in workflow context! Using them will make your
+        workflows crash. Async variants run in a separate thread, and Temporal does not
+        allow threads to be spawned in a workflow context.
     """
 
     debug = _make_method("debug")
@@ -474,6 +478,7 @@ def configure_logger(
     cache_logger_on_first_use: bool = True,
     loop: asyncio.AbstractEventLoop | None = None,
     file: typing.TextIO | None = None,
+    default_mode: LOG_MODE = "ALL",
 ) -> None:
     """Configure a structlog for Temporal workflows.
 
@@ -500,6 +505,9 @@ def configure_logger(
         cache_logger_on_first_use: Set whether to cache logger for performance.
             Should always be `True` except in tests.
         loop: The loop where the aforementioned tasks will run on.
+        default_mode: Specify the default logging mode. Will affect whether the default
+            logger returned by structlog.get_logger should write only, produce only, or
+            both.
     """
     base_processors: list[structlog.types.Processor] = [
         structlog.stdlib.add_log_level,
@@ -550,7 +558,7 @@ def configure_logger(
             # The default (True) dumps all local variables at each stack frame.
             structlog.processors.ExceptionRenderer(structlog.tracebacks.ExceptionDictTransformer(show_locals=False)),
             EventRenamer("msg"),
-            LogMessagesRenderer(event_key="msg"),
+            LogMessagesRenderer(event_key="msg", default_mode=default_mode),
         ]
 
     extra_processors_to_add = extra_processors if extra_processors is not None else []
