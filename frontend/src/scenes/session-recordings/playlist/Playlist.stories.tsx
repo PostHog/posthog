@@ -1,10 +1,12 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+import { BindLogic } from 'kea'
 
 import { range } from 'lib/utils'
 
 import { SessionRecordingType } from '~/types'
 
 import { Playlist, PlaylistProps } from '../playlist/Playlist'
+import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 type Story = StoryObj<typeof Playlist>
 const meta: Meta<typeof Playlist> = {
@@ -13,70 +15,117 @@ const meta: Meta<typeof Playlist> = {
 }
 export default meta
 
-type ObjectType = { id: string | number }
+const mockRecordings = (count: number): SessionRecordingType[] =>
+    range(0, count).map((idx) => ({
+        id: `recording-${idx}`,
+        start_time: '2024-01-15T10:00:00Z',
+        end_time: '2024-01-15T10:05:00Z',
+        recording_duration: 120 + idx * 10,
+        viewed: idx % 3 === 0,
+        click_count: 10 + idx,
+        keypress_count: 5 + idx,
+        start_url: `https://example.com/page-${idx}`,
+        person: {
+            distinct_ids: [`user-${idx}`],
+            properties: {
+                email: `user${idx}@example.com`,
+                $browser: 'Chrome',
+                $os: 'Mac OS X',
+                $device_type: 'Desktop',
+                $geoip_country_code: 'US',
+            },
+        },
+    })) as SessionRecordingType[]
 
-const ListItem = ({ item }: { item: ObjectType }): JSX.Element => <div className="p-1">Object {item.id}</div>
+const logicProps = { logicKey: 'story' }
 
 const Template: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
-    const mainContent = ({ activeItem }: { activeItem: SessionRecordingType }): JSX.Element => (
-        <div className="flex items-center justify-center h-full">
-            {activeItem ? `Object ${activeItem.id} selected` : 'Select an item from the list'}
-        </div>
-    )
-
     return (
-        <div className="h-96 min-w-[40rem]">
-            <Playlist
-                title="Title"
-                sections={[]}
-                listEmptyState={<div>No items</div>}
-                content={mainContent}
-                {...props}
-            />
-        </div>
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <div className="h-96 w-[40rem]">
+                <Playlist
+                    title="Title"
+                    pinnedRecordings={[]}
+                    otherRecordings={[]}
+                    listEmptyState={<div>No items</div>}
+                    {...props}
+                />
+            </div>
+        </BindLogic>
     )
 }
 
 export const Default: Story = Template.bind({})
 Default.args = {
-    sections: [
-        {
-            key: 'default',
-            title: 'Default section',
-            items: range(0, 100).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
-            render: ListItem,
-        },
-    ],
+    otherRecordings: mockRecordings(100),
 }
 
-export const MultipleSections: Story = Template.bind({})
-MultipleSections.args = {
-    sections: [
-        {
-            key: 'one',
-            title: 'First section',
-            items: range(0, 5).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
-            render: ListItem,
-            initiallyOpen: true,
-        },
-        {
-            key: 'two',
-            title: 'Second section',
-            items: range(0, 5).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
-            render: ListItem,
-        },
-    ],
+export const WithPinnedRecordings: Story = Template.bind({})
+WithPinnedRecordings.args = {
+    pinnedRecordings: mockRecordings(5),
+    otherRecordings: mockRecordings(20),
 }
 
-export const WithFooter: Story = Template.bind({})
-WithFooter.args = {
-    sections: [
-        {
-            key: 'default',
-            title: 'Section with footer',
-            items: range(0, 100).map((idx) => ({ id: idx }) as unknown as SessionRecordingType),
-            render: ListItem,
-            footer: <div className="px-1 py-3">Section footer</div>,
+export const WithLoadMore: Story = Template.bind({})
+WithLoadMore.args = {
+    otherRecordings: mockRecordings(10),
+    hasNext: true,
+}
+
+export const Empty: Story = Template.bind({})
+Empty.args = {
+    pinnedRecordings: [],
+    otherRecordings: [],
+}
+
+const WideTemplate: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
+    return (
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <div className="h-96 w-[50rem]">
+                <Playlist
+                    title="Title"
+                    pinnedRecordings={[]}
+                    otherRecordings={mockRecordings(10)}
+                    listEmptyState={<div>No items</div>}
+                    {...props}
+                />
+            </div>
+        </BindLogic>
+    )
+}
+
+export const WideLayout: Story = WideTemplate.bind({})
+WideLayout.args = {}
+WideLayout.parameters = {
+    docs: {
+        description: {
+            story: 'Playlist at wide container width (50rem) - shows full property and activity labels',
         },
-    ],
+    },
+}
+
+const NarrowTemplate: StoryFn<typeof Playlist> = (props: Partial<PlaylistProps>) => {
+    return (
+        <BindLogic logic={sessionRecordingsPlaylistLogic} props={logicProps}>
+            <div className="h-96 w-64">
+                <Playlist
+                    title="Title"
+                    pinnedRecordings={[]}
+                    otherRecordings={mockRecordings(10)}
+                    listEmptyState={<div>No items</div>}
+                    {...props}
+                />
+            </div>
+        </BindLogic>
+    )
+}
+
+export const NarrowLayout: Story = NarrowTemplate.bind({})
+NarrowLayout.args = {}
+NarrowLayout.parameters = {
+    docs: {
+        description: {
+            story: 'Playlist at narrow container width (16rem) - hides property and activity labels',
+        },
+    },
 }

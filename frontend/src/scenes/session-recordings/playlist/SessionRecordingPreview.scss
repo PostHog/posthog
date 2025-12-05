@@ -1,9 +1,23 @@
-.UnwatchedIndicator {
-    &.UnwatchedIndicator--primary {
-        background: var(--danger);
-    }
+.SessionRecordingPreview__property-label,
+.SessionRecordingPreview__activity-label {
+    display: none;
+    max-width: 0;
+    overflow: hidden;
+    transition:
+        display 150ms ease-in-out,
+        max-width 150ms ease-in-out;
+}
 
-    &.UnwatchedIndicator--secondary {
-        background: var(--color-accent);
+@container playlist (min-width: 30rem) {
+    .SessionRecordingPreview__property-label {
+        display: block;
+        max-width: 10rem;
+    }
+}
+
+@container playlist (min-width: 35rem) {
+    .SessionRecordingPreview__activity-label {
+        display: block;
+        max-width: 10rem;
     }
 }

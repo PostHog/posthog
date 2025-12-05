@@ -7,7 +7,7 @@ import { ReplayTabs } from '~/types'
 
 import type { playlistLogicType } from './playlistLogicType'
 
-export const playlistLogic = kea<playlistLogicType>([
+export const playlistFiltersLogic = kea<playlistLogicType>([
     path(['scenes', 'session-recordings', 'playlist', 'playlistLogicType']),
     actions({
         setIsExpanded: (isExpanded: boolean) => ({ isExpanded }), // WIll be removed together with Mix (R.I.P. Mix)
