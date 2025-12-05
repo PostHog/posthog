@@ -30,7 +30,6 @@ jobs:
                       python:
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'dags/**'
                         - 'ee/**/*.py'
                         - 'posthog/**/*'
                         - 'products/**/*.py'
