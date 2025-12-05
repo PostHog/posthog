@@ -1235,9 +1235,6 @@ importers:
       '@temporalio/client':
         specifier: ^1.12.0
         version: 1.13.1
-      '@types/lru-cache':
-        specifier: ^5.1.0
-        version: 5.1.1
       '@types/node':
         specifier: ^22.13.14
         version: 22.15.17
@@ -1305,8 +1302,8 @@ importers:
         specifier: ^4.17.21
         version: 4.17.21
       lru-cache:
-        specifier: ^6.0.0
-        version: 6.0.0
+        specifier: ^11.0.0
+        version: 11.0.2
       luxon:
         specifier: ^3.4.4
         version: 3.5.0
@@ -9534,9 +9531,6 @@ packages:
 
   '@types/long@4.0.2':
     resolution: {integrity: sha512-MqTGEo5bj5t157U6fA/BiDynNkn0YknVdh48CMPkTSpFTVmvao5UQmm7uEF6xBEo7qIMAlY/JSleYaE6VOdpaA==}
-
-  '@types/lru-cache@5.1.1':
-    resolution: {integrity: sha512-ssE3Vlrys7sdIzs5LOxCzTVMsU7i9oa/IaW92wF32JFb3CVczqOkru2xspuKczHEbG3nvmPY7IFqVmGGHdNbYw==}
 
   '@types/luxon@3.4.2':
     resolution: {integrity: sha512-TifLZlFudklWlMBfhubvgqTXRzLDI5pCbGa4P8a3wPyUQSW+1xQ5eDsreP9DWHX3tjq1ke96uYG/nwundroWcA==}
@@ -28460,7 +28454,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -29500,8 +29494,6 @@ snapshots:
   '@types/lodash@4.17.16': {}
 
   '@types/long@4.0.2': {}
-
-  '@types/lru-cache@5.1.1': {}
 
   '@types/luxon@3.4.2': {}
 
@@ -35102,7 +35094,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -35382,7 +35374,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.4.1
-      jest: 29.7.0(@types/node@22.15.17)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.15.17)(typescript@5.2.2))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4(@swc/helpers@0.5.15))(@types/node@22.18.8)(typescript@5.2.2))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0

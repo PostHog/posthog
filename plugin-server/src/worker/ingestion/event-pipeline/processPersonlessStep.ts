@@ -1,4 +1,4 @@
-import LRU from 'lru-cache'
+import { LRUCache } from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
@@ -11,9 +11,9 @@ import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
 
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
-const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRU<string, boolean>({
+const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
     max: 10_000,
-    maxAge: ONE_HOUR * 24, // cache up to 24h
+    ttl: ONE_HOUR * 24, // cache up to 24h
     updateAgeOnGet: true,
 })
 
