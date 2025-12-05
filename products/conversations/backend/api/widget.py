@@ -6,6 +6,7 @@ These endpoints are public (authenticated via public token) and used by the post
 
 import html
 import hashlib
+import logging
 from typing import Optional
 
 from django.db.models import Q
@@ -23,6 +24,8 @@ from posthog.models import Team
 from posthog.models.comment import Comment
 
 from products.conversations.backend.models import Ticket
+
+logger = logging.getLogger(__name__)
 
 # Widget-specific throttle classes
 
@@ -185,8 +188,9 @@ class WidgetMessageView(APIView):
             traits = validate_traits(request.data.get("traits", {}))
             ticket_id = request.data.get("ticket_id")  # Optional: for adding to existing ticket
 
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError:
+            logger.exception("Validation error in WidgetMessageView")
+            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Find or create ticket
         if ticket_id:
@@ -256,8 +260,9 @@ class WidgetMessagesView(APIView):
 
         try:
             distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError:
+            logger.exception("Validation error in WidgetMessagesView")
+            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Get ticket
         try:
@@ -341,8 +346,9 @@ class WidgetTicketsView(APIView):
 
         try:
             distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except ValidationError:
+            logger.exception("Validation error in WidgetTicketsView")
+            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Query parameters
         status_filter = request.query_params.get("status")
