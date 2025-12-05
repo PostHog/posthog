@@ -402,9 +402,10 @@ impl FeatureFlagMatcher {
                 .get_cohort_id()
                 .ok_or(FlagError::CohortFiltersParsingError)?;
 
+            let current_matches = cohort_matches.clone();
             if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
                 let match_result =
-                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
+                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts, &current_matches)?;
                 e.insert(match_result);
             }
         }
