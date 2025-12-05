@@ -224,7 +224,7 @@ class TestDmatExtractionConsistency(ClickhouseTestMixin, APIBaseTest):
         dmat_values = []
         for tc in TEST_CASES:
             dmat_columns.append(slot_mapping[tc.name]["col_name"])
-            extraction_sql = _generate_property_extraction_sql(tc.name, tc.type)
+            extraction_sql = _generate_property_extraction_sql(tc.type).replace("%(property_name)s", f"'{tc.name}'")
             dmat_values.append(extraction_sql)
 
         sync_execute(
