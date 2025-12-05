@@ -67,7 +67,8 @@ class MaterializeViewWorkflowResult:
         node_id: The ID of the node that was materialized.
         rows_materialized: The number of rows written to the delta table.
         duration_seconds: The total duration of the workflow in seconds.
-        ducklake_copy_completed: Whether the DuckLake copy was successful.
+        rows_materialized: The number of rows written to the delta table.
+        duration_seconds: The total duration of the workflow in seconds.
     """
 
     job_id: str
