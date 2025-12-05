@@ -179,7 +179,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
-                    const decompressionMode = normalizeMode()
+                    const decompressionMode = normalizeMode(
+                        typeof clientSideDecompression === 'string' ? clientSideDecompression : undefined
+                    )
 
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
