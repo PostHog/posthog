@@ -150,9 +150,17 @@ export interface ReasoningMessage extends BaseAssistantMessage {
     substeps?: string[]
 }
 
+export interface ModeContext {
+    type: 'mode'
+    mode: AgentMode
+}
+
+export type ContextMessageMetadata = ModeContext | null
+
 export interface ContextMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Context
     content: string
+    meta?: ContextMessageMetadata
 }
 
 /**

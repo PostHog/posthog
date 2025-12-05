@@ -1361,14 +1361,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
         ],
 
-        allowReplayGroupsFilters: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_GROUPS_FILTERS],
-        ],
-
         taxonomicGroupTypes: [
-            (s) => [s.allowHogQLFilters, s.allowReplayGroupsFilters, s.groupsTaxonomicTypes],
-            (allowHogQLFilters, allowReplayGroupsFilters, groupsTaxonomicTypes) => {
+            (s) => [s.allowHogQLFilters, s.groupsTaxonomicTypes],
+            (allowHogQLFilters, groupsTaxonomicTypes) => {
                 const taxonomicGroupTypes = [
                     TaxonomicFilterGroupType.Replay,
                     TaxonomicFilterGroupType.Events,
@@ -1377,14 +1372,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     TaxonomicFilterGroupType.PersonProperties,
                     TaxonomicFilterGroupType.SessionProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
+                    ...groupsTaxonomicTypes,
                 ]
 
                 if (allowHogQLFilters) {
                     taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-                }
-
-                if (allowReplayGroupsFilters) {
-                    taxonomicGroupTypes.push(...groupsTaxonomicTypes)
                 }
 
                 return taxonomicGroupTypes

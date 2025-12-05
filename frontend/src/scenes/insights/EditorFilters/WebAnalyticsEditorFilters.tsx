@@ -85,7 +85,8 @@ function FilterTestAccountsToggle({
                 type="secondary"
                 size="small"
             >
-                Filter test accounts: <LemonSwitch checked={isFilterTestAccountsEnabled} className="ml-1" />
+                Filter out internal and test users:{' '}
+                <LemonSwitch checked={isFilterTestAccountsEnabled} className="ml-1" />
             </LemonButton>
         </Tooltip>
     )

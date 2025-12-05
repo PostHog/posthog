@@ -1090,7 +1090,7 @@ export type SessionRecordingSnapshotParams = (
           end_blob_key?: string
       }
 ) & {
-    decompress?: boolean
+    decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
@@ -5820,6 +5820,7 @@ export interface Conversation {
     updated_at: string | null
     type: ConversationType
     has_unsupported_content?: boolean
+    agent_mode?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
