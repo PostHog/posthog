@@ -1,9 +1,10 @@
 from textwrap import dedent
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
 import regex
 import sqlparse
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.schema import DataWarehouseNode, DataWarehousePropertyFilter, EventPropertyFilter, EventsNode, FunnelsQuery
 
@@ -11,6 +12,7 @@ from posthog.hogql import ast
 
 from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
 
 
