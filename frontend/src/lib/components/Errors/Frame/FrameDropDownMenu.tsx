@@ -22,13 +22,14 @@ export function FrameDropDownMenu({
     className,
 }: {
     frame: ErrorTrackingStackFrame
-    record: ErrorTrackingStackFrameRecord
+    record?: ErrorTrackingStackFrameRecord
     children: React.ReactNode
     className?: string
 }): JSX.Element {
     const { raw_id } = frame
     const { getSourceDataForFrame } = useValues(framesCodeSourceLogic)
     const sourceData = getSourceDataForFrame(raw_id)
+    const lineLocation = getLineLocation(frame)
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -37,6 +38,7 @@ export function FrameDropDownMenu({
             <DropdownMenuContent loop align="end" side="bottom" className="p-1">
                 {frame.resolved_name && <CopyItem value={frame.resolved_name} description="function name" />}
                 {frame.source && <CopyItem value={frame.source} description="file path" />}
+                {lineLocation && <CopyItem value={lineLocation} description="line location" />}
                 {sourceData && <DropdownMenuSeparator />}
                 {sourceData && <SourceDataLink sourceData={sourceData} />}
             </DropdownMenuContent>
@@ -69,4 +71,11 @@ export function CopyItem({ value, description }: { value: string; description: s
             Copy {description}
         </ButtonPrimitive>
     )
+}
+
+function getLineLocation(frame: ErrorTrackingStackFrame): string | null {
+    if (!frame.source || !frame.line) {
+        return null
+    }
+    return `${frame.source}:${frame.line}`
 }

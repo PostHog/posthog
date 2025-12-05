@@ -23,7 +23,7 @@ export function CollapsibleExceptionList({
     onFrameOpenChange?: (open: boolean) => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords } =
+    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords, stackFrameRecordsLoading } =
         useValues(errorPropertiesLogic)
 
     return (
@@ -60,6 +60,7 @@ export function CollapsibleExceptionList({
                                         <CollapsibleFrame
                                             frame={frame}
                                             record={record}
+                                            recordLoading={stackFrameRecordsLoading}
                                             onOpenChange={onFrameOpenChange}
                                         />
                                     )}

@@ -8,7 +8,7 @@ export interface StackTraceRendererProps {
     embedded?: boolean
     frames: ErrorTrackingStackFrame[]
     stackFrameRecords: KeyedStackFrameRecords
-    renderFrame: (frame: ErrorTrackingStackFrame, record: ErrorTrackingStackFrameRecord) => React.ReactNode
+    renderFrame: (frame: ErrorTrackingStackFrame, record?: ErrorTrackingStackFrameRecord) => React.ReactNode
     onFrameExpanded?: () => void
 }
 

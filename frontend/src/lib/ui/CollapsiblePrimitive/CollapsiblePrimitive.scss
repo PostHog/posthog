@@ -3,11 +3,11 @@
 }
 
 .primitive-collapsible-content[data-state='open'] {
-    animation: primitive-collapsible-content__open 300ms ease-out;
+    animation: primitive-collapsible-content__open 200ms ease-in-out;
 }
 
 .primitive-collapsible-content[data-state='closed'] {
-    animation: primitive-collapsible-content__closed 300ms ease-out;
+    animation: primitive-collapsible-content__closed 200ms ease-in-out;
 }
 
 @keyframes primitive-collapsible-content__open {

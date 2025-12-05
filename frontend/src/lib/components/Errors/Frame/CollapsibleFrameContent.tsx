@@ -8,7 +8,7 @@ import { FrameVariables } from './FrameVariables'
 
 export interface CollapsibleFrameContentProps {
     frame: ErrorTrackingStackFrame
-    record: ErrorTrackingStackFrameRecord
+    record?: ErrorTrackingStackFrameRecord
 
     onFrameContextClick?: (context: ErrorTrackingStackFrameContext, event: React.MouseEvent<HTMLDivElement>) => void
 }
