@@ -116,11 +116,11 @@ def _make_paginated_shopify_request(
             vars.update({"cursor": page_info["endCursor"]})
 
 
-def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_secret: str) -> str:
+def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> str:
     access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(shopify_store_id)
     access_data = {
         "client_id": shopify_client_id,
-        "client_secret": shopify_secret,
+        "client_secret": shopify_client_secret,
         "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
     }
     access_res = requests.post(access_token_url, data=access_data)
@@ -132,7 +132,7 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str,
-    shopify_secret: str,
+    shopify_client_secret: str,
     graphql_object_name: str,
     db_incremental_field_last_value: Any | None,
     db_incremental_field_earliest_value: Any | None,
@@ -140,7 +140,7 @@ def shopify_source(
     should_use_incremental_field: bool = False,
 ):
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_secret)
+    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
     schema_name = resolve_schema_name(graphql_object_name)
 
     def get_rows():
@@ -195,7 +195,7 @@ def shopify_source(
     )
 
 
-def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_secret: str) -> bool:
+def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> bool:
     """
     Validates Shopify API credentials and checks permissions for all required resources.
     This function will:
@@ -204,7 +204,7 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     - Raise Exception if the access token is invalid or there's any other error
     """
     api_url = SHOPIFY_API_URL.format(shopify_store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_secret)
+    shopify_access_token = _get_shopify_access_token(shopify_store_id, shopify_client_id, shopify_client_secret)
     sess = requests.Session()
     sess.headers.update(
         {

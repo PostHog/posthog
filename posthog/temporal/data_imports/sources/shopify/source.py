@@ -68,7 +68,9 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
 
     def validate_credentials(self, config: ShopifySourceConfig, team_id: int) -> tuple[bool, str | None]:
         try:
-            if validate_shopify_credentials(config.shopify_store_id, config.shopify_client_id, config.shopify_secret):
+            if validate_shopify_credentials(
+                config.shopify_store_id, config.shopify_client_id, config.shopify_client_secret
+            ):
                 return True, None
             return False, "Invalid Shopify credentials"
         except ShopifyPermissionError as e:
@@ -97,7 +99,7 @@ class ShopifySource(SimpleSource[ShopifySourceConfig]):
         return shopify_source(
             shopify_store_id=config.shopify_store_id,
             shopify_client_id=config.shopify_client_id,
-            shopify_secret=config.shopify_secret,
+            shopify_client_secret=config.shopify_client_secret,
             graphql_object_name=inputs.schema_name,
             should_use_incremental_field=inputs.should_use_incremental_field,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value,
