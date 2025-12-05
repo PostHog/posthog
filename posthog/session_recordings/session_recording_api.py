@@ -368,13 +368,13 @@ class SessionRecordingSnapshotsRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Must provide both start blob key and end blob key")
 
             try:
-                data["min_blob_key"] = start_blob_key
-                data["max_blob_key"] = end_blob_key
+                data["min_blob_key"] = int(start_blob_key)
+                data["max_blob_key"] = int(end_blob_key)
             except (ValueError, TypeError):
                 raise serializers.ValidationError("Blob keys must be integers")
 
             max_blobs_allowed = 20 if is_personal_api_key else 100
-            if end_blob_key - start_blob_key > max_blobs_allowed:
+            if int(end_blob_key) - int(start_blob_key) > max_blobs_allowed:
                 raise serializers.ValidationError(f"Cannot request more than {max_blobs_allowed} blob keys at once")
 
         if source == "blob_v2_lts":
