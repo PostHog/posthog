@@ -514,7 +514,7 @@ export function ExperimentMetricForm({
                         <div>
                             <LemonLabel className="mb-1">
                                 Retention window
-                                <Tooltip title="The time period after the start event during which we check for the completion event. For example, [7, 7] checks if users returned exactly on day 7, while [7, 14] checks if they returned on any day from day 7 through day 14 (inclusive).">
+                                <Tooltip title="The time period after the start event during which we check for the completion event. For example, [7, 8] checks if users returned after 7 days and before 8 days.">
                                     <IconInfo className="ml-1 text-muted" />
                                 </Tooltip>
                             </LemonLabel>
