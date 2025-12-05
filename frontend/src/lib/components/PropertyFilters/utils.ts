@@ -239,7 +239,11 @@ export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is 
     return filter?.type === PropertyFilterType.Group
 }
 export function isLogPropertyFilter(filter?: AnyFilterLike | null): filter is LogPropertyFilter {
-    return filter?.type === PropertyFilterType.Log
+    return (
+        filter?.type === PropertyFilterType.Log ||
+        filter?.type === PropertyFilterType.LogAttribute ||
+        filter?.type === PropertyFilterType.LogResourceAttribute
+    )
 }
 export function isErrorTrackingIssuePropertyFilter(filter?: AnyFilterLike | null): filter is GroupPropertyFilter {
     return filter?.type === PropertyFilterType.ErrorTrackingIssue

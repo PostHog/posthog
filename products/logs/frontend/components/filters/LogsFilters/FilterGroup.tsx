@@ -30,12 +30,12 @@ export const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterGroup = (): JSX.Element => {
-    const { filterGroup } = useValues(logsLogic)
+    const { filterGroup, tabId } = useValues(logsLogic)
     const { setFilterGroup } = useActions(logsLogic)
 
     return (
         <UniversalFilters
-            rootKey={taxonomicFilterLogicKey}
+            rootKey={`${taxonomicFilterLogicKey}-${tabId}`}
             group={filterGroup.values[0] as UniversalFiltersGroup}
             taxonomicGroupTypes={taxonomicGroupTypes}
             onChange={(group) => {
@@ -72,12 +72,12 @@ const UniversalSearch = (): JSX.Element => {
             }
 
             const newValues = [...filterGroup.values]
-            const newPropertyFilter: AnyPropertyFilter = {
+            const newPropertyFilter = {
                 key: item.key,
                 value: item.value,
                 operator: PropertyOperator.IContains,
-                type: item.propertyFilterType as AnyPropertyFilter['type'],
-            }
+                type: item.propertyFilterType,
+            } as AnyPropertyFilter
             newValues.push(newPropertyFilter)
             setGroupValues(newValues)
             setVisible(false)

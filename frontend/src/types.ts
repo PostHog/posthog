@@ -944,7 +944,7 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
 }
 
 export interface LogPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Log
+    type: PropertyFilterType.Log | PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute
     operator: PropertyOperator
 }
 
