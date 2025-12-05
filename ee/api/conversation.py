@@ -302,6 +302,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         async def append_to_state():
             user = cast(User, request.user)
             graph = AssistantGraph(self.team, user).compile_full_graph()
+            # Empty checkpoint_ns targets the root graph (not subgraphs)
             config = {"configurable": {"thread_id": str(conversation.id), "checkpoint_ns": ""}}
             await graph.aupdate_state(
                 config,
