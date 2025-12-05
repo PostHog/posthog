@@ -1090,7 +1090,7 @@ export type SessionRecordingSnapshotParams = (
           end_blob_key?: string
       }
 ) & {
-    decompress?: boolean
+    decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
@@ -1453,6 +1453,7 @@ export interface CohortType {
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
+    last_error_message?: string | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -3339,6 +3340,7 @@ export interface SurveyAppearance {
     maxWidth?: string
     textSubtleColor?: string
     inputBackground?: string
+    inputTextColor?: string
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
@@ -5819,6 +5821,7 @@ export interface Conversation {
     updated_at: string | null
     type: ConversationType
     has_unsupported_content?: boolean
+    agent_mode?: string | null
 }
 
 export interface ConversationDetail extends Conversation {

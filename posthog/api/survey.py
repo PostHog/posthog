@@ -803,7 +803,8 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         if instance.internal_targeting_flag:
             existing_targeting_flag = instance.internal_targeting_flag
-            serialized_data_filters = {**user_submitted_dismissed_filter, **existing_targeting_flag.filters}
+            # Note: new filters must come LAST to overwrite old iteration-unaware properties
+            serialized_data_filters = {**existing_targeting_flag.filters, **user_submitted_dismissed_filter}
 
             internal_targeting_flag = self._create_or_update_targeting_flag(
                 instance.internal_targeting_flag, serialized_data_filters, flag_name_suffix="-custom"

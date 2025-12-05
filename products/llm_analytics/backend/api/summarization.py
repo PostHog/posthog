@@ -150,11 +150,18 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         if settings.DEBUG:
             return
 
-        # Check feature flag using user's distinct_id to match against person-based cohorts
+        # Check feature flag using user's distinct_id and person properties
+        # Person properties are needed for cohort-based feature flag evaluation
         distinct_id = str(request.user.distinct_id)
+        person_properties = {"email": request.user.email}
+
         if not (
-            posthoganalytics.feature_enabled(SUMMARIZATION_FEATURE_FLAG, distinct_id)
-            or posthoganalytics.feature_enabled(EARLY_ADOPTERS_FEATURE_FLAG, distinct_id)
+            posthoganalytics.feature_enabled(
+                SUMMARIZATION_FEATURE_FLAG, distinct_id, person_properties=person_properties
+            )
+            or posthoganalytics.feature_enabled(
+                EARLY_ADOPTERS_FEATURE_FLAG, distinct_id, person_properties=person_properties
+            )
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
