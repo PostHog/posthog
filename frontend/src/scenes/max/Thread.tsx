@@ -81,7 +81,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -133,7 +133,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                             message.type !== 'human' &&
                             prevMessage?.type === 'human' &&
                             'content' in prevMessage &&
-                            prevMessage.content.startsWith('/feedback')
+                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
 
                         return (
                             <Message

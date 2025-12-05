@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from posthog.schema import AssistantMessage, HumanMessage
 
 from ee.hogai.chat_agent.slash_commands.commands import SlashCommand
-from ee.hogai.core.agent_modes import SLASH_COMMAND_FEEDBACK
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -21,8 +21,8 @@ class FeedbackCommand(SlashCommand):
         for msg in reversed(state.messages):
             if isinstance(msg, HumanMessage):
                 content = msg.content
-                if content.startswith(SLASH_COMMAND_FEEDBACK):
-                    return content[len(SLASH_COMMAND_FEEDBACK) :].strip()
+                if content.startswith(SlashCommandName.FIELD_FEEDBACK):
+                    return content[len(SlashCommandName.FIELD_FEEDBACK) :].strip()
                 return None
         return None
 

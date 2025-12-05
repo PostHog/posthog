@@ -66,7 +66,7 @@ from ee.hogai.chat_agent.memory import prompts as memory_prompts
 from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.chat_agent.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.insights_assistant import InsightsAssistant
@@ -952,10 +952,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
+        output, _ = await self._run_assistant_graph(
+            graph, is_new_conversation=True, message=SlashCommandName.FIELD_INIT
+        )
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
+            ("message", HumanMessage(content=SlashCommandName.FIELD_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1015,10 +1017,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
+        output, _ = await self._run_assistant_graph(
+            graph, is_new_conversation=True, message=SlashCommandName.FIELD_INIT
+        )
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
+            ("message", HumanMessage(content=SlashCommandName.FIELD_INIT)),
             (
                 "message",
                 AssistantMessage(

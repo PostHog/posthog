@@ -3091,6 +3091,13 @@ class SimpleIntervalType(StrEnum):
     MONTH = "month"
 
 
+class SlashCommandName(StrEnum):
+    FIELD_INIT = "/init"
+    FIELD_REMEMBER = "/remember"
+    FIELD_USAGE = "/usage"
+    FIELD_FEEDBACK = "/feedback"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

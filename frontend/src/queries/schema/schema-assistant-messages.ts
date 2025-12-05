@@ -381,6 +381,13 @@ export enum AgentMode {
     SessionReplay = 'session_replay',
 }
 
+export enum SlashCommandName {
+    SlashInit = '/init',
+    SlashRemember = '/remember',
+    SlashUsage = '/usage',
+    SlashFeedback = '/feedback',
+}
+
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:
 // "
