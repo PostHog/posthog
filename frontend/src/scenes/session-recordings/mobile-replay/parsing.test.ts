@@ -20,7 +20,7 @@ describe('snapshot parsing', () => {
         const parsed = await parseEncodedSnapshots(withoutMeta, sessionId)
 
         const source = { source: 'blob_v2', blob_key: '0' } as any
-        const results = processAllSnapshots(
+        const results = await processAllSnapshots(
             [source],
             { [keyForSource(source)]: { snapshots: parsed } } as any,
             { snapshots: {} },

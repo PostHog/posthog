@@ -255,6 +255,7 @@ export const FEATURE_FLAGS = {
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
+    FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
     HOME_FEED_TAB: 'home-feed-tab', // owner: @ksvat #team-replay
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
@@ -294,7 +295,7 @@ export const FEATURE_FLAGS = {
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
-    REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay
+    REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay multivariate: worker, yielding, worker_and_yielding, blocking
     REPLAY_DISCARD_RAW_SNAPSHOTS: 'replay-discard-raw-snapshots', // owner: @pauldambra #team-replay
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate
