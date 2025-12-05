@@ -16,7 +16,6 @@ import temporalio.worker
 import temporalio.testing
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
-from flaky import flaky
 
 from posthog.models import Team
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -466,7 +465,7 @@ async def test_backfill_batch_export_workflow_no_end_at(
 
 
 @pytest.mark.django_db(transaction=True)
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
@@ -505,7 +504,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted(
 
 
 @pytest.mark.django_db(transaction=True)
-@flaky(max_runs=3, min_passes=1)
+@pytest.mark.flaky(reruns=2)
 async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_running(
     temporal_worker, temporal_schedule, temporal_client, team
 ):
