@@ -1,4 +1,11 @@
-from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import ducklake_copy_data_imports_gate_activity
+from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
+    DuckLakeCopyDataImportsWorkflow,
+    copy_data_imports_to_ducklake_activity,
+    ducklake_copy_data_imports_gate_activity,
+    prepare_data_imports_ducklake_metadata_activity,
+    prepare_ducklake_copy_model_input_activity,
+    verify_data_imports_ducklake_copy_activity,
+)
 from posthog.temporal.data_imports.external_data_job import (
     ExternalDataJobWorkflow,
     calculate_table_size_activity,
@@ -11,7 +18,7 @@ from posthog.temporal.data_imports.external_data_job import (
     update_external_data_job_model,
 )
 
-WORKFLOWS = [ExternalDataJobWorkflow]
+WORKFLOWS = [ExternalDataJobWorkflow, DuckLakeCopyDataImportsWorkflow]
 
 ACTIVITIES = [
     create_external_data_job_model_activity,
@@ -23,4 +30,8 @@ ACTIVITIES = [
     calculate_table_size_activity,
     trigger_schedule_buffer_one_activity,
     ducklake_copy_data_imports_gate_activity,
+    prepare_ducklake_copy_model_input_activity,
+    prepare_data_imports_ducklake_metadata_activity,
+    copy_data_imports_to_ducklake_activity,
+    verify_data_imports_ducklake_copy_activity,
 ]

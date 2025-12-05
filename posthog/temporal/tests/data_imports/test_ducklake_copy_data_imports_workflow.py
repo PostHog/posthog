@@ -19,9 +19,11 @@ from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DuckLakeCopyDataImportsModelInput,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyWorkflowGateInputs,
+    PrepareDuckLakeCopyModelInputs,
     copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
+    prepare_ducklake_copy_model_input_activity,
     verify_data_imports_ducklake_copy_activity,
 )
 
@@ -730,3 +732,50 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     assert call_counts["metadata"] == 1
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_prepare_ducklake_copy_model_input_activity(ateam):
+    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
+        team=ateam, access_key="test_key", access_secret="test_secret"
+    )
+    source = await database_sync_to_async(ExternalDataSource.objects.create)(
+        team=ateam,
+        source_id="test_source",
+        connection_id="test_connection",
+        source_type="Postgres",
+        status="Running",
+    )
+    table = await database_sync_to_async(DataWarehouseTable.objects.create)(
+        team=ateam,
+        name="test_table",
+        format="Delta",
+        url_pattern="s3://bucket/path",
+        credential=credential,
+        external_data_source=source,
+        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
+    )
+    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
+        team=ateam,
+        name="orders",
+        source=source,
+        table=table,
+        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+    )
+
+    inputs = PrepareDuckLakeCopyModelInputs(
+        team_id=ateam.id,
+        job_id="job-789",
+        schema_id=schema.id,
+    )
+
+    result = await prepare_ducklake_copy_model_input_activity(inputs)
+
+    assert result.schema_id == schema.id
+    assert result.schema_name == "orders"
+    assert result.source_type == "Postgres"
+    assert result.normalized_name == "orders"
+    assert result.job_id == "job-789"
+    assert result.team_id == ateam.id
+    assert "orders" in result.table_uri

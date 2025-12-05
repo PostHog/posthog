@@ -136,6 +136,41 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
+@dataclasses.dataclass
+class PrepareDuckLakeCopyModelInputs:
+    """Inputs for preparing DuckLake copy model input activity."""
+
+    team_id: int
+    job_id: str
+    schema_id: uuid.UUID
+
+
+@activity.defn
+async def prepare_ducklake_copy_model_input_activity(
+    inputs: PrepareDuckLakeCopyModelInputs,
+) -> DuckLakeCopyDataImportsModelInput:
+    """Prepare a DuckLakeCopyDataImportsModelInput from schema data."""
+    bind_contextvars(team_id=inputs.team_id)
+
+    schema = await database_sync_to_async(ExternalDataSchema.objects.select_related("source").get)(
+        id=inputs.schema_id, team_id=inputs.team_id
+    )
+
+    normalized_name = schema.normalized_name
+    source_type = schema.source.source_type
+    table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
+
+    return DuckLakeCopyDataImportsModelInput(
+        schema_id=schema.id,
+        schema_name=schema.name,
+        source_type=source_type,
+        normalized_name=normalized_name,
+        table_uri=table_uri,
+        job_id=inputs.job_id,
+        team_id=inputs.team_id,
+    )
+
+
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
     """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
