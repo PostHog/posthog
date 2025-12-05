@@ -23,23 +23,6 @@ class TicketCommand(SlashCommand):
     Summarizes the conversation for the frontend to use when creating a support ticket.
     """
 
-    def _is_first_message(self, state: AssistantState) -> bool:
-        """Check if /ticket is the first message in the conversation."""
-        human_messages = [msg for msg in state.messages if isinstance(msg, HumanMessage)]
-        return len(human_messages) <= 1
-
-    def _get_model(self) -> MaxChatAnthropic:
-        # We are not billing for conversation summary since we would be billing per-ticket creation.
-        return MaxChatAnthropic(
-            model="claude-haiku-4-5",
-            streaming=True,
-            stream_usage=True,
-            user=self._user,
-            team=self._team,
-            max_tokens=2048,
-            billable=False,
-        )
-
     async def execute(self, config: RunnableConfig, state: AssistantState) -> PartialAssistantState:
         if self._is_first_message(state):
             return PartialAssistantState(
@@ -60,6 +43,23 @@ class TicketCommand(SlashCommand):
                     id=str(uuid4()),
                 )
             ]
+        )
+
+    def _is_first_message(self, state: AssistantState) -> bool:
+        """Check if /ticket is the first message in the conversation."""
+        human_messages = [msg for msg in state.messages if isinstance(msg, HumanMessage)]
+        return len(human_messages) <= 1
+
+    def _get_model(self) -> MaxChatAnthropic:
+        # We are not billing for conversation summary since we would be billing per-ticket creation.
+        return MaxChatAnthropic(
+            model="claude-haiku-4-5",
+            streaming=True,
+            stream_usage=True,
+            user=self._user,
+            team=self._team,
+            max_tokens=2048,
+            billable=False,
         )
 
     async def _summarize_conversation(self, messages: Sequence[AssistantMessageUnion]) -> str:
