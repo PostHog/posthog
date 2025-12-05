@@ -775,7 +775,7 @@ jobs:
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=1000 --durations-min=1.0 --store-durations \
+                      --durations=1000 --durations-min=1.0 --store-durations --clean-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
                   exit_code=$?
@@ -820,7 +820,7 @@ jobs:
                   set +e
                   pytest posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal -m "not async_migrations" \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
-                      --durations=100 --durations-min=1.0 --store-durations \
+                      --durations=100 --durations-min=1.0 --store-durations --clean-durations \
                       --splitting-algorithm=duration_based_chunks \
                       $PYTEST_ARGS
                   exit_code=$?
