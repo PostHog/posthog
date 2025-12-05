@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { personProfileIgnoredPropertiesCounter, personProfileUpdateOutcomeCounter } from './metrics'
-import { eventToPersonProperties } from './person-property-utils'
+import { FILTERED_PERSON_UPDATE_PROPERTIES } from './person-property-utils'
 import { applyEventPropertyUpdates, computeEventPropertyUpdates } from './person-update'
 
 jest.mock('./metrics', () => ({
@@ -123,9 +123,9 @@ describe('person-update', () => {
             })
         })
 
-        describe('eventToPersonProperties accepted at event level', () => {
-            it.each(Array.from(eventToPersonProperties))(
-                'should accept "%s" updates at event level (filtering happens at batch level)',
+        describe('filtered properties behavior', () => {
+            it.each(Array.from(FILTERED_PERSON_UPDATE_PROPERTIES))(
+                'should mark "%s" as ignored when updated',
                 (propertyName) => {
                     const event: PluginEvent = {
                         event: 'pageview',
@@ -141,8 +141,7 @@ describe('person-update', () => {
                     expect(result.hasChanges).toBe(true)
                     expect(result.toSet).toEqual({ [propertyName]: 'new_value' })
                     expect(result.shouldForceUpdate).toBe(false)
-                    // At event level, this property would be marked as ignored (outcome: 'ignored')
-                    // but it's still included in toSet for batch-level filtering
+                    // Filtered properties are marked as ignored
                     expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                     expect(mockPersonProfileUpdateOutcomeCounter.labels({ outcome: 'ignored' }).inc).toHaveBeenCalled()
                     expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
@@ -250,54 +249,54 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should accept eventToPersonProperties even when mixed with unchanged custom properties', () => {
+            it('should accept filtered properties even when mixed with unchanged custom properties', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
-                        $set: { $browser: 'Chrome', custom_prop: 'same_value' },
+                        $set: { $current_url: 'https://example.com/new', custom_prop: 'same_value' },
                     },
                 } as any
 
-                const personProperties = { $browser: 'Firefox', custom_prop: 'same_value' }
+                const personProperties = { $current_url: 'https://example.com/old', custom_prop: 'same_value' }
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
-                expect(result.toSet).toEqual({ $browser: 'Chrome' })
+                expect(result.toSet).toEqual({ $current_url: 'https://example.com/new' })
                 expect(result.shouldForceUpdate).toBe(false)
-                // At event level, $browser would be marked as ignored
+                // $current_url is filtered, so it should be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
-                    property: '$browser',
+                    property: '$current_url',
                 })
             })
 
-            it('should accept multiple eventToPersonProperties at event level', () => {
-                // Note: Campaign properties (utm_source, utm_campaign) are no longer in eventToPersonProperties
-                // and will trigger updates like custom properties
+            it('should accept multiple filtered properties at event level', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
                         $set: {
-                            $browser: 'Chrome',
-                            $os: 'macOS',
+                            $current_url: 'https://example.com/new',
+                            $pathname: '/new-path',
                         },
                     },
                 } as any
 
                 const personProperties = {
-                    $browser: 'Firefox',
-                    $os: 'Windows',
+                    $current_url: 'https://example.com/old',
+                    $pathname: '/old-path',
                 }
 
                 const result = computeEventPropertyUpdates(event, personProperties)
 
                 expect(result.hasChanges).toBe(true)
                 expect(result.shouldForceUpdate).toBe(false)
-                // At event level, eventToPersonProperties would be marked as ignored
+                // Filtered properties should be marked as ignored
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'ignored' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$browser' })
-                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$os' })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({
+                    property: '$current_url',
+                })
+                expect(mockPersonProfileIgnoredPropertiesCounter.labels).toHaveBeenCalledWith({ property: '$pathname' })
             })
         })
 
@@ -376,7 +375,7 @@ describe('person-update', () => {
         })
 
         describe('person events behavior', () => {
-            it('should compute updates for eventToPersonProperties on $identify events', () => {
+            it('should compute updates for any property on $identify events', () => {
                 const event: PluginEvent = {
                     event: '$identify',
                     properties: {
@@ -394,7 +393,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileUpdateOutcomeCounter.labels).toHaveBeenCalledWith({ outcome: 'changed' })
             })
 
-            it('should compute updates for eventToPersonProperties on $set events', () => {
+            it('should compute updates for any property on $set events', () => {
                 const event: PluginEvent = {
                     event: '$set',
                     properties: {
@@ -466,7 +465,7 @@ describe('person-update', () => {
         })
 
         describe('mixed scenarios', () => {
-            it('should compute updates when both custom and eventToPersonProperties change', () => {
+            it('should compute updates when both custom and allowed properties change', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -486,8 +485,8 @@ describe('person-update', () => {
         })
 
         describe('updateAllProperties flag enabled', () => {
-            it.each(Array.from(eventToPersonProperties))(
-                'should trigger update for "%s" when updateAllProperties is true',
+            it.each(Array.from(FILTERED_PERSON_UPDATE_PROPERTIES))(
+                'should trigger update for filtered property "%s" when updateAllProperties is true',
                 (propertyName) => {
                     const event: PluginEvent = {
                         event: 'pageview',
@@ -529,7 +528,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should trigger update for multiple eventToPersonProperties when updateAllProperties is true', () => {
+            it('should trigger update for multiple allowed properties when updateAllProperties is true', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -555,7 +554,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should trigger update for mixed eventToPersonProperties and custom properties when updateAllProperties is true', () => {
+            it('should trigger update for mixed allowed and custom properties when updateAllProperties is true', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {
@@ -575,7 +574,7 @@ describe('person-update', () => {
                 expect(mockPersonProfileIgnoredPropertiesCounter.labels).not.toHaveBeenCalled()
             })
 
-            it('should trigger update for mixed $geoip_* and eventToPersonProperties when updateAllProperties is true', () => {
+            it('should trigger update for mixed $geoip_* and allowed properties when updateAllProperties is true', () => {
                 const event: PluginEvent = {
                     event: 'pageview',
                     properties: {

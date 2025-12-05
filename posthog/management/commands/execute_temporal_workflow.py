@@ -10,6 +10,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from posthog.temporal.ai import WORKFLOWS as AI_WORKFLOWS
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from posthog.temporal.data_modeling import WORKFLOWS as DATA_MODELING_WORKFLOWS
 from posthog.temporal.delete_persons import WORKFLOWS as DELETE_PERSONS_WORKFLOWS
 from posthog.temporal.delete_recordings import WORKFLOWS as DELETE_RECORDING_WORKFLOWS
 from posthog.temporal.enforce_max_replay_retention import WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
@@ -21,7 +22,6 @@ from posthog.temporal.usage_reports import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
-from products.data_modeling.backend.temporal import WORKFLOWS as NEW_DATA_MODELING_WORKFLOWS
 
 
 class Command(BaseCommand):
@@ -137,7 +137,7 @@ class Command(BaseCommand):
             + DELETE_RECORDING_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
-            + NEW_DATA_MODELING_WORKFLOWS
+            + DATA_MODELING_WORKFLOWS
         )
         try:
             workflow = next(workflow for workflow in WORKFLOWS if workflow.is_named(workflow_name))

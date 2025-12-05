@@ -9,13 +9,11 @@ import {
     LemonSegmentedButton,
     LemonSelect,
     LemonTable,
-    SpinnerOverlay,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
 import { ListHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,6 +34,7 @@ import { LogMessage, ProductKey } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
 import { LogTag } from 'products/logs/frontend/components/LogTag'
+import { LogsSparkline } from 'products/logs/frontend/components/LogsSparkline'
 import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList'
 import { LogsFilterGroup } from 'products/logs/frontend/components/filters/LogsFilters/FilterGroup'
@@ -54,9 +53,8 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { sparklineData, sparklineLoading, logsLoading } = useValues(logsLogic)
-    const { runQuery, setDateRangeFromSparkline, highlightNextLog, highlightPreviousLog, toggleExpandLog } =
-        useActions(logsLogic)
+    const { logsLoading } = useValues(logsLogic)
+    const { runQuery, highlightNextLog, highlightPreviousLog, toggleExpandLog } = useActions(logsLogic)
     const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
 
     useEffect(() => {
@@ -80,10 +78,6 @@ export function LogsScene(): JSX.Element {
         },
         [sceneHighlightedLogId, logsLoading, runQuery]
     )
-
-    const onSelectionChange = (selection: { startIndex: number; endIndex: number }): void => {
-        setDateRangeFromSparkline(selection.startIndex, selection.endIndex)
-    }
 
     return (
         <SceneContent>
@@ -115,21 +109,7 @@ export function LogsScene(): JSX.Element {
                 isEmpty={false}
             />
             <Filters />
-            <div className="relative h-40 flex flex-col">
-                {sparklineData.data.length > 0 ? (
-                    <Sparkline
-                        labels={sparklineData.labels}
-                        data={sparklineData.data}
-                        className="w-full flex-1"
-                        onSelectionChange={onSelectionChange}
-                    />
-                ) : !sparklineLoading ? (
-                    <div className="flex-1 text-muted flex items-center justify-center">
-                        No results matching filters
-                    </div>
-                ) : null}
-                {sparklineLoading && <SpinnerOverlay />}
-            </div>
+            <LogsSparkline />
             <SceneDivider />
             <LogsListContainer />
         </SceneContent>
@@ -223,8 +203,8 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px))]">
-            <div className="sticky top-0 z-20 pb-2">
+        <div className="flex flex-col gap-2 py-2 h-[calc(100vh_-_var(--breadcrumbs-height-compact,_0px)_-_var(--scene-title-section-height,_0px)_-_5px)]">
+            <div className="sticky top-0 z-20 py-2">
                 <VirtualizedLogsListDisplayOptions />
             </div>
             {pinnedParsedLogs.length > 0 && (
@@ -237,7 +217,7 @@ const VirtualizedLogsListLogs = (): JSX.Element => {
                         prettifyJson={prettifyJson}
                         tzLabelFormat={tzLabelFormat}
                         showPinnedWithOpacity
-                        fixedHeight={100}
+                        fixedHeight={250}
                         disableInfiniteScroll
                     />
                 </div>

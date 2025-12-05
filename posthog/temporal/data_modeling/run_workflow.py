@@ -43,10 +43,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.models import (
@@ -57,6 +55,8 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+
+from .metrics import get_data_modeling_finished_metric
 
 LOGGER = get_logger(__name__)
 
@@ -208,18 +208,15 @@ async def run_dag_activity(inputs: RunDagActivityInputs) -> Results:
 
     running_tasks = set()
 
-    async with Heartbeater(), ShutdownMonitor() as shutdown_monitor:
+    async with Heartbeater():
         while True:
             message = await queue.get()
-            shutdown_monitor.raise_if_is_worker_shutdown()
 
             match message:
                 case QueueMessage(status=ModelStatus.READY, label=label):
                     await logger.adebug(f"Handling queue message READY. label={label}")
                     model = inputs.dag[label]
-                    task = asyncio.create_task(
-                        handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger, shutdown_monitor)
-                    )
+                    task = asyncio.create_task(handle_model_ready(model, inputs.team_id, queue, inputs.job_id, logger))
                     running_tasks.add(task)
                     task.add_done_callback(running_tasks.discard)
 
@@ -309,7 +306,6 @@ async def handle_model_ready(
     queue: asyncio.Queue[QueueMessage],
     job_id: str,
     logger: FilteringBoundLogger,
-    shutdown_monitor: ShutdownMonitor,
 ) -> None:
     """Handle a model that is ready to run by materializing.
 
@@ -332,12 +328,11 @@ async def handle_model_ready(
             saved_query = await get_saved_query(team, model.label)
             job = await database_sync_to_async(DataModelingJob.objects.get)(id=job_id)
 
-            _, delta_table, _ = await materialize_model(model.label, team, saved_query, job, logger, shutdown_monitor)
+            await materialize_model(model.label, team, saved_query, job, logger)
             ducklake_model = DuckLakeCopyModelInput(
                 model_label=model.label,
                 saved_query_id=str(saved_query.id),
                 table_uri=_build_model_table_uri(team.pk, model.label, saved_query.normalized_name),
-                file_uris=delta_table.file_uris(),
             )
     except CHQueryErrorMemoryLimitExceeded as err:
         await logger.aexception("Memory limit exceeded for model %s", model.label, job_id=job_id)
@@ -432,7 +427,6 @@ async def materialize_model(
     saved_query: DataWarehouseSavedQuery,
     job: DataModelingJob,
     logger: FilteringBoundLogger,
-    shutdown_monitor: ShutdownMonitor,
 ) -> tuple[str, DeltaTable, uuid.UUID]:
     """Materialize a given model by running its query and piping the results into a delta table.
 
@@ -495,7 +489,7 @@ async def materialize_model(
                 )
 
             mode: typing.Literal["error", "append", "overwrite", "ignore"] = "append"
-            schema_mode: typing.Literal["merge", "overwrite"] | None = "merge"
+            schema_mode: typing.Literal["merge", "overwrite"] | None = None
             if index == 0:
                 mode = "overwrite"
                 schema_mode = "overwrite"
@@ -504,6 +498,7 @@ async def materialize_model(
                 f"Writing batch to delta table. index={index}. mode={mode}. batch_row_count={batch.num_rows}"
             )
 
+            write_start = dt.datetime.now()
             deltalake.write_deltalake(
                 table_or_uri=delta_table,
                 storage_options=storage_options,
@@ -512,15 +507,21 @@ async def materialize_model(
                 schema_mode=schema_mode,
                 engine="rust",
             )
+            write_duration = (dt.datetime.now() - write_start).total_seconds()
 
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
+
+            save_start = dt.datetime.now()
             await database_sync_to_async(job.save)()
+            save_duration = (dt.datetime.now() - save_start).total_seconds()
+
+            await logger.adebug(
+                f"Batch {index} timings: write={write_duration:.2f}s, save={save_duration:.2f}s, total={write_duration + save_duration:.2f}s"
+            )
 
             # Explicitly delete batch to free memory after writing
             del batch, ch_types
-
-            shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 
@@ -1480,7 +1481,7 @@ class RunWorkflow(PostHogWorkflow):
                 start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
+                    maximum_attempts=3,
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
@@ -1565,11 +1566,7 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if (
-            settings.DUCKLAKE_DATA_MODELING_COPY_WORKFLOW_ENABLED
-            and self.ducklake_copy_inputs
-            and self.ducklake_copy_inputs.models
-        ):
+        if self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
             temporalio.workflow.logger.info(
                 "Triggering DuckLake copy child workflow",
                 job_id=job_id,
@@ -1579,7 +1576,7 @@ class RunWorkflow(PostHogWorkflow):
                 workflow="ducklake-copy.data-modeling",
                 arg=dataclasses.asdict(self.ducklake_copy_inputs),
                 id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,

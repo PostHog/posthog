@@ -118,7 +118,7 @@ jobs:
         timeout-minutes: 20
 
         name: Validate Django and CH migrations
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
 
         steps:
             - uses: actions/checkout@v4
@@ -926,7 +926,7 @@ jobs:
             matrix:
                 clickhouse-server-image: ['clickhouse/clickhouse-server:25.8.12.129']
         if: needs.changes.outputs.backend == 'true'
-        runs-on: ubuntu-latest
+        runs-on: depot-ubuntu-latest
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@v4

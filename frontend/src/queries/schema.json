@@ -17986,7 +17986,19 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["ID", "Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
+            "enum": [
+                "ID",
+                "Campaign",
+                "Source",
+                "Cost",
+                "Clicks",
+                "Impressions",
+                "CPC",
+                "CTR",
+                "Reported Conversion",
+                "Reported Conversion Value",
+                "Reported ROAS"
+            ],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
@@ -17999,7 +18011,8 @@
                 "date",
                 "impressions",
                 "source",
-                "reported_conversion"
+                "reported_conversion",
+                "reported_conversion_value"
             ],
             "type": "string"
         },
@@ -19524,10 +19537,6 @@
             "properties": {
                 "id": {
                     "description": "Name of the event.",
-                    "type": "string"
-                },
-                "name": {
-                    "description": "Optional display name for this event.",
                     "type": "string"
                 },
                 "properties": {
@@ -27773,6 +27782,11 @@
                 "featureFlag": {
                     "type": "string"
                 },
+                "featured": {
+                    "default": false,
+                    "description": "Whether this source should be prominently displayed in onboarding flows",
+                    "type": "boolean"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
@@ -28048,6 +28062,9 @@
                     "type": "string"
                 },
                 "reported_conversion": {
+                    "type": "string"
+                },
+                "reported_conversion_value": {
                     "type": "string"
                 },
                 "source": {
@@ -28462,6 +28479,9 @@
                     "type": "string"
                 },
                 "inputBackground": {
+                    "type": "string"
+                },
+                "inputTextColor": {
                     "type": "string"
                 },
                 "maxWidth": {
@@ -30379,6 +30399,7 @@
             "enum": [
                 "Visitors",
                 "Views",
+                "AvgTimeOnPage",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -31106,6 +31127,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeAvgTimeOnPage": {
                     "type": "boolean"
                 },
                 "includeBounceRate": {
