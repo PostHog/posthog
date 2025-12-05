@@ -5,10 +5,6 @@
     gap: 1rem;
     container-type: inline-size;
 
-    .ErrorTracking__breakdowns & {
-        height: 100%;
-    }
-
     .PropertyGroupFilters__add-filter-group-inline {
         display: block;
     }
@@ -53,7 +49,6 @@
     .NotebookNode &,
     .InsightCard &,
     .ExportedInsight &,
-    .ErrorTracking__breakdowns &,
     .WebAnalyticsDashboard & {
         flex: 1;
         height: 100%;
@@ -143,13 +138,6 @@
             min-height: 100px;
         }
     }
-
-    .ErrorTracking__breakdowns & {
-        .LineGraph {
-            position: relative;
-            min-height: 100%;
-        }
-    }
 }
 
 .TrendsInsight {
@@ -165,10 +153,6 @@
     .ExportedInsight &,
     .WebAnalyticsDashboard & {
         min-height: auto;
-    }
-
-    .ErrorTracking__breakdowns & {
-        min-height: 100%;
     }
 
     &--ActionsTable,
@@ -202,10 +186,6 @@
         .WebAnalyticsDashboard & {
             min-height: auto;
         }
-
-        .ErrorTracking__breakdowns & {
-            min-height: 100%;
-        }
     }
 }
 
@@ -216,5 +196,35 @@
 
     .LemonIcon {
         color: var(--color-bg-surface-primary);
+    }
+}
+
+.ErrorTracking__breakdowns {
+    .InsightViz {
+        height: 100%;
+    }
+
+    .InsightVizDisplay {
+        flex: 1;
+        height: 100%;
+
+        .LineGraph {
+            padding: 0.5rem;
+        }
+    }
+
+    .RetentionContainer .LineGraph {
+        position: relative;
+        min-height: 100%;
+    }
+
+    .TrendsInsight {
+        min-height: 100%;
+    }
+
+    .FunnelInsight--type-steps-vertical,
+    .FunnelInsight--type-time_to_convert,
+    .FunnelInsight--type-trends {
+        min-height: 100%;
     }
 }
