@@ -19,10 +19,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.schedule import trigger_schedule_buffer_one
 from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
-    DuckLakeCopyDataImportsModelInput,
     DuckLakeCopyDataImportsWorkflow,
-    PrepareDuckLakeCopyModelInputs,
-    prepare_ducklake_copy_model_input_activity,
 )
 from posthog.temporal.data_imports.metrics import get_data_import_finished_metric
 from posthog.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
@@ -329,23 +326,12 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             )
 
             # Start DuckLake copy workflow as a child (fire-and-forget)
-            model_input: DuckLakeCopyDataImportsModelInput = await workflow.execute_activity(
-                prepare_ducklake_copy_model_input_activity,
-                PrepareDuckLakeCopyModelInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    schema_id=inputs.external_data_schema_id,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-
             await workflow.start_child_workflow(
                 DuckLakeCopyDataImportsWorkflow.run,
                 DataImportsDuckLakeCopyInputs(
                     team_id=inputs.team_id,
                     job_id=job_id,
-                    models=[model_input],
+                    schema_ids=[inputs.external_data_schema_id],
                 ),
                 id=f"ducklake-copy-data-imports-{job_id}",
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,

@@ -16,14 +16,11 @@ from posthog.temporal.data_imports.ducklake_copy_data_imports_workflow import (
     DataImportsDuckLakeCopyInputs,
     DuckLakeCopyDataImportsActivityInputs,
     DuckLakeCopyDataImportsMetadata,
-    DuckLakeCopyDataImportsModelInput,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyWorkflowGateInputs,
-    PrepareDuckLakeCopyModelInputs,
     copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
-    prepare_ducklake_copy_model_input_activity,
     verify_data_imports_ducklake_copy_activity,
 )
 
@@ -35,16 +32,8 @@ from products.data_warehouse.backend.models.table import DataWarehouseTable
 
 @pytest.mark.asyncio
 async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
-    model_input = DuckLakeCopyDataImportsModelInput(
-        schema_id=uuid.uuid4(),
-        schema_name="customers",
-        source_type="postgres",
-        normalized_name="customers",
-        table_uri="s3://bucket/team_1/table",
-        job_id="job-123",
-        team_id=1,
-    )
-    inputs = DataImportsDuckLakeCopyInputs(team_id=1, job_id="job-123", models=[model_input])
+    schema_id = uuid.uuid4()
+    inputs = DataImportsDuckLakeCopyInputs(team_id=1, job_id="job-123", schema_ids=[schema_id])
 
     data_converter = temporalio.converter.default()
     encoded = await data_converter.encode([inputs])
@@ -52,8 +41,7 @@ async def test_data_imports_ducklake_copy_inputs_round_trip_serialization():
 
     assert decoded[0].team_id == inputs.team_id
     assert decoded[0].job_id == inputs.job_id
-    assert decoded[0].models[0].normalized_name == model_input.normalized_name
-    assert str(decoded[0].models[0].schema_id) == str(model_input.schema_id)
+    assert str(decoded[0].schema_ids[0]) == str(schema_id)
 
 
 @pytest.mark.asyncio
@@ -134,16 +122,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_basic(ateam):
         },
     )
 
-    model_input = DuckLakeCopyDataImportsModelInput(
-        schema_id=schema.id,
-        schema_name=schema.name,
-        source_type=source.source_type,
-        normalized_name=schema.normalized_name,
-        table_uri=f"s3://bucket/{schema.folder_path()}/{schema.normalized_name}",
-        job_id="job-123",
-        team_id=ateam.id,
-    )
-    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-123", models=[model_input])
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-123", schema_ids=[schema.id])
 
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
@@ -193,16 +172,7 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
         sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
     )
 
-    model_input = DuckLakeCopyDataImportsModelInput(
-        schema_id=schema.id,
-        schema_name=schema.name,
-        source_type=source.source_type,
-        normalized_name=schema.normalized_name,
-        table_uri=f"s3://bucket/{schema.folder_path()}/{schema.normalized_name}",
-        job_id="job-456",
-        team_id=ateam.id,
-    )
-    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-456", models=[model_input])
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-456", schema_ids=[schema.id])
 
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
 
@@ -218,8 +188,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_no_partition(atea
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
-async def test_prepare_data_imports_ducklake_metadata_activity_empty_models(ateam):
-    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-empty", models=[])
+async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(ateam):
+    inputs = DataImportsDuckLakeCopyInputs(team_id=ateam.id, job_id="job-empty", schema_ids=[])
     result = await prepare_data_imports_ducklake_metadata_activity(inputs)
     assert result == []
 
@@ -561,25 +531,15 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
     json_input = f"""{{
         "team_id": 1,
         "job_id": "job-123",
-        "models": [{{
-            "schema_id": "{schema_id}",
-            "schema_name": "customers",
-            "source_type": "postgres",
-            "normalized_name": "customers",
-            "table_uri": "s3://bucket/team_1/customers",
-            "job_id": "job-123",
-            "team_id": 1
-        }}]
+        "schema_ids": ["{schema_id}"]
     }}"""
 
     inputs = DuckLakeCopyDataImportsWorkflow.parse_inputs([json_input])
 
     assert inputs.team_id == 1
     assert inputs.job_id == "job-123"
-    assert len(inputs.models) == 1
-    assert inputs.models[0].schema_id == schema_id
-    assert inputs.models[0].schema_name == "customers"
-    assert inputs.models[0].source_type == "postgres"
+    assert len(inputs.schema_ids) == 1
+    assert inputs.schema_ids[0] == schema_id
 
 
 @pytest.mark.asyncio
@@ -617,17 +577,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
     inputs = DataImportsDuckLakeCopyInputs(
         team_id=ateam.pk,
         job_id="job",
-        models=[
-            DuckLakeCopyDataImportsModelInput(
-                schema_id=uuid.uuid4(),
-                schema_name="customers",
-                source_type="postgres",
-                normalized_name="customers",
-                table_uri="s3://bucket/team_1/customers",
-                job_id="job",
-                team_id=ateam.pk,
-            )
-        ],
+        schema_ids=[uuid.uuid4()],
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -695,17 +645,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     inputs = DataImportsDuckLakeCopyInputs(
         team_id=ateam.pk,
         job_id="job",
-        models=[
-            DuckLakeCopyDataImportsModelInput(
-                schema_id=uuid.uuid4(),
-                schema_name="customers",
-                source_type="postgres",
-                normalized_name="customers",
-                table_uri="s3://bucket/team_1/customers",
-                job_id="job",
-                team_id=ateam.pk,
-            )
-        ],
+        schema_ids=[uuid.uuid4()],
     )
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -732,50 +672,3 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     assert call_counts["metadata"] == 1
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-async def test_prepare_ducklake_copy_model_input_activity(ateam):
-    credential = await database_sync_to_async(DataWarehouseCredential.objects.create)(
-        team=ateam, access_key="test_key", access_secret="test_secret"
-    )
-    source = await database_sync_to_async(ExternalDataSource.objects.create)(
-        team=ateam,
-        source_id="test_source",
-        connection_id="test_connection",
-        source_type="Postgres",
-        status="Running",
-    )
-    table = await database_sync_to_async(DataWarehouseTable.objects.create)(
-        team=ateam,
-        name="test_table",
-        format="Delta",
-        url_pattern="s3://bucket/path",
-        credential=credential,
-        external_data_source=source,
-        columns={"id": {"clickhouse": "Int64", "hogql": "IntegerDatabaseField"}},
-    )
-    schema = await database_sync_to_async(ExternalDataSchema.objects.create)(
-        team=ateam,
-        name="orders",
-        source=source,
-        table=table,
-        sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
-    )
-
-    inputs = PrepareDuckLakeCopyModelInputs(
-        team_id=ateam.id,
-        job_id="job-789",
-        schema_id=schema.id,
-    )
-
-    result = await prepare_ducklake_copy_model_input_activity(inputs)
-
-    assert result.schema_id == schema.id
-    assert result.schema_name == "orders"
-    assert result.source_type == "Postgres"
-    assert result.normalized_name == "orders"
-    assert result.job_id == "job-789"
-    assert result.team_id == ateam.id
-    assert "orders" in result.table_uri

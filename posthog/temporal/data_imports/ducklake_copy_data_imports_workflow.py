@@ -55,34 +55,19 @@ class DuckLakeCopyWorkflowGateInputs:
 
 
 @dataclasses.dataclass
-class DuckLakeCopyDataImportsModelInput:
-    """Metadata describing a data imports schema to copy into DuckLake."""
-
-    schema_id: uuid.UUID
-    schema_name: str
-    source_type: str
-    normalized_name: str
-    table_uri: str
-    job_id: str
-    team_id: int
-
-
-@dataclasses.dataclass
 class DataImportsDuckLakeCopyInputs:
     """Workflow inputs passed to DuckLakeCopyDataImportsWorkflow."""
 
     team_id: int
     job_id: str
-    models: list[DuckLakeCopyDataImportsModelInput]
+    schema_ids: list[uuid.UUID]
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
         return {
             "team_id": self.team_id,
             "job_id": self.job_id,
-            "schema_ids": [str(model.schema_id) for model in self.models],
-            "schema_names": [model.schema_name for model in self.models],
-            "source_types": [model.source_type for model in self.models],
+            "schema_ids": [str(sid) for sid in self.schema_ids],
         }
 
 
@@ -136,41 +121,6 @@ class DuckLakeCopyDataImportsVerificationResult:
     error: str | None = None
 
 
-@dataclasses.dataclass
-class PrepareDuckLakeCopyModelInputs:
-    """Inputs for preparing DuckLake copy model input activity."""
-
-    team_id: int
-    job_id: str
-    schema_id: uuid.UUID
-
-
-@activity.defn
-async def prepare_ducklake_copy_model_input_activity(
-    inputs: PrepareDuckLakeCopyModelInputs,
-) -> DuckLakeCopyDataImportsModelInput:
-    """Prepare a DuckLakeCopyDataImportsModelInput from schema data."""
-    bind_contextvars(team_id=inputs.team_id)
-
-    schema = await database_sync_to_async(ExternalDataSchema.objects.select_related("source").get)(
-        id=inputs.schema_id, team_id=inputs.team_id
-    )
-
-    normalized_name = schema.normalized_name
-    source_type = schema.source.source_type
-    table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
-
-    return DuckLakeCopyDataImportsModelInput(
-        schema_id=schema.id,
-        schema_name=schema.name,
-        source_type=source_type,
-        normalized_name=normalized_name,
-        table_uri=table_uri,
-        job_id=inputs.job_id,
-        team_id=inputs.team_id,
-    )
-
-
 @activity.defn
 async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowGateInputs) -> bool:
     """Evaluate whether the DuckLake data imports copy workflow should run for a team."""
@@ -219,15 +169,15 @@ async def prepare_data_imports_ducklake_metadata_activity(
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
-    if not inputs.models:
-        await logger.ainfo("DuckLake copy requested but no models were provided - skipping")
+    if not inputs.schema_ids:
+        await logger.ainfo("DuckLake copy requested but no schema_ids were provided - skipping")
         return []
 
     model_list: list[DuckLakeCopyDataImportsMetadata] = []
 
-    for model_input in inputs.models:
+    for schema_id in inputs.schema_ids:
         schema = await database_sync_to_async(ExternalDataSchema.objects.select_related("team", "table", "source").get)(
-            id=model_input.schema_id, team_id=inputs.team_id
+            id=schema_id, team_id=inputs.team_id
         )
 
         normalized_name = schema.normalized_name
@@ -437,7 +387,7 @@ def _ensure_ducklake_bucket_exists(config: dict[str, str]) -> None:
         return
 
     ensure_bucket_exists(
-        f"s3://{config['DUCKLAKE_DATA_BUCKET'].rstrip('/')}",
+        f"s3://{config['DUCKLAKE_BUCKET'].rstrip('/')}",
         config["DUCKLAKE_S3_ACCESS_KEY"],
         config["DUCKLAKE_S3_SECRET_KEY"],
         settings.OBJECT_STORAGE_ENDPOINT,
@@ -895,27 +845,19 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> DataImportsDuckLakeCopyInputs:
         loaded = json.loads(inputs[0])
-        models = [
-            DuckLakeCopyDataImportsModelInput(
-                schema_id=uuid.UUID(model["schema_id"]) if isinstance(model["schema_id"], str) else model["schema_id"],
-                schema_name=model["schema_name"],
-                source_type=model["source_type"],
-                normalized_name=model["normalized_name"],
-                table_uri=model["table_uri"],
-                job_id=model["job_id"],
-                team_id=model["team_id"],
-            )
-            for model in loaded.get("models", [])
-        ]
-        loaded["models"] = models
-        return DataImportsDuckLakeCopyInputs(**loaded)
+        schema_ids = [uuid.UUID(sid) if isinstance(sid, str) else sid for sid in loaded.get("schema_ids", [])]
+        return DataImportsDuckLakeCopyInputs(
+            team_id=loaded["team_id"],
+            job_id=loaded["job_id"],
+            schema_ids=schema_ids,
+        )
 
     @workflow.run
     async def run(self, inputs: DataImportsDuckLakeCopyInputs) -> None:
         workflow.logger.info("Starting DuckLakeCopyDataImportsWorkflow", **inputs.properties_to_log)
 
-        if not inputs.models:
-            workflow.logger.info("No models to copy - exiting early", **inputs.properties_to_log)
+        if not inputs.schema_ids:
+            workflow.logger.info("No schema_ids to copy - exiting early", **inputs.properties_to_log)
             return
 
         should_copy = await workflow.execute_activity(
