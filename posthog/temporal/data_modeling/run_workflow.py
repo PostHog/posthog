@@ -984,53 +984,53 @@ def _transform_date_and_datetimes(batch: pa.RecordBatch, types: list[tuple[str, 
         if pa.types.is_list(field.type):
             if "datetime64" in type.lower():
                 # Array(DateTime64) -> list<timestamp(us, UTC)>
-                new_element_type = pa.timestamp("us", tz="UTC")
-                new_list_type = pa.list_(new_element_type)
-                new_field = field.with_type(new_list_type)
+                list_element_type: pa.DataType = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
                 # Cast list<uint64> -> list<int64> -> list<timestamp>
                 list_int64 = pc.cast(column, pa.list_(pa.int64()))
                 list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
-                new_column = pc.cast(list_timestamp_s, new_list_type)
+                list_column = pc.cast(list_timestamp_s, list_type)
             elif "datetime" in type.lower():
                 # Array(DateTime) -> list<timestamp(us, UTC)>
-                new_element_type = pa.timestamp("us", tz="UTC")
-                new_list_type = pa.list_(new_element_type)
-                new_field = field.with_type(new_list_type)
+                list_element_type = pa.timestamp("us", tz="UTC")
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
                 # Cast list<uint32> -> list<int64> -> list<timestamp(s)> -> list<timestamp(us, UTC)>
                 list_int64 = pc.cast(column, pa.list_(pa.int64()))
                 list_timestamp_s = pc.cast(list_int64, pa.list_(pa.timestamp("s")))
-                new_column = pc.cast(list_timestamp_s, new_list_type)
+                list_column = pc.cast(list_timestamp_s, list_type)
             else:
                 # Array(Date) -> list<date32>
-                new_element_type = pa.date32()
-                new_list_type = pa.list_(new_element_type)
-                new_field = field.with_type(new_list_type)
+                list_element_type = pa.date32()
+                list_type = pa.list_(list_element_type)
+                list_field = field.with_type(list_type)
                 # Cast list<uint16> -> list<int32> -> list<date32>
                 list_int32 = pc.cast(column, pa.list_(pa.int32()))
-                new_column = pc.cast(list_int32, new_list_type)
+                list_column = pc.cast(list_int32, list_type)
 
-            new_fields.append(new_field)
-            new_columns.append(new_column)
+            new_fields.append(list_field)
+            new_columns.append(list_column)
             continue
 
         # Handle scalar types
         if "datetime64" in type.lower() and pa.types.is_timestamp(field.type):
-            new_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
-            new_column = pc.cast(column, new_field.type)
+            scalar_field: pa.Field = field.with_type(pa.timestamp("us", tz="UTC"))
+            scalar_column = pc.cast(column, scalar_field.type)
         elif "datetime" in type.lower():
-            new_field = field.with_type(pa.timestamp("us", tz="UTC"))
+            scalar_field = field.with_type(pa.timestamp("us", tz="UTC"))
             # Gotta upcast from UInt32 to Int64 then Timestamp(s) first, and finally after to microseconds after
             int64_col = pc.cast(column, pa.int64())
             seconds_col = pc.cast(int64_col, pa.timestamp("s"))
-            new_column = pc.cast(seconds_col, new_field.type)
+            scalar_column = pc.cast(seconds_col, scalar_field.type)
         else:
-            new_field = field.with_type(pa.date32())
+            scalar_field = field.with_type(pa.date32())
             # Gotta upcast from uint16 to int32 first
             int32_col = pc.cast(column, pa.int32())
-            new_column = pc.cast(int32_col, new_field.type)
+            scalar_column = pc.cast(int32_col, scalar_field.type)
 
-        new_fields.append(new_field)
-        new_columns.append(new_column)
+        new_fields.append(scalar_field)
+        new_columns.append(scalar_column)
 
     new_metadata: dict[str | bytes, str | bytes] | None = (
         typing.cast(dict[str | bytes, str | bytes], dict(batch.schema.metadata)) if batch.schema.metadata else None

@@ -254,6 +254,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
         self.assertIsInstance(saved_query.query["query"], str)
 
@@ -291,6 +292,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_can_materialize_retention_query(self):
@@ -335,6 +337,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_can_materialize_paths_query(self):
@@ -371,6 +374,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(endpoint.saved_query)
         saved_query = endpoint.saved_query
         assert saved_query is not None
+        assert saved_query.query is not None
         self.assertEqual(saved_query.query["kind"], "HogQLQuery")
 
     def test_materialization_status_in_response(self):
