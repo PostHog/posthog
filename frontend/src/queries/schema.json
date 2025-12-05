@@ -626,9 +626,6 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
-                },
-                {
-                    "$ref": "#/definitions/GroupNode"
                 }
             ]
         },
@@ -29860,7 +29857,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

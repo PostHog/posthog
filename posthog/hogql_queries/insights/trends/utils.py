@@ -6,6 +6,7 @@ from posthog.schema import (
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
+    GroupNode,
     MultipleBreakdownType,
 )
 
@@ -46,7 +47,7 @@ def get_properties_chain(
     return ["properties", breakdown_field]
 
 
-def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode]) -> bool:
+def is_groups_math(series: Union[EventsNode, ActionsNode, DataWarehouseNode | GroupNode]) -> bool:
     return (
         series.math in {BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE}
         and series.math_group_type_index is not None

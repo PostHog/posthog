@@ -738,7 +738,7 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -1305,7 +1305,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */

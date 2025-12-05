@@ -195,7 +195,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 ) AS top_n_and_other_breakdown_values,
 
                 -- Transpose the results into arrays for each breakdown value
-                {'SELECT date, total, breakdown_value FROM (' if is_cumulative else ''}
+                {"SELECT date, total, breakdown_value FROM (" if is_cumulative else ""}
                 SELECT
                     {{all_dates}},
                     arrayMap(d ->
@@ -203,8 +203,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             arrayMap((v, dd) -> dd = d ? v : 0, vals, days)
                         ),
                         date
-                    ) AS {'values' if is_cumulative else 'total'},
-                    {'arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total,' if is_cumulative else ''}
+                    ) AS {"values" if is_cumulative else "total"},
+                    {"arrayMap(i -> arraySum(arraySlice(values, 1, i)), arrayEnumerate(values)) AS total," if is_cumulative else ""}
                     breakdown_value
                 FROM (
                     SELECT
@@ -215,7 +215,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     GROUP BY breakdown_value
                 )
                 ORDER BY {{breakdown_order}} ASC, arraySum(total) DESC, breakdown_value ASC
-                {')' if is_cumulative else ''}
+                {")" if is_cumulative else ""}
                 """,
                 {
                     "inner_query": inner_query,
@@ -887,27 +887,31 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             return parse_expr("1 = 2")
 
     def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
-        group_filters = []
+        group_filters: list[ast.Expr] = []
         for value in series.values:
             if isinstance(value, EventsNode):
                 event_expr = self._get_event_expr(value)
+                if event_expr is None:
+                    continue
 
                 # Add property filters if present
                 if value.properties is not None and value.properties != []:
                     properties_expr = property_to_expr(value.properties, self.team)
-                    expression = ast.And(exprs=[event_expr, properties_expr])
-                    group_filters.append(expression)
+                    combined_expr: ast.Expr = ast.And(exprs=[event_expr, properties_expr])
+                    group_filters.append(combined_expr)
                 else:
                     group_filters.append(event_expr)
 
             if isinstance(value, ActionsNode):
                 action_expr = self._get_action_expr(value)
+                if action_expr is None:
+                    continue
 
                 # Add property filters if present
                 if value.properties is not None and value.properties != []:
                     properties_expr = property_to_expr(value.properties, self.team)
-                    expression = ast.And(exprs=[action_expr, properties_expr])
-                    group_filters.append(expression)
+                    combined_expr = ast.And(exprs=[action_expr, properties_expr])
+                    group_filters.append(combined_expr)
                 else:
                     group_filters.append(action_expr)
 

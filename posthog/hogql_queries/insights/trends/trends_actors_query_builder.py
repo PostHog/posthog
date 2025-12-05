@@ -45,7 +45,7 @@ class TrendsActorsQueryBuilder:
     modifiers: HogQLQueryModifiers
     limit_context: LimitContext
 
-    entity: EventsNode | ActionsNode
+    entity: EventsNode | ActionsNode | GroupNode
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
@@ -354,7 +354,7 @@ class TrendsActorsQueryBuilder:
         return None
 
     def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
-        group_filters = []
+        group_filters: list[ast.Expr] = []
         for value in group.values:
             if isinstance(value, EventsNode):
                 if value.event is not None:

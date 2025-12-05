@@ -13704,6 +13704,59 @@ class RetentionQueryResponse(BaseModel):
     )
 
 
+class StickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    intervalCount: int | None = Field(
+        default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | PropertyGroupFilter
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    response: StickinessQueryResponse | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    stickinessFilter: StickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
+    )
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13712,6 +13765,61 @@ class TeamTaxonomyQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: TeamTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class TrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
+    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
+        default=None, description="Whether we should be comparing against a specific conversion goal"
+    )
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    kind: Literal["TrendsQuery"] = "TrendsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | PropertyGroupFilter
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    response: TrendsQueryResponse | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -13839,6 +13947,36 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
     )
 
 
+class CachedExperimentTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    is_cached: bool
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    p_value: float
+    probability: dict[str, float]
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    timezone: str
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
 class CalendarHeatmapQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13887,9 +14025,7 @@ class CalendarHeatmapQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -13918,6 +14054,23 @@ class Response21(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class Response23(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class DataVisualizationNode(BaseModel):
@@ -14151,6 +14304,23 @@ class ExperimentQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
 
 
+class ExperimentTrendsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
 class FunnelsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -14194,9 +14364,7 @@ class FunnelsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14514,9 +14682,7 @@ class LifecycleQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14555,6 +14721,23 @@ class QueryResponseAlternative18(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative19(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class QueryResponseAlternative20(BaseModel):
@@ -14599,6 +14782,23 @@ class QueryResponseAlternative59(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative60(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class RetentionQuery(BaseModel):
@@ -14745,113 +14945,20 @@ class SessionsQuery(BaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class StickinessQuery(BaseModel):
+class StickinessActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
-    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
-    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
-    filterTestAccounts: bool | None = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    interval: IntervalType | None = Field(
-        default=IntervalType.DAY,
-        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
-    )
-    intervalCount: int | None = Field(
-        default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
-    )
-    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    compare: Compare | None = None
+    day: str | int | None = None
+    includeRecordings: bool | None = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | PropertyGroupFilter
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    response: StickinessQueryResponse | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
-    stickinessFilter: StickinessFilter | None = Field(
-        default=None, description="Properties specific to the stickiness insight"
-    )
-    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class TrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
-    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
-    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
-    conversionGoal: ActionConversionGoal | CustomEventConversionGoal | None = Field(
-        default=None, description="Whether we should be comparing against a specific conversion goal"
-    )
-    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
-    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
-    filterTestAccounts: bool | None = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    interval: IntervalType | None = Field(
-        default=IntervalType.DAY,
-        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
-    )
-    kind: Literal["TrendsQuery"] = "TrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | PropertyGroupFilter
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    response: TrendsQueryResponse | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
-    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
-    trendsFilter: TrendsFilter | None = Field(default=None, description="Properties specific to the trends insight")
+    operator: StickinessOperator | None = None
+    response: ActorsQueryResponse | None = None
+    series: int | None = None
+    source: StickinessQuery
+    tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -14948,36 +15055,6 @@ class CachedExperimentQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
 
 
-class CachedExperimentTrendsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    is_cached: bool
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    p_value: float
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class CachedLegacyExperimentQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15021,23 +15098,6 @@ class Response22(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantFunnelsBaseStats]
-
-
-class Response23(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
 
 
 class ExperimentFunnelsQueryResponse(BaseModel):
@@ -15086,21 +15146,21 @@ class ExperimentQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentTrendsQueryResponse(BaseModel):
+class ExperimentTrendsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
+    count_query: TrendsQuery
+    experiment_id: int | None = None
     exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
+    fingerprint: str | None = None
     kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    name: str | None = None
+    response: ExperimentTrendsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelPathsFilter(BaseModel):
@@ -15196,23 +15256,6 @@ class ProductAnalyticsInsightQueryNode(
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
 
 
-class QueryResponseAlternative19(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
 class QueryResponseAlternative69(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15287,6 +15330,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative56
         | QueryResponseAlternative57
         | QueryResponseAlternative59
+        | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
@@ -15360,6 +15404,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative56
         | QueryResponseAlternative57
         | QueryResponseAlternative59
+        | QueryResponseAlternative60
         | QueryResponseAlternative61
         | QueryResponseAlternative62
         | QueryResponseAlternative63
@@ -15377,23 +15422,6 @@ class QueryResponseAlternative(
         | QueryResponseAlternative77
         | QueryResponseAlternative78
     )
-
-
-class StickinessActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: Compare | None = None
-    day: str | int | None = None
-    includeRecordings: bool | None = None
-    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    operator: StickinessOperator | None = None
-    response: ActorsQueryResponse | None = None
-    series: int | None = None
-    source: StickinessQuery
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class VisualizationArtifactContent(BaseModel):
@@ -15516,23 +15544,6 @@ class ExperimentFunnelsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     response: ExperimentFunnelsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery
-    experiment_id: int | None = None
-    exposure_query: TrendsQuery | None = None
-    fingerprint: str | None = None
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = None
-    response: ExperimentTrendsQueryResponse | None = None
     tags: QueryLogTags | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -15686,7 +15697,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
         extra="forbid",
     )
     funnelCorrelationPersonConverted: bool | None = None
-    funnelCorrelationPersonEntity: EventsNode | ActionsNode | DataWarehouseNode | GroupNode | None = None
+    funnelCorrelationPersonEntity: EventsNode | ActionsNode | DataWarehouseNode | None = None
     funnelCorrelationPropertyValues: (
         list[
             EventPropertyFilter
