@@ -58,7 +58,6 @@ export const passwordResetLogic = kea<passwordResetLogicType>([
             false,
             {
                 submitPasswordResetSuccess: () => true,
-                resetPasswordReset: () => false,
             },
         ],
     }),

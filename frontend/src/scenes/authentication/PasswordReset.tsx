@@ -31,7 +31,6 @@ export function PasswordReset(): JSX.Element {
     const { resetRequestPasswordReset } = useActions(passwordResetLogic)
 
     useEffect(() => {
-        // reset the logic success states on component unmount
         return () => {
             resetRequestPasswordReset()
         }
