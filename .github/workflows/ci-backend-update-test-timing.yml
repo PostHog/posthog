@@ -69,17 +69,56 @@ jobs:
               run: |
                   gh run download ${{ steps.find-run.outputs.run_id }} --pattern "timing_data-*" --dir timing_artifacts
 
-            - name: Merge timing data
+            - name: Merge and normalize timing data
               run: |
                   # Merge all timing files - later values override earlier for same keys
-                  jq -s 'reduce .[] as $item ({}; . * $item)' timing_artifacts/*/.test_durations > .test_durations
+                  jq -s 'reduce .[] as $item ({}; . * $item)' timing_artifacts/*/.test_durations > .test_durations.raw
 
-                  # Clean up downloaded artifacts - we only want to commit the merged file
+                  # Clean up downloaded artifacts
                   rm -rf timing_artifacts
 
-                  echo "Merged timing data:"
-                  echo "  Total tests: $(jq 'keys | length' .test_durations)"
-                  echo "  Total time: $(jq 'to_entries | map(.value) | add | . / 3600 | floor' .test_durations) hours"
+                  # Normalize timing data to improve shard distribution:
+                  # - CEILING (60s): First test in each shard gets blamed for global setup time (~240s)
+                  #   which skews distribution. Cap these and replace with average.
+                  # - FLOOR (0.5s): Many fast tests (0.01s) cluster at end of alphabet, causing
+                  #   empty shards with duration_based_chunks algorithm.
+                  python3 << 'PYEOF'
+                  import json
+
+                  CEILING = 60.0  # Tests above this are likely inflated by shard startup
+                  FLOOR = 0.5     # Minimum duration to prevent fast test clustering
+
+                  with open(".test_durations.raw") as f:
+                      durations = json.load(f)
+
+                  # Calculate average for replacement
+                  values = list(durations.values())
+                  avg = sum(values) / len(values)
+
+                  # Apply ceiling and floor
+                  processed = {}
+                  ceiling_count = 0
+                  floor_count = 0
+                  for test, duration in durations.items():
+                      if duration > CEILING:
+                          processed[test] = avg
+                          ceiling_count += 1
+                      elif duration < FLOOR:
+                          processed[test] = FLOOR
+                          floor_count += 1
+                      else:
+                          processed[test] = duration
+
+                  with open(".test_durations", "w") as f:
+                      json.dump(processed, f, separators=(",", ":"), sort_keys=True)
+
+                  print(f"Normalized timing data:")
+                  print(f"  Total tests: {len(processed)}")
+                  print(f"  Ceiling ({CEILING}s) applied to: {ceiling_count} tests")
+                  print(f"  Floor ({FLOOR}s) applied to: {floor_count} tests")
+                  PYEOF
+
+                  rm .test_durations.raw
 
             - name: Check for changes
               id: check-changes
