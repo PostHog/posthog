@@ -1,3 +1,6 @@
+from collections.abc import Collection
+from typing import Any, cast
+
 import pytest
 import unittest.mock
 
@@ -257,10 +260,11 @@ class TestMaterializeViewActivity:
     ):
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
-            batch = pa.RecordBatch.from_arrays(
+            data = cast(
+                Collection[pa.Array[Any]],
                 [pa.array([1, 2, 3], type=pa.int64()), pa.array(["a", "b", "c"], type=pa.string())],
-                names=["id", "name"],
             )
+            batch = pa.RecordBatch.from_arrays(data, names=["id", "name"])
 
             async def async_generator():
                 yield batch, [("id", "Int64"), ("name", "String")]
