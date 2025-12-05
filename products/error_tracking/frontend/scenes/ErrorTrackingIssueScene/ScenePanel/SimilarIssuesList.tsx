@@ -86,19 +86,16 @@ export const SimilarIssuesList = (): JSX.Element => {
 
 const IssueModalContent = ({ issueId }: { issueId: string }): JSX.Element => {
     const logicProps: ErrorTrackingIssueSceneLogicProps = { id: issueId }
-    const { issue, issueLoading, selectedEvent, initialEventLoading } = useValues(
-        errorTrackingIssueSceneLogic(logicProps)
-    )
+    const { issueLoading, selectedEvent, initialEventLoading } = useValues(errorTrackingIssueSceneLogic(logicProps))
     const tagRenderer = useErrorTagRenderer()
 
     return (
         <div className="ErrorTrackingIssue">
             <div className="space-y-2">
                 <ExceptionCard
-                    issue={issue ?? undefined}
-                    issueLoading={issueLoading}
+                    issueId={issueId}
+                    loading={issueLoading || initialEventLoading}
                     event={selectedEvent ?? undefined}
-                    eventLoading={initialEventLoading}
                     label={tagRenderer(selectedEvent)}
                 />
             </div>

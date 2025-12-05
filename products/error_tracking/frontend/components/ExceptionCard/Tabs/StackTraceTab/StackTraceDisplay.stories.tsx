@@ -1,15 +1,17 @@
 import { Meta } from '@storybook/react'
+import { useActions, useValues } from 'kea'
 
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { CollapsibleExceptionList } from 'lib/components/Errors/ExceptionList/CollapsibleExceptionList'
+import { RawExceptionList } from 'lib/components/Errors/ExceptionList/RawExceptionList'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../__mocks__/events'
-import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from './StacktraceBase'
-import { StacktraceGenericDisplay } from './StacktraceGenericDisplay'
-import { StacktraceTextDisplay } from './StacktraceTextDisplay'
+import { ExceptionLogicWrapper, TEST_EVENTS, TestEventName } from '../../../../__mocks__/events'
+import { StyleVariables } from '../../../StyleVariables'
+import { exceptionCardLogic } from '../../exceptionCardLogic'
 
 const meta: Meta = {
     title: 'ErrorTracking/StacktraceDisplay',
@@ -21,14 +23,16 @@ const meta: Meta = {
         (Story: React.FC): JSX.Element => {
             sceneLogic.mount()
             return (
-                <LemonCard hoverEffect={false} className="p-2 px-3 w-[900px]">
-                    <Story />
-                </LemonCard>
+                <StyleVariables>
+                    <LemonCard hoverEffect={false} className="p-2 w-[900px]">
+                        <Story />
+                    </LemonCard>
+                </StyleVariables>
             )
         },
         mswDecorator({
             post: {
-                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../__mocks__/stack_frames/batch_get'),
+                'api/environments/:team_id/error_tracking/stack_frames/batch_get/': require('../../../../__mocks__/stack_frames/batch_get'),
             },
         }),
     ],
@@ -41,7 +45,7 @@ export default meta
 export function GenericDisplayPropertiesLoading(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="python_resolved" loading={true}>
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -50,7 +54,7 @@ GenericDisplayPropertiesLoading.parameters = { testOptions: { waitForLoadersToDi
 export function GenericDisplayEmpty(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -58,7 +62,7 @@ export function GenericDisplayEmpty(): JSX.Element {
 export function GenericDisplayWithStacktrace(): JSX.Element {
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </StacktraceWrapperAllEvents>
     )
 }
@@ -66,7 +70,7 @@ export function GenericDisplayWithStacktrace(): JSX.Element {
 export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_script_error">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -74,7 +78,7 @@ export function GenericDisplayWithJavascriptScriptError(): JSX.Element {
 export function GenericDisplayWithMinifiedReactError(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_minified_react_error">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -82,7 +86,7 @@ export function GenericDisplayWithMinifiedReactError(): JSX.Element {
 export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_non_error_promise_rejection">
-            <StacktraceGenericDisplay {...DEFAULT_PROPS} />
+            <StackTraceGenericDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -92,7 +96,7 @@ export function GenericDisplayWithNonErrorPromiseRejection(): JSX.Element {
 export function TextDisplayEmpty(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_empty">
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
+            <StackTraceRawDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -100,7 +104,7 @@ export function TextDisplayEmpty(): JSX.Element {
 export function TextDisplayPropertiesLoading(): JSX.Element {
     return (
         <ExceptionLogicWrapper eventName="javascript_resolved">
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
+            <StackTraceRawDisplay />
         </ExceptionLogicWrapper>
     )
 }
@@ -108,17 +112,12 @@ export function TextDisplayPropertiesLoading(): JSX.Element {
 export function TextDisplayWithStacktrace(): JSX.Element {
     return (
         <StacktraceWrapperAllEvents>
-            <StacktraceTextDisplay {...DEFAULT_PROPS} />
+            <StackTraceRawDisplay />
         </StacktraceWrapperAllEvents>
     )
 }
 
 //////////////////// Utils
-
-const DEFAULT_PROPS = {
-    truncateMessage: true,
-    renderEmpty: () => <StacktraceEmptyDisplay />,
-} as StacktraceBaseDisplayProps
 
 function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JSX.Element {
     const eventNames = Object.keys(TEST_EVENTS) as TestEventName[]
@@ -127,7 +126,7 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
             {eventNames.map((name: TestEventName) => {
                 return (
                     <ExceptionLogicWrapper key={name} eventName={name}>
-                        <LemonCard hoverEffect={false} className="px-3 py-2">
+                        <LemonCard hoverEffect={false} className="p-2">
                             {children}
                         </LemonCard>
                     </ExceptionLogicWrapper>
@@ -135,4 +134,22 @@ function StacktraceWrapperAllEvents({ children }: { children: JSX.Element }): JS
             })}
         </div>
     )
+}
+
+function StackTraceGenericDisplay({ className }: { className?: string }): JSX.Element {
+    const { showAllFrames } = useValues(exceptionCardLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    return (
+        <CollapsibleExceptionList
+            showAllFrames={showAllFrames}
+            setShowAllFrames={setShowAllFrames}
+            className={className}
+        />
+    )
+}
+
+function StackTraceRawDisplay({ className }: { className?: string }): JSX.Element {
+    const { showAllFrames } = useValues(exceptionCardLogic)
+    const { setShowAllFrames } = useActions(exceptionCardLogic)
+    return <RawExceptionList showAllFrames={showAllFrames} setShowAllFrames={setShowAllFrames} className={className} />
 }

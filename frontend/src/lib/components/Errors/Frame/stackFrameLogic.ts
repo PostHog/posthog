@@ -4,8 +4,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
+import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from '../types'
 import type { stackFrameLogicType } from './stackFrameLogicType'
-import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord, ErrorTrackingSymbolSet } from './types'
 
 export type KeyedStackFrameRecords = Record<ErrorTrackingStackFrameRecord['raw_id'], ErrorTrackingStackFrameRecord>
 
