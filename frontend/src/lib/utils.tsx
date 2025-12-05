@@ -1403,16 +1403,22 @@ export const areDatesValidForInterval = (
             parsedOldDateTo.diff(parsedOldDateFrom, 'second') >= 2 &&
             parsedOldDateTo.diff(parsedOldDateFrom, 'second') < 60 * 60 // 1 hour
         )
+    } else if (interval === 'quarter') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'month') >= 6
+    } else if (interval === 'year') {
+        return parsedOldDateTo.diff(parsedOldDateFrom, 'year') >= 2
     }
     throw new UnexpectedNeverError(interval)
 }
 
-const defaultDatesForInterval = {
+const defaultDatesForInterval: Partial<Record<IntervalType, { dateFrom: string; dateTo: null }>> = {
     minute: { dateFrom: '-1h', dateTo: null },
     hour: { dateFrom: '-24h', dateTo: null },
     day: { dateFrom: '-7d', dateTo: null },
     week: { dateFrom: '-28d', dateTo: null },
     month: { dateFrom: '-6m', dateTo: null },
+    quarter: { dateFrom: '-1y', dateTo: null },
+    year: { dateFrom: '-5y', dateTo: null },
 }
 
 export const updateDatesWithInterval = (
@@ -1426,7 +1432,7 @@ export const updateDatesWithInterval = (
             dateTo: oldDateTo,
         }
     }
-    return defaultDatesForInterval[interval]
+    return defaultDatesForInterval[interval] ?? { dateFrom: oldDateFrom, dateTo: oldDateTo }
 }
 
 export function is12HoursOrLess(dateFrom: string | undefined | null): boolean {

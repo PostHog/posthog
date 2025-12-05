@@ -36,6 +36,8 @@ const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: '[Week of] MMMM D, YYYY',
     month: 'MMMM D',
+    quarter: '[Q]Q YYYY',
+    year: 'YYYY',
 }
 
 export interface AnnotationsOverlayProps {

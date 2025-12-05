@@ -23,6 +23,8 @@ const DISPLAY_DATE_FORMAT: Record<IntervalType, string> = {
     day: 'D MMM',
     week: 'D MMM',
     month: 'MMM',
+    quarter: '[Q]Q',
+    year: 'YYYY',
 }
 
 const dateHighlight = (parsedDate: dayjs.Dayjs, interval: IntervalType): string => {

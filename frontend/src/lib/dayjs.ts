@@ -85,4 +85,11 @@ export type UnitType = UnitTypeLong | UnitTypeLongPlural | UnitTypeShort
 
 export type OpUnitType = UnitType | 'week' | 'weeks' | 'w'
 export type QUnitType = UnitType | 'quarter' | 'quarters' | 'Q'
-export type ManipulateType = Exclude<OpUnitType, 'date' | 'dates'>
+export type ManipulateType =
+    | Exclude<OpUnitType, 'date' | 'dates'>
+    | 'quarter'
+    | 'quarters'
+    | 'Q'
+    | 'year'
+    | 'years'
+    | 'y'

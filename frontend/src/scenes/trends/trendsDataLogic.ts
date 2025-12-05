@@ -59,6 +59,8 @@ export const INTERVAL_TO_DEFAULT_MOVING_AVERAGE_PERIOD: Record<IntervalType, num
     day: 7,
     week: 4,
     month: 3,
+    quarter: 2,
+    year: 2,
 }
 
 const DEFAULT_CONFIDENCE_LEVEL = 95
