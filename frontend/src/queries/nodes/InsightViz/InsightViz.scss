@@ -205,26 +205,10 @@
     }
 
     .InsightVizDisplay {
-        flex: 1;
         height: 100%;
-
-        .LineGraph {
-            padding: 0.5rem;
-        }
-    }
-
-    .RetentionContainer .LineGraph {
-        position: relative;
-        min-height: 100%;
     }
 
     .TrendsInsight {
-        min-height: 100%;
-    }
-
-    .FunnelInsight--type-steps-vertical,
-    .FunnelInsight--type-time_to_convert,
-    .FunnelInsight--type-trends {
         min-height: 100%;
     }
 }
