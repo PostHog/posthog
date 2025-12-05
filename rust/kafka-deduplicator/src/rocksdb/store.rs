@@ -72,7 +72,8 @@ fn rocksdb_options() -> Options {
     opts.set_atomic_flush(true);
     opts.create_missing_column_families(true);
 
-    // Level style compaction with universal style for TTL-like use case
+    // Universal compaction reduces write amplification for write-heavy workloads
+    // Trade-off: higher space amplification, but better for batch writes on slow storage
     opts.set_compaction_style(rocksdb::DBCompactionStyle::Universal);
     opts.optimize_universal_style_compaction(512 * 1024 * 1024); // 512MB
 
@@ -90,26 +91,47 @@ fn rocksdb_options() -> Options {
     // CRITICAL: Use shared write buffer manager to limit total memory
     opts.set_write_buffer_manager(&SHARED_WRITE_BUFFER_MANAGER);
 
-    // Reduced memory budget per store (with 50 partitions per pod)
-    opts.set_write_buffer_size(8 * 1024 * 1024); // Reduced to 8MB per memtable
-    opts.set_max_write_buffer_number(3); // Max 3 buffers = 24MB per partition
-    opts.set_target_file_size_base(128 * 1024 * 1024); // SST files ~128MB
+    // Write buffer tuning for batch workloads:
+    // - Larger buffers = fewer flushes = less I/O pressure on PVC storage
+    // - With 64 partitions and shared write buffer manager (2GB), each partition
+    //   effectively gets ~32MB of write buffer space on average
+    opts.set_write_buffer_size(32 * 1024 * 1024); // 32MB per memtable (up from 8MB)
+    opts.set_max_write_buffer_number(2); // 2 buffers to allow writes during flush
+    opts.set_min_write_buffer_number_to_merge(1); // Merge 1 buffer before flush (faster)
 
-    // Parallelism
-    opts.increase_parallelism(num_threads as i32);
-    opts.set_max_background_jobs(num_threads as i32);
+    // SST file size should be proportional to write buffer for efficient compaction
+    opts.set_target_file_size_base(64 * 1024 * 1024); // 64MB SST files
+
+    // L0 tuning to reduce write stalls:
+    // - Higher trigger = batch more L0 files before compaction
+    // - Reduces compaction frequency on slow storage
+    opts.set_level_zero_file_num_compaction_trigger(8); // Default is 4
+    opts.set_level_zero_slowdown_writes_trigger(20); // Slow down at 20 L0 files
+    opts.set_level_zero_stop_writes_trigger(36); // Stop at 36 L0 files
+
+    // Compression: LZ4 is fast and reduces I/O significantly
+    opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+
+    // Parallelism - limit background jobs to reduce I/O contention
+    // With many partitions, too many background jobs can overwhelm disk
+    let max_bg_jobs = std::cmp::min(num_threads as i32, 4);
+    opts.increase_parallelism(max_bg_jobs);
+    opts.set_max_background_jobs(max_bg_jobs);
 
     // IO & safety
     opts.set_paranoid_checks(true);
     opts.set_bytes_per_sync(1024 * 1024);
     opts.set_wal_bytes_per_sync(1024 * 1024);
-    opts.set_use_direct_reads(true);
-    opts.set_use_direct_io_for_flush_and_compaction(true);
+
+    // Disable direct I/O to allow OS page cache buffering
+    // Critical for PVC storage where the OS cache helps batch writes
+    opts.set_use_direct_reads(false);
+    opts.set_use_direct_io_for_flush_and_compaction(false);
     opts.set_compaction_readahead_size(2 * 1024 * 1024);
 
-    // Reduce background IO impact
+    // Compaction settings
     opts.set_disable_auto_compactions(false);
-    opts.set_max_open_files(1024); // Reduced from 500 for 50 partitions per pod
+    opts.set_max_open_files(1024);
 
     // CRITICAL: Disable mmap with many partitions to avoid virtual memory explosion
     opts.set_allow_mmap_reads(false);
