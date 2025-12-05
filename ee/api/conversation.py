@@ -161,6 +161,8 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def get_serializer_class(self):
         if self.action == "create":
             return MessageSerializer
+        if self.action == "append_message":
+            return AppendMessageSerializer
         return super().get_serializer_class()
 
     def get_serializer_context(self):
@@ -291,7 +293,7 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         """
         conversation = self.get_object()
 
-        serializer = AppendMessageSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         content = serializer.validated_data["content"]
