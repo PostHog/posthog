@@ -25,7 +25,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 DEFAULT_NUM_SHARDS = 40
-DEFAULT_CEILING = 60.0  # Cap for obviously inflated durations (first-test setup time)
+DEFAULT_CEILING = 60.0
 DEFAULT_LEARNING_RATE = 0.3
 DEFAULT_ITERATIONS = 50
 
@@ -90,7 +90,7 @@ def optimize(
     avg_real = sum(real_durations.values()) / len(real_durations)
     target_per_shard = sum(real_durations.values()) / num_shards
 
-    # Initialize: use real durations with ceiling for obviously inflated values
+    # Initialize: use real durations, capping obviously inflated values (e.g. first-test setup time)
     synthetic = {}
     for test in sorted_tests:
         real = real_durations[test]
