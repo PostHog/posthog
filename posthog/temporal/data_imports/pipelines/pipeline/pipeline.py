@@ -9,6 +9,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 import posthoganalytics
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
@@ -20,11 +21,11 @@ from posthog.temporal.data_imports.pipelines.pipeline.typings import ResumableDa
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     BillingLimitsWillBeReachedException,
     DuplicatePrimaryKeysException,
-    _append_debug_column_to_pyarrows_table,
-    _evolve_pyarrow_schema,
-    _handle_null_columns_with_definitions,
+    get_default_value_for_pyarrow_type,
+    json_dumps_3000,
     normalize_column_name,
     normalize_table_column_names,
+    safe_parse_datetime,
     setup_partitioning,
 )
 from posthog.temporal.data_imports.pipelines.pipeline_sync import (
@@ -39,6 +40,137 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from products.data_warehouse.backend.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+DLT_TO_PA_TYPE_MAP: dict[str, pa.DataType] = {
+    "text": pa.string(),
+    "bigint": pa.int64(),
+    "bool": pa.bool_(),
+    "timestamp": pa.timestamp("us"),
+    "json": pa.string(),
+    "double": pa.float64(),
+    "date": pa.date64(),
+    "time": pa.timestamp("us"),
+    "decimal": pa.float64(),
+}
+
+
+def _append_debug_column_to_pyarrows_table(table: pa.Table, load_id: int) -> pa.Table:
+    debug_info = f'{{"load_id": {load_id}}}'
+    column = pa.array([debug_info] * table.num_rows, type=pa.string())
+    return table.append_column("_ph_debug", column)
+
+
+def _handle_null_columns_with_definitions(table: pa.Table, source: SourceResponse) -> pa.Table:
+    column_hints = source.column_hints
+    if column_hints is None:
+        return table
+    for field_name, data_type in column_hints.items():
+        if data_type is None:
+            continue
+        normalized_field_name = normalize_column_name(field_name)
+        # If the table doesn't have all fields, then add a field with all Nulls and the correct field type
+        if normalized_field_name not in table.schema.names:
+            new_column = pa.array([None] * table.num_rows, type=DLT_TO_PA_TYPE_MAP[data_type])
+            table = table.append_column(normalized_field_name, new_column)
+    return table
+
+
+def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | None) -> pa.Table:
+    py_table_field_names = table.schema.names
+
+    for column_name in table.column_names:
+        column = table.column(column_name)
+        field = table.field(column_name)
+        # Change pa.structs to JSON string
+        if pa.types.is_struct(column.type) or pa.types.is_list(column.type):
+            json_column = pa.array([json_dumps_3000(val) if val is not None else None for val in column.to_pylist()])
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, json_column)
+            column = table.column(column_name)
+        # Change pa.duration to int with total seconds
+        elif pa.types.is_duration(column.type):
+            seconds_column = pa.array([val.total_seconds() if val is not None else None for val in column.to_pylist()])
+            table = table.set_column(table.schema.get_field_index(column_name), column_name, seconds_column)
+            column = table.column(column_name)
+        # Convert nanosecond timestamps to microseconds and convert to UTC
+        if pa.types.is_timestamp(field.type) and (field.type.unit == "ns" or field.type.tz is not None):
+            microsecond_timestamps = pc.cast(column, pa.timestamp("us"), safe=False)
+            table = table.set_column(
+                table.schema.get_field_index(column_name), column_name, microsecond_timestamps.combine_chunks()
+            )
+
+    if delta_schema:
+        for field in delta_schema.to_pyarrow():
+            if field.name not in py_table_field_names:
+                if field.nullable:
+                    new_column_data = pa.array([None] * table.num_rows, type=field.type)
+                else:
+                    new_column_data = pa.array(
+                        [get_default_value_for_pyarrow_type(field.type)] * table.num_rows, type=field.type
+                    )
+                table = table.append_column(field, new_column_data)
+
+            # If the delta table schema has a larger scale/precision, then update the
+            # pyarrow schema to use the larger values so that we're not trying to downscale
+            if isinstance(field.type, pa.Decimal128Type):
+                py_arrow_table_column = table.column(field.name)
+
+                if isinstance(py_arrow_table_column.type, pa.Decimal128Type) and (
+                    field.type.precision > py_arrow_table_column.type.precision
+                    or field.type.scale > py_arrow_table_column.type.scale
+                ):
+                    field_index = table.schema.get_field_index(field.name)
+                    new_decimal_type = pa.decimal128(field.type.precision, field.type.scale)
+
+                    new_schema = table.schema.set(
+                        field_index,
+                        table.schema.field(field_index).with_type(new_decimal_type),
+                    )
+                    table = table.cast(new_schema)
+
+            # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
+            py_arrow_table_column = table.column(field.name)
+            if field.type != py_arrow_table_column.type:
+                if isinstance(field.type, pa.TimestampType):
+                    # If different timezones, cast to the correct tz
+                    if (
+                        isinstance(py_arrow_table_column.type, pa.TimestampType)
+                        and field.type.tz != py_arrow_table_column.type.tz
+                    ):
+                        casted_column = table.column(field.name).cast(field.type)
+                        table = table.set_column(
+                            table.schema.get_field_index(field.name),
+                            field.name,
+                            casted_column.combine_chunks(),
+                        )
+                    else:
+                        timestamp_array = pa.array(
+                            [safe_parse_datetime(s) for s in table.column(field.name)], type=field.type
+                        )
+                        table = table.set_column(
+                            table.schema.get_field_index(field.name),
+                            field.name,
+                            timestamp_array,
+                        )
+                else:
+                    casted_column = table.column(field.name).cast(field.type)
+                    table = table.set_column(
+                        table.schema.get_field_index(field.name), field.name, casted_column.combine_chunks()
+                    )
+
+                py_arrow_table_column = table.column(field.name)
+
+            py_arrow_table_field = table.field(field.name)
+            # If the deltalake schema expects no nulls, but the pyarrow schema is nullable, then fill the nulls
+            if not field.nullable and py_arrow_table_field.nullable:
+                filled_nulls_arr = py_arrow_table_column.fill_null(
+                    fill_value=get_default_value_for_pyarrow_type(py_arrow_table_field.type)
+                )
+                table = table.set_column(
+                    table.schema.get_field_index(field.name), field, filled_nulls_arr.combine_chunks()
+                )
+
+    # Change types based on what deltalake tables support
+    return table.cast(ensure_delta_compatible_arrow_schema(table.schema))
 
 
 class PipelineNonDLT(Generic[ResumableData]):

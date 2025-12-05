@@ -12,9 +12,9 @@ import structlog
 from dateutil import parser
 from structlog.types import FilteringBoundLogger
 
+from posthog.temporal.data_imports.pipelines.pipeline.pipeline import _evolve_pyarrow_schema
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     DecimalPrecisionExceededException,
-    _evolve_pyarrow_schema,
     _get_max_decimal_type,
     append_partition_key_to_table,
     normalize_table_column_names,
