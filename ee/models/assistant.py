@@ -44,6 +44,10 @@ class Conversation(UUIDTModel):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.IDLE)
     type = models.CharField(max_length=20, choices=Type.choices, default=Type.ASSISTANT)
     title = models.CharField(null=True, blank=True, help_text="Title of the conversation.", max_length=TITLE_MAX_LENGTH)
+    is_internal = models.BooleanField(
+        default=False,
+        help_text="Whether this conversation was created during an impersonated session (e.g., by support agents). Internal conversations are hidden from customers.",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):

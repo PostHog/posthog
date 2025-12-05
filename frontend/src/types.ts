@@ -5816,6 +5816,7 @@ export interface Conversation {
     updated_at: string | null
     type: ConversationType
     has_unsupported_content?: boolean
+    is_internal?: boolean
 }
 
 export interface ConversationDetail extends Conversation {

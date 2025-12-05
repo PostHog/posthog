@@ -11,6 +11,7 @@ import { IconArrowRight, IconStopFilled } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+import { userLogic } from 'scenes/userLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -55,6 +56,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const { dataProcessingAccepted, tools } = useValues(maxGlobalLogic)
     const { question } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
+    const { user } = useValues(userLogic)
     const {
         conversation,
         threadLoading,
@@ -64,8 +66,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         deepResearchMode,
         cancelLoading,
         pendingPrompt,
+        isImpersonatingExistingConversation,
+        supportOverrideEnabled,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode } = useActions(maxThreadLogic)
+    const { askMax, stopGeneration, completeThreadGeneration, setDeepResearchMode, setSupportOverrideEnabled } =
+        useActions(maxThreadLogic)
+
+    // Show info banner for conversations created during impersonation (marked as internal)
+    const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
 
@@ -228,6 +236,24 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             onChange={(checked) => setDeepResearchMode(checked)}
                             size="xxsmall"
                             tooltip="This will make PostHog AI think harder about your question"
+                        />
+                    </div>
+                )}
+                {/* Info banner for conversations created during impersonation (marked as internal) */}
+                {isImpersonatedInternalConversation && (
+                    <div className="flex justify-start items-center gap-1 w-full px-2 py-1 bg-bg-light text-muted text-xs rounded-b-lg">
+                        Support agent session — this conversation won't be visible to the customer
+                    </div>
+                )}
+                {/* Override checkbox - shown when impersonating and viewing existing customer conversation (not internal) */}
+                {!conversation?.is_internal && (isImpersonatingExistingConversation || supportOverrideEnabled) && (
+                    <div className="flex justify-start gap-1 w-full p-1 bg-warning-highlight rounded-b-lg">
+                        <LemonSwitch
+                            checked={supportOverrideEnabled}
+                            label="I understand this will add to the customer's conversation"
+                            onChange={(checked) => setSupportOverrideEnabled(checked)}
+                            size="xxsmall"
+                            tooltip="Support agents should create new conversations instead of using existing ones. Check this to override."
                         />
                     </div>
                 )}

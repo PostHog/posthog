@@ -119,6 +119,7 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
                     "$groups": event_usage.groups(team=team),
+                    "$ai_support_impersonated": not is_workflow_billable,
                 }
                 return CallbackHandler(
                     client,

@@ -127,8 +127,13 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         # For listing or single retrieval, conversations must be from the assistant and have a title
         if self.action in ("list", "retrieve"):
             queryset = queryset.filter(
-                title__isnull=False, type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT]
-            ).order_by("-updated_at")
+                title__isnull=False,
+                type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT],
+            )
+            # Hide internal conversations from customers, but show them to support agents during impersonation
+            if not is_impersonated_session(self.request):
+                queryset = queryset.filter(is_internal=False)
+            queryset = queryset.order_by("-updated_at")
         return queryset
 
     def get_throttles(self):
@@ -194,9 +199,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
             # Use frontend-provided conversation ID
+            # Mark conversation as internal if created during an impersonated session (support agents)
+            is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
-                user=cast(User, request.user), team=self.team, id=conversation_id, type=conversation_type
+                user=cast(User, request.user),
+                team=self.team,
+                id=conversation_id,
+                type=conversation_type,
+                is_internal=is_impersonated,
             )
             is_new_conversation = True
 
@@ -209,8 +220,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        # Skip billing for impersonated sessions (support agents)
-        is_workflow_billable = not is_impersonated_session(request)
+        # Skip billing for impersonated sessions (support agents) and mark conversations as internal
+        is_impersonated = is_impersonated_session(request)
+        is_workflow_billable = not is_impersonated
 
         workflow_inputs = AssistantConversationRunnerWorkflowInputs(
             team_id=self.team_id,
