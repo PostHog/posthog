@@ -5,10 +5,10 @@ import { urls } from 'scenes/urls'
 
 import { ReplayTabs } from '~/types'
 
-import type { playlistLogicType } from './playlistLogicType'
+import type { playlistFiltersLogicType } from './playlistFiltersLogicType'
 
-export const playlistLogic = kea<playlistLogicType>([
-    path(['scenes', 'session-recordings', 'playlist', 'playlistLogicType']),
+export const playlistFiltersLogic = kea<playlistFiltersLogicType>([
+    path(['scenes', 'session-recordings', 'playlist', 'playlistFiltersLogic']),
     actions({
         setIsExpanded: (isExpanded: boolean) => ({ isExpanded }), // WIll be removed together with Mix (R.I.P. Mix)
         setIsFiltersExpanded: (isFiltersExpanded: boolean) => ({ isFiltersExpanded }),
