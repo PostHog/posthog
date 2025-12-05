@@ -6,19 +6,27 @@ The DuckLake copy workflow copies materialized data modeling outputs into a Duck
 
 The workflow obtains its DuckLake configuration from the following environment variables:
 
-- `DUCKLAKE_CATALOG_DSN`
-- `DUCKLAKE_DATA_BUCKET`
-- `DUCKLAKE_DATA_ENDPOINT`
-- `DUCKLAKE_S3_ACCESS_KEY`
-- `DUCKLAKE_S3_SECRET_KEY`
+- `DUCKLAKE_RDS_HOST` - Postgres catalog host
+- `DUCKLAKE_RDS_PORT` - Postgres catalog port
+- `DUCKLAKE_RDS_DATABASE` - Postgres catalog database name
+- `DUCKLAKE_RDS_USERNAME` - Postgres catalog username
+- `DUCKLAKE_RDS_PASSWORD` - Postgres catalog password
+- `DUCKLAKE_BUCKET` - S3 bucket for DuckLake data
+- `DUCKLAKE_BUCKET_REGION` - AWS region for the S3 bucket
+- `DUCKLAKE_S3_ACCESS_KEY` - S3 access key (optional, for local dev; production uses IRSA)
+- `DUCKLAKE_S3_SECRET_KEY` - S3 secret key (optional, for local dev; production uses IRSA)
 
 `bin/start` exports sensible defaults for local development, so you usually get a working DuckLake setup just by running the dev script. Temporal workers in staging/production must set these variables directly in their process environment (or via Helm/k8s secrets). If you need to run the workflow against a bespoke DuckLake deployment, override the environment variables before starting the worker—no code changes are required.
 
 For local dev the defaults are:
 
-- `DUCKLAKE_CATALOG_DSN=ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog`
-- `DUCKLAKE_DATA_BUCKET=ducklake-dev`
-- `DUCKLAKE_DATA_ENDPOINT=http://localhost:19000`
+- `DUCKLAKE_RDS_HOST=localhost`
+- `DUCKLAKE_RDS_PORT=5432`
+- `DUCKLAKE_RDS_DATABASE=ducklake`
+- `DUCKLAKE_RDS_USERNAME=posthog`
+- `DUCKLAKE_RDS_PASSWORD=posthog`
+- `DUCKLAKE_BUCKET=ducklake-dev`
+- `DUCKLAKE_BUCKET_REGION=us-east-1`
 - `DUCKLAKE_S3_ACCESS_KEY=object_storage_root_user`
 - `DUCKLAKE_S3_SECRET_KEY=object_storage_root_password`
 
@@ -36,7 +44,7 @@ namespaces its data under a workflow identifier (e.g., `data_modeling` for the T
 in this doc):
 
 ```text
-s3://<DUCKLAKE_DATA_BUCKET>/<workflow_identifier>/team_<team_id>/job_<job_id>/model_<model_label>/<normalized_name>.parquet
+s3://<DUCKLAKE_BUCKET>/<workflow_identifier>/team_<team_id>/job_<job_id>/model_<model_label>/<normalized_name>.parquet
 ```
 
 For the Temporal data modeling copy workflow, `<workflow_identifier>` is `data_modeling`.
@@ -48,7 +56,7 @@ Re-running a copy simply overwrites the same Parquet object. Choose the bucket s
 Temporal workers must be able to:
 
 1. Read from the existing PostHog object storage bucket where Delta tables live (already required for the modeling pipeline).
-2. Read/write/delete within the DuckLake data bucket referenced by `DUCKLAKE_DATA_BUCKET`.
+2. Read/write/delete within the DuckLake data bucket referenced by `DUCKLAKE_BUCKET`.
 
 For AWS S3, grant the worker role at least `s3:ListBucket`, `s3:GetObject`, `s3:PutObject`, and `s3:DeleteObject` on the DuckLake bucket/prefix (plus `s3:CreateBucket` if you want local MinIO-style auto-creation). For MinIO, reuse the same access/secret keys configured in the `DUCKLAKE_*` variables and ensure they have full access to the DuckLake bucket.
 
@@ -75,15 +83,11 @@ Follow this checklist to exercise the DuckLake copy workflow on a local checkout
    duckdb -c "
      INSTALL ducklake;
      LOAD ducklake;
-     SET s3_endpoint='localhost:19000';
-     SET s3_use_ssl=false;
-     SET s3_access_key_id='object_storage_root_user';
-     SET s3_secret_access_key='object_storage_root_password';
-     SET s3_url_style='path';
+     SET s3_region='us-east-1';
 
-     ATTACH 'ducklake:postgres:dbname=ducklake_catalog host=localhost user=posthog password=posthog'
-       AS ducklake_dev (DATA_PATH 's3://ducklake-dev/');
-     SELECT * FROM ducklake_dev.data_modeling_team_${TEAM_ID}.model_${MODEL_LABEL} LIMIT 10;
+     ATTACH 'postgres:dbname=ducklake host=localhost port=5432 user=posthog password=posthog'
+       AS ducklake (TYPE ducklake, DATA_PATH 's3://ducklake-dev/');
+     SELECT * FROM ducklake.data_modeling_team_${TEAM_ID}.model_${MODEL_LABEL} LIMIT 10;
    "
    ```
 
