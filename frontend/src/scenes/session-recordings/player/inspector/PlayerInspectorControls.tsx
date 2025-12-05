@@ -244,7 +244,6 @@ function EventsFilterSettingsButton(): JSX.Element {
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}
-            // there is no event upsell currently
             upsellSideAction={undefined}
         />
     )
@@ -262,7 +261,6 @@ function CommentsFilterSettingsButton(): JSX.Element {
             type="comment"
             icon={<IconComment />}
             disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
-            // there is no event upsell currently
             upsellSideAction={undefined}
             label="Comments"
         />
@@ -309,7 +307,6 @@ export function PlayerInspectorControls(): JSX.Element {
                 <LemonInput
                     data-attr="player-inspector-search-input"
                     size="xsmall"
-
                     onChange={(e) => setSearchQuery(e)}
                     placeholder="Search..."
                     type="search"
