@@ -708,22 +708,20 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]) {
-        tabs.push({
-            key: 'playground',
-            label: (
-                <>
-                    Playground{' '}
-                    <LemonTag className="ml-1" type="warning">
-                        Beta
-                    </LemonTag>
-                </>
-            ),
-            content: <LLMAnalyticsPlaygroundScene />,
-            link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
-            'data-attr': 'playground-tab',
-        })
-    }
+    tabs.push({
+        key: 'playground',
+        label: (
+            <>
+                Playground{' '}
+                <LemonTag className="ml-1" type="warning">
+                    Beta
+                </LemonTag>
+            </>
+        ),
+        content: <LLMAnalyticsPlaygroundScene />,
+        link: combineUrl(urls.llmAnalyticsPlayground(), searchParams).url,
+        'data-attr': 'playground-tab',
+    })
 
     if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS]) {
         tabs.push({

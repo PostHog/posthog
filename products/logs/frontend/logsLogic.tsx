@@ -38,6 +38,12 @@ const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
+export enum SparklineTimezone {
+    UTC = 'utc',
+    Project = 'project',
+    Device = 'device',
+}
+
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
         Object.keys(row.attributes).forEach((key) => {
@@ -257,6 +263,7 @@ export const logsLogic = kea<logsLogicType>([
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
+        setSparklineTimezone: (sparklineTimezone: SparklineTimezone) => ({ sparklineTimezone }),
     }),
 
     reducers({
@@ -406,6 +413,13 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailRunning: (_, { enabled }) => enabled,
                 runQuery: () => false,
+            },
+        ],
+        sparklineTimezone: [
+            SparklineTimezone.UTC as SparklineTimezone,
+            { persist: true },
+            {
+                setSparklineTimezone: (_, { sparklineTimezone }) => sparklineTimezone,
             },
         ],
         liveTailPollInterval: [

@@ -359,6 +359,30 @@ describe('Experiments', { concurrent: false }, () => {
                 expect(experiment).toHaveProperty('feature_flag_key')
             }
         })
+
+        it('should respect limit parameter', async () => {
+            const result = await getAllTool.handler(context, { data: { limit: 2 } })
+            const experiments = parseToolResponse(result)
+            expect(experiments.length).toBeLessThanOrEqual(2)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await getAllTool.handler(context, { data: { limit: 10 } })
+            const allExperiments = parseToolResponse(allResult)
+
+            if (allExperiments.length > 1) {
+                const offsetResult = await getAllTool.handler(context, { data: { limit: 10, offset: 1 } })
+                const offsetExperiments = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetExperiments[0].id).not.toBe(allExperiments[0].id)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await getAllTool.handler(context, {})
+            const experiments = parseToolResponse(result)
+            expect(experiments.length).toBeLessThanOrEqual(50)
+        })
     })
 
     describe('get-experiment tool', () => {

@@ -95,9 +95,9 @@ class SummarizeSessionsTool(MaxTool):
                 recordings_query
             )
         else:
-            # TODO: _validate_specific_session_ids
-            session_ids = recordings_filters_or_explicit_session_ids
-
+            session_ids = await database_sync_to_async(self._validate_specific_session_ids, thread_sensitive=False)(
+                recordings_filters_or_explicit_session_ids
+            )
         # No sessions found
         if not session_ids:
             return "No sessions were found matching the specified criteria.", None
@@ -265,10 +265,11 @@ class SummarizeSessionsTool(MaxTool):
         """Summarize sessions as a group (for larger sets). Returns tuple of (summary_str, session_group_summary_id)."""
         from ee.hogai.session_summaries.utils import logging_session_ids
 
-        min_timestamp, max_timestamp = find_sessions_timestamps(session_ids=session_ids, team=self._team)
+        min_timestamp, max_timestamp = await database_sync_to_async(find_sessions_timestamps, thread_sensitive=False)(
+            session_ids=session_ids, team=self._team
+        )
         # Check if the summaries should be validated with videos
         video_validation_enabled = self._has_video_validation_feature_flag()
-
         async for update_type, data in execute_summarize_session_group(
             session_ids=session_ids,
             user=self._user,
@@ -345,3 +346,17 @@ class SummarizeSessionsTool(MaxTool):
             summary_title=summary_title,
         )
         return summaries_content, session_group_summary_id
+
+    def _validate_specific_session_ids(self, session_ids: list[str]) -> list[str] | None:
+        """Validate that specific session IDs exist in the database."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        sessions_found, _, _ = replay_events.sessions_found_with_timestamps(
+            session_ids=session_ids,
+            team=self._team,
+        )
+        if not sessions_found:
+            return None
+        # Preserve the original order, filtering out invalid sessions
+        return [sid for sid in session_ids if sid in sessions_found]

@@ -268,7 +268,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount,
     className,
     allowReplayHogQLFilters = false,
-    allowReplayGroupsFilters = false,
 }: {
     filters: RecordingUniversalFilters
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
@@ -276,7 +275,6 @@ export const RecordingsUniversalFiltersEmbed = ({
     totalFiltersCount?: number
     className?: string
     allowReplayHogQLFilters?: boolean
-    allowReplayGroupsFilters?: boolean
 }): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
     const [savedFilterName, setSavedFilterName] = useState('')
@@ -300,14 +298,11 @@ export const RecordingsUniversalFiltersEmbed = ({
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.PersonProperties,
         TaxonomicFilterGroupType.SessionProperties,
+        ...groupsTaxonomicTypes,
     ]
 
     if (allowReplayHogQLFilters) {
         taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
-    }
-
-    if (allowReplayGroupsFilters) {
-        taxonomicGroupTypes.push(...groupsTaxonomicTypes)
     }
 
     const { savedFilters, appliedSavedFilter } = useValues(sessionRecordingSavedFiltersLogic)
