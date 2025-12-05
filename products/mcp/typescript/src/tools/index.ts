@@ -158,19 +158,10 @@ export const getToolsFromContext = async (context: Context, features?: string[])
         }
     })
 
-    try {
-        const { scopes } = (await context.stateManager.getApiKey())!
+    const apiKey = await context.stateManager.getApiKey()
+    const scopes = apiKey?.scopes ?? []
 
-        const filteredTools = tools.filter((tool) => {
-            return hasScopes(scopes, tool.scopes)
-        })
-
-        return filteredTools
-    } catch {
-        // OAuth tokens don't support /api/personal_api_keys/@current endpoint yet
-        // Return empty tool set until backend OAuth support is added
-        return []
-    }
+    return tools.filter((tool) => hasScopes(scopes, tool.scopes))
 }
 
 export type PostHogToolsOptions = {

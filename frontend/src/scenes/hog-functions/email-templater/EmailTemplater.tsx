@@ -394,6 +394,24 @@ function NativeEmailTemplaterForm({
                                 },
                                 projectId: unlayerEditorProjectId,
                                 customJS: isWorkflowsProductEnabled ? [unsubscribeLinkToolCustomJs] : [],
+                                fonts: unlayerEditorProjectId
+                                    ? {
+                                          showDefaultFonts: true,
+                                          customFonts: [
+                                              {
+                                                  label: 'Ubuntu',
+                                                  value: "'Ubuntu',sans-serif",
+                                                  url: 'https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap',
+                                                  weights: [
+                                                      { label: 'Light', value: 300 },
+                                                      { label: 'Regular', value: 400 },
+                                                      { label: 'Medium', value: 500 },
+                                                      { label: 'Bold', value: 700 },
+                                                  ],
+                                              },
+                                          ],
+                                      }
+                                    : undefined,
                             }}
                         />
                         <LemonModal

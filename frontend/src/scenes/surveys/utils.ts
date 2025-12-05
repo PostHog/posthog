@@ -101,6 +101,15 @@ export const getResponseFieldWithId = (
     }
 }
 
+export function getSurveyResponseValue(
+    eventProperties: Record<string, any>,
+    questionIndex: number,
+    questionId?: string
+): any {
+    const { indexBasedKey, idBasedKey } = getResponseFieldWithId(questionIndex, questionId)
+    return (idBasedKey && eventProperties[idBasedKey]) ?? eventProperties[indexBasedKey]
+}
+
 export function sanitizeSurveyDisplayConditions(
     displayConditions?: SurveyDisplayConditions | null,
     surveyType?: SurveyType
@@ -456,13 +465,15 @@ export function doesSurveyHaveDisplayConditions(survey: Survey | NewSurvey): boo
     return false
 }
 
-export function buildPartialResponsesFilter(survey: Survey): string {
+export function buildPartialResponsesFilter(survey: Survey, dateRange?: SurveyDateRange | null): string {
     if (!survey.enable_partial_responses) {
         return `AND (
         NOT JSONHas(properties, '${SurveyEventProperties.SURVEY_COMPLETED}')
         OR JSONExtractBool(properties, '${SurveyEventProperties.SURVEY_COMPLETED}') = true
     )`
     }
+
+    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
 
     return `AND uuid in (
         SELECT
@@ -471,8 +482,8 @@ export function buildPartialResponsesFilter(survey: Survey): string {
         WHERE and(
             equals(event, '${SurveyEventName.SENT}'),
             equals(JSONExtractString(properties, '${SurveyEventProperties.SURVEY_ID}'), '${survey.id}'),
-            greaterOrEquals(timestamp, '${getSurveyStartDateForQuery(survey)}'),
-            lessOrEquals(timestamp, '${getSurveyEndDateForQuery(survey)}')
+            greaterOrEquals(timestamp, '${fromDate}'),
+            lessOrEquals(timestamp, '${toDate}')
         )
         GROUP BY
             if(
@@ -588,37 +599,31 @@ export interface SurveyDateRange {
     date_to: string | null
 }
 
+export function getResolvedSurveyDateRange(
+    survey: Pick<Survey, 'created_at' | 'end_date'>,
+    dateRange?: SurveyDateRange | null
+): { fromDate: string; toDate: string } {
+    let fromDate = getSurveyStartDateForQuery(survey)
+    let toDate = getSurveyEndDateForQuery(survey)
+
+    // date_from only is valid ("from custom date until now")
+    // date_to only is ignored to avoid impossible ranges
+    if (dateRange?.date_from) {
+        fromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day').format(DATE_FORMAT) ?? fromDate
+
+        if (dateRange.date_to) {
+            toDate = dateStringToDayJs(dateRange.date_to)?.endOf('day').format(DATE_FORMAT) ?? toDate
+        }
+    }
+
+    return { fromDate, toDate }
+}
+
 export function buildSurveyTimestampFilter(
     survey: Pick<Survey, 'created_at' | 'end_date'>,
     dateRange?: SurveyDateRange | null
 ): string {
-    // If no date range provided, use the survey's default date range
-    let fromDate = getSurveyStartDateForQuery(survey)
-    let toDate = getSurveyEndDateForQuery(survey)
-
-    if (!dateRange) {
-        return `AND timestamp >= '${fromDate}'
-        AND timestamp <= '${toDate}'`
-    }
-
-    // ----- Handle FROM date -----
-    if (dateRange.date_from) {
-        // Parse user-provided date and ensure it's not before survey creation
-        const userFromDate = dateStringToDayJs(dateRange.date_from)?.startOf('day')
-
-        if (userFromDate && userFromDate.isAfter(fromDate)) {
-            fromDate = userFromDate.format(DATE_FORMAT)
-        }
-    }
-
-    // ----- Handle TO date -----
-    if (dateRange.date_to) {
-        const userToDate = dateStringToDayJs(dateRange.date_to)?.endOf('day')
-
-        if (userToDate && userToDate.isBefore(toDate)) {
-            toDate = userToDate.format(DATE_FORMAT)
-        }
-    }
+    const { fromDate, toDate } = getResolvedSurveyDateRange(survey, dateRange)
 
     return `AND timestamp >= '${fromDate}'
     AND timestamp <= '${toDate}'`
@@ -632,4 +637,8 @@ export function getExpressionCommentForQuestion(
         return q.question
     }
     return `Question ${questionIndex + 1}`
+}
+
+export function getSurveyForFeatureFlagVariant(variantKey: string, surveys?: Survey[]): Survey | undefined {
+    return surveys?.find((survey) => survey.conditions?.linkedFlagVariant === variantKey)
 }

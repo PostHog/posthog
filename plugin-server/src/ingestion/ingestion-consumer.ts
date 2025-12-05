@@ -38,8 +38,10 @@ import {
     createParseHeadersStep,
     createParseKafkaMessageStep,
     createResolveTeamStep,
+    createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventUuidStep,
+    createValidateHistoricalMigrationStep,
 } from './event-preprocessing'
 import { createEmitEventStep } from './event-processing/emit-event-step'
 import { createEventPipelineRunnerV1Step } from './event-processing/event-pipeline-runner-v1-step'
@@ -63,10 +65,12 @@ const forcedOverflowEventsCounter = new Counter({
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
 })
 
+type EventWithHeaders = IncomingEventWithTeam & { headers: EventHeaders }
+
 type EventsForDistinctId = {
     token: string
     distinctId: string
-    events: IncomingEventWithTeam[]
+    events: EventWithHeaders[]
 }
 
 type IncomingEventsByDistinctId = {
@@ -81,6 +85,7 @@ type PreprocessedEvent = {
 }
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
+    headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
 }
@@ -255,6 +260,7 @@ export class IngestionConsumer {
                         .pipe(createParseKafkaMessageStep())
                         .pipe(createDropExceptionEventsStep())
                         .pipe(createResolveTeamStep(this.hub))
+                        .pipe(createValidateHistoricalMigrationStep())
                 )
             )
             // We want to handle the first batch of rejected events, so that the remaining ones
@@ -282,6 +288,7 @@ export class IngestionConsumer {
                         b
                             .sequentially((c) =>
                                 c
+                                    .pipe(createValidateEventMetadataStep())
                                     .pipe(createValidateEventPropertiesStep())
                                     .pipe(
                                         createApplyPersonProcessingRestrictionsStep(
@@ -331,6 +338,7 @@ export class IngestionConsumer {
                                             createEmitEventStep({
                                                 kafkaProducer: this.kafkaProducer!,
                                                 clickhouseJsonEventsTopic: this.hub.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                                                groupId: this.groupId,
                                             })
                                         ),
                                 {
@@ -410,7 +418,7 @@ export class IngestionConsumer {
         }
 
         const preprocessedEvents = await this.runInstrumented('preprocessEvents', () => this.preprocessEvents(messages))
-        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents)
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE
@@ -640,11 +648,12 @@ export class IngestionConsumer {
         return result
     }
 
-    private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
+    private groupEventsByDistinctId(preprocessedEvents: PreprocessedEvent[]): IncomingEventsByDistinctId {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
-        for (const eventWithTeam of messages) {
-            const { message, event, team, headers } = eventWithTeam
+        for (const preprocessedEvent of preprocessedEvents) {
+            const { eventWithTeam, headers } = preprocessedEvent
+            const { message, event, team } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
