@@ -1805,7 +1805,7 @@ class FeatureFlagViewSet(
             # Return 304 Not Modified if client's ETag matches
             if not modified and etag:
                 response = Response(status=status.HTTP_304_NOT_MODIFIED)
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
                 return response
 
@@ -1822,7 +1822,7 @@ class FeatureFlagViewSet(
 
             response = Response(response_data)
             if etag:
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
             return response
 
