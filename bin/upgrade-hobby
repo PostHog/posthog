@@ -192,7 +192,7 @@ if grep -qE 'postgres:12-alpine|postgres:12' posthog/docker-compose.hobby.yml 2>
     echo "Your docker-compose stack is using postgres:12-alpine."
     echo "The new PostHog version requires PostgreSQL 15."
     echo ""
-    echo "⚠️  This migration has risk and requires a backup/restore process."
+    echo "⚠️  This migration deletes data, and isn't tested in your envronment. Reject auto-update to receive manual upgrade instructions."
     echo ""
     read -r -p "Do you want to automatically upgrade PostgreSQL 12 → 15? [y/N] " pg_response
     if [[ "$pg_response" =~ ^([yY][eE][sS]|[yY])+$ ]]; then
