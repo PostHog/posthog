@@ -1575,7 +1575,7 @@ class RunWorkflow(PostHogWorkflow):
                 workflow="ducklake-copy.data-modeling",
                 arg=dataclasses.asdict(self.ducklake_copy_inputs),
                 id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DATA_MODELING_TASK_QUEUE,
+                task_queue=settings.DUCKLAKE_TASK_QUEUE,
                 parent_close_policy=ParentClosePolicy.ABANDON,
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,

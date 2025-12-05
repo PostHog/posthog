@@ -179,9 +179,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
                     const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
 
-                    const featureFlagValue = values.featureFlags[FEATURE_FLAGS.REPLAY_DECOMPRESSION_WORKER]
                     const decompressionMode = normalizeMode(
-                        typeof featureFlagValue === 'string' ? featureFlagValue : undefined
+                        typeof clientSideDecompression === 'string' ? clientSideDecompression : undefined
                     )
 
                     // Create a local copy of the registry state for synchronous lookups during parsing
