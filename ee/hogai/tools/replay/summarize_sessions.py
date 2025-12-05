@@ -100,12 +100,19 @@ class SummarizeSessionsTool(MaxTool):
             llm_provided_session_ids = await database_sync_to_async(
                 self._get_session_ids_with_filters, thread_sensitive=False
             )(recordings_query)
+            llm_provided_session_ids_source = "filters"
         # If explicit session IDs - use them directly
         elif isinstance(recordings_filters_or_explicit_session_ids, list):
-            llm_provided_session_ids = recordings_filters_or_explicit_session_ids
+            llm_provided_session_ids, llm_provided_session_ids_source = (
+                recordings_filters_or_explicit_session_ids,
+                "explicit",
+            )
         # If unexpected type - raise an error
         else:
-            msg = f"Unexpected type of recordings_filters_or_explicit_session_ids: {type(recordings_filters_or_explicit_session_ids)}"  # type: ignore[unreachable]
+            msg = (  # type: ignore[unreachable]
+                f"Unexpected type of recordings_filters_or_explicit_session_ids: "
+                f"{type(recordings_filters_or_explicit_session_ids)}: {recordings_filters_or_explicit_session_ids}"
+            )
             logger.error(msg, signals_type="session-summaries")
             raise ValueError(msg)
         # If LLM provided no session ids - nothing to summarize
@@ -117,8 +124,16 @@ class SummarizeSessionsTool(MaxTool):
         )
         # LLM provided session ids, but no actual sessions with events were found
         if not session_ids:
+            llm_provided_input = (
+                recordings_filters_or_explicit_session_ids
+                if isinstance(recordings_filters_or_explicit_session_ids, list)
+                else recordings_filters_or_explicit_session_ids.model_dump_json(exclude_none=True)
+            )
             logger.warning(
-                f"No sessions with events were found for the LLM-provided session IDs: {llm_provided_session_ids}",
+                (
+                    f"No sessions with events were found for the LLM-provided session IDs ({llm_provided_session_ids}) "
+                    f"for the source ({llm_provided_session_ids_source}): {llm_provided_input}"
+                ),
                 signals_type="session-summaries",
             )
             return "No sessions were found matching the specified criteria.", None
