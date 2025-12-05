@@ -338,11 +338,6 @@ export class HogExecutorService {
             hogFunctionUrl: invocation.state.globals.source?.url,
         }
 
-        // TODOdin: Remove this log, it's for local testing
-        logger.info('🦔', '----- Executing in hog-executor.service.ts', {
-            capturedAt: invocation.state?.globals?.event?.captured_at,
-        })
-
         logger.debug('🦔', `[HogExecutor] Executing function`, loggingContext)
 
         const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation, {}, previousResult)
