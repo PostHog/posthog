@@ -26,6 +26,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { BreakdownsChart } from '../../components/Breakdowns/BreakdownsChart'
 import { BreakdownsSearchBar } from '../../components/Breakdowns/BreakdownsSearchBar'
+import { MiniBreakdowns } from '../../components/Breakdowns/MiniBreakdowns'
+import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -65,37 +67,39 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     return (
         <ErrorTrackingSetupPrompt>
             <BindLogic logic={issueFiltersLogic} props={{ logicKey: ERROR_TRACKING_ISSUE_SCENE_LOGIC_KEY }}>
-                {issue && (
-                    <>
-                        <div className="px-4">
-                            <SceneTitleSection
-                                canEdit
-                                name={issue.name}
-                                onNameChange={updateName}
-                                description={null}
-                                resourceType={{ type: 'error_tracking' }}
-                                actions={
-                                    <div className="flex items-center gap-1">
-                                        <IssueAssigneeSelect
-                                            assignee={issue.assignee}
-                                            onChange={updateAssignee}
-                                            disabled={issue.status != 'active'}
-                                        />
-                                        <IssueStatusSelect status={issue.status} onChange={updateStatus} />
-                                    </div>
-                                }
-                            />
-                        </div>
-                        <ErrorTrackingIssueScenePanel issue={issue} />
-
-                        <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
-                            <div className="flex flex-1 h-full w-full">
-                                <LeftHandColumn />
-                                <RightHandColumn />
+                <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
+                    {issue && (
+                        <>
+                            <div className="px-4">
+                                <SceneTitleSection
+                                    canEdit
+                                    name={issue.name}
+                                    onNameChange={updateName}
+                                    description={null}
+                                    resourceType={{ type: 'error_tracking' }}
+                                    actions={
+                                        <div className="flex items-center gap-1">
+                                            <IssueAssigneeSelect
+                                                assignee={issue.assignee}
+                                                onChange={updateAssignee}
+                                                disabled={issue.status != 'active'}
+                                            />
+                                            <IssueStatusSelect status={issue.status} onChange={updateStatus} />
+                                        </div>
+                                    }
+                                />
                             </div>
-                        </div>
-                    </>
-                )}
+                            <ErrorTrackingIssueScenePanel issue={issue} />
+
+                            <div className="ErrorTrackingIssue h-[calc(100vh-var(--scene-layout-header-height)-50px)] flex">
+                                <div className="flex flex-1 h-full w-full">
+                                    <LeftHandColumn />
+                                    <RightHandColumn />
+                                </div>
+                            </div>
+                        </>
+                    )}
+                </BindLogic>
             </BindLogic>
         </ErrorTrackingSetupPrompt>
     )
@@ -178,6 +182,7 @@ const LeftHandColumn = (): JSX.Element => {
                 </TabsPrimitiveContent>
                 <TabsPrimitiveContent value="breakdowns">
                     <BreakdownsSearchBar />
+                    <MiniBreakdowns />
                     <BreakdownsChart />
                 </TabsPrimitiveContent>
                 {hasTasks && (
