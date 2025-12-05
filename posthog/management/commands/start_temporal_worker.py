@@ -366,7 +366,7 @@ class Command(BaseCommand):
         with asyncio.Runner() as runner:
             loop = runner.get_loop()
 
-            configure_logger(loop=loop, default_mode=settings.TEMPORAL_LOG_DEFAULT_MODE)
+            configure_logger(loop=loop, default_mode=settings.TEMPORAL_LOG_DEFAULT_MODE)  # type: ignore[arg-type]
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
