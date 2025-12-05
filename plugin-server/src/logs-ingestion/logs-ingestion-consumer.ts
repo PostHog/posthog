@@ -218,7 +218,15 @@ export class LogsIngestionConsumer {
             )
         }
 
-        await Promise.all(metricsPromises)
+        // Best-effort: don't let metric failures block ingestion
+        const results = await Promise.allSettled(metricsPromises)
+        const failures = results.filter((r) => r.status === 'rejected')
+        if (failures.length > 0) {
+            logger.warn('⚠️', 'Failed to emit some usage metrics', {
+                failureCount: failures.length,
+                totalCount: metricsPromises.length,
+            })
+        }
     }
 
     private produceUsageMetric(teamId: number, metricName: string, count: number, timestamp: string): Promise<void> {
