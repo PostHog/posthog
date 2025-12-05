@@ -15,7 +15,6 @@ export const IssueStatusSelect = ({
             onClick={() => onChange(status === 'active' ? 'resolved' : 'active')}
             sideAction={{
                 dropdown: {
-                    closeOnClickInside: false,
                     placement: 'bottom-end',
                     overlay: (
                         <LemonMenuOverlay

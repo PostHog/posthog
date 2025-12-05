@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import React from 'react'
 
-import { LemonBadge, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, Tooltip, TooltipProps } from '@posthog/lemon-ui'
 
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
@@ -21,15 +21,16 @@ interface LabelIndicatorProps {
     label: string
     size: 'xsmall' | 'small' | 'medium' | 'large'
     tooltip?: string
+    tooltipPlacement?: TooltipProps['placement']
     className?: string
 }
 
 export const LabelIndicator = React.forwardRef<HTMLDivElement, LabelIndicatorProps>(function LabelIndicator(
-    { intent, label, size, tooltip, className },
+    { intent, label, size, tooltip, tooltipPlacement, className },
     ref
 ): JSX.Element {
     return (
-        <Tooltip title={tooltip} placement="right">
+        <Tooltip title={tooltip} placement={tooltipPlacement}>
             <div ref={ref} className={clsx('flex items-center', className, sizeVariants[size])}>
                 <LemonBadge status={intent} size="small" />
                 <div>{label}</div>
@@ -62,7 +63,7 @@ const STATUS_INTENT_LABEL: Record<ErrorTrackingIssue['status'], string> = {
     resolved: 'Resolve issue',
 }
 
-export const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
+const STATUS_TOOLTIP: Record<ErrorTrackingIssue['status'], string | undefined> = {
     suppressed: 'New occurrences of this issue are ignored',
     active: 'Ongoing issue',
     archived: undefined,
@@ -74,7 +75,8 @@ interface StatusIndicatorProps {
     status: IssueStatus
     intent?: boolean
     size?: 'xsmall' | 'small' | 'medium' | 'large'
-    withTooltip?: boolean
+    /** Whether to show a tooltip explaining each status. If just `true`, tooltip placement defaults to `top`. */
+    withTooltip?: boolean | TooltipProps['placement']
     className?: string
 }
 
@@ -88,6 +90,7 @@ export const StatusIndicator = React.forwardRef<HTMLDivElement, StatusIndicatorP
             size={size}
             label={intent ? STATUS_INTENT_LABEL[status] : STATUS_LABEL[status]}
             tooltip={withTooltip ? STATUS_TOOLTIP[status] : undefined}
+            tooltipPlacement={withTooltip ? (typeof withTooltip === 'string' ? withTooltip : 'top') : undefined}
             className={className}
             ref={ref}
         />
