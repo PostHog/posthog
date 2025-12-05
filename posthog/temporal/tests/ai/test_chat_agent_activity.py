@@ -4,6 +4,8 @@ from uuid import uuid4
 import pytest
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+from posthog.schema import AgentMode
+
 from posthog.models import Team, User
 from posthog.temporal.ai.chat_agent import (
     AssistantConversationRunnerWorkflowInputs,
@@ -196,6 +198,40 @@ class TestProcessChatAgentActivity:
             assert call_args[1]["new_message"] is None
 
             # Verify write_to_stream was called once
+            mock_redis_stream.write_to_stream.assert_called_once()
+
+    async def test_process_conversation_activity_sets_agent_mode(
+        self,
+        mock_team,
+        mock_user,
+        mock_conversation,
+        mock_redis_stream,
+        mock_assistant,
+    ):
+        """Ensure agent mode is forwarded to the runner."""
+        inputs = AssistantConversationRunnerWorkflowInputs(
+            team_id=1,
+            user_id=2,
+            conversation_id=uuid4(),
+            message={"content": "Hello", "type": "human"},
+            agent_mode=AgentMode.SESSION_REPLAY,
+        )
+
+        with (
+            patch("posthog.temporal.ai.chat_agent.Team.objects.aget", new=AsyncMock(return_value=mock_team)),
+            patch("posthog.temporal.ai.chat_agent.User.objects.aget", new=AsyncMock(return_value=mock_user)),
+            patch(
+                "posthog.temporal.ai.chat_agent.Conversation.objects.aget",
+                new=AsyncMock(return_value=mock_conversation),
+            ),
+            patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
+            patch(
+                "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
+            ) as mock_assistant_create,
+        ):
+            await process_conversation_activity(inputs)
+
+            assert mock_assistant_create.call_args[1]["agent_mode"] == AgentMode.SESSION_REPLAY
             mock_redis_stream.write_to_stream.assert_called_once()
 
     @pytest.mark.asyncio

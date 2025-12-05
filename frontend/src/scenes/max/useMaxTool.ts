@@ -3,8 +3,6 @@ import React, { useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
@@ -51,12 +49,7 @@ export function useMaxTool({
     const { setActiveGroup } = useActions(maxLogic({ tabId: 'sidepanel' }))
 
     const definition = getToolDefinition(identifier)
-    const isMaxAvailable = useFeatureFlag('ARTIFICIAL_HOG')
-    const isMaxOpen = isMaxAvailable && sidePanelOpen && selectedTab === SidePanelTab.Max
-
-    if (!isMaxAvailable) {
-        active = false
-    }
+    const isMaxOpen = sidePanelOpen && selectedTab === SidePanelTab.Max
 
     useEffect(() => {
         // Register/deregister tool

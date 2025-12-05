@@ -3,9 +3,6 @@ from typing import cast
 
 from freezegun import freeze_time
 from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
-from unittest.mock import Mock, patch
-
-from test_funnel import PseudoFunnelActors, funnel_test_factory
 
 from posthog.schema import (
     DateRange,
@@ -24,6 +21,7 @@ from posthog.hogql_queries.insights.funnels.test.breakdown_cases import (
     funnel_breakdown_test_factory,
 )
 from posthog.hogql_queries.insights.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
+from posthog.hogql_queries.insights.funnels.test.test_funnel import PseudoFunnelActors, funnel_test_factory
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
 from posthog.models import Action
 from posthog.test.test_journeys import journeys_for
@@ -37,10 +35,6 @@ def _create_action(**kwargs):
     return action
 
 
-use_udf_funnel_flag_side_effect = lambda key, *args, **kwargs: key == "insight-funnels-use-udf"
-
-
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
@@ -54,7 +48,6 @@ class TestFunnelBreakdownUDF(
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelGroupBreakdownUDF(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
@@ -65,9 +58,8 @@ class TestFunnelGroupBreakdownUDF(
     pass
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # type: ignore
-    def test_assert_flag_is_on(self):
+    def test_assert_udf_flag(self):
         filters = {
             "insight": INSIGHT_FUNNELS,
             "funnel_viz_type": "steps",
@@ -324,7 +316,6 @@ class TestFOSSFunnelUDF(funnel_test_factory(_create_event, _create_person)):  # 
     maxDiff = None
 
 
-@patch("posthoganalytics.feature_enabled", new=Mock(side_effect=use_udf_funnel_flag_side_effect))
 class TestFunnelConversionTimeUDF(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(FunnelOrderType.ORDERED, PseudoFunnelActors),  # type: ignore

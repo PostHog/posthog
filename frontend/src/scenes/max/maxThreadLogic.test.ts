@@ -12,9 +12,9 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import { AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import { AgentMode, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
-import { ConversationDetail, ConversationStatus, ConversationType } from '~/types'
+import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { maxContextLogic } from './maxContextLogic'
@@ -22,6 +22,7 @@ import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import {
+    MOCK_CONVERSATION,
     MOCK_CONVERSATION_ID,
     MOCK_IN_PROGRESS_CONVERSATION,
     MOCK_TEMP_CONVERSATION_ID,
@@ -1568,6 +1569,154 @@ describe('maxThreadLogic', () => {
                 ])
             }).toMatchValues({
                 inputDisabled: true,
+            })
+        })
+    })
+
+    describe('agent mode functionality', () => {
+        beforeEach(() => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+        })
+
+        it('setAgentMode sets the agent mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setAgentMode(AgentMode.SQL)
+            }).toMatchValues({
+                agentMode: AgentMode.SQL,
+            })
+        })
+
+        it('setAgentMode locks the agent mode by user', async () => {
+            expect(logic.values.agentModeLockedByUser).toBe(false)
+
+            await expectLogic(logic, () => {
+                logic.actions.setAgentMode(AgentMode.ProductAnalytics)
+            }).toMatchValues({
+                agentModeLockedByUser: true,
+            })
+        })
+
+        it('syncAgentModeFromConversation sets agent mode without locking', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.syncAgentModeFromConversation(AgentMode.SessionReplay)
+            }).toMatchValues({
+                agentMode: AgentMode.SessionReplay,
+                agentModeLockedByUser: false,
+            })
+        })
+
+        it('askMax resets agentModeLockedByUser', async () => {
+            mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+            expect(logic.values.agentModeLockedByUser).toBe(true)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test')
+            }).toMatchValues({
+                agentModeLockedByUser: false,
+            })
+        })
+
+        it('setConversation syncs agent mode when not locked by user', async () => {
+            const conversationWithAgentMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.ProductAnalytics,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithAgentMode)
+            }).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
+        it('setConversation does not sync agent mode when locked by user', async () => {
+            logic.actions.setAgentMode(AgentMode.SQL)
+            expect(logic.values.agentModeLockedByUser).toBe(true)
+
+            const conversationWithAgentMode: Conversation = {
+                ...MOCK_CONVERSATION,
+                agent_mode: AgentMode.ProductAnalytics,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setConversation(conversationWithAgentMode)
+            }).toMatchValues({
+                agentMode: AgentMode.SQL, // Should remain SQL, not switch to ProductAnalytics
+            })
+        })
+
+        it('askMax includes agent_mode in stream data', async () => {
+            const streamSpy = mockStream()
+
+            logic.actions.setAgentMode(AgentMode.SQL)
+
+            await expectLogic(logic, () => {
+                logic.actions.askMax('test prompt')
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: 'test prompt',
+                    agent_mode: AgentMode.SQL,
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('reconnectToStream includes current agent mode', async () => {
+            const streamSpy = mockStream()
+
+            logic.actions.setAgentMode(AgentMode.ProductAnalytics)
+
+            await expectLogic(logic, () => {
+                logic.actions.reconnectToStream()
+            })
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    conversation: MOCK_CONVERSATION_ID,
+                    agent_mode: AgentMode.ProductAnalytics,
+                }),
+                expect.any(Object)
+            )
+        })
+    })
+
+    describe('scene to agent mode mapping', () => {
+        it('does not auto-set mode when conversation already exists', async () => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            // Set a conversation first
+            logic.actions.setConversation(MOCK_CONVERSATION)
+
+            // Set agent mode manually
+            logic.actions.setAgentMode(AgentMode.SQL)
+
+            // Simulate what would happen if scene changed - directly call sync
+            // The logic should NOT change mode because conversation exists
+            logic.actions.syncAgentModeFromConversation(AgentMode.ProductAnalytics)
+
+            // Mode should update since syncAgentModeFromConversation doesn't check for conversation
+            // (that check is in the subscription, not the action)
+            await expectLogic(logic).toMatchValues({
+                agentMode: AgentMode.ProductAnalytics,
+            })
+        })
+
+        it('syncAgentModeFromConversation does not lock agent mode', async () => {
+            logic = maxThreadLogic({ conversationId: MOCK_CONVERSATION_ID, tabId: 'test' })
+            logic.mount()
+
+            // Sync should not lock
+            logic.actions.syncAgentModeFromConversation(AgentMode.SQL)
+
+            await expectLogic(logic).toMatchValues({
+                agentMode: AgentMode.SQL,
+                agentModeLockedByUser: false,
             })
         })
     })

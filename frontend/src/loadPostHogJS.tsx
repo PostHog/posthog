@@ -114,6 +114,9 @@ export function loadPostHogJS(): void {
             autocapture: {
                 capture_copied_text: true,
             },
+            session_recording: {
+                blockSelector: '.ph-replay-block',
+            },
             person_profiles: 'always',
             __preview_remote_config: true,
             __preview_flags_v2: true,

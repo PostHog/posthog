@@ -129,6 +129,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_context: {
                         is_emoji: true,
                         time_in_recording: dayjs(values.currentTimestamp).toISOString(),
+                        milliseconds_into_recording: values.currentPlayerTime,
                     },
                 })
                 playerCommentModel.actions.commentEdited(props.recordingId)
@@ -172,6 +173,7 @@ export const playerCommentOverlayLogic = kea<playerCommentOverlayLogicType>([
                     item_id: props.recordingId,
                     item_context: {
                         time_in_recording: dateForTimestamp.toISOString(),
+                        milliseconds_into_recording: values.currentPlayerTime,
                     },
                 }
 

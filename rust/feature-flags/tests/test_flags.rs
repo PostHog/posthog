@@ -1521,7 +1521,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
             team.id,
             distinct_id.clone(),
             Some(json!({
-                "$feature_enrollment/artificial-hog": true,
+                "$feature_enrollment/my-flag": true,
                 "$feature_enrollment/error-tracking": true,
                 "$feature_enrollment/llm-observability": false,
                 "$feature_enrollment/messaging-product": true,
@@ -1533,7 +1533,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
     // Create the same flag as in production
     let flag_json = json!([{
         "id": 13651,
-        "key": "artificial-hog",
+        "key": "my-flag",
         "name": "Generate HogQL with AI in Insights",
         "active": true,
         "deleted": false,
@@ -1551,7 +1551,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
             ],
             "super_groups": [{
                 "properties": [{
-                    "key": "$feature_enrollment/artificial-hog",
+                    "key": "$feature_enrollment/my-flag",
                     "type": "person",
                     "value": ["true"],
                     "operator": "exact"
@@ -1601,7 +1601,7 @@ async fn test_super_condition_with_complex_request() -> Result<()> {
         expected: json!({
             "errorsWhileComputingFlags": false,
             "featureFlags": {
-                "artificial-hog": true
+                "my-flag": true
             }
         })
     );

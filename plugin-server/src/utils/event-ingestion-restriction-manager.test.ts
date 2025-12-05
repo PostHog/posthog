@@ -650,4 +650,461 @@ describe('EventIngestionRestrictionManager', () => {
             })
         })
     })
+
+    describe('event_name support', () => {
+        describe('fetchDynamicEventIngestionRestrictionConfig with event_name', () => {
+            it('handles new format with event_name field', async () => {
+                pipelineMock.get.mockClear()
+                pipelineMock.exec.mockResolvedValue([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', event_name: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token2', distinct_id: 'user1', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                ])
+
+                const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+                expect(result).toEqual({
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token1:event_name:$pageview',
+                        'token2:distinct_id:user1',
+                    ]),
+                })
+            })
+
+            it('handles mixed distinct_id, session_id, and event_name entries', async () => {
+                pipelineMock.get.mockClear()
+                pipelineMock.exec.mockResolvedValue([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token1', event_name: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                ])
+
+                const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+                expect(result).toEqual({
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token1:distinct_id:user1',
+                        'token1:session_id:session123',
+                        'token1:event_name:$pageview',
+                        'token2',
+                    ]),
+                })
+            })
+        })
+
+        describe('shouldDropEvent with event_name', () => {
+            it('returns true if event_name is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token:event_name:$pageview']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent('token', undefined, undefined, '$pageview')
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token:distinct_id:user1',
+                        'token:session_id:session123',
+                        'token:event_name:$pageview',
+                    ]),
+                }
+                // Match by distinct_id
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent('token', 'user1', 'other-session', 'other-event')
+                ).toBe(true)
+                // Match by session_id
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent('token', 'other-user', 'session123', 'other-event')
+                ).toBe(true)
+                // Match by event_name
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        '$pageview'
+                    )
+                ).toBe(true)
+                // No match
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        'other-event'
+                    )
+                ).toBe(false)
+            })
+
+            it('returns false if event_name does not match', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token:event_name:$pageview']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent('token', undefined, undefined, '$autocapture')
+                ).toBe(false)
+            })
+        })
+
+        describe('shouldSkipPerson with event_name', () => {
+            it('returns true if event_name is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token:event_name:$pageview']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson('token', undefined, undefined, '$pageview')
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.SKIP_PERSON_PROCESSING]: new Set([
+                        'token:distinct_id:user1',
+                        'token:event_name:$pageview',
+                    ]),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson('token', 'user1', 'other-session', 'other-event')
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        '$pageview'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        'other-event'
+                    )
+                ).toBe(false)
+            })
+        })
+
+        describe('shouldForceOverflow with event_name', () => {
+            it('returns true if event_name is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token:event_name:$pageview']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow('token', undefined, undefined, '$pageview')
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set([
+                        'token:distinct_id:user1',
+                        'token:event_name:$pageview',
+                    ]),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'user1',
+                        'other-session',
+                        'other-event'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        '$pageview'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        'other-event'
+                    )
+                ).toBe(false)
+            })
+        })
+    })
+
+    describe('event_uuid support', () => {
+        describe('fetchDynamicEventIngestionRestrictionConfig with event_uuid', () => {
+            it('handles new format with event_uuid field', async () => {
+                pipelineMock.get.mockClear()
+                pipelineMock.exec.mockResolvedValue([
+                    [
+                        null,
+                        JSON.stringify([
+                            {
+                                token: 'token1',
+                                event_uuid: '550e8400-e29b-41d4-a716-446655440000',
+                                pipelines: ['analytics'],
+                            },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                ])
+
+                const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+                expect(result).toEqual({
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token1:event_uuid:550e8400-e29b-41d4-a716-446655440000',
+                        'token2',
+                    ]),
+                })
+            })
+
+            it('handles mixed distinct_id, session_id, and event_uuid entries', async () => {
+                pipelineMock.get.mockClear()
+                pipelineMock.exec.mockResolvedValue([
+                    [
+                        null,
+                        JSON.stringify([
+                            { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
+                            { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
+                            { token: 'token1', event_uuid: 'uuid-123', pipelines: ['analytics'] },
+                            { token: 'token2', pipelines: ['analytics'] },
+                        ]),
+                    ],
+                    [null, null],
+                    [null, null],
+                ])
+
+                const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
+
+                expect(result).toEqual({
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token1:distinct_id:user1',
+                        'token1:session_id:session123',
+                        'token1:event_uuid:uuid-123',
+                        'token2',
+                    ]),
+                })
+            })
+        })
+
+        describe('shouldDropEvent with event_uuid', () => {
+            it('returns true if event_uuid is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token:event_uuid:uuid-123']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        undefined,
+                        undefined,
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set([
+                        'token:distinct_id:user1',
+                        'token:session_id:session123',
+                        'token:event_uuid:uuid-123',
+                    ]),
+                }
+                // Match by distinct_id
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'user1',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(true)
+                // Match by session_id
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'other-user',
+                        'session123',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(true)
+                // Match by event_uuid
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+                // No match
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(false)
+            })
+
+            it('returns false if event_uuid does not match', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token:event_uuid:uuid-123']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldDropEvent(
+                        'token',
+                        undefined,
+                        undefined,
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(false)
+            })
+        })
+
+        describe('shouldSkipPerson with event_uuid', () => {
+            it('returns true if event_uuid is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token:event_uuid:uuid-123']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        undefined,
+                        undefined,
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.SKIP_PERSON_PROCESSING]: new Set([
+                        'token:distinct_id:user1',
+                        'token:event_uuid:uuid-123',
+                    ]),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        'user1',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldSkipPerson(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(false)
+            })
+        })
+
+        describe('shouldForceOverflow with event_uuid', () => {
+            it('returns true if event_uuid is in the dynamic config list', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token:event_uuid:uuid-123']),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        undefined,
+                        undefined,
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+            })
+
+            it('returns true if any filter matches (OR logic)', () => {
+                // @ts-expect-error - Setting private property for testing
+                eventIngestionRestrictionManager.latestDynamicConfig = {
+                    [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set([
+                        'token:distinct_id:user1',
+                        'token:event_uuid:uuid-123',
+                    ]),
+                }
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'user1',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'uuid-123'
+                    )
+                ).toBe(true)
+                expect(
+                    eventIngestionRestrictionManager.shouldForceOverflow(
+                        'token',
+                        'other-user',
+                        'other-session',
+                        undefined,
+                        'other-uuid'
+                    )
+                ).toBe(false)
+            })
+        })
+    })
 })

@@ -14,7 +14,6 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonTag } from '@posthog/lemon-ui'
 
-import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -49,15 +48,10 @@ export const scene: SceneExport = {
 }
 
 export function Max({ tabId }: { tabId?: string }): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
     const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
     const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
-
-    if (!featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG]) {
-        return <NotFound object="page" caption="You don't have access to AI features yet." />
-    }
 
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (

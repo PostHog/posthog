@@ -23,7 +23,8 @@ export const propertyDefinitionsHandler: ToolBase<typeof schema>['handler'] = as
         eventNames: params.eventName ? [params.eventName] : undefined,
         filterByEventNames: params.type === 'event',
         isFeatureFlag: false,
-        limit: 200,
+        limit: params.limit,
+        offset: params.offset,
         type: params.type,
         excludeCoreProperties: !params.includePredefinedProperties,
     })

@@ -334,6 +334,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         allowUnauthenticated: true,
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
+    [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
         defaultDocsPath: '/docs/data/organizations-and-projects',
@@ -714,6 +715,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
     [urls.products()]: [Scene.Products, 'products'],
     [urls.useCaseSelection()]: [Scene.UseCaseSelection, 'useCaseSelection'],
+    [urls.onboardingCoupon(':campaign')]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],

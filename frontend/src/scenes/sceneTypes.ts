@@ -90,6 +90,7 @@ export enum Scene {
     Notebooks = 'Notebooks',
     OAuthAuthorize = 'OAuthAuthorize',
     Onboarding = 'Onboarding',
+    OnboardingCoupon = 'OnboardingCoupon',
     OrganizationCreateFirst = 'OrganizationCreate',
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     PasswordReset = 'PasswordReset',

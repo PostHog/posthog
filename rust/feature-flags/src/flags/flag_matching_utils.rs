@@ -26,10 +26,9 @@ use crate::{
     cohorts::cohort_models::CohortId,
     flags::flag_models::FeatureFlagId,
     metrics::consts::{
-        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_CONNECTION_HOLD_TIME,
-        FLAG_DATABASE_ERROR_COUNTER, FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME,
-        FLAG_GROUP_QUERY_TIME, FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME,
-        FLAG_PERSON_QUERY_TIME, FLAG_POOL_UTILIZATION_GAUGE,
+        FLAG_COHORT_PROCESSING_TIME, FLAG_COHORT_QUERY_TIME, FLAG_DATABASE_ERROR_COUNTER,
+        FLAG_DEFINITION_QUERY_TIME, FLAG_GROUP_PROCESSING_TIME, FLAG_GROUP_QUERY_TIME,
+        FLAG_HASH_KEY_RETRIES_COUNTER, FLAG_PERSON_PROCESSING_TIME, FLAG_PERSON_QUERY_TIME,
     },
     properties::{
         property_matching::match_property,
@@ -1081,17 +1080,6 @@ async fn try_should_write_hash_key_override(
                 "High pool utilization before should_write_hash_key_override"
             );
         }
-
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "persons_reader".to_string())],
-            pr_utilization,
-        );
-        common_metrics::gauge(
-            FLAG_POOL_UTILIZATION_GAUGE,
-            &[("pool".to_string(), "non_persons_reader".to_string())],
-            npr_utilization,
-        );
     }
 
     // Step 1: Get person data and existing overrides (scoped connection)
@@ -1162,18 +1150,7 @@ async fn try_should_write_hash_key_override(
             })?;
         person_query_timer.fin();
 
-        // Record connection hold time for persons_reader pool
-        common_metrics::histogram(
-            FLAG_CONNECTION_HOLD_TIME,
-            &[
-                ("pool".to_string(), "persons_reader".to_string()),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ],
-            persons_conn_start.elapsed().as_millis() as f64,
-        );
-
         person_data_rows
-        // Connection automatically released here when persons_conn goes out of scope
     };
 
     // If no person_ids found, there's nothing to check
@@ -1253,16 +1230,6 @@ async fn try_should_write_hash_key_override(
                 FlagError::DatabaseError(e, Some("Failed to fetch flags".to_string()))
             })?;
         flags_query_timer.fin();
-
-        // Record connection hold time for non_persons_reader pool
-        common_metrics::histogram(
-            FLAG_CONNECTION_HOLD_TIME,
-            &[
-                ("pool".to_string(), "non_persons_reader".to_string()),
-                ("operation".to_string(), "should_write_check".to_string()),
-            ],
-            non_persons_conn_start.elapsed().as_millis() as f64,
-        );
 
         rows
         // Connection automatically released here when non_persons_conn goes out of scope

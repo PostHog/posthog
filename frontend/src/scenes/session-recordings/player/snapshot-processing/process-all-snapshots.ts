@@ -124,43 +124,23 @@ function createMinimalFullSnapshot(windowId: number | undefined, timestamp: numb
     } as unknown as RecordingSnapshot
 }
 
-/**
- * NB this mutates processingCache and returns the processed snapshots
- *
- * there are several steps to processing snapshots as received from the API
- * before they are playable, vanilla rrweb data
- */
-export function processAllSnapshots(
+export async function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string,
-    enableYielding?: false
-): RecordingSnapshot[]
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding: true
-): Promise<RecordingSnapshot[]>
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding: boolean = false
-): RecordingSnapshot[] | Promise<RecordingSnapshot[]> {
+    enableYielding: boolean = false,
+    discardRawSnapshots: boolean = false
+): Promise<RecordingSnapshot[]> {
     if (enableYielding) {
         return processAllSnapshotsAsync(
             sources,
             snapshotsBySource,
             processingCache,
             viewportForTimestamp,
-            sessionRecordingId
+            sessionRecordingId,
+            discardRawSnapshots
         )
     }
     return processAllSnapshotsSync(
@@ -168,7 +148,8 @@ export function processAllSnapshots(
         snapshotsBySource,
         processingCache,
         viewportForTimestamp,
-        sessionRecordingId
+        sessionRecordingId,
+        discardRawSnapshots
     )
 }
 
@@ -330,7 +311,8 @@ async function processAllSnapshotsAsync(
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
+    sessionRecordingId: string,
+    discardRawSnapshots: boolean
 ): Promise<RecordingSnapshot[]> {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
@@ -397,6 +379,12 @@ async function processAllSnapshotsAsync(
 
         processingCache.snapshots[sourceKey] = context.sourceResult
 
+        // Clear original snapshots after processing to free memory
+        // Once processed, we only need processingCache.snapshots[sourceKey]
+        if (discardRawSnapshots && snapshotsBySource[sourceKey]) {
+            snapshotsBySource[sourceKey].snapshots = []
+        }
+
         if (sourceIdx < sources.length - 1) {
             await yieldToMain()
         }
@@ -412,7 +400,8 @@ function processAllSnapshotsSync(
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string
+    sessionRecordingId: string,
+    discardRawSnapshots: boolean
 ): RecordingSnapshot[] {
     if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
         return []
@@ -472,6 +461,12 @@ function processAllSnapshotsSync(
         }
 
         processingCache.snapshots[sourceKey] = context.sourceResult
+
+        // Clear original snapshots after processing to free memory
+        // Once processed, we only need processingCache.snapshots[sourceKey]
+        if (discardRawSnapshots && snapshotsBySource[sourceKey]) {
+            snapshotsBySource[sourceKey].snapshots = []
+        }
     }
 
     context.result.sort((a, b) => a.timestamp - b.timestamp)

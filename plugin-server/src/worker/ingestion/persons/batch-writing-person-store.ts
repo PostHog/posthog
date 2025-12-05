@@ -39,8 +39,7 @@ import {
 import { isFilteredPersonUpdateProperty } from './person-property-utils'
 import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
-import { PersonsStore } from './persons-store'
-import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
+import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'
 import { PersonPropertiesSizeViolationError, PersonRepository } from './repositories/person-repository'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
@@ -104,29 +103,13 @@ interface CacheMetrics {
     checkCacheMisses: number
 }
 
-export class BatchWritingPersonsStore implements PersonsStore {
-    private options: BatchWritingPersonsStoreOptions
-
-    constructor(
-        private personRepository: PersonRepository,
-        private kafkaProducer: KafkaProducerWrapper,
-        options?: Partial<BatchWritingPersonsStoreOptions>
-    ) {
-        this.options = { ...DEFAULT_OPTIONS, ...options }
-    }
-
-    forBatch(): PersonsStoreForBatch {
-        return new BatchWritingPersonsStoreForBatch(this.personRepository, this.kafkaProducer, this.options)
-    }
-}
-
 /**
  * This class is used to write persons to the database in batches.
  * It will use a cache to avoid reading the same person from the database multiple times.
  * And will accumulate all changes for the same person in a single batch. At the
  * end of the batch processing, it flushes all changes to the database.
  */
-export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, BatchWritingStore {
+export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore {
     private personCheckCache: Map<string, InternalPerson | null>
     private distinctIdToPersonId: Map<string, string>
     private personUpdateCache: Map<string, PersonUpdate | null>
@@ -714,6 +697,23 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         personCacheOperationsCounter.inc({ cache: 'update', operation: 'miss' }, this.cacheMetrics.updateCacheMisses)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'hit' }, this.cacheMetrics.checkCacheHits)
         personCacheOperationsCounter.inc({ cache: 'check', operation: 'miss' }, this.cacheMetrics.checkCacheMisses)
+    }
+
+    reset(): void {
+        this.personCheckCache.clear()
+        this.distinctIdToPersonId.clear()
+        this.personUpdateCache.clear()
+        this.fetchPromisesForUpdate.clear()
+        this.fetchPromisesForChecking.clear()
+        this.methodCountsPerDistinctId.clear()
+        this.databaseOperationCountsPerDistinctId.clear()
+        this.updateLatencyPerDistinctIdSeconds.clear()
+        this.cacheMetrics = {
+            updateCacheHits: 0,
+            updateCacheMisses: 0,
+            checkCacheHits: 0,
+            checkCacheMisses: 0,
+        }
     }
 
     // Private implementation methods

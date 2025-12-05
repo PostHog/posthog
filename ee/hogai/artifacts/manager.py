@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
+from pydantic import ValidationError
 
 from posthog.schema import (
     ArtifactContentType,
@@ -190,11 +191,16 @@ class ArtifactManager(AssistantContextMixin):
         """
         for msg in messages:
             if isinstance(msg, VisualizationMessage) and msg.id == artifact_id:
-                return VisualizationArtifactContent(
-                    query=msg.answer,
-                    name=msg.query,
-                    description=msg.plan,
-                )
+                try:
+                    return VisualizationArtifactContent(
+                        query=msg.answer,
+                        name=msg.query,
+                        description=msg.plan,
+                    )
+                except ValidationError as e:
+                    capture_exception(e)
+                    # Old unsupported visualization messages schemas
+                    return None
         return None
 
     def _to_visualization_artifact_message(

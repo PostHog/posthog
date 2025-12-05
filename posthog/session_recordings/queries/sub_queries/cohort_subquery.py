@@ -16,13 +16,12 @@ class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):
     FROM (
         SELECT
             distinct_id,
-            argMax(person_id, version),
+            argMax(person_id, version) as person_id,
             argMax(is_deleted, version) as is_deleted
         FROM raw_person_distinct_ids
         WHERE team_id = {team_id}
-        AND {cohort_predicate}
         GROUP BY distinct_id
-        HAVING is_deleted = 0
+        HAVING is_deleted = 0 AND {cohort_predicate}
     )
         """
 

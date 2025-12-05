@@ -100,6 +100,7 @@ You can also simplify the setup by selecting **read** for the **entire resource*
                     tooltip="Enable for the best Revenue analytics experience.",
                 ),
             ],
+            featured=True,
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:

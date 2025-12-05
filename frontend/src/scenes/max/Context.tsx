@@ -7,8 +7,11 @@ import { IconAtSign, IconDashboard, IconGraph, IconPageChart, IconWarning } from
 import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+import { ModeSelector } from './components/ModeSelector'
 import { maxContextLogic } from './maxContextLogic'
 import { maxThreadLogic } from './maxThreadLogic'
 import { MaxActionContext, MaxDashboardContext, MaxEventContext, MaxInsightContext } from './maxTypes'
@@ -218,7 +221,10 @@ export function ContextTags({ size = 'default' }: { size?: 'small' | 'default' }
                                 onClose={() => removeAction(item.id)}
                                 closable
                                 closeOnClick
-                                className={clsx('flex items-center', size === 'small' ? 'max-w-20' : 'max-w-48')}
+                                className={clsx(
+                                    'flex items-center text-secondary',
+                                    size === 'small' ? 'max-w-20' : 'max-w-48'
+                                )}
                             >
                                 <span className="truncate min-w-0 flex-1">{name}</span>
                             </LemonTag>
@@ -276,7 +282,7 @@ export function ContextToolInfoTags({ size = 'default' }: { size?: 'small' | 'de
             <LemonTag
                 icon={toolContextItems[0].icon}
                 className={clsx(
-                    'flex items-center cursor-default border-dashed',
+                    'flex items-center cursor-default border-dashed text-secondary',
                     size === 'small' ? 'max-w-20' : 'max-w-48'
                 )}
             >
@@ -294,6 +300,7 @@ interface ContextDisplayProps {
 }
 
 export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
     const { deepResearchMode, showContextUI, submissionDisabledReason } = useValues(maxThreadLogic)
     const { hasData, contextOptions, taxonomicGroupTypes, mainTaxonomicGroupType, toolContextItems } =
         useValues(maxContextLogic)
@@ -306,8 +313,9 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
     const hasToolContext = toolContextItems.length > 0
 
     return (
-        <div className="px-1 w-full">
+        <div className="px-2 w-full">
             <div className="flex flex-wrap items-start gap-1 w-full">
+                {featureFlags[FEATURE_FLAGS.AGENT_MODES] && <ModeSelector />}
                 {deepResearchMode ? (
                     <LemonButton
                         size="xxsmall"
@@ -327,8 +335,9 @@ export function ContextDisplay({ size = 'default' }: ContextDisplayProps): JSX.E
                             groupType={mainTaxonomicGroupType}
                             groupTypes={taxonomicGroupTypes}
                             onChange={handleTaxonomicFilterChange}
-                            icon={<IconAtSign />}
+                            icon={<IconAtSign className="text-secondary" />}
                             placeholder={!hasData && !hasToolContext ? 'Add context' : null}
+                            placeholderClass="text-secondary"
                             maxContextOptions={contextOptions}
                             width={450}
                             disabledReason={submissionDisabledReason}

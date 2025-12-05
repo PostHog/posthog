@@ -13,6 +13,15 @@ pub struct Config {
     #[envconfig(default = "kafka-deduplicator")]
     pub kafka_consumer_group: String,
 
+    #[envconfig(default = "10485760")] // 10MB
+    pub kafka_consumer_max_partition_fetch_bytes: u32,
+
+    #[envconfig(default = "10000")] // 10 seconds
+    pub kafka_topic_metadata_refresh_interval_ms: u32,
+
+    #[envconfig(default = "30000")] // 30 seconds
+    pub kafka_metadata_max_age_ms: u32,
+
     // supplied by k8s deploy env, used as part of kafka
     // consumer client ID for sticky partition mappings
     #[envconfig(from = "HOSTNAME")]

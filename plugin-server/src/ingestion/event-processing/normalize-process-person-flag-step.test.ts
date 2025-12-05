@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
+import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { PipelineEvent, ProjectId, Team } from '../../types'
 import { PerDistinctIdPipelineInput } from '../ingestion-consumer'
 import { PipelineResultType } from '../pipelines/results'
@@ -46,8 +47,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         message: {} as Message,
         event: baseEvent,
         team,
-        headers: { force_disable_person_processing: false },
-        personsStoreForBatch: {} as any,
+        headers: createTestEventHeaders(),
         groupStoreForBatch: {} as any,
     }
 
@@ -132,7 +132,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         it('sets processPerson to false when header is true', async () => {
             const input: PerDistinctIdPipelineInput = {
                 ...baseInput,
-                headers: { force_disable_person_processing: true },
+                headers: createTestEventHeaders({ force_disable_person_processing: true }),
             }
 
             const result = await normalizeStep(input)
@@ -147,7 +147,7 @@ describe('normalizeProcessPersonFlagStep', () => {
         it('defaults to processPerson=true when header is false and no $process_person_profile property', async () => {
             const input: PerDistinctIdPipelineInput = {
                 ...baseInput,
-                headers: { force_disable_person_processing: false },
+                headers: createTestEventHeaders(),
             }
 
             const result = await normalizeStep(input)
@@ -166,7 +166,7 @@ describe('normalizeProcessPersonFlagStep', () => {
                     ...baseEvent,
                     properties: { $process_person_profile: true },
                 },
-                headers: { force_disable_person_processing: true },
+                headers: createTestEventHeaders({ force_disable_person_processing: true }),
             }
 
             const result = await normalizeStep(input)
@@ -185,7 +185,7 @@ describe('normalizeProcessPersonFlagStep', () => {
                     ...baseEvent,
                     properties: { $process_person_profile: false },
                 },
-                headers: { force_disable_person_processing: false },
+                headers: createTestEventHeaders(),
             }
 
             const result = await normalizeStep(input)
