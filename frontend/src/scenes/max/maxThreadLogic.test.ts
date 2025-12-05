@@ -12,7 +12,12 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
-import { AgentMode, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
+import {
+    AgentMode,
+    AssistantMessage,
+    AssistantMessageType,
+    SlashCommandName,
+} from '~/queries/schema/schema-assistant-messages'
 import { initKeaTests } from '~/test/init'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
@@ -884,7 +889,7 @@ describe('maxThreadLogic', () => {
 
         it('selectCommand sets question for command without arg', async () => {
             const initCommand = {
-                name: '/init' as const,
+                name: SlashCommandName.SlashInit,
                 description: 'Test command',
                 icon: React.createElement('div'),
             }
@@ -898,7 +903,7 @@ describe('maxThreadLogic', () => {
 
         it('selectCommand sets question with space for command with arg', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),
@@ -913,7 +918,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand calls askMax directly for command without arg', async () => {
             const initCommand = {
-                name: '/init' as const,
+                name: SlashCommandName.SlashInit,
                 description: 'Test command',
                 icon: React.createElement('div'),
             }
@@ -927,7 +932,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand sets question for command with arg', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),
@@ -942,7 +947,7 @@ describe('maxThreadLogic', () => {
 
         it('activateCommand does not call askMax for command with arg, only setQuestion', async () => {
             const rememberCommand = {
-                name: '/remember' as const,
+                name: SlashCommandName.SlashRemember,
                 arg: '[information]' as const,
                 description: 'Test command with arg',
                 icon: React.createElement('div'),

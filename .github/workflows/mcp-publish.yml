@@ -56,6 +56,7 @@ jobs:
         if: needs.check-package-version.outputs.is-new-version == 'true'
         permissions:
             contents: read
+            id-token: write
         env:
             COMMITTED_VERSION: ${{ needs.check-package-version.outputs.committed-version }}
             PUBLISHED_VERSION: ${{ needs.check-package-version.outputs.published-version }}
