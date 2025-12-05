@@ -25,5 +25,5 @@
         }
     },
     "jest.rootPath": "plugin-server",
-    "jest.jestCommandLine": " flox activate && pnpm test"
+    "jest.jestCommandLine": "flox activate && pnpm test"
 }
