@@ -53,7 +53,7 @@ jobs:
                     --metrics=off \
                     --verbose \
                     --sarif-output semgrep-python.sarif \
-                    common/ dags/ ee/ posthog/ products/
+                    common/ ee/ posthog/ products/
 
             - name: Upload results
               if: ${{ !cancelled() }}
@@ -182,7 +182,6 @@ jobs:
                     --sarif-output semgrep-general.sarif \
                     --exclude ./cli/ \
                     --exclude ./common/ \
-                    --exclude ./dags/ \
                     --exclude ./ee/ \
                     --exclude ./frontend/ \
                     --exclude ./livestream/ \
