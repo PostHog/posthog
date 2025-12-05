@@ -15,6 +15,7 @@ jobs:
               id: incident
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       try {
                         const { data } = await github.rest.actions.getRepoVariable({
@@ -49,6 +50,7 @@ jobs:
               if: github.event.workflow_run.conclusion == 'failure' && steps.incident.outputs.exists == 'false'
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const value = JSON.stringify({
                         channel: '${{ steps.slack_new.outputs.channel_id }}',
@@ -91,6 +93,7 @@ jobs:
               id: check_green
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const { data } = await github.rest.checks.listForRef({
                         owner: context.repo.owner,
@@ -133,6 +136,7 @@ jobs:
               if: github.event.workflow_run.conclusion == 'success' && steps.incident.outputs.exists == 'true' && steps.check_green.outputs.all_green == 'true'
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       await github.rest.actions.updateRepoVariable({
                         owner: context.repo.owner,

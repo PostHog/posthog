@@ -169,7 +169,10 @@ jobs:
             - name: Get incident state
               id: incident
               uses: actions/github-script@v7
+              env:
+                  GH_PAT: ${{ secrets.POSTHOG_BOT_PAT }}
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       try {
                         const { data } = await github.rest.actions.getRepoVariable({
@@ -206,6 +209,7 @@ jobs:
               if: steps.incident.outputs.exists == 'false'
               uses: actions/github-script@v7
               with:
+                  github-token: ${{ secrets.POSTHOG_BOT_PAT }}
                   script: |
                       const value = JSON.stringify({
                         channel: '${{ steps.slack_new.outputs.channel_id }}',
