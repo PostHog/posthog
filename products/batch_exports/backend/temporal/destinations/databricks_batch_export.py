@@ -39,7 +39,7 @@ from posthog.batch_exports.service import (
 from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
@@ -58,8 +58,7 @@ from products.batch_exports.backend.temporal.pipeline.types import BatchExportRe
 from products.batch_exports.backend.temporal.spmc import RecordBatchQueue, wait_for_schema_or_producer
 from products.batch_exports.backend.temporal.utils import JsonType, handle_non_retryable_errors
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
@@ -220,7 +219,6 @@ class DatabricksClient:
         self._connection: None | Connection = None
 
         self.logger = LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
-        self.external_logger = EXTERNAL_LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
 
     @classmethod
     def from_inputs_and_integration(cls, inputs: DatabricksInsertInputs, integration: DatabricksIntegration) -> t.Self:
@@ -437,9 +435,9 @@ class DatabricksClient:
         delete: bool = False,
     ):
         """Manage a table in Databricks by ensuring it exists while in context."""
-        # log if we're creating a permanent table
+        # Inform users if we're creating a permanent table
         if delete is False:
-            self.external_logger.info("Creating Databricks table %s", table_name)
+            self.logger.info("Creating Databricks table %s", table_name, write_only=False)
         else:
             self.logger.info("Creating Databricks table %s", table_name)
 
@@ -453,10 +451,11 @@ class DatabricksClient:
                 try:
                     await self.adelete_table(table_name)
                 except DatabricksInsufficientPermissionsError as err:
-                    self.external_logger.warning(
+                    self.logger.warning(
                         "Table '%s' may not be properly cleaned up due to missing necessary permissions: %s",
                         table_name,
                         err,
+                        write_only=False,
                     )
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
@@ -566,10 +565,11 @@ class DatabricksClient:
             try:
                 await self.adelete_volume(volume)
             except DatabricksInsufficientPermissionsError as err:
-                self.external_logger.warning(
+                self.logger.warning(
                     "Volume '%s' may not be properly cleaned up due to missing necessary permissions: %s",
                     volume,
                     err,
+                    write_only=False,
                 )
 
     async def acreate_volume(self, volume: str):
@@ -980,11 +980,12 @@ class DatabricksConsumer(Consumer):
             file_name=f"{self.current_file_index}.parquet",
         )
 
-        self.external_logger.info(
+        self.logger.info(
             "File %d with %.2f MB uploaded to Databricks volume '%s'",
             self.current_file_index,
             buffer_size / 1024 / 1024,
             self.volume_path,
+            write_only=False,
         )
         self.current_buffer = io.BytesIO()
 
@@ -1025,11 +1026,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         schema=inputs.schema,
         table_name=inputs.table_name,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
     databricks_integration = await _get_databricks_integration(inputs)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to Databricks: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -1059,7 +1060,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",

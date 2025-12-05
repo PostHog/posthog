@@ -29,7 +29,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
@@ -76,8 +76,7 @@ NON_RETRYABLE_ERROR_TYPES = (
     "StartQueryTimeoutError",
 )
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
 
 FileFormat = typing.Literal["Parquet", "JSONLines"]
 BigQueryTypeName = typing.Literal[
@@ -302,9 +301,7 @@ class BigQueryClient:
 
     def __init__(self, client: bigquery.Client):
         self.sync_client = client
-
         self.logger = LOGGER.bind(project_id=client.project)
-        self.external_logger = EXTERNAL_LOGGER.bind(project_id=client.project)
 
     async def __aenter__(self) -> typing.Self:
         return self
@@ -488,9 +485,10 @@ class BigQueryClient:
                 try:
                     await self.delete_table(managed_table, not_found_ok)
                 except Forbidden:
-                    self.external_logger.warning(
+                    self.logger.warning(
                         "Table '%s' may not be properly cleaned up due to missing necessary permissions",
                         managed_table.fully_qualified_name,
+                        write_only=False,
                     )
 
     async def merge_tables(
@@ -934,9 +932,9 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         dataset_id=inputs.dataset_id,
         table_id=inputs.table_id,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -966,7 +964,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
@@ -1015,7 +1013,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 if bigquery_target_table.is_mutable():
                     raise MissingRequiredPermissionsError()
 
-                external_logger.warning(
+                logger.warning(
                     "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                 )
                 consumer_table = bigquery_target_table

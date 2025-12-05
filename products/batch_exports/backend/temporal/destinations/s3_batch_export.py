@@ -29,7 +29,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
@@ -85,8 +85,7 @@ SUPPORTED_COMPRESSIONS = {
     "JSONLines": ["gzip", "brotli"],
 }
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
 
 
 class UnsupportedFileFormatError(Exception):
@@ -146,8 +145,9 @@ def get_s3_key_prefix(
     try:
         return prefix.format(**template_variables)
     except (KeyError, ValueError) as e:
-        EXTERNAL_LOGGER.warning(
-            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
+        LOGGER.warning(
+            f"The key prefix '{prefix}' will be used as-is since it contains invalid template variables: {str(e)}",
+            write_only=False,
         )
         return prefix
 
@@ -371,9 +371,9 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to S3: %s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -399,7 +399,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> BatchExp
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
@@ -762,8 +762,11 @@ class ConcurrentS3Consumer(Consumer):
         self.upload_id = None
         self.pending_uploads.clear()
         self.completed_parts.clear()
-        self.external_logger.info(
-            "Starting multipart upload to '%s' for file number %d", self._get_current_key(), self.current_file_index
+        self.logger.info(
+            "Starting multipart upload to '%s' for file number %d",
+            self._get_current_key(),
+            self.current_file_index,
+            write_only=False,
         )
 
     async def _finalize_current_file(self):
@@ -790,7 +793,7 @@ class ConcurrentS3Consumer(Consumer):
                 await self._complete_multipart_upload()
 
             self.files_uploaded.append(self._get_current_key())
-            self.external_logger.info("Completed multipart upload for file number %d", self.current_file_index)
+            self.logger.info("Completed multipart upload for file number %d", self.current_file_index, write_only=False)
 
         except Exception:
             # Cleanup on error
@@ -859,12 +862,12 @@ class ConcurrentS3Consumer(Consumer):
             manifest_key = get_manifest_key(
                 self.prefix, self.data_interval_start, self.data_interval_end, self.batch_export_model
             )
-            self.external_logger.info("Uploading manifest file '%s'", manifest_key)
+            self.logger.info("Uploading manifest file '%s'", manifest_key, write_only=False)
             await self.upload_manifest_file(
                 self.files_uploaded,
                 manifest_key,
             )
-            self.external_logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded))
+            self.logger.info("All uploads completed. Uploaded %d files", len(self.files_uploaded), write_only=False)
 
     async def upload_manifest_file(
         self,

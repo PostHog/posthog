@@ -31,7 +31,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
@@ -79,8 +79,7 @@ from products.batch_exports.backend.temporal.utils import (
     set_status_to_running_task,
 )
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger()
+LOGGER = get_logger(__name__)
 
 
 NON_RETRYABLE_ERROR_TYPES = (
@@ -358,7 +357,7 @@ class RedshiftClient(PostgreSQLClient):
                         query="DELETE",
                         full_query=delete_query,
                     )
-                    self.external_logger.error(  # noqa: TRY400
+                    self.logger.error(  # noqa: TRY400
                         "A non-retryable 'UndefinedFunction' error happened when attempting to"
                         " delete existing rows from '%s.%s' before a 'MERGE' command can be executed."
                         " This can indicate that the schema of the table does not match what the"
@@ -368,6 +367,7 @@ class RedshiftClient(PostgreSQLClient):
                         " create a table with the correct schema if it doesn't already exist.",
                         schema,
                         final_table_name,
+                        write_only=False,
                     )
                     raise
 
@@ -587,19 +587,20 @@ class RedshiftConsumer(Consumer):
         is_last: bool,
         error: Exception | None,
     ):
-        self.external_logger.info(
+        self.logger.info(
             "Loading %d records of size %d bytes to Redshift table '%s'",
             records_since_last_flush,
             bytes_since_last_flush,
             self.redshift_table,
+            write_only=False,
         )
 
         async with self.redshift_client.async_client_cursor() as cursor:
             async with self.redshift_client.connection.transaction():
                 await cursor.execute(batch_export_file.read())
 
-        self.external_logger.info(
-            "Loaded %d records to Redshift table '%s'", records_since_last_flush, self.redshift_table
+        self.logger.info(
+            "Loaded %d records to Redshift table '%s'", records_since_last_flush, self.redshift_table, write_only=False
         )
         self.rows_exported_counter.add(records_since_last_flush)
         self.bytes_exported_counter.add(bytes_since_last_flush)
@@ -683,9 +684,9 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
         data_interval_start=inputs.batch_export.data_interval_start,
         data_interval_end=inputs.batch_export.data_interval_end,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.batch_export.data_interval_start or "START",
         inputs.batch_export.data_interval_end or "END",
@@ -737,7 +738,7 @@ async def insert_into_redshift_activity(inputs: RedshiftInsertInputs) -> BatchEx
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.batch_export.data_interval_start or "START",
                 inputs.batch_export.data_interval_end or "END",
@@ -1084,9 +1085,9 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
         database=inputs.connection.database,
         schema=inputs.table.schema_name,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.batch_export.data_interval_start or "START",
         inputs.batch_export.data_interval_end or "END",
@@ -1116,7 +1117,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.batch_export.data_interval_start or "START",
                 inputs.batch_export.data_interval_end or "END",
@@ -1150,7 +1151,7 @@ async def insert_into_redshift_activity_from_stage(inputs: RedshiftInsertInputs)
                 if len(columns) > len(tuple(table_schemas.table_schema)):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
-                    external_logger.warning(
+                    logger.warning(
                         "Table %s.%s has %d columns instead of %d as expected. "
                         "MERGE command may perform worse and not properly clean up duplicates",
                         inputs.table.schema_name,
@@ -1281,14 +1282,14 @@ async def upload_manifest_file(
             for error_code in error_codes:
                 if error_code == "AccessDenied":
                     # This reports the error to the user, we have already logged the exception above.
-                    EXTERNAL_LOGGER.error(  # noqa: TRY400
+                    LOGGER.error(  # noqa: TRY400
                         "Missing permissions when attempting to list uploaded files while preparing for manifest upload. Have you granted 's3:ListBucket' permissions to the provided user on the bucket '%s'?",
                         bucket,
+                        write_only=False,
                     )
                 else:
-                    EXTERNAL_LOGGER.error(  # noqa: TRY400
-                        "Unknown error when attempting to list uploaded files: %s",
-                        error_code,
+                    LOGGER.error(  # noqa: TRY400
+                        "Unknown error when attempting to list uploaded files: %s", error_code, write_only=False
                     )
 
             raise ClientErrorGroup(top_level_errors)
@@ -1382,9 +1383,9 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
         database=inputs.connection.database,
         schema=inputs.table.schema_name,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to Redshift: %s.%s.%s",
         inputs.batch_export.data_interval_start or "START",
         inputs.batch_export.data_interval_end or "END",
@@ -1414,7 +1415,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.batch_export.data_interval_start or "START",
                 inputs.batch_export.data_interval_end or "END",
@@ -1493,7 +1494,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 if len(columns) > len(tuple(table_schemas.table_schema)):
                     # MERGE cannot remove duplicates if table columns don't match.
                     remove_duplicates = False
-                    external_logger.warning(
+                    logger.warning(
                         "Table %s.%s has %d columns instead of %d as expected. "
                         "MERGE command may perform worse and not properly clean up duplicates",
                         inputs.table.schema_name,
@@ -1544,7 +1545,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                 )
 
                 try:
-                    external_logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
+                    logger.info(f"Copying {len(consumer.files_uploaded)} file/s into Redshift")
 
                     await redshift_client.acopy_from_s3_bucket(
                         table_name=redshift_stage_table,
@@ -1567,7 +1568,7 @@ async def copy_into_redshift_activity_from_stage(inputs: RedshiftCopyActivityInp
                             remove_duplicates=remove_duplicates,
                         )
 
-                    external_logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
+                    logger.info(f"Finished {len(consumer.files_uploaded)} copying file/s into Redshift")
 
                 finally:
                     await delete_uploaded_files(

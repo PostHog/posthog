@@ -33,7 +33,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
+from posthog.temporal.common.logger import get_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
@@ -61,8 +61,7 @@ from products.batch_exports.backend.temporal.utils import (
     make_retryable_with_exponential_backoff,
 )
 
-LOGGER = get_write_only_logger(__name__)
-EXTERNAL_LOGGER = get_logger("EXTERNAL")
+LOGGER = get_logger(__name__)
 
 
 class NamedBytesIO(io.BytesIO):
@@ -1210,11 +1209,12 @@ class SnowflakeConsumer(Consumer):
             table=self.snowflake_table,
         )
 
-        self.external_logger.info(
+        self.logger.info(
             "File %d with %d bytes uploaded to Snowflake table '%s'",
             self.current_file_index,
             buffer_size,
             self.snowflake_table,
+            write_only=False,
         )
 
         self._start_new_file()
@@ -1242,9 +1242,9 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
         schema=inputs.schema,
         table_name=inputs.table_name,
     )
-    external_logger = EXTERNAL_LOGGER.bind()
+    logger = LOGGER.bind(write_only=False)
 
-    external_logger.info(
+    logger.info(
         "Batch exporting range %s - %s to Snowflake: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
@@ -1274,7 +1274,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:
-            external_logger.info(
+            logger.info(
                 "Batch export will finish early as there is no data matching specified filters in range %s - %s",
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
