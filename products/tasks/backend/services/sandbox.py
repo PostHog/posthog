@@ -48,26 +48,21 @@ class SandboxConfig(BaseModel):
 def get_sandbox_class():
     provider = getattr(settings, "SANDBOX_PROVIDER", None)
 
-    # Production: always use Modal, block Docker
-    if not settings.DEBUG:
-        if provider == "docker":
+    # Docker is opt-in only, requires DEBUG mode
+    if provider == "docker":
+        if not settings.DEBUG:
             raise RuntimeError(
                 "DockerSandbox cannot be used in production. "
-                "Set DEBUG=True for local development or use SANDBOX_PROVIDER=modal for production."
+                "Set DEBUG=True for local development or remove SANDBOX_PROVIDER=docker."
             )
-        from .modal_sandbox import ModalSandbox
+        from .docker_sandbox import DockerSandbox
 
-        return ModalSandbox
+        return DockerSandbox
 
-    # Development: default to Docker, allow override to Modal
-    if provider == "modal":
-        from .modal_sandbox import ModalSandbox
+    # Default to Modal everywhere
+    from .modal_sandbox import ModalSandbox
 
-        return ModalSandbox
-
-    from .docker_sandbox import DockerSandbox
-
-    return DockerSandbox
+    return ModalSandbox
 
 
 Sandbox = get_sandbox_class()
