@@ -76,8 +76,8 @@ def refresh_expiring_team_metadata_cache_entries() -> None:
     try:
         successful, failed = refresh_expiring_caches(ttl_threshold_hours=24)
 
-        # Note: HYPERCACHE_TEAMS_PROCESSED_COUNTER is already incremented by the generic
-        # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
+        # Note: Teams processed metrics are pushed to Pushgateway by
+        # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
         # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
         stats_after = get_cache_stats()
