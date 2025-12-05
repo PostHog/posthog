@@ -1,8 +1,8 @@
 import { Redis } from 'ioredis'
 
-import { Hub } from '../types'
 import {
     EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerHub,
     REDIS_KEY_PREFIX,
     RestrictionType,
 } from './event-ingestion-restriction-manager'
@@ -24,7 +24,7 @@ jest.mock('./db/redis', () => {
 })
 
 describe('EventIngestionRestrictionManager', () => {
-    let hub: Hub
+    let hub: EventIngestionRestrictionManagerHub
     let redisClient: Redis
     let pipelineMock: any
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
@@ -33,6 +33,7 @@ describe('EventIngestionRestrictionManager', () => {
         pipelineMock = {
             get: jest.fn().mockReturnThis(),
             exec: jest.fn().mockResolvedValue([
+                [null, null],
                 [null, null],
                 [null, null],
                 [null, null],
@@ -46,9 +47,9 @@ describe('EventIngestionRestrictionManager', () => {
         hub = {
             USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: true,
             redisPool: require('./db/redis').createRedisPool(),
-        } as unknown as Hub
+        }
 
-        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+        eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
             staticDropEventTokens: [],
             staticSkipPersonTokens: [],
             staticForceOverflowTokens: [],
@@ -62,12 +63,12 @@ describe('EventIngestionRestrictionManager', () => {
 
     describe('constructor', () => {
         it('initializes with default values if no options provided', () => {
-            const manager = new EventIngestionRestrictionManager(hub as Hub)
+            const manager = new EventIngestionRestrictionManager(hub)
             expect(manager).toBeDefined()
         })
 
         it('initializes with provided options', () => {
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+            const manager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['token1'],
                 staticSkipPersonTokens: ['token2'],
                 staticForceOverflowTokens: ['token3'],
@@ -93,7 +94,7 @@ describe('EventIngestionRestrictionManager', () => {
             hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
 
             // Create a new manager with the flag set to false
-            const manager = new EventIngestionRestrictionManager(hub as Hub)
+            const manager = new EventIngestionRestrictionManager(hub)
 
             // Create a spy on the fetchDynamicEventIngestionRestrictionConfig method
             const fetchSpy = jest.spyOn(manager, 'fetchDynamicEventIngestionRestrictionConfig')
@@ -111,8 +112,8 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('fetches and parses Redis data correctly', async () => {
-            // on class initialization, we load the cache, so assert that pipeline get was called 3 times
-            expect(pipelineMock.get).toHaveBeenCalledTimes(3)
+            // on class initialization, we load the cache, so assert that pipeline get was called 4 times
+            expect(pipelineMock.get).toHaveBeenCalledTimes(4)
             // now clear the mock, so we can assert again below
             pipelineMock.get.mockClear()
             pipelineMock.exec.mockResolvedValue([
@@ -137,6 +138,13 @@ describe('EventIngestionRestrictionManager', () => {
                         { token: 'token6', pipelines: ['analytics'] },
                     ]),
                 ],
+                [
+                    null,
+                    JSON.stringify([
+                        { token: 'token7', pipelines: ['analytics'] },
+                        { token: 'token8', pipelines: ['analytics'] },
+                    ]),
+                ],
             ])
 
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
@@ -145,10 +153,11 @@ describe('EventIngestionRestrictionManager', () => {
                 [RestrictionType.DROP_EVENT_FROM_INGESTION]: new Set(['token1', 'token2']),
                 [RestrictionType.SKIP_PERSON_PROCESSING]: new Set(['token3', 'token4']),
                 [RestrictionType.FORCE_OVERFLOW_FROM_INGESTION]: new Set(['token5', 'token6']),
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token7', 'token8']),
             })
 
             expect(hub.redisPool.acquire).toHaveBeenCalled()
-            expect(pipelineMock.get).toHaveBeenCalledTimes(3)
+            expect(pipelineMock.get).toHaveBeenCalledTimes(4)
             expect(pipelineMock.get).toHaveBeenCalledWith(
                 `${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`
             )
@@ -158,6 +167,7 @@ describe('EventIngestionRestrictionManager', () => {
             expect(pipelineMock.get).toHaveBeenCalledWith(
                 `${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`
             )
+            expect(pipelineMock.get).toHaveBeenCalledWith(`${REDIS_KEY_PREFIX}:${RestrictionType.REDIRECT_TO_DLQ}`)
             expect(hub.redisPool.release).toHaveBeenCalledWith(redisClient)
         })
 
@@ -191,6 +201,7 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
@@ -205,6 +216,7 @@ describe('EventIngestionRestrictionManager', () => {
             pipelineMock.get.mockClear()
             pipelineMock.exec.mockResolvedValue([
                 [null, JSON.stringify([{ token: 'token1', pipelines: ['session_recordings'] }])],
+                [null, null],
                 [null, null],
                 [null, null],
             ])
@@ -227,6 +239,7 @@ describe('EventIngestionRestrictionManager', () => {
                         { token: 'token2', pipelines: ['analytics'] },
                     ]),
                 ],
+                [null, null],
                 [null, null],
                 [null, null],
             ])
@@ -252,6 +265,7 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
             const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
@@ -273,6 +287,7 @@ describe('EventIngestionRestrictionManager', () => {
                         { token: 'token2', pipelines: ['analytics'] }, // Has pipelines field
                     ]),
                 ],
+                [null, null],
                 [null, null],
                 [null, null],
             ])
@@ -298,9 +313,10 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+            const manager = new EventIngestionRestrictionManager(hub, {
                 pipeline: 'session_recordings',
             })
 
@@ -324,9 +340,10 @@ describe('EventIngestionRestrictionManager', () => {
                 ],
                 [null, null],
                 [null, null],
+                [null, null],
             ])
 
-            const manager = new EventIngestionRestrictionManager(hub as Hub, {
+            const manager = new EventIngestionRestrictionManager(hub, {
                 pipeline: 'session_recordings',
             })
 
@@ -345,14 +362,14 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns true if token is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token'],
             })
             expect(eventIngestionRestrictionManager.shouldDropEvent('static-drop-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static drop list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token:distinct_id:123'],
             })
             expect(eventIngestionRestrictionManager.shouldDropEvent('static-drop-token', '123')).toBe(true)
@@ -400,14 +417,14 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns true if token is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token'],
             })
             expect(eventIngestionRestrictionManager.shouldSkipPerson('static-skip-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static skip list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token:distinct_id:123'],
             })
             expect(eventIngestionRestrictionManager.shouldSkipPerson('static-skip-token', '123')).toBe(true)
@@ -455,14 +472,14 @@ describe('EventIngestionRestrictionManager', () => {
         })
 
         it('returns true if token is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token'],
             })
             expect(eventIngestionRestrictionManager.shouldForceOverflow('static-overflow-token')).toBe(true)
         })
 
         it('returns true if token:distinctId is in static overflow list', () => {
-            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub as Hub, {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token:distinct_id:123'],
             })
             expect(eventIngestionRestrictionManager.shouldForceOverflow('static-overflow-token', '123')).toBe(true)
@@ -504,6 +521,95 @@ describe('EventIngestionRestrictionManager', () => {
         })
     })
 
+    describe('shouldRedirectToDlq', () => {
+        it('returns false if token is not provided', () => {
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq()).toBe(false)
+        })
+
+        it('returns true if token is in static DLQ list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticRedirectToDlqTokens: ['static-dlq-token'],
+            })
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('static-dlq-token')).toBe(true)
+        })
+
+        it('returns true if token:distinctId is in static DLQ list', () => {
+            eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
+                staticRedirectToDlqTokens: ['static-dlq-token:distinct_id:123'],
+            })
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('static-dlq-token', '123')).toBe(true)
+        })
+
+        it('returns false if dynamic config is disabled', () => {
+            hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG = false
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token')).toBe(false)
+        })
+
+        it('returns false if dynamic set is not defined', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {}
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token')).toBe(false)
+        })
+
+        it('returns true if token is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token']),
+            }
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token')).toBe(true)
+        })
+
+        it('returns true if distinctId is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token:distinct_id:123']),
+            }
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token', '123')).toBe(true)
+        })
+
+        it('returns false if neither token nor distinctId is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['other-token', 'token:distinct_id:789']),
+            }
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token', '123')).toBe(false)
+        })
+
+        it('returns true if session_id is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token:session_id:session123']),
+            }
+            expect(eventIngestionRestrictionManager.shouldRedirectToDlq('token', undefined, 'session123')).toBe(true)
+        })
+
+        it('returns true if event_name is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token:event_name:$pageview']),
+            }
+            expect(
+                eventIngestionRestrictionManager.shouldRedirectToDlq('token', undefined, undefined, '$pageview')
+            ).toBe(true)
+        })
+
+        it('returns true if event_uuid is in the dynamic config list', () => {
+            // @ts-expect-error - Setting private property for testing
+            eventIngestionRestrictionManager.latestDynamicConfig = {
+                [RestrictionType.REDIRECT_TO_DLQ]: new Set(['token:event_uuid:uuid-123']),
+            }
+            expect(
+                eventIngestionRestrictionManager.shouldRedirectToDlq(
+                    'token',
+                    undefined,
+                    undefined,
+                    undefined,
+                    'uuid-123'
+                )
+            ).toBe(true)
+        })
+    })
+
     describe('session_id support', () => {
         describe('fetchDynamicEventIngestionRestrictionConfig with session_ids', () => {
             it('handles new format with session_id field', async () => {
@@ -516,6 +622,7 @@ describe('EventIngestionRestrictionManager', () => {
                             { token: 'token2', distinct_id: 'user1', pipelines: ['analytics'] },
                         ]),
                     ],
+                    [null, null],
                     [null, null],
                     [null, null],
                 ])
@@ -541,6 +648,7 @@ describe('EventIngestionRestrictionManager', () => {
                             { token: 'token2', pipelines: ['analytics'] },
                         ]),
                     ],
+                    [null, null],
                     [null, null],
                     [null, null],
                 ])
@@ -665,6 +773,7 @@ describe('EventIngestionRestrictionManager', () => {
                     ],
                     [null, null],
                     [null, null],
+                    [null, null],
                 ])
 
                 const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
@@ -689,6 +798,7 @@ describe('EventIngestionRestrictionManager', () => {
                             { token: 'token2', pipelines: ['analytics'] },
                         ]),
                     ],
+                    [null, null],
                     [null, null],
                     [null, null],
                 ])
@@ -871,6 +981,7 @@ describe('EventIngestionRestrictionManager', () => {
                     ],
                     [null, null],
                     [null, null],
+                    [null, null],
                 ])
 
                 const result = await eventIngestionRestrictionManager.fetchDynamicEventIngestionRestrictionConfig()
@@ -895,6 +1006,7 @@ describe('EventIngestionRestrictionManager', () => {
                             { token: 'token2', pipelines: ['analytics'] },
                         ]),
                     ],
+                    [null, null],
                     [null, null],
                     [null, null],
                 ])

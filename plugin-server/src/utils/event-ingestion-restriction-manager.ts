@@ -3,10 +3,16 @@ import { BackgroundRefresher } from './background-refresher'
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
 
+export type EventIngestionRestrictionManagerHub = Pick<
+    Hub,
+    'USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG' | 'redisPool'
+>
+
 export enum RestrictionType {
     DROP_EVENT_FROM_INGESTION = 'drop_event_from_ingestion',
     SKIP_PERSON_PROCESSING = 'skip_person_processing',
     FORCE_OVERFLOW_FROM_INGESTION = 'force_overflow_from_ingestion',
+    REDIRECT_TO_DLQ = 'redirect_to_dlq',
 }
 
 export type IngestionPipeline = 'analytics' | 'session_recordings'
@@ -22,24 +28,27 @@ export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
  * - DROP_EVENT_FROM_INGESTION: Drop events from ingestion
  * - SKIP_PERSON_PROCESSING: Skip person processing
  * - FORCE_OVERFLOW_FROM_INGESTION: Force overflow from ingestion
+ * - REDIRECT_TO_DLQ: Redirect events to dead letter queue
  *
  */
 export class EventIngestionRestrictionManager {
-    private hub: Hub
+    private hub: EventIngestionRestrictionManagerHub
     private pipeline: IngestionPipeline
     private staticDropEventList: Set<string>
     private staticSkipPersonList: Set<string>
     private staticForceOverflowList: Set<string>
+    private staticRedirectToDlqList: Set<string>
     private dynamicConfigRefresher: BackgroundRefresher<Partial<Record<string, Set<string>>>>
     private latestDynamicConfig: Partial<Record<RestrictionType, Set<string>>> = {}
 
     constructor(
-        hub: Hub,
+        hub: EventIngestionRestrictionManagerHub,
         options: {
             pipeline?: IngestionPipeline
             staticDropEventTokens?: string[]
             staticSkipPersonTokens?: string[]
             staticForceOverflowTokens?: string[]
+            staticRedirectToDlqTokens?: string[]
         } = {}
     ) {
         const {
@@ -47,6 +56,7 @@ export class EventIngestionRestrictionManager {
             staticDropEventTokens = [],
             staticSkipPersonTokens = [],
             staticForceOverflowTokens = [],
+            staticRedirectToDlqTokens = [],
         } = options
 
         this.hub = hub
@@ -54,6 +64,7 @@ export class EventIngestionRestrictionManager {
         this.staticDropEventList = new Set(staticDropEventTokens)
         this.staticSkipPersonList = new Set(staticSkipPersonTokens)
         this.staticForceOverflowList = new Set(staticForceOverflowTokens)
+        this.staticRedirectToDlqList = new Set(staticRedirectToDlqTokens)
 
         this.dynamicConfigRefresher = new BackgroundRefresher(async () => {
             try {
@@ -86,7 +97,8 @@ export class EventIngestionRestrictionManager {
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.DROP_EVENT_FROM_INGESTION}`)
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.SKIP_PERSON_PROCESSING}`)
                 pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.FORCE_OVERFLOW_FROM_INGESTION}`)
-                const [dropResult, skipResult, overflowResult] = await pipeline.exec()
+                pipeline.get(`${REDIS_KEY_PREFIX}:${RestrictionType.REDIRECT_TO_DLQ}`)
+                const [dropResult, skipResult, overflowResult, dlqResult] = await pipeline.exec()
 
                 const result: Partial<Record<RestrictionType, Set<string>>> = {}
                 const processRedisResult = (redisResult: any, restrictionType: RestrictionType) => {
@@ -141,6 +153,7 @@ export class EventIngestionRestrictionManager {
                 processRedisResult(dropResult, RestrictionType.DROP_EVENT_FROM_INGESTION)
                 processRedisResult(skipResult, RestrictionType.SKIP_PERSON_PROCESSING)
                 processRedisResult(overflowResult, RestrictionType.FORCE_OVERFLOW_FROM_INGESTION)
+                processRedisResult(dlqResult, RestrictionType.REDIRECT_TO_DLQ)
                 return result
             } catch (error) {
                 logger.warn('Error reading dynamic config for event ingestion restrictions from Redis', { error })
@@ -205,6 +218,24 @@ export class EventIngestionRestrictionManager {
             eventUuid,
             this.staticForceOverflowList,
             RestrictionType.FORCE_OVERFLOW_FROM_INGESTION
+        )
+    }
+
+    shouldRedirectToDlq(
+        token?: string,
+        distinctId?: string,
+        sessionId?: string,
+        eventName?: string,
+        eventUuid?: string
+    ): boolean {
+        return this.checkRestriction(
+            token,
+            distinctId,
+            sessionId,
+            eventName,
+            eventUuid,
+            this.staticRedirectToDlqList,
+            RestrictionType.REDIRECT_TO_DLQ
         )
     }
 
