@@ -16,6 +16,10 @@ import { llmAnalyticsTraceLogic } from '../llmAnalyticsTraceLogic'
 import { TranslatePopover } from './TranslatePopover'
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'
 
+const MAX_EDITOR_RETRIES = 10
+const EDITOR_RETRY_DELAY_MS = 100
+const MAX_QUOTE_LENGTH = 500
+
 export interface MessageActionsMenuProps {
     content: string
 }
@@ -46,8 +50,8 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
             editor.clear()
             editor.pasteContent(0, quotedContent + '\n\n')
             editor.focus('end')
-        } else if (retries < 10) {
-            setTimeout(() => insertQuoteIntoEditor(quotedContent, retries + 1), 100)
+        } else if (retries < MAX_EDITOR_RETRIES) {
+            setTimeout(() => insertQuoteIntoEditor(quotedContent, retries + 1), EDITOR_RETRY_DELAY_MS)
         }
     }
 
@@ -55,16 +59,15 @@ export const MessageActionsMenu = ({ content }: MessageActionsMenuProps): JSX.El
         maybeLoadComments()
         openSidePanel(SidePanelTab.Discussion)
 
-        const maxQuoteLength = 500
         const truncatedContent =
-            content.length > maxQuoteLength ? content.substring(0, maxQuoteLength) + '...' : content
+            content.length > MAX_QUOTE_LENGTH ? content.substring(0, MAX_QUOTE_LENGTH) + '...' : content
 
         const quotedContent = truncatedContent
             .split('\n')
             .map((line) => `> ${line}`)
             .join('\n')
 
-        setTimeout(() => insertQuoteIntoEditor(quotedContent), 100)
+        setTimeout(() => insertQuoteIntoEditor(quotedContent), EDITOR_RETRY_DELAY_MS)
     }
 
     const showDiscussions = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS]
