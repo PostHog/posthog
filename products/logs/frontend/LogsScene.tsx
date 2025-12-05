@@ -53,31 +53,11 @@ export const scene: SceneExport = {
 }
 
 export function LogsScene(): JSX.Element {
-    const { logsLoading } = useValues(logsLogic)
-    const { runQuery, highlightNextLog, highlightPreviousLog, toggleExpandLog } = useActions(logsLogic)
-    const { highlightedLogId: sceneHighlightedLogId } = useValues(logsLogic)
+    const { runQuery } = useActions(logsLogic)
 
     useEffect(() => {
         runQuery()
     }, [runQuery])
-
-    useKeyboardHotkeys(
-        {
-            arrowdown: { action: highlightNextLog },
-            j: { action: highlightNextLog },
-            arrowup: { action: highlightPreviousLog },
-            k: { action: highlightPreviousLog },
-            enter: {
-                action: () => {
-                    if (sceneHighlightedLogId) {
-                        toggleExpandLog(sceneHighlightedLogId)
-                    }
-                },
-            },
-            r: { action: () => !logsLoading && runQuery() },
-        },
-        [sceneHighlightedLogId, logsLoading, runQuery]
-    )
 
     return (
         <SceneContent>
