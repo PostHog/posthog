@@ -200,6 +200,7 @@ import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/mes
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
+import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -463,6 +464,12 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
+    // # LLM Analytics
+
+    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
     // # Insights
@@ -1726,6 +1733,19 @@ const api = {
     cspReporting: {
         explain(properties: Record<string, any>): Promise<{ response: string }> {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
+        },
+    },
+    llmAnalytics: {
+        translate(params: {
+            text: string
+            targetLanguage?: string
+        }): Promise<{ translation: string; detected_language?: string; provider: string }> {
+            // Convert to snake_case for backend
+            const data = {
+                text: params.text,
+                target_language: params.targetLanguage,
+            }
+            return new ApiRequest().llmAnalyticsTranslate().create({ data })
         },
     },
     insights: {
@@ -3821,6 +3841,15 @@ const api = {
             }
             return await apiRequest.withQueryString(queryParams).create()
         },
+        async getSummaryHeadline(
+            surveyId: Survey['id'],
+            forceRefresh: boolean = false
+        ): Promise<{ headline: string; responses_sampled: number; has_more: boolean }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('summary_headline')
+                .create({ data: { force_refresh: forceRefresh } })
+        },
         async getSurveyStats({
             surveyId,
             dateFrom = null,
@@ -4580,6 +4609,7 @@ const api = {
                 billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
+                agent_mode?: AgentMode | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {
