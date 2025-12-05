@@ -61,17 +61,11 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         self,
         source,
         expected_status,
-        mock_list_objects,
-        mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
         session_id = str(uuid7())
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-
-        # Basic mocking for successful cases
-        mock_list_objects.return_value = []
-        mock_presigned_url.return_value = None
 
         if source is not None:
             url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source}"
@@ -306,7 +300,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     def test_get_snapshot_sources_blobby_v2_from_lts(
         self,
         _mock_feature_enabled: MagicMock,
-        mock_list_objects: MagicMock,
         _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
     ) -> None:
@@ -319,12 +312,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             storage_version="2023-08-01",
             full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
-
-        def list_objects_func(path: str) -> list[str]:
-            # we're not expecting to call this, since we know all the data in the stored path
-            raise Exception("we should not call list_objects for the LTS path")
-
-        mock_list_objects.side_effect = list_objects_func
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -359,7 +346,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     def test_get_snapshot_for_lts_source_blobby_v2(
         self,
         _mock_feature_enabled: MagicMock,
-        _mock_list_objects: MagicMock,
         _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
         mock_object_storage_client: MagicMock,
