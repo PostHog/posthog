@@ -1090,7 +1090,7 @@ export type SessionRecordingSnapshotParams = (
           end_blob_key?: string
       }
 ) & {
-    decompress?: boolean
+    decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
