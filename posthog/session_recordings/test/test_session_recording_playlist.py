@@ -7,7 +7,6 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from unittest import mock
 
 from django.db import transaction
-from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
@@ -35,9 +34,6 @@ from posthog.settings import (
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
 
-@override_settings(
-    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
-)
 class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
