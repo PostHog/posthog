@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 import { LemonCard } from '@posthog/lemon-ui'
 
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { USE_CASE_OPTIONS } from 'scenes/onboarding/productRecommendations'
 import { getProductIcon } from 'scenes/products/Products'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { useCaseSelectionLogic } from './useCaseSelectionLogic'
 
@@ -17,7 +18,6 @@ export const scene: SceneExport = {
 
 export function UseCaseSelection(): JSX.Element {
     const { selectUseCase } = useActions(useCaseSelectionLogic)
-    const { skipOnboarding } = useActions(onboardingLogic)
     const { hasIngestedEvent } = useValues(teamLogic)
 
     return (
@@ -49,7 +49,7 @@ export function UseCaseSelection(): JSX.Element {
 
                 <div className="flex items-center justify-between w-full mt-6">
                     {hasIngestedEvent ? (
-                        <LemonButton status="alt" onClick={() => skipOnboarding()}>
+                        <LemonButton status="alt" onClick={() => router.actions.push(urls.default())}>
                             Skip onboarding
                         </LemonButton>
                     ) : (

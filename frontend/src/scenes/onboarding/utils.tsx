@@ -85,6 +85,7 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
 
 /** Returns the URL for the onboarding entry point based on feature flags */
 export function getOnboardingEntryUrl(featureFlags: Record<string, string | boolean | undefined>): string {
-    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
+    // Default to use-case selection unless explicitly set to 'control'
+    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] !== 'control'
     return useUseCaseSelection ? urls.useCaseSelection() : urls.products()
 }

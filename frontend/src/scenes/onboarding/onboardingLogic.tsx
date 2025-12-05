@@ -122,7 +122,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
         product: [
             null as OnboardingProduct | null,
             {
-                setProduct: (_, { product }) => product,
+                setProduct: (_, { product }) => product ?? null,
             },
         ],
         allOnboardingSteps: [
