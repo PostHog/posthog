@@ -57,8 +57,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_snapshots_source_parameter_validation(
         self,
         source,
@@ -164,7 +162,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "Must provide both start_blob_key and end_blob_key" in response.json()["detail"]
+        assert "Must provide both start blob key and end blob key" in response.json()["detail"]
 
     @parameterized.expand(
         [(0, "a"), ("a", 1)],
@@ -188,7 +186,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key={start_key}&end_blob_key={end_key}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Blob key must be an integer" in response.json()["detail"]
+        assert "Blob keys must be integers" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -261,7 +259,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         # Attempting to provide both blob_key and start_blob_key
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Must provide a single blob key or start and end blob keys, not both" in response.json()["detail"]
+        assert "Must provide both start blob key and end blob key" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -304,7 +302,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_snapshot_sources_blobby_v2_from_lts(
         self,
@@ -357,12 +354,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
-    )
-    @patch(
-        "posthog.session_recordings.session_recording_api.object_storage.list_objects",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_objects, we throw in the mock to enforce this"
-        ),
     )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_snapshot_for_lts_source_blobby_v2(
