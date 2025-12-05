@@ -10,6 +10,7 @@ import {
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
+    isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 import { ExperimentMetricMathType } from '~/types'
@@ -51,14 +52,19 @@ export function calculateBaselineValue(
         return baseline.number_of_samples > 0 ? stepCounts[stepCounts.length - 1] / baseline.number_of_samples : null
     }
 
-    if (isExperimentRatioMetric(metric)) {
+    if (isExperimentRatioMetric(metric) || isExperimentRetentionMetric(metric)) {
+        // Both ratio and retention metrics use denominator_sum for the baseline calculation
+        // Retention: completions / starters
+        // Ratio: numerator / denominator
         if (!baseline.denominator_sum || baseline.denominator_sum === 0) {
             return null
         }
         return baseline.sum / baseline.denominator_sum
     }
 
-    lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
+    /**
+     * This is for TS exhaustiveness check.
+     */
     return null
 }
 
@@ -67,14 +73,14 @@ export function calculateBaselineValue(
  *
  * - For mean metrics (Count/Sum): Uses scaling factors based on metric type
  * - For funnel metrics: Returns null (variance is implicit in p(1-p))
- * - For ratio metrics: Uses delta method with covariance
+ * - For ratio and retention metrics: Uses delta method with covariance
  *
  * Delta method for ratio R = M/D:
  * Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
  *
  * @param baselineValue - The baseline metric value (mean, rate, or ratio)
  * @param metric - The experiment metric definition
- * @param baseline - Required for ratio metrics, optional for others
+ * @param baseline - Required for ratio and retention metrics, optional for others
  * @returns The variance estimate, or null if not applicable
  */
 export function calculateVarianceFromResults(
@@ -99,9 +105,12 @@ export function calculateVarianceFromResults(
         return null
     }
 
-    if (isExperimentRatioMetric(metric)) {
+    if (isExperimentRatioMetric(metric) || isExperimentRetentionMetric(metric)) {
+        // Both ratio and retention metrics use delta method variance
+        // Retention: variance of (completions / starters)
+        // Ratio: variance of (numerator / denominator)
         if (!baseline || !baseline.denominator_sum || baseline.denominator_sum === 0) {
-            lemonToast.error('Ratio metric missing denominator statistics')
+            lemonToast.error('Ratio/retention metric missing denominator statistics')
             return null
         }
 
@@ -130,7 +139,9 @@ export function calculateVarianceFromResults(
         return varM / meanD ** 2 + (meanM ** 2 * varD) / meanD ** 4 - (2 * meanM * cov) / meanD ** 3
     }
 
-    lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
+    /**
+     * This is for TS exhaustiveness check.
+     */
     return null
 }
 
@@ -242,12 +253,19 @@ export function calculateRecommendedSampleSize(
          * - The variance is inherent in `p(1 - p)`, which represents binomial variance.
          */
         sampleSizeFormula = (16 * conversionRate * (1 - conversionRate)) / d ** 2
-    } else if (isExperimentRatioMetric(metric)) {
+    } else if (isExperimentRatioMetric(metric) || isExperimentRetentionMetric(metric)) {
         /**
-         * Ratio metric (e.g., revenue per order, clicks per session):
+         * Ratio and Retention metrics:
          *
-         * - `baselineValue` is the baseline ratio M/D (e.g., average revenue per order).
-         * - MDE is applied as a percentage of this ratio to compute `d`.
+         * Ratio (e.g., revenue per order, clicks per session):
+         * - baselineValue is the baseline ratio M/D (e.g., average revenue per order)
+         *
+         * Retention (e.g., 7-day user retention):
+         * - baselineValue is the retention rate: completions / starters
+         * - Treated identically to ratio metrics since retention is a ratio of two random variables
+         *
+         * For both:
+         * - MDE is applied as a percentage of the baseline ratio/rate to compute `d`.
          *
          * Formula:
          * d = MDE * baselineValue
@@ -273,16 +291,21 @@ export function calculateRecommendedSampleSize(
          * - For α=0.05 (Z=1.96) and β=0.20 (Z=0.84): (1.96 + 0.84)² ≈ 7.84
          * - Multiply by 2 for two-sample comparison: 7.84 × 2 ≈ 16
          *
-         * Backend reference for variance:
+         * Backend references:
          * - posthog/products/experiments/stats/shared/statistics.py:135-145 (RatioStatistic.variance)
          * - Uses delta method: Var(R) ≈ Var(M)/D² + M²Var(D)/D⁴ - 2M*Cov(M,D)/D³
+         *
+         * Applies to both ratio and retention metrics.
          */
         if (variance === null) {
             return null
         }
+
         sampleSizeFormula = (16 * variance) / d ** 2
     } else {
-        lemonToast.error(`Unknown metric type: ${metric.metric_type}`)
+        /**
+         * This is for TS exhaustiveness check. Otherwise sameple size formula is not defined.
+         */
         return null
     }
 
