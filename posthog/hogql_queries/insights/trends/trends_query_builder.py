@@ -890,10 +890,26 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         group_filters = []
         for value in series.values:
             if isinstance(value, EventsNode):
-                group_filters.append(self._get_event_expr(value))
+                event_expr = self._get_event_expr(value)
+
+                # Add property filters if present
+                if value.properties is not None and value.properties != []:
+                    properties_expr = property_to_expr(value.properties, self.team)
+                    expression = ast.And(exprs=[event_expr, properties_expr])
+                    group_filters.append(expression)
+                else:
+                    group_filters.append(event_expr)
 
             if isinstance(value, ActionsNode):
-                group_filters.append(self._get_action_expr(value))
+                action_expr = self._get_action_expr(value)
+
+                # Add property filters if present
+                if value.properties is not None and value.properties != []:
+                    properties_expr = property_to_expr(value.properties, self.team)
+                    expression = ast.And(exprs=[action_expr, properties_expr])
+                    group_filters.append(expression)
+                else:
+                    group_filters.append(action_expr)
 
         if len(group_filters) == 0:
             return None
