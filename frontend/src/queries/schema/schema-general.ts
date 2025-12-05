@@ -371,6 +371,7 @@ export interface HogQLQueryModifiers {
     bounceRateDurationSeconds?: number
     sessionTableVersion?: 'auto' | 'v1' | 'v2' | 'v3'
     sessionsV2JoinMode?: 'string' | 'uuid'
+    materializedColumnsOptimizationMode?: 'disabled' | 'optimized'
     propertyGroupsMode?: 'enabled' | 'disabled' | 'optimized'
     useMaterializedViews?: boolean
     customChannelTypeRules?: CustomChannelRule[]
@@ -1958,6 +1959,7 @@ export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
 export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
+    AvgTimeOnPage = 'AvgTimeOnPage',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -2062,6 +2064,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    includeAvgTimeOnPage?: boolean
     limit?: integer
     offset?: integer
 }
@@ -3779,6 +3782,7 @@ export type AIEventType =
     | '$ai_metric'
     | '$ai_feedback'
     | '$ai_evaluation'
+    | '$ai_trace_summary'
 
 export interface LLMTraceEvent {
     id: string
@@ -3834,6 +3838,8 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     personId?: string
     groupKey?: string
     groupTypeIndex?: integer
+    /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
+    randomOrder?: boolean
 }
 
 export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
@@ -4317,6 +4323,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Impressions = 'impressions',
     Source = 'source',
     ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -4344,6 +4351,11 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         type: ['integer', 'number', 'float'],
         required: false,
         isCurrency: false,
+    },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: true,
     },
 }
 
@@ -4391,6 +4403,8 @@ export enum MarketingAnalyticsBaseColumns {
     CPC = 'CPC',
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
+    ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -4496,6 +4510,12 @@ export interface SourceConfig {
      * @default []
      */
     suggestedTables?: SuggestedTable[]
+
+    /**
+     * Whether this source should be prominently displayed in onboarding flows
+     * @default false
+     */
+    featured?: boolean
 }
 
 export const externalDataSources = [
@@ -4914,7 +4934,7 @@ export enum ProductIntentContext {
     DATA_WAREHOUSE_STRIPE_SOURCE_CREATED = 'data_warehouse_stripe_source_created',
 
     // Surveys
-    SURVEYS_VIEWED = 'surveys_viewed', // accessed surveys page
+    SURVEYS_VIEWED = 'surveys_viewed', // deprecated, not used anymore
     SURVEY_CREATED = 'survey_created',
     SURVEY_LAUNCHED = 'survey_launched',
     SURVEY_VIEWED = 'survey_viewed',

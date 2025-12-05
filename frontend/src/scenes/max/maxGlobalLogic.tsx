@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -164,12 +164,21 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
         availableStaticTools: [
             (s) => [s.featureFlags],
-            (featureFlags): ToolRegistration[] =>
-                STATIC_TOOLS.filter((tool) => {
+            (featureFlags): ToolRegistration[] => {
+                const staticTools = STATIC_TOOLS.filter((tool) => {
                     // Only register the static tools that either aren't flagged or have their flag enabled
                     const toolDefinition = TOOL_DEFINITIONS[tool.identifier]
                     return !toolDefinition.flag || featureFlags[toolDefinition.flag]
-                }),
+                })
+                if (featureFlags[FEATURE_FLAGS.AGENT_MODES]) {
+                    staticTools.unshift({
+                        identifier: 'filter_session_recordings' as const,
+                        name: TOOL_DEFINITIONS['filter_session_recordings'].name,
+                        description: TOOL_DEFINITIONS['filter_session_recordings'].description,
+                    })
+                }
+                return staticTools
+            },
         ],
         toolMap: [
             (s) => [s.registeredToolMap, s.availableStaticTools],

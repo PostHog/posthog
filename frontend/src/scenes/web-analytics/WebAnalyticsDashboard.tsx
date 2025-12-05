@@ -56,12 +56,12 @@ import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
     const { tiles: tilesFromProps, compact = false } = props
-    const { tiles: tilesFromLogic } = useValues(webAnalyticsLogic)
+    const { tiles: tilesFromLogic, productTab } = useValues(webAnalyticsLogic)
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const tiles = tilesFromProps ?? tilesFromLogic
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam)
+    const emptyOnboardingContent = getEmptyOnboardingContent(featureFlags, currentTeamLoading, currentTeam, productTab)
 
     return (
         <div
@@ -433,9 +433,8 @@ const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
 
 const MainContent = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (productTab === ProductTab.PAGE_REPORTS && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
+    if (productTab === ProductTab.PAGE_REPORTS) {
         return <PageReports />
     }
 
@@ -503,26 +502,6 @@ const MarketingDashboard = (): JSX.Element => {
     )
 }
 
-const pageReportsTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]) {
-        return []
-    }
-    return [
-        {
-            key: ProductTab.PAGE_REPORTS,
-            label: (
-                <div className="flex items-center gap-1">
-                    Page reports
-                    <LemonTag type="warning" className="uppercase">
-                        Beta
-                    </LemonTag>
-                </div>
-            ),
-            link: '/web/page-reports',
-        },
-    ]
-}
-
 const marketingTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_MARKETING]) {
         return []
@@ -579,7 +558,18 @@ const WebAnalyticsTabs = (): JSX.Element => {
             tabs={[
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
-                ...pageReportsTab(featureFlags),
+                {
+                    key: ProductTab.PAGE_REPORTS,
+                    label: (
+                        <div className="flex items-center gap-1">
+                            Page reports
+                            <LemonTag type="warning" className="uppercase">
+                                Beta
+                            </LemonTag>
+                        </div>
+                    ),
+                    link: '/web/page-reports',
+                },
                 ...marketingTab(featureFlags),
             ]}
             sceneInset
@@ -599,10 +589,42 @@ const WebAnalyticsTabs = (): JSX.Element => {
     )
 }
 
+const WebVitalsEmptyState = (): JSX.Element => {
+    const { currentTeam } = useValues(teamLogic)
+    const { updateCurrentTeam } = useActions(teamLogic)
+
+    return (
+        <div className="col-span-full w-full">
+            <ProductIntroduction
+                productName="Web Vitals"
+                productKey={ProductKey.WEB_ANALYTICS}
+                thingName="web vital"
+                isEmpty={true}
+                titleOverride="Enable web vitals to get started"
+                description="Track Core Web Vitals like LCP, FID, and CLS to understand your site's performance. 
+                Enabling this will capture performance metrics from your visitors, which counts towards your event quota.
+                You can always disable this feature in the settings."
+                docsURL="https://posthog.com/docs/web-analytics/web-vitals"
+                actionElementOverride={
+                    <LemonButton
+                        type="primary"
+                        onClick={() => updateCurrentTeam({ autocapture_web_vitals_opt_in: true })}
+                        data-attr="web-vitals-enable"
+                        disabledReason={currentTeam ? undefined : 'Loading...'}
+                    >
+                        Enable web vitals
+                    </LemonButton>
+                }
+            />
+        </div>
+    )
+}
+
 const getEmptyOnboardingContent = (
     featureFlags: FeatureFlagsSet,
     currentTeamLoading: boolean,
-    currentTeam: TeamType | TeamPublicType | null
+    currentTeam: TeamType | TeamPublicType | null,
+    productTab: ProductTab
 ): JSX.Element | null => {
     if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_EMPTY_ONBOARDING]) {
         return null
@@ -612,28 +634,39 @@ const getEmptyOnboardingContent = (
         return <LemonSkeleton className="col-span-full w-full" />
     }
 
-    if (!currentTeam?.ingested_event) {
+    if (productTab === ProductTab.ANALYTICS && !currentTeam?.ingested_event) {
         return (
-            <ProductIntroduction
-                className="col-span-full w-full"
-                productName="Web Analytics"
-                productKey={ProductKey.WEB_ANALYTICS}
-                thingName="event"
-                isEmpty={true}
-                titleOverride="Nothing to investigate yet!"
-                description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
-                docsURL="https://posthog.com/docs/web-analytics/installation"
-                actionElementOverride={
-                    <LemonButton
-                        type="primary"
-                        to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
-                        data-attr="web-analytics-onboarding"
-                    >
-                        Open installation guide
-                    </LemonButton>
-                }
-            />
+            <div className="col-span-full w-full">
+                <ProductIntroduction
+                    productName="Web Analytics"
+                    productKey={ProductKey.WEB_ANALYTICS}
+                    thingName="event"
+                    isEmpty={true}
+                    titleOverride="Nothing to investigate yet!"
+                    description="Install PostHog on your site or app to start capturing events. Head to the installation guide to get set up in just a few minutes."
+                    actionElementOverride={
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="primary"
+                                to={urls.onboarding(ProductKey.WEB_ANALYTICS, OnboardingStepKey.INSTALL)}
+                                data-attr="web-analytics-onboarding"
+                            >
+                                Open installation guide
+                            </LemonButton>
+                            <span className="text-muted-alt">or</span>
+                            <Link target="_blank" to="/web/web-vitals">
+                                Set up web vitals while you wait
+                            </Link>
+                        </div>
+                    }
+                />
+            </div>
         )
     }
+
+    if (productTab === ProductTab.WEB_VITALS && !currentTeam?.autocapture_web_vitals_opt_in) {
+        return <WebVitalsEmptyState />
+    }
+
     return null
 }

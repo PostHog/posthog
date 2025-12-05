@@ -26,6 +26,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Gauge, Histogram
 
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache
@@ -86,29 +87,66 @@ HYPERCACHE_INVALIDATION_COUNTER = Counter(
     labelnames=["namespace"],
 )
 
-HYPERCACHE_COVERAGE_GAUGE = Gauge(
-    "posthog_hypercache_coverage_percent",
-    "Percentage of teams with cached data",
-    labelnames=["namespace"],
-)
 
-HYPERCACHE_SIZE_GAUGE = Gauge(
-    "posthog_hypercache_size_bytes",
-    "Estimated total cache size in bytes",
-    labelnames=["namespace"],
-)
+def push_hypercache_stats_metrics(
+    namespace: str,
+    coverage_percent: float,
+    entries_total: int,
+    expiry_tracked_total: int,
+    size_bytes: int | None,
+) -> None:
+    """
+    Push HyperCache stats metrics to Pushgateway for single-value display.
 
-HYPERCACHE_ENTRIES_GAUGE = Gauge(
-    "posthog_hypercache_entries_total",
-    "Total number of entries in the HyperCache",
-    labelnames=["namespace"],
-)
+    Gauge metrics are pushed to Pushgateway instead of using module-level gauges
+    to ensure only one value per metric appears in Grafana dashboards.
 
-HYPERCACHE_EXPIRY_TRACKED_GAUGE = Gauge(
-    "posthog_hypercache_expiry_tracked_total",
-    "Number of entries tracked in the expiry sorted set",
-    labelnames=["namespace"],
-)
+    Args:
+        namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        coverage_percent: Percentage of teams with cached data
+        entries_total: Total number of entries in the HyperCache
+        expiry_tracked_total: Number of entries tracked in the expiry sorted set
+        size_bytes: Estimated total cache size in bytes (None if unknown)
+    """
+    if not settings.PROM_PUSHGATEWAY_ADDRESS:
+        return
+
+    try:
+        with pushed_metrics_registry(f"hypercache_stats_{namespace}") as registry:
+            coverage_gauge = Gauge(
+                "posthog_hypercache_coverage_percent",
+                "Percentage of teams with cached data",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            coverage_gauge.labels(namespace=namespace).set(coverage_percent)
+
+            entries_gauge = Gauge(
+                "posthog_hypercache_entries_total",
+                "Total number of entries in the HyperCache",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            entries_gauge.labels(namespace=namespace).set(entries_total)
+
+            expiry_tracked_gauge = Gauge(
+                "posthog_hypercache_expiry_tracked_total",
+                "Number of entries tracked in the expiry sorted set",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            expiry_tracked_gauge.labels(namespace=namespace).set(expiry_tracked_total)
+
+            if size_bytes is not None:
+                size_gauge = Gauge(
+                    "posthog_hypercache_size_bytes",
+                    "Estimated total cache size in bytes",
+                    labelnames=["namespace"],
+                    registry=registry,
+                )
+                size_gauge.labels(namespace=namespace).set(size_bytes)
+    except Exception as e:
+        logger.warning("Failed to push hypercache stats to Pushgateway", error=str(e), namespace=namespace)
 
 
 class UpdateFn(Protocol):
@@ -148,16 +186,30 @@ class HyperCacheManagementConfig:
         return self.cache_name.replace("_", " ")
 
     @property
+    def _django_key_prefix(self) -> str:
+        """Get Django cache key prefix (e.g., 'posthog:1:')."""
+        # Django redis cache uses KEY_PREFIX + VERSION to build the full prefix
+        # Default version is 1, resulting in "posthog:1:" prefix
+        cache_client = self.hypercache.cache_client
+        key_prefix = getattr(cache_client, "key_prefix", "")
+        version = getattr(cache_client, "version", 1)
+        if key_prefix:
+            return f"{key_prefix}:{version}:"
+        return ""
+
+    @property
     def redis_pattern(self) -> str:
         """Redis key pattern for scanning all cache entries."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/*"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/*"
 
     @property
     def redis_stats_pattern(self) -> str:
         """Specific Redis pattern for stats (includes value file)."""
         prefix = "team_tokens" if self.hypercache.token_based else "teams"
-        return f"cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
+        django_prefix = self._django_key_prefix
+        return f"{django_prefix}cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
 
     @property
     def expiry_sorted_set_key(self) -> str:
@@ -211,7 +263,7 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
         Number of cache keys deleted
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         deleted = 0
         for key in redis_client.scan_iter(match=config.redis_pattern, count=1000):
@@ -417,7 +469,7 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         Dictionary with cache statistics including size information
     """
     try:
-        redis_client = get_client()
+        redis_client = get_client(config.hypercache.redis_url)
 
         total_keys = 0
         ttl_buckets = {
@@ -506,9 +558,10 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
 
         size_stats = {}
+        estimated_total_bytes: int | None = None
         if sample_sizes:
             avg_size = statistics.mean(sample_sizes)
-            estimated_total_bytes = avg_size * total_keys
+            estimated_total_bytes = int(avg_size * total_keys)
 
             size_stats = {
                 "sample_count": len(sample_sizes),
@@ -519,14 +572,17 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
                 "estimated_total_mb": round(estimated_total_bytes / (1024 * 1024), 2),
             }
 
-            HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
-
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
-        HYPERCACHE_ENTRIES_GAUGE.labels(namespace=config.namespace).set(total_keys)
-
-        # Update expiry tracking gauge using ZCARD (O(1) operation)
+        # Get expiry tracking count using ZCARD (O(1) operation)
         expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
-        HYPERCACHE_EXPIRY_TRACKED_GAUGE.labels(namespace=config.namespace).set(expiry_tracked_count)
+
+        # Push metrics to Pushgateway for single-value display in Grafana
+        push_hypercache_stats_metrics(
+            namespace=config.namespace,
+            coverage_percent=coverage_percent,
+            entries_total=total_keys,
+            expiry_tracked_total=expiry_tracked_count,
+            size_bytes=estimated_total_bytes,
+        )
 
         return {
             "total_cached": total_keys,

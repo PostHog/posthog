@@ -36,7 +36,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { eventToPersonProperties } from './person-property-utils'
+import { isFilteredPersonUpdateProperty } from './person-property-utils'
 import { getMetricKey } from './person-update'
 import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
@@ -207,7 +207,7 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 return true
             }
 
-            const isFiltered = eventToPersonProperties.has(key) || key.startsWith('$geoip_')
+            const isFiltered = isFilteredPersonUpdateProperty(key)
             if (isFiltered) {
                 ignoredProperties.push(key)
                 return false

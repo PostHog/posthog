@@ -140,11 +140,7 @@ export function WorkflowsScene(): JSX.Element {
         {
             label: 'Workflows',
             key: 'workflows',
-            content: (
-                <>
-                    <WorkflowsTable />
-                </>
-            ),
+            content: <WorkflowsTable />,
             link: urls.workflows(),
         },
         {

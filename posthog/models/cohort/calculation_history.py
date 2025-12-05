@@ -38,6 +38,7 @@ class CohortCalculationHistory(RootTeamMixin, UUIDModel):
         indexes = [
             models.Index(fields=["team", "cohort"]),
             models.Index(fields=["team", "started_at"]),
+            models.Index(fields=["cohort", "-started_at"]),
         ]
 
     def __str__(self):
