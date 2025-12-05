@@ -679,6 +679,7 @@ export enum SURVEY_CREATED_SOURCE {
     EXPERIMENTS = 'experiments',
     INSIGHT_CROSS_SELL = 'insight_cross_sell',
     CUSTOMER_ANALYTICS_INSIGHT = 'customer_analytics_insight',
+    COHORTS = 'cohorts',
 }
 
 export enum SURVEY_FORM_INPUT_IDS {
