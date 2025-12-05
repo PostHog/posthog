@@ -181,6 +181,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setDeepResearchMode: (deepResearchMode: boolean) => ({ deepResearchMode }),
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
+        setSupportOverrideEnabled: (enabled: boolean) => ({ enabled }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (
@@ -343,6 +344,16 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 stopGeneration: (state) => state + 1,
                 resetThread: () => 0,
                 resetCancelCount: () => 0,
+            },
+        ],
+
+        // Whether support agents have explicitly acknowledged they want to use an existing conversation
+        supportOverrideEnabled: [
+            false,
+            {
+                setSupportOverrideEnabled: (_, { enabled }) => enabled,
+                // Reset when changing conversations
+                setConversation: () => false,
             },
         ],
     })),
@@ -698,6 +709,30 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             (conversation, user): boolean => !!conversation?.user && !!user && conversation.user.uuid !== user.uuid,
         ],
 
+        // Whether the current user is impersonating and viewing an existing conversation
+        isImpersonatingExistingConversation: [
+            (s) => [s.conversation, s.supportOverrideEnabled, userLogic.selectors.user],
+            (conversation, supportOverrideEnabled, user): boolean => {
+                // Only when user is impersonating
+                if (!user?.is_impersonated) {
+                    return false
+                }
+                // If conversation was created during impersonation (is_internal), allow typing
+                if (conversation?.is_internal) {
+                    return false
+                }
+                // Only applies to existing conversations
+                if (!conversation?.title) {
+                    return false
+                }
+                // Support agent has explicitly acknowledged they want to continue
+                if (supportOverrideEnabled) {
+                    return false
+                }
+                return true
+            },
+        ],
+
         threadLoading: [
             (s) => [s.conversationLoading, s.streamingActive],
             (conversationLoading, streamingActive) => conversationLoading || streamingActive,
@@ -813,27 +848,53 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 s.threadLoading,
                 s.dataProcessingAccepted,
                 s.isSharedThread,
+                s.isImpersonatingExistingConversation,
             ],
-            (formPending, multiQuestionFormPending, threadLoading, dataProcessingAccepted, isSharedThread) =>
+            (
+                formPending,
+                multiQuestionFormPending,
+                threadLoading,
+                dataProcessingAccepted,
+                isSharedThread,
+                isImpersonatingExistingConversation
+            ) =>
                 // Input unavailable when:
                 // - Answer must be provided using a form returned by Max only
                 // - Answer must be provided using a multi-question form
                 // - We are awaiting user to approve or reject external AI processing data
-                isSharedThread || formPending || multiQuestionFormPending || (threadLoading && !dataProcessingAccepted),
+                // - Support agent is viewing an existing conversation without override
+                isSharedThread ||
+                formPending ||
+                multiQuestionFormPending ||
+                (threadLoading && !dataProcessingAccepted) ||
+                isImpersonatingExistingConversation,
         ],
 
         submissionDisabledReason: [
-            (s) => [s.formPending, s.multiQuestionFormPending, s.question, s.threadLoading, s.activeStreamingThreads],
+            (s) => [
+                s.formPending,
+                s.multiQuestionFormPending,
+                s.question,
+                s.threadLoading,
+                s.activeStreamingThreads,
+                s.isImpersonatingExistingConversation,
+            ],
             (
                 formPending,
                 multiQuestionFormPending,
                 question,
                 threadLoading,
-                activeStreamingThreads
+                activeStreamingThreads,
+                isImpersonatingExistingConversation
             ): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
+                }
+
+                // Support agents should create new conversations instead of using existing ones
+                if (isImpersonatingExistingConversation) {
+                    return 'You should create new conversations during impersonation. Use the checkbox to override.'
                 }
 
                 if (formPending) {

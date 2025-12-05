@@ -4871,6 +4871,9 @@ class LLMTrace(BaseModel):
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None
+    isSupportTrace: bool | None = Field(
+        default=None, description="Whether this trace was created during a support agent impersonation session"
+    )
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
@@ -12341,6 +12344,9 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = Field(
+        default=None, description="Filter out traces from support agent impersonation sessions"
+    )
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None

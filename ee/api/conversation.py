@@ -135,7 +135,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             queryset = queryset.filter(
                 title__isnull=False,
                 type__in=[Conversation.Type.DEEP_RESEARCH, Conversation.Type.ASSISTANT, Conversation.Type.SLACK],
-            ).order_by("-updated_at")
+            )
+            # Hide internal conversations from customers, but show them to support agents during impersonation
+            if not is_impersonated_session(self.request):
+                queryset = queryset.filter(is_internal=False)
+            queryset = queryset.order_by("-updated_at")
         return queryset
 
     def get_throttles(self):
@@ -201,9 +205,15 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
                     {"error": "Cannot stream from non-existent conversation"}, status=status.HTTP_400_BAD_REQUEST
                 )
             # Use frontend-provided conversation ID
+            # Mark conversation as internal if created during an impersonated session (support agents)
+            is_impersonated = is_impersonated_session(request)
             conversation_type = Conversation.Type.DEEP_RESEARCH if is_deep_research else Conversation.Type.ASSISTANT
             conversation = Conversation.objects.create(
-                user=cast(User, request.user), team=self.team, id=conversation_id, type=conversation_type
+                user=cast(User, request.user),
+                team=self.team,
+                id=conversation_id,
+                type=conversation_type,
+                is_internal=is_impersonated,
             )
             is_new_conversation = True
 
@@ -216,8 +226,9 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         if not has_message and conversation.status == Conversation.Status.IDLE:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
-        # Skip billing for impersonated sessions (support agents)
-        is_workflow_billable = not is_impersonated_session(request)
+        # Skip billing for impersonated sessions (support agents) and mark conversations as internal
+        is_impersonated = is_impersonated_session(request)
+        is_workflow_billable = not is_impersonated
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
             user_id=cast(User, request.user).pk,  # Use pk instead of id for User model

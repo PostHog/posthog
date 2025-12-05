@@ -23,6 +23,7 @@ _conversation_fields = [
     "created_at",
     "updated_at",
     "type",
+    "is_internal",
     "slack_thread_key",
     "slack_workspace_domain",
 ]
