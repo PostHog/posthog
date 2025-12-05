@@ -805,8 +805,8 @@ importers:
         specifier: ^2.11.0
         version: 2.11.0
       posthog-js:
-        specifier: 1.302.1
-        version: 1.302.1
+        specifier: 1.302.2
+        version: 1.302.2
       posthog-js-lite:
         specifier: 4.2.1
         version: 4.2.1
@@ -1768,8 +1768,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.302.1
-        version: 1.302.1
+        specifier: 1.302.2
+        version: 1.302.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2472,8 +2472,8 @@ importers:
         specifier: ^3.4.1
         version: 3.4.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.302.1
-        version: 1.302.1
+        specifier: 1.302.2
+        version: 1.302.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -2544,8 +2544,8 @@ importers:
         specifier: ^3.0.1
         version: 3.0.1(kea@3.1.7(react@18.2.0))
       posthog-js:
-        specifier: 1.302.1
-        version: 1.302.1
+        specifier: 1.302.2
+        version: 1.302.2
       react:
         specifier: '*'
         version: 18.2.0
@@ -16533,8 +16533,8 @@ packages:
   posthog-js-lite@4.2.1:
     resolution: {integrity: sha512-E5sN4Z9TxEdp/L7HkyuvMs3demijmXcgbtGPj1ykPq+aCyPgGOvL745p4rIPVwzBZoqjoIdqRls8ck+LVRHCdQ==}
 
-  posthog-js@1.302.1:
-    resolution: {integrity: sha512-dSxAOaIN9ElR7NUa+q0kvZOyzxyskTqsttEzMGTIDbE8ou/D0TJxJwWtRF011qaS1dJnE601n38Y905JEDUwDg==}
+  posthog-js@1.302.2:
+    resolution: {integrity: sha512-4voih22zQe7yHA7DynlQ3B7kgzJOaKIjzV7K3jJ2Qf+UDXd1ZgO7xYmLWYVtuKEvD1OXHbKk/fPhUTZeHEWpBw==}
 
   posthog-node@5.10.4:
     resolution: {integrity: sha512-sy020/Q4mt18eCkVo/cGEJD+wgdxeg5DTgNUaA85awBCbuEP43BOdCTOOw/K2Tvgw2oZfag3PFyhkVuQ6nJfBg==}
@@ -38347,7 +38347,7 @@ snapshots:
     dependencies:
       '@posthog/core': 1.7.0
 
-  posthog-js@1.302.1:
+  posthog-js@1.302.2:
     dependencies:
       '@posthog/core': 1.7.1
       core-js: 3.40.0
