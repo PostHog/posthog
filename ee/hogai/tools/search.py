@@ -2,7 +2,6 @@ from typing import Literal
 
 from django.conf import settings
 
-import posthoganalytics
 from langchain_core.output_parsers import SimpleJsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableLambda
@@ -126,16 +125,6 @@ class SearchTool(MaxTool):
             )
             return await docs_tool.execute(query, self.tool_call_id)
 
-        if kind == "insights" and not self._has_insights_fts_search_feature_flag():
-            insights_tool = InsightSearchTool(
-                team=self._team,
-                user=self._user,
-                state=self._state,
-                config=self._config,
-                context_manager=self._context_manager,
-            )
-            return await insights_tool.execute(query, self.tool_call_id)
-
         if kind not in self._fts_entities:
             raise MaxToolRetryableError(INVALID_ENTITY_KIND_PROMPT.format(kind=kind))
 
@@ -153,15 +142,6 @@ class SearchTool(MaxTool):
     def _fts_entities(self) -> list[str]:
         entities = list(FTSKind)
         return [*entities, FTSKind.ALL]
-
-    def _has_insights_fts_search_feature_flag(self) -> bool:
-        return posthoganalytics.feature_enabled(
-            "hogai-insights-fts-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
 
 
 DOCS_SEARCH_RESULTS_TEMPLATE = """Found {count} relevant documentation page(s):
