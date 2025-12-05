@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -49,7 +49,7 @@ describe('processPersonlessStep()', () => {
     let team: Team
     let pluginEvent: PluginEvent
     let timestamp: DateTime
-    let personsStore: BatchWritingPersonsStoreForBatch
+    let personsStore: BatchWritingPersonsStore
     let personRepository: PostgresPersonRepository
 
     beforeEach(async () => {
@@ -60,7 +60,7 @@ describe('processPersonlessStep()', () => {
         team = (await getTeam(hub, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.db.postgres)
-        personsStore = new BatchWritingPersonsStoreForBatch(personRepository, hub.db.kafkaProducer)
+        personsStore = new BatchWritingPersonsStore(personRepository, hub.db.kafkaProducer)
 
         pluginEvent = {
             distinct_id: 'test-user-123',
