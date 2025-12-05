@@ -445,11 +445,13 @@ class DatabricksClient:
 
         await self.acreate_table(table_name=table_name, fields=fields)
 
-        yield table_name
-
-        if delete is True:
-            self.logger.info("Deleting Databricks table %s", table_name)
-            await self.adelete_table(table_name)
+        try:
+            yield table_name
+        # ensure we always clean up the table even if there is an error
+        finally:
+            if delete is True:
+                self.logger.info("Deleting Databricks table %s", table_name)
+                await self.adelete_table(table_name)
 
     async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
@@ -551,9 +553,12 @@ class DatabricksClient:
         """Manage a volume in Databricks by ensuring it exists while in context."""
         self.logger.info("Creating Databricks volume %s", volume)
         await self.acreate_volume(volume)
-        yield volume
-        self.logger.info("Deleting Databricks volume %s", volume)
-        await self.adelete_volume(volume)
+        # ensure we always clean up the volume even if there is an error
+        try:
+            yield volume
+        finally:
+            self.logger.info("Deleting Databricks volume %s", volume)
+            await self.adelete_volume(volume)
 
     async def acreate_volume(self, volume: str):
         """Asynchronously create a Databricks volume."""
