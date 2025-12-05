@@ -66,17 +66,17 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
 
-            - name: Set up Node 24
+            - name: Set up Node 22
               uses: actions/setup-node@v4
               with:
-                  node-version: 24
+                  node-version: 22
                   registry-url: https://registry.npmjs.org
 
             - name: Install pnpm
               run: npm install -g pnpm
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install
+              run: pnpm install --frozen-lockfile
 
             - name: Build the package
               run: cd products/mcp/typescript && pnpm build
