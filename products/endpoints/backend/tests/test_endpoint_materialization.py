@@ -283,6 +283,54 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("sync_frequency", response_data["materialization"])
         self.assertEqual(response_data["materialization"]["sync_frequency"], "12hour")
 
+    def test_materialization_status_endpoint(self):
+        """Test the dedicated materialization_status endpoint returns only materialization data."""
+        endpoint = Endpoint.objects.create(
+            name="test_status_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+        )
+
+        # Before materialization - should show can_materialize
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue(response_data["can_materialize"])
+        self.assertNotIn("name", response_data)
+        self.assertNotIn("query", response_data)
+        self.assertNotIn("created_by", response_data)
+
+        # Enable materialization
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {
+                "is_materialized": True,
+                "sync_frequency": DataWarehouseSyncInterval.FIELD_6HOUR,
+            },
+            format="json",
+        )
+
+        # After materialization - should show full status
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertTrue(response_data["can_materialize"])
+        self.assertIn("status", response_data)
+        self.assertIn("sync_frequency", response_data)
+        self.assertEqual(response_data["sync_frequency"], "6hour")
+        self.assertIn("last_materialized_at", response_data)
+        self.assertIn("error", response_data)
+        # Verify no other endpoint fields are included
+        self.assertNotIn("name", response_data)
+        self.assertNotIn("query", response_data)
+        self.assertNotIn("created_by", response_data)
+        self.assertNotIn("description", response_data)
+
     def test_materialized_endpoint_applies_filters_override(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
