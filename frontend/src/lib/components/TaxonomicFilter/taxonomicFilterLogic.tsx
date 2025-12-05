@@ -587,15 +587,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Log attributes',
                         searchPlaceholder: 'attributes',
                         type: TaxonomicFilterGroupType.LogAttributes,
-                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
-                            is_feature_flag: false,
-                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
-                                : undefined,
-                            exclude_hidden: true,
-                        }).url,
-                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, { attribute_type: 'log' })
+                            .url,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                                attribute_type: 'log',
+                                key: key,
+                            }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Log attributes',
@@ -604,15 +602,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Resource attributes',
                         searchPlaceholder: 'resources',
                         type: TaxonomicFilterGroupType.LogResourceAttributes,
-                        endpoint: combineUrl(`api/environments/${projectId}/logs/resource_attributes`, {
-                            is_feature_flag: false,
-                            ...(eventNames.length > 0 ? { event_names: eventNames } : {}),
-                            properties: propertyAllowList?.[TaxonomicFilterGroupType.EventProperties]
-                                ? propertyAllowList[TaxonomicFilterGroupType.EventProperties].join(',')
-                                : undefined,
-                            exclude_hidden: true,
+                        endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            attribute_type: 'resource',
                         }).url,
-                        valuesEndpoint: (key) => `api/environments/${projectId}/logs/values?key=` + key,
+                        valuesEndpoint: (key) =>
+                            combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                                attribute_type: 'resource',
+                                key: key,
+                            }).url,
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
                         getPopoverHeader: () => 'Resource attributes',

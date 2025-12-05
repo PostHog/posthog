@@ -193,26 +193,67 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def attributes(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("search", "")
+        limit = request.GET.get("limit", 100)
+        offset = request.GET.get("offset", 0)
+
+        attribute_type = request.GET.get("attribute_type", "log")
+        # I don't know why went with 'log' and 'resource' not 'log_attribute' and 'log_resource_attribute'
+        # like the property type, but annoyingly it's hard to update this in clickhouse so we're stuck with it for now
+        if attribute_type not in ["log", "resource"]:
+            attribute_type = "log"
+
+        try:
+            limit = int(limit)
+        except ValueError:
+            limit = 100
+
+        try:
+            offset = int(offset)
+        except ValueError:
+            offset = 0
+
+        # temporarily exclude resource_attributes from the log attributes results
+        # this is because we are currently merging resource attributes into log attributes but will stop soon
+        # once we stop merging the attributes here: https://github.com/PostHog/posthog/blob/d55f534193220eee1cd50df2c4465229925a572d/rust/capture-logs/src/log_record.rs#L91
+        # and the 7 day retention period has passed, we can remove this code
+        # If you see this message after 2026-01-01 tell @frank to do it already
+        exclude_expression = "1"
+        if attribute_type == "log":
+            exclude_expression = """(attribute_key NOT IN (
+            SELECT attribute_key FROM posthog.log_attributes2
+            WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
+            AND team_id = %(team_id)s
+            AND attribute_type = 'resource'
+            AND attribute_key LIKE %(search)s
+            ))"""
 
         results = sync_execute(
-            """
+            f"""
 SELECT
-    groupArray(attribute_key) as keys
+    groupArray(%(limit)d)(attribute_key) as keys,
+    count() as total_count
 FROM (
     SELECT
         attribute_key,
         sum(attribute_count)
     FROM posthog.log_attributes2
-    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
+    WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
     AND team_id = %(team_id)s
-    AND attribute_type = 'log'
+    AND attribute_type = %(attribute_type)s
     AND attribute_key LIKE %(search)s
+    AND {exclude_expression}
     GROUP BY team_id, attribute_key
     ORDER BY sum(attribute_count) desc, attribute_key asc
-    LIMIT 50
+    OFFSET %(offset)d
 )
 """,
-            args={"search": f"%{search}%", "team_id": self.team.id},
+            args={
+                "search": f"%{search}%",
+                "team_id": self.team.id,
+                "limit": limit,
+                "offset": offset,
+                "attribute_type": attribute_type,
+            },
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
@@ -227,51 +268,16 @@ FROM (
                     "propertyFilterType": "log_attribute",
                 }
                 r.append(entry)
-        return Response(r, status=status.HTTP_200_OK)
-
-    @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
-    def resource_attributes(self, request: Request, *args, **kwargs) -> Response:
-        search = request.GET.get("search", "")
-
-        results = sync_execute(
-            """
-SELECT
-    groupArray(attribute_key) as keys
-FROM (
-    SELECT
-        attribute_key,
-        sum(attribute_count)
-    FROM posthog.log_attributes2
-    WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
-    AND team_id = %(team_id)s
-    AND attribute_type = 'resource'
-    AND attribute_key LIKE %(search)s
-    GROUP BY team_id, attribute_key
-    ORDER BY sum(attribute_count) desc, attribute_key asc
-    LIMIT 50
-)
-""",
-            args={"search": f"%{search}%", "team_id": self.team.id},
-            workload=Workload.LOGS,
-            team_id=self.team.id,
-        )
-
-        r = []
-        if type(results) is not list:
-            return Response({"error": "Something went wrong"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        if len(results) > 0 and len(results[0]) > 0:
-            for result in results[0][0]:
-                entry = {
-                    "name": result,
-                    "propertyFilterType": "log_resource_attribute",
-                }
-                r.append(entry)
-        return Response(r, status=status.HTTP_200_OK)
+        return Response({"results": r, "count": results[0][1] + offset}, status=status.HTTP_200_OK)
 
     @action(detail=False, methods=["GET"], required_scopes=["logs:read"])
     def values(self, request: Request, *args, **kwargs) -> Response:
         search = request.GET.get("value", "")
         key = request.GET.get("key", "")
+
+        attribute_type = request.GET.get("attribute_type", "log")
+        if attribute_type not in ["log", "resource"]:
+            attribute_type = "log"
 
         results = sync_execute(
             """
@@ -284,6 +290,7 @@ FROM (
     FROM posthog.log_attributes2
     WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
     AND team_id = %(team_id)s
+    AND attribute_type = %(attribute_type)s
     AND attribute_key = %(key)s
     AND attribute_value LIKE %(search)s
     GROUP BY team_id, attribute_value
@@ -291,7 +298,7 @@ FROM (
     LIMIT 50
 )
 """,
-            args={"key": key, "search": f"%{search}%", "team_id": self.team.id},
+            args={"key": key, "search": f"%{search}%", "team_id": self.team.id, "attribute_type": attribute_type},
             workload=Workload.LOGS,
             team_id=self.team.id,
         )
