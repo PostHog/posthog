@@ -263,3 +263,16 @@ FROM events
 WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
 GROUP BY session_id, breakdown_value
 """
+
+MAIN_INNER_QUERY = """
+SELECT
+    any(person_id) AS filtered_person_id,
+    count() AS filtered_pageview_count,
+    {breakdown_value} AS breakdown_value,
+    session.session_id AS session_id,
+    any(session.$is_bounce) AS is_bounce,
+    min(session.$start_timestamp) as start_timestamp
+FROM events
+WHERE and({inside_periods}, {event_where}, {all_properties}, {where_breakdown})
+GROUP BY session_id, breakdown_value
+"""
