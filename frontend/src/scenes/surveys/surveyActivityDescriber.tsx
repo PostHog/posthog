@@ -199,6 +199,7 @@ const surveyActionsMapping: Record<
             maxWidth: 'max width',
             textSubtleColor: 'text subtle color',
             inputBackground: 'input background',
+            inputTextColor: 'input text color',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {
