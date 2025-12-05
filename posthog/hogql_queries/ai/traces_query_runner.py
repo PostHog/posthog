@@ -69,7 +69,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
 
     def _get_trace_ids(self) -> tuple[list[str], datetime | None, datetime | None]:
         """Execute a separate query to get relevant trace IDs and their time range."""
-        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_trace_ids_execute"), tags_context(product=Product.LLM_ANALYTICS):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
             offset_value = self.query.offset if self.query.offset else 0
@@ -144,7 +144,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         # Create a narrowed date range if we have timestamps
         narrowed_date_range = self._create_narrowed_date_range(min_timestamp, max_timestamp)
 
-        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.MAX_AI):
+        with self.timings.measure("traces_query_hogql_execute"), tags_context(product=Product.LLM_ANALYTICS):
             query_result = self.paginator.execute_hogql_query(
                 query=self._to_query_with_trace_ids(trace_ids),
                 placeholders={

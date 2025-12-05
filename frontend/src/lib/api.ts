@@ -1807,6 +1807,9 @@ const api = {
 
             return result
         },
+        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        },
         async listVersions(name: string): Promise<EndpointVersion[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
@@ -1980,6 +1983,9 @@ const api = {
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
+        },
+        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
+            return await new ApiRequest().userProductList().withAction('seed').create()
         },
         async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })

@@ -1959,6 +1959,7 @@ export type WebAnalyticsOrderByDirection = 'ASC' | 'DESC'
 export enum WebAnalyticsOrderByFields {
     Visitors = 'Visitors',
     Views = 'Views',
+    AvgTimeOnPage = 'AvgTimeOnPage',
     Clicks = 'Clicks',
     BounceRate = 'BounceRate',
     AverageScrollPercentage = 'AverageScrollPercentage',
@@ -2063,6 +2064,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     breakdownBy: WebStatsBreakdown
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
+    includeAvgTimeOnPage?: boolean
     limit?: integer
     offset?: integer
 }
@@ -4321,6 +4323,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Impressions = 'impressions',
     Source = 'source',
     ReportedConversion = 'reported_conversion',
+    ReportedConversionValue = 'reported_conversion_value',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -4348,6 +4351,11 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
         type: ['integer', 'number', 'float'],
         required: false,
         isCurrency: false,
+    },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+        isCurrency: true,
     },
 }
 
@@ -4395,6 +4403,8 @@ export enum MarketingAnalyticsBaseColumns {
     CPC = 'CPC',
     CTR = 'CTR',
     ReportedConversion = 'Reported Conversion',
+    ReportedConversionValue = 'Reported Conversion Value',
+    ReportedROAS = 'Reported ROAS',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -4500,6 +4510,12 @@ export interface SourceConfig {
      * @default []
      */
     suggestedTables?: SuggestedTable[]
+
+    /**
+     * Whether this source should be prominently displayed in onboarding flows
+     * @default false
+     */
+    featured?: boolean
 }
 
 export const externalDataSources = [

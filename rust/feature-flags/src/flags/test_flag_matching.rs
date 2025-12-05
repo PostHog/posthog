@@ -4603,7 +4603,7 @@ mod tests {
                 payloads: None,
                 super_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![PropertyFilter {
-                        key: "$feature_enrollment/artificial-hog".to_string(),
+                        key: "$feature_enrollment/my-flag".to_string(),
                         value: Some(json!(["true"])),
                         operator: Some(OperatorType::Exact),
                         prop_type: PropertyType::Person,
@@ -4627,7 +4627,7 @@ mod tests {
                 "super_user".to_string(),
                 Some(json!({
                     "email": "random@example.com",
-                    "$feature_enrollment/artificial-hog": true
+                    "$feature_enrollment/my-flag": true
                 })),
             )
             .await
@@ -4640,7 +4640,7 @@ mod tests {
                 "posthog_user".to_string(),
                 Some(json!({
                     "email": "test@posthog.com",
-                    "$feature_enrollment/artificial-hog": false
+                    "$feature_enrollment/my-flag": false
                 })),
             )
             .await
