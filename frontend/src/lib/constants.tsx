@@ -270,6 +270,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_SESSIONS_VIEW: 'llm-analytics-sessions-view', // owner: #team-llm-analytics
     LLM_ANALYTICS_SUMMARIZATION: 'llm-analytics-summarization', // owner: #team-llm-analytics
     LLM_ANALYTICS_TEXT_VIEW: 'llm-analytics-text-view', // owner: #team-llm-analytics
+    LLM_ANALYTICS_TRANSLATION: 'llm-analytics-translation', // owner: #team-llm-analytics
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     LOGS_PRE_EARLY_ACCESS: 'logs-internal', // owner: #team-logs
     LOGS_VIRTUALIZED_LIST: 'logs-virtualized-list', // owner: #team-logs
@@ -295,12 +296,12 @@ export const FEATURE_FLAGS = {
     QUERY_EXECUTION_DETAILS: 'query-execution-details', // owner: @sakce
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     REMOTE_CONFIG: 'remote-config', // owner: #team-platform-features
-    REPLAY_CLIENT_SIDE_DECOMPRESSION: 'replay-client-side-decompression', // owner: @pauldambra #team-replay multivariate: worker, yielding, worker_and_yielding, blocking
     REPLAY_DISCARD_RAW_SNAPSHOTS: 'replay-discard-raw-snapshots', // owner: @pauldambra #team-replay
     REPLAY_FILTERS_REDESIGN: 'replay-filters-redesign', // owner: @ksvat #team-replay
     REPLAY_NEW_DETECTED_URL_COLLECTIONS: 'replay-new-detected-url-collections', // owner: @ksvat #team-replay multivariate
     REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK: 'replay-wait-for-full-snapshot-playback', // owner: @ksvat #team-replay
     REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
+    REPLAY_YIELDING_PROCESSING: 'replay-yielding-processing', // owner: @pauldambra #team-replay multivariate: worker, yielding, worker_and_yielding
     SCHEDULE_FEATURE_FLAG_VARIANTS_UPDATE: 'schedule-feature-flag-variants-update', // owner: @gustavo #team-feature-flags
     SCHEMA_MANAGEMENT: 'schema-management', // owner: @aspicer
     SEEKBAR_PREVIEW_SCRUBBING: 'seekbar-preview-scrubbing', // owner: @pauldambra #team-replay
