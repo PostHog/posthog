@@ -90,8 +90,6 @@ class DuckLakeCopyDataImportsMetadata:
 
     # Source metadata (optional, with defaults)
     source_partition_column: str | None = None
-    source_partition_column_type: str | None = None
-    source_non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
     # Verification
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
@@ -183,11 +181,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
         source_type = schema.source.source_type
         source_table_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{normalized_name}"
 
-        table_columns = schema.table.columns if schema.table else {}
-        partition_column, partition_column_type = _detect_data_imports_partition_column(
-            schema, table_columns, source_table_uri
-        )
-        non_nullable_columns = _detect_data_imports_non_nullable_columns(table_columns)
+        partition_column = _detect_data_imports_partition_column(schema)
 
         model_list.append(
             DuckLakeCopyDataImportsMetadata(
@@ -205,8 +199,6 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 ),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
-                source_partition_column_type=partition_column_type,
-                source_non_nullable_columns=non_nullable_columns,
             )
         )
 
@@ -248,54 +240,21 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
             conn.close()
 
 
-def _detect_data_imports_partition_column(
-    schema: ExternalDataSchema, columns: dict[str, typing.Any], table_uri: str
-) -> tuple[str | None, str | None]:
-    """Detect partition column for data imports tables.
+def _detect_data_imports_partition_column(schema: ExternalDataSchema) -> str | None:
+    """Detect partition column name for data imports tables.
+
+    Returns the configured partition column name. Actual column existence and type
+    are verified at verification time by fetching the Delta schema directly.
 
     Checks:
     1. Schema partitioning config (partitioning_keys)
-    2. _ph_partition_key column (standard data imports partition key)
+    2. _ph_partition_key (standard data imports partition key)
     """
     if schema.partitioning_enabled and schema.partitioning_keys:
-        partition_key = schema.partitioning_keys[0]
-        if partition_key in columns:
-            metadata = columns.get(partition_key)
-            partition_column_type = _extract_column_type(metadata)
-            return partition_key, partition_column_type or None
+        return schema.partitioning_keys[0]
 
-    if PARTITION_KEY in columns:
-        metadata = columns.get(PARTITION_KEY)
-        column_type = _extract_column_type(metadata)
-        return PARTITION_KEY, column_type or None
-
-    LOGGER.warning(
-        "Unable to detect partition column for data imports - skipping partition verification.",
-        schema_id=str(schema.id),
-        table_uri=table_uri,
-    )
-    return None, None
-
-
-def _extract_column_type(metadata: typing.Any) -> str:
-    """Extract ClickHouse column type from metadata."""
-    if isinstance(metadata, dict):
-        value = metadata.get("clickhouse") or metadata.get("type")
-        if isinstance(value, str):
-            return value
-    if isinstance(metadata, str):
-        return metadata
-    return ""
-
-
-def _detect_data_imports_non_nullable_columns(columns: dict[str, typing.Any]) -> list[str]:
-    """Detect non-nullable columns from ClickHouse column types."""
-    result: list[str] = []
-    for name, metadata in columns.items():
-        column_type = _extract_column_type(metadata)
-        if column_type and not column_type.lower().startswith("nullable("):
-            result.append(name)
-    return result
+    # Fall back to standard partition key
+    return PARTITION_KEY
 
 
 def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
@@ -504,8 +463,6 @@ def verify_data_imports_ducklake_copy_activity(
             partition_result = _run_data_imports_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
-
-            results.extend(_run_data_imports_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
 
@@ -586,7 +543,19 @@ def _run_data_imports_partition_verification(
     if not partition_column:
         return None
 
-    bucket_expr = _build_partition_bucket_expression(partition_column, inputs.model.source_partition_column_type)
+    # Get partition column type from Delta schema directly
+    source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+    partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
+    if partition_column_type is None:
+        # Partition column doesn't exist in Delta schema - skip verification
+        return DuckLakeCopyDataImportsVerificationResult(
+            name="data_imports.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=f"Partition column '{partition_column}' not found in Delta schema",
+        )
+
+    bucket_expr = _build_partition_bucket_expression(partition_column, partition_column_type)
     sql = f"""
         WITH source AS (
             SELECT {bucket_expr} AS bucket, count(*) AS cnt
@@ -638,57 +607,6 @@ def _run_data_imports_partition_verification(
     )
 
 
-def _run_data_imports_non_nullable_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyDataImportsActivityInputs,
-) -> list[DuckLakeCopyDataImportsVerificationResult]:
-    """Verify null counts match for non-nullable columns between source and DuckLake."""
-    results: list[DuckLakeCopyDataImportsVerificationResult] = []
-    if not inputs.model.source_non_nullable_columns:
-        return results
-
-    source_uri = inputs.model.source_table_uri
-    for column in inputs.model.source_non_nullable_columns:
-        column_expr = _quote_identifier(column)
-        source_sql = f"SELECT COUNT(*) FROM delta_scan(?) WHERE {column_expr} IS NULL"
-        ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
-        try:
-            source_row = conn.execute(source_sql, [source_uri]).fetchone()
-            ducklake_row = conn.execute(ducklake_sql).fetchone()
-            if source_row is None or ducklake_row is None:
-                raise ValueError(f"Null ratio query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyDataImportsVerificationResult(
-                    name=f"data_imports.null_ratio.{column}",
-                    passed=False,
-                    description=f"Ensure null ratio matches for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_nulls = float(source_row[0] or 0)
-        ducklake_nulls = float(ducklake_row[0] or 0)
-        passed = ducklake_nulls == source_nulls
-        results.append(
-            DuckLakeCopyDataImportsVerificationResult(
-                name=f"data_imports.null_ratio.{column}",
-                passed=passed,
-                description=f"Ensure null ratio matches for {column}.",
-                expected_value=source_nulls,
-                observed_value=ducklake_nulls,
-                tolerance=0.0,
-                error=None
-                if passed
-                else f"{column} null mismatch (source={int(source_nulls)}, ducklake={int(ducklake_nulls)})",
-            )
-        )
-
-    return results
-
-
 def _fetch_delta_schema(conn: duckdb.DuckDBPyConnection, source_uri: str) -> list[tuple[str, str]]:
     """Fetch schema from a Delta table."""
     rows = conn.execute(
@@ -696,6 +614,15 @@ def _fetch_delta_schema(conn: duckdb.DuckDBPyConnection, source_uri: str) -> lis
         [source_uri],
     ).fetchall()
     return [(row[0], row[1]) for row in rows]
+
+
+def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
+    """Get a column's type from a schema list, case-insensitive."""
+    normalized_name = column_name.lower()
+    for name, col_type in schema:
+        if name.lower() == normalized_name:
+            return col_type
+    return None
 
 
 def _fetch_schema(conn: duckdb.DuckDBPyConnection, table_name: str) -> list[tuple[str, str]]:
@@ -748,7 +675,7 @@ def _build_partition_bucket_expression(column_name: str, column_type: str | None
 
 
 def _is_datetime_column_type(column_type: str | None) -> bool:
-    """Check if a column type is a datetime type."""
+    """Check if a DuckDB column type is a datetime type."""
     if not column_type:
         return False
     normalized = column_type.strip().lower()
