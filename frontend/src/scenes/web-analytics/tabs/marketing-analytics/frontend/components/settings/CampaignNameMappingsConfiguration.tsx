@@ -7,7 +7,7 @@ import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag, Toolt
 import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { getGlobalCampaignMapping } from '../MarketingAnalyticsTable/marketingMappingUtils'
+import { getGlobalCampaignMapping } from '../NonIntegratedConversionsTable/mappingUtils'
 
 const SEPARATOR = ','
 

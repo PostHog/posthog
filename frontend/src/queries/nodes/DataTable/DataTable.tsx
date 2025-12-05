@@ -62,6 +62,7 @@ import {
     HogQLQuery,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    NonIntegratedConversionsColumnsSchemaNames,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
@@ -298,7 +299,9 @@ export function DataTable({
                 sorter: undefined, // using custom sorting code
                 cellActions:
                     sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
-                    ['source', 'campaign'].includes(key.toLowerCase())
+                    Object.values(NonIntegratedConversionsColumnsSchemaNames).includes(
+                        key as NonIntegratedConversionsColumnsSchemaNames
+                    )
                         ? (_: unknown, record: DataTableRow) => {
                               if (!record.result) {
                                   return null

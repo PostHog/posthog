@@ -5,12 +5,8 @@ import { LemonMenuItem, LemonMenuItems, LemonMenuOverlay } from 'lib/lemon-ui/Le
 import { mswDecorator } from '~/mocks/browser'
 import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
-import { MappingTypes } from './marketingMappingUtils'
-import {
-    buildCampaignMappingMenuItems,
-    buildRowMappingMenuItems,
-    buildSourceMappingMenuItems,
-} from './marketingMenuBuilders'
+import { MappingTypes } from './mappingUtils'
+import { buildCampaignMappingMenuItems, buildRowMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
 
 // Mock icons for marketing sources - these are the paths returned by the backend
 const MARKETING_SOURCE_ICONS: Record<string, { name: string; iconPath: string; fields: never[]; caption: string }> = {

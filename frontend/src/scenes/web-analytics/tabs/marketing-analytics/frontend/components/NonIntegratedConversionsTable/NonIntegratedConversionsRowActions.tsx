@@ -15,8 +15,8 @@ import {
     getCampaignMappings,
     getGlobalCampaignMapping,
     getSourceMappingStatus,
-} from '../MarketingAnalyticsTable/marketingMappingUtils'
-import { buildRowMappingMenuItems } from '../MarketingAnalyticsTable/marketingMenuBuilders'
+} from './mappingUtils'
+import { buildRowMappingMenuItems } from './menuBuilders'
 
 function extractStringValue(value: unknown): string {
     if (value == null) {

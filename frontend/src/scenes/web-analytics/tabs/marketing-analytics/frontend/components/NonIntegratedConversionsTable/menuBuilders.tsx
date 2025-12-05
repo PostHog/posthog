@@ -6,7 +6,7 @@ import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWare
 
 import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
-import { CampaignMappingInfo, MappingTypes, SourceMappingStatus } from './marketingMappingUtils'
+import { CampaignMappingInfo, MappingTypes, SourceMappingStatus } from './mappingUtils'
 
 /** Maximum characters to show in menu titles before truncating */
 const MENU_TITLE_MAX_LENGTH = 20
