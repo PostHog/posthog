@@ -24,8 +24,7 @@ export function TimeSensitiveAuthenticationModal(): JSX.Element {
     const showPassword = !ssoEnforcement && user?.has_password
 
     const extraQueryParams = {
-        // Don't use encodeURI, it would double-encode special characters (e.g., %3A becomes %253A)
-        next: location.pathname + location.search + location.hash,
+        next: location.href.replace(location.origin, ''),
         email: user?.email || '',
         reauth: 'true',
     }
