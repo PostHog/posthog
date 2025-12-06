@@ -2704,6 +2704,29 @@ class PropertyOperator(StrEnum):
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
 
+    def is_negative(self):
+        return self in [
+            PropertyOperator.IS_NOT,
+            PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_REGEX,
+            PropertyOperator.IS_NOT_SET,
+            PropertyOperator.NOT_BETWEEN,
+            PropertyOperator.NOT_IN,
+        ]
+
+    def to_non_negative(self):
+        if not self.is_negative():
+            return self
+
+        return {
+            PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+            PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+            PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+            PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+            PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+            PropertyOperator.NOT_IN: PropertyOperator.IN_,
+        }[self]
+
 
 class Mark(BaseModel):
     attrs: dict[str, Any] | None = None
@@ -4887,6 +4910,12 @@ class LogMessage(BaseModel):
     uuid: str
 
 
+class LogPropertyFilterType(StrEnum):
+    LOG = "log"
+    ATTRIBUTE = "log_attribute"
+    RESOURCE_ATTRIBUTE = "log_resource_attribute"
+
+
 class LogPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4894,7 +4923,7 @@ class LogPropertyFilter(BaseModel):
     key: str
     label: str | None = None
     operator: PropertyOperator
-    type: Literal["log"] = "log"
+    type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
 
 
