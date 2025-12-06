@@ -1,9 +1,15 @@
-from rest_framework import request, response, viewsets
+from drf_spectacular.utils import OpenApiResponse
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import FeatureFlag
+
+
+class FlagValueQuerySerializer(serializers.Serializer):
+    key = serializers.IntegerField(required=True, help_text="The flag ID")
 
 
 class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -15,6 +21,14 @@ class FlagValueViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
     scope_object = "feature_flag"
 
+    @validated_request(
+        query_serializer=FlagValueQuerySerializer,
+        responses={
+            200: OpenApiResponse(response=serializers.ListSerializer(child=serializers.DictField())),
+            400: OpenApiResponse(response=serializers.DictField()),
+            404: OpenApiResponse(response=serializers.DictField()),
+        },
+    )
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
         """
