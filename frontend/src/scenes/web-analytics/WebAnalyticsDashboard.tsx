@@ -47,6 +47,7 @@ import { InsightLogicProps, OnboardingStepKey, TeamPublicType, TeamType } from '
 
 import { WebAnalyticsExport } from './WebAnalyticsExport'
 import { WebAnalyticsFilters } from './WebAnalyticsFilters'
+import { HealthStatusTab, webAnalyticsHealthLogic } from './health'
 import { webAnalyticsModalLogic } from './webAnalyticsModalLogic'
 
 export const Tiles = (props: { tiles?: WebAnalyticsTile[]; compact?: boolean }): JSX.Element => {
@@ -397,11 +398,13 @@ export const LearnMorePopover = ({ url, title, description }: LearnMorePopoverPr
 
 // We're switching the filters based on the productTab right now so it is abstracted here
 // until we decide if we want to keep the same components/states for both tabs
-const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element => {
+const Filters = ({ tabs }: { tabs: JSX.Element }): JSX.Element | null => {
     const { productTab } = useValues(webAnalyticsLogic)
     switch (productTab) {
         case ProductTab.PAGE_REPORTS:
             return <PageReportsFilters tabs={tabs} />
+        case ProductTab.HEALTH:
+            return null
         default:
             return <WebAnalyticsFilters tabs={tabs} />
     }
@@ -414,7 +417,40 @@ const MainContent = (): JSX.Element => {
         return <PageReports />
     }
 
+    if (productTab === ProductTab.HEALTH) {
+        return <HealthStatusTab />
+    }
+
     return <Tiles />
+}
+
+const HealthTabLabel = (): JSX.Element => {
+    const { hasUrgentIssues } = useValues(webAnalyticsHealthLogic)
+
+    return (
+        <div className="flex items-center gap-1.5">
+            Installation Health
+            {hasUrgentIssues && (
+                <div className="w-4 h-4 rounded-full bg-danger flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">!</span>
+                </div>
+            )}
+        </div>
+    )
+}
+
+const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
+    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
+        return []
+    }
+
+    return [
+        {
+            key: ProductTab.HEALTH,
+            label: <HealthTabLabel />,
+            link: '/web/health',
+        },
+    ]
 }
 
 export const WebAnalyticsDashboard = (): JSX.Element => {
@@ -438,6 +474,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
 
 const WebAnalyticsTabs = (): JSX.Element => {
     const { productTab } = useValues(webAnalyticsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const { setProductTab } = useActions(webAnalyticsLogic)
 
     const handleShare = (): void => {
@@ -463,6 +501,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
                     ),
                     link: '/web/page-reports',
                 },
+                ...healthTab(featureFlags),
             ]}
             sceneInset
             className="-mt-4"
