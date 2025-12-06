@@ -341,7 +341,7 @@ class MemoryOnboardingFinalizeNode(AssistantNode):
             ]
         )
         chain = prompt | self._model | StrOutputParser() | compressed_memory_parser
-        compressed_memory = cast(str, chain.invoke({"memory_content": core_memory.initial_text}, config=config))
+        compressed_memory = cast(str, await chain.ainvoke({"memory_content": core_memory.initial_text}, config=config))
         compressed_memory = compressed_memory.replace("\n", " ").strip()
         await core_memory.aset_core_memory(compressed_memory)
 
