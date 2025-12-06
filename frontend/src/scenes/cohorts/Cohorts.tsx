@@ -307,7 +307,7 @@ export function Cohorts(): JSX.Element {
                     cohortId: quickSurveyModalState.cohortId,
                     cohortName: quickSurveyModalState.cohortName,
                 }}
-                info="This survey will display to all users in this cohort."
+                info="This survey will display to all users in the cohort."
                 isOpen={quickSurveyModalState.isOpen}
                 onCancel={() => {
                     closeQuickSurveyModal()

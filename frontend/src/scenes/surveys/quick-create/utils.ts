@@ -92,7 +92,7 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                 source: SURVEY_CREATED_SOURCE.COHORTS,
                 defaults: {
                     name: `Cohort ${context.cohortName ?? context.cohortId} - Quick feedback ${randomId}`,
-                    question: 'Ask your cohort a question',
+                    question: 'Ask the cohort a question',
                     targeting_flag_filters: {
                         groups: [
                             {
