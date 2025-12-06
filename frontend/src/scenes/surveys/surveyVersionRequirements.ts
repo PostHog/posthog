@@ -100,7 +100,7 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
     },
     {
         feature: 'Targeting with actions',
-        sdkVersions: { 'posthog-js': '1.299.0' },
+        sdkVersions: { 'posthog-js': '1.301.0' },
         check: (s) => (s.conditions?.actions?.values?.length ?? 0) > 0,
     },
     {
