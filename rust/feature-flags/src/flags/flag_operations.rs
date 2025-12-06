@@ -229,6 +229,7 @@ mod tests {
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -265,6 +266,7 @@ mod tests {
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -315,6 +317,7 @@ mod tests {
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -361,6 +364,7 @@ mod tests {
             version: None,
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -472,6 +476,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -572,6 +577,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -703,6 +709,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -801,6 +808,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -878,6 +886,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -970,6 +979,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 }),
             )
             .await
@@ -1051,6 +1061,7 @@ mod tests {
                         version: Some(1),
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
+                        bucketing_identifier: None,
                     }),
                 )
                 .await
@@ -1143,6 +1154,7 @@ mod tests {
                         version: Some(1),
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
+                        bucketing_identifier: None,
                     }),
                 )
                 .await
@@ -1225,6 +1237,7 @@ mod tests {
                         version: Some(1),
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
+                        bucketing_identifier: None,
                     }),
                 )
                 .await
@@ -1339,6 +1352,7 @@ mod tests {
                         version: Some(1),
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
+                        bucketing_identifier: None,
                     }),
                 )
                 .await

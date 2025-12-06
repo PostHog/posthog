@@ -112,7 +112,8 @@ impl FeatureFlagList {
                   COALESCE(
                       ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
                       '{}'::text[]
-                  ) AS evaluation_tags
+                  ) AS evaluation_tags,
+                  bucketing_identifier
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
               -- Evaluation tags are distinct from organizational tags. This bridge table links
@@ -156,6 +157,7 @@ impl FeatureFlagList {
                         version: row.version,
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
+                        bucketing_identifier: row.bucketing_identifier,
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -329,6 +331,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         let flag2 = FeatureFlagRow {
@@ -343,6 +346,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         };
 
         // Insert multiple flags for the team
@@ -429,6 +433,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         }];
 
         // Serialize as we do in production cache

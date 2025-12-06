@@ -246,6 +246,7 @@ pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
     distinct_id: String,
+    device_id: Option<String>,
     filtered_flags: FeatureFlagList,
     person_property_overrides: Option<HashMap<String, Value>>,
     group_property_overrides: Option<HashMap<String, HashMap<String, Value>>>,
@@ -267,6 +268,7 @@ pub async fn evaluate_for_request(
     let ctx = FeatureFlagEvaluationContext {
         team_id,
         distinct_id,
+        device_id,
         feature_flags: filtered_flags,
         persons_reader: state.database_pools.persons_reader.clone(),
         persons_writer: state.database_pools.persons_writer.clone(),
@@ -301,6 +303,7 @@ mod tests {
             version: None,
             evaluation_runtime,
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 
@@ -322,6 +325,7 @@ mod tests {
             version: None,
             evaluation_runtime,
             evaluation_tags,
+            bucketing_identifier: None,
         }
     }
 

@@ -161,6 +161,7 @@ async fn process_request_inner(
                 &context.state,
                 team.id,
                 distinct_id.clone(),
+                request.device_id.clone(),
                 filtered_flags.clone(),
                 property_overrides.person_properties,
                 property_overrides.group_properties,
