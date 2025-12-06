@@ -6,7 +6,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, PrivateAttr, create_model
 
-from posthog.schema import ArtifactContentType, AssistantToolCallMessage
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -221,7 +221,9 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         )
 
         # Execute the query and return the results
-        results = await execute_and_format_query(self._team, content.query)
+        results = await execute_and_format_query(
+            self._team, content.query, insight_id=artifact_or_insight_id if source == ArtifactSource.INSIGHT else None
+        )
         text_result = format_prompt_string(
             INSIGHT_RESULT_TEMPLATE,
             insight_name=insight_name,
@@ -403,7 +405,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             insight_name = content.name or f"Insight {insight.short_id}"
 
             try:
-                results = await execute_and_format_query(self._team, content.query)
+                results = await execute_and_format_query(self._team, content.query, insight_id=insight.short_id)
             except Exception as e:
                 results = f"Error executing query: {e}"
 
