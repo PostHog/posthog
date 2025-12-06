@@ -45,7 +45,6 @@ from posthog.storage.cache_expiry_manager import (
     cleanup_stale_expiry_tracking as cleanup_generic,
     get_teams_with_expiring_caches,
     refresh_expiring_caches,
-    track_cache_expiry,
 )
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_manager import (
@@ -150,6 +149,7 @@ flags_hypercache = HyperCache(
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
     batch_load_fn=_get_feature_flags_for_teams_batch,
+    expiry_sorted_set_key=FLAGS_CACHE_EXPIRY_SORTED_SET,
 )
 
 
@@ -181,8 +181,7 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
 
     This explicitly updates both Redis and S3 with the latest flag data.
     Only operates when FLAGS_REDIS_URL is configured to avoid writing to shared cache.
-
-    Note: Update duration is tracked by CACHE_SYNC_DURATION_HISTOGRAM in hypercache.py
+    Expiry tracking is handled automatically by HyperCache.set_cache_value().
 
     Args:
         team: Team object or team ID
@@ -196,16 +195,9 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
 
     success = flags_hypercache.update_cache(team, ttl=ttl)
 
-    team_id = team.id if isinstance(team, Team) else team
-
     if not success:
+        team_id = team.id if isinstance(team, Team) else team
         logger.warning("Failed to update flags cache", team_id=team_id)
-    else:
-        # Track expiration in sorted set for efficient queries
-        ttl_seconds = ttl if ttl is not None else settings.FLAGS_CACHE_TTL
-        # Use HyperCache's centralized identifier logic (ID-based cache uses team.id)
-        identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
-        track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, identifier, ttl_seconds, redis_url=flags_hypercache.redis_url)
 
     return success
 

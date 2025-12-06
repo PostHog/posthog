@@ -228,11 +228,6 @@ class HyperCacheManagementConfig:
         return f"{django_prefix}cache/{prefix}/*/{self.namespace}/{self.hypercache.value}"
 
     @property
-    def expiry_sorted_set_key(self) -> str:
-        """Sorted set key for tracking cache expirations."""
-        return f"{self.cache_name}_cache_expiry"
-
-    @property
     def log_prefix(self) -> str:
         """Prefix for log messages (e.g., "flags caches", "team metadata caches")."""
         return f"{self.cache_display_name} caches"
@@ -287,7 +282,8 @@ def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
             deleted += 1
 
         # Clear the expiry tracking sorted set
-        redis_client.delete(config.expiry_sorted_set_key)
+        if config.hypercache.expiry_sorted_set_key:
+            redis_client.delete(config.hypercache.expiry_sorted_set_key)
 
         HYPERCACHE_INVALIDATION_COUNTER.labels(namespace=config.namespace).inc()
 
@@ -408,25 +404,11 @@ def warm_caches(
                     else:
                         ttl_seconds = None
 
-                    # Use pre-loaded data if available
+                    # Use pre-loaded data if available (set_cache_value tracks expiry automatically)
                     if batch_data and team.id in batch_data:
-                        # Directly write pre-loaded data to cache (bypasses load_fn)
                         config.hypercache.set_cache_value(team, batch_data[team.id], ttl=ttl_seconds)
-
-                        # IMPORTANT: Also track expiry since set_cache_value doesn't do it
-                        # The update_fn normally handles this, but we're bypassing it for performance
-                        from posthog.storage.cache_expiry_manager import track_cache_expiry
-
-                        actual_ttl = ttl_seconds if ttl_seconds is not None else config.hypercache.cache_ttl
-
-                        track_cache_expiry(
-                            config.expiry_sorted_set_key,
-                            config.hypercache.get_cache_identifier(team),
-                            actual_ttl,
-                            redis_url=config.hypercache.redis_url,
-                        )
                     else:
-                        # Fall back to regular update (will load individually and track expiry)
+                        # Fall back to regular update (will load individually)
                         config.update_fn(team, ttl=ttl_seconds)
 
                     successful += 1
@@ -593,7 +575,9 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
             }
 
         # Get expiry tracking count using ZCARD (O(1) operation)
-        expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
+        expiry_tracked_count = 0
+        if config.hypercache.expiry_sorted_set_key:
+            expiry_tracked_count = redis_client.zcard(config.hypercache.expiry_sorted_set_key)
 
         # Push metrics to Pushgateway for single-value display in Grafana
         push_hypercache_stats_metrics(

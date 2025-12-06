@@ -228,6 +228,7 @@ team_metadata_hypercache = HyperCache(
     cache_ttl=TEAM_METADATA_CACHE_TTL,
     cache_miss_ttl=TEAM_METADATA_CACHE_MISS_TTL,
     cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES else None,
+    expiry_sorted_set_key=TEAM_CACHE_EXPIRY_SORTED_SET,
 )
 
 
@@ -253,7 +254,7 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     """
     Update the metadata cache for a specific team.
 
-    Note: Update duration is tracked by CACHE_SYNC_DURATION_HISTOGRAM in hypercache.py
+    Expiry tracking is handled automatically by HyperCache.set_cache_value().
 
     Args:
         team: Team object, API token string, or team ID
@@ -262,34 +263,11 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     Returns:
         True if cache update succeeded, False otherwise
     """
-    from posthog.storage.cache_expiry_manager import track_cache_expiry
-
     success = team_metadata_hypercache.update_cache(team, ttl=ttl)
 
-    team_id = team.id if isinstance(team, Team) else "unknown"
-
     if not success:
+        team_id = team.id if isinstance(team, Team) else "unknown"
         logger.warning("Failed to update metadata cache", team_id=team_id)
-    else:
-        # Track expiration in sorted set for efficient queries
-        ttl_seconds = ttl if ttl is not None else TEAM_METADATA_CACHE_TTL
-
-        # Derive identifier for expiry tracking using HyperCache's centralized logic
-        if isinstance(team, Team):
-            identifier = team_metadata_hypercache.get_cache_identifier(team)
-        elif isinstance(team, str):
-            identifier = team  # Already have the token
-        else:
-            # Look up token from team ID (token-based cache requires token)
-            try:
-                identifier = Team.objects.values_list("api_token", flat=True).get(id=team)
-            except Team.DoesNotExist:
-                logger.warning("Team not found for expiry tracking", team_id=team)
-                return success
-
-        track_cache_expiry(
-            TEAM_CACHE_EXPIRY_SORTED_SET, identifier, ttl_seconds, redis_url=team_metadata_hypercache.redis_url
-        )
 
     return success
 
