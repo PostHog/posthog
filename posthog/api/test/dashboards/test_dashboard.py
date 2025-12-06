@@ -1073,6 +1073,50 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
+    def test_dashboard_duplication_copies_filters(self):
+        """Test that dashboard filters are copied when duplicating a dashboard"""
+        filters = {
+            "date_from": "-7d",
+            "date_to": None,
+            "properties": [{"key": "$browser", "value": "Chrome", "type": "event"}],
+        }
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team, name="Dashboard with filters", created_by=self.user, filters=filters
+        )
+
+        # Duplicate the dashboard
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk}
+        )
+
+        # Verify filters were copied in response
+        self.assertEqual(response["filters"], filters)
+
+        # Verify filters were copied in database
+        duplicated_dashboard = Dashboard.objects.get(id=response["id"])
+        self.assertEqual(duplicated_dashboard.filters, filters)
+
+    def test_dashboard_duplication_explicit_filters_override(self):
+        """Test that explicitly provided filters override source dashboard filters"""
+        original_filters = {"date_from": "-7d"}
+        new_filters = {"date_from": "-30d", "properties": [{"key": "$browser", "value": "Firefox"}]}
+
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team, name="Dashboard with filters", created_by=self.user, filters=original_filters
+        )
+
+        # Duplicate with explicit filters
+        _, response = self.dashboard_api.create_dashboard(
+            {"name": "Duplicated dashboard", "use_dashboard": existing_dashboard.pk, "filters": new_filters}
+        )
+
+        # Explicit filters should take priority
+        self.assertEqual(response["filters"], new_filters)
+
+        # Verify in database
+        duplicated_dashboard = Dashboard.objects.get(id=response["id"])
+        self.assertEqual(duplicated_dashboard.filters, new_filters)
+
     def test_return_cached_results_dashboard_has_filters(self):
         # create a dashboard with no filters
         dashboard: Dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
