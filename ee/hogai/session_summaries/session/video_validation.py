@@ -281,6 +281,14 @@ class SessionSummaryVideoValidator:
             )
             return None
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
+        # Validate that updates_result is a list
+        if not isinstance(updates_result, list):
+            logger.error(
+                f"Invalid updates_result type for session {self.session_id}, expected list but got {type(updates_result).__name__}",
+                session_id=self.session_id,
+                signals_type="session-summaries",
+            )
+            return None
         updates_result = cast(list[dict[str, str]], updates_result)
         return updates_result
 
@@ -288,6 +296,21 @@ class SessionSummaryVideoValidator:
         """Apply updates to the summary"""
         summary_to_update = copy.deepcopy(self.summary.data)
         for field in updates_result:
+            # Validate that field is a dict with required keys
+            if not isinstance(field, dict):
+                logger.error(
+                    f"Invalid field type in updates_result for session {self.session_id}, expected dict but got {type(field).__name__}, skipping",
+                    session_id=self.session_id,
+                    signals_type="session-summaries",
+                )
+                continue
+            if "path" not in field or "new_value" not in field:
+                logger.error(
+                    f"Missing required keys in field for session {self.session_id}, skipping",
+                    session_id=self.session_id,
+                    signals_type="session-summaries",
+                )
+                continue
             # Ensure the path exists and wasn't hallucinated
             try:
                 find_value(target=summary_to_update, spec=field["path"])
