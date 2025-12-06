@@ -1078,9 +1078,8 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
     {
-        key: 'This month',
-        values: ['mStart'],
-        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
+        key: 'Last week',
+        values: ['-1wStart', '-1wEnd'],
         defaultInterval: 'day',
     },
     {
@@ -1088,6 +1087,12 @@ export const dateMapping: DateMappingOption[] = [
         values: ['-1mStart', '-1mEnd'],
         getFormattedDate: (date: dayjs.Dayjs): string =>
             formatDateRange(date.subtract(1, 'month').startOf('month'), date.subtract(1, 'month').endOf('month')),
+        defaultInterval: 'day',
+    },
+    {
+        key: 'This month',
+        values: ['mStart'],
+        getFormattedDate: (date: dayjs.Dayjs): string => formatDateRange(date.startOf('month'), date.endOf('month')),
         defaultInterval: 'day',
     },
     {
