@@ -4,6 +4,9 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     emit_internal_telemetry_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
+    get_evaluation_config_activity,
+    increment_trial_eval_count_activity,
+    update_key_state_activity,
 )
 from posthog.temporal.llm_analytics.trace_summarization import (
     BatchTraceSummarizationCoordinatorWorkflow,
@@ -21,6 +24,9 @@ WORKFLOWS = [
 
 ACTIVITIES = [
     fetch_evaluation_activity,
+    get_evaluation_config_activity,
+    increment_trial_eval_count_activity,
+    update_key_state_activity,
     execute_llm_judge_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
