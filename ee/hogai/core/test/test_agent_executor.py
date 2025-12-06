@@ -504,7 +504,7 @@ class TestAgentExecutor(BaseTest):
         mock_workflow_2 = Mock()
         mock_workflow_2.id = f"subagent-{self.conversation.id}-tool-call-2"
 
-        async def mock_list_workflows(_query):
+        async def mock_list_workflows(query):
             for workflow in [mock_workflow_1, mock_workflow_2]:
                 yield workflow
 

@@ -166,30 +166,24 @@ class TestProcessChatAgentActivity:
     @pytest.mark.asyncio
     async def test_process_conversation_activity_passes_parent_span_id(
         self,
-        mock_team,
-        mock_user,
-        mock_conversation,
+        team,
+        user,
+        conversation,
         mock_redis_stream,
         mock_assistant,
     ):
         """Ensure parent_span_id is forwarded to the runner for subagent tracing."""
         parent_span_id = "test-parent-span-id"
         inputs = ChatAgentWorkflowInputs(
-            team_id=1,
-            user_id=2,
-            conversation_id=uuid4(),
+            team_id=team.id,
+            user_id=user.id,
+            conversation_id=conversation.id,
             message={"content": "Hello", "type": "human"},
             parent_span_id=parent_span_id,
             stream_key=get_conversation_stream_key(uuid4()),
         )
 
         with (
-            patch("posthog.temporal.ai.chat_agent.Team.objects.aget", new=AsyncMock(return_value=mock_team)),
-            patch("posthog.temporal.ai.chat_agent.User.objects.aget", new=AsyncMock(return_value=mock_user)),
-            patch(
-                "posthog.temporal.ai.chat_agent.Conversation.objects.aget",
-                new=AsyncMock(return_value=mock_conversation),
-            ),
             patch("posthog.temporal.ai.chat_agent.ConversationRedisStream", return_value=mock_redis_stream),
             patch(
                 "posthog.temporal.ai.chat_agent.ChatAgentRunner", return_value=mock_assistant
