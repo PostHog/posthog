@@ -4,7 +4,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
+from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
 from posthog.models import Team, User
 
@@ -226,27 +226,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         query_type = content.query.kind
         insight_name = content.name or f"Insight {artifact_or_insight_id}"
 
-        # Only create artifact message for insights from DB (not for existing artifacts in state/artifacts)
-        if source == ArtifactSource.INSIGHT:
-            artifact_message: ArtifactRefMessage | None = ArtifactRefMessage(
-                content_type=ArtifactContentType.VISUALIZATION,
-                artifact_id=artifact_or_insight_id,
-                source=source,
-                id=str(uuid4()),
-            )
-        else:
-            artifact_message = None
-
-        if execute:
-            results = await execute_and_format_query(self._team, content.query)
-            text_result = format_prompt_string(
-                INSIGHT_RESULT_TEMPLATE,
-                insight_name=insight_name,
-                description=content.description,
-                query_type=query_type,
-                results=results,
-            )
-        else:
+        # The agent wants to read the schema, just return it
+        if not execute:
             query_schema = content.query.model_dump_json(exclude_none=True)
             text_result = format_prompt_string(
                 INSIGHT_SCHEMA_TEMPLATE,
@@ -255,15 +236,31 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 query_type=query_type,
                 query_schema=query_schema,
             )
-
-        if artifact_message is None:
             return text_result, None
 
+        # Create a new artfiact message, so the user can see the results in the UI
+        artifact_message = ArtifactRefMessage(
+            content_type=ArtifactContentType.VISUALIZATION,
+            artifact_id=artifact_or_insight_id,
+            source=source,
+            id=str(uuid4()),
+        )
+
+        # Execute the query and return the results
+        results = await execute_and_format_query(self._team, content.query)
+        text_result = format_prompt_string(
+            INSIGHT_RESULT_TEMPLATE,
+            insight_name=insight_name,
+            description=content.description,
+            query_type=query_type,
+            results=results,
+        )
         tool_call_message = AssistantToolCallMessage(
             content=text_result,
             id=str(uuid4()),
             tool_call_id=self.tool_call_id,
         )
+
         return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
 
     async def _read_artifacts(self) -> tuple[str, None]:
