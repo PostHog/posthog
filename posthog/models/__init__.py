@@ -35,6 +35,7 @@ from .event_property import EventProperty
 from .experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentToSavedMetric
 from .exported_asset import ExportedAsset
 from .feature_flag import FeatureFlag
+from .feedback_audio import FeedbackAudio
 from .surveys.survey import Survey
 from .surveys.survey_response_archive import SurveyResponseArchive
 from .file_system.file_system import FileSystem
@@ -132,6 +133,7 @@ __all__ = [
     "ExperimentToSavedMetric",
     "ExportedAsset",
     "FeatureFlag",
+    "FeedbackAudio",
     "FileSystem",
     "FileSystemViewLog",
     "Filter",

@@ -694,7 +694,7 @@
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='Source', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value='TikTok Ads'),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=True, key='Cost', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='Clicks', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
-        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=3.0),
+        MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='Impressions', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=5.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=True, key='CPC', kind=<WebAnalyticsItemKind.CURRENCY: 'currency'>, previous=None, value=None),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='CTR', kind=<WebAnalyticsItemKind.PERCENTAGE: 'percentage'>, previous=None, value=0.0),
         MarketingAnalyticsItem(changeFromPreviousPct=None, hasComparison=False, isIncreaseBad=False, key='Reported Conversion', kind=<WebAnalyticsItemKind.UNIT: 'unit'>, previous=None, value=0.0),
