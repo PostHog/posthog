@@ -81,6 +81,7 @@ import {
     DashboardType,
     DataColorThemeModel,
     DataModelingJob,
+    DataModelingNode,
     DataWarehouseActivityRecord,
     DataWarehouseJobStats,
     DataWarehouseJobStatsRequestPayload,
@@ -1196,6 +1197,15 @@ export class ApiRequest {
         return this.environmentsDetail(teamId)
             .addPathComponent('data_modeling_jobs')
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
+    }
+
+    // # Data Modeling Nodes
+    public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
+    }
+
+    public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dataModelingNodes(teamId).addPathComponent(id)
     }
 
     // # Warehouse view link
@@ -4002,6 +4012,15 @@ const api = {
             ): Promise<PaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
+        },
+    },
+
+    dataModelingNodes: {
+        async list(): Promise<PaginatedResponse<DataModelingNode>> {
+            return await new ApiRequest().dataModelingNodes().get()
+        },
+        async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
+            return await new ApiRequest().dataModelingNode(nodeId).get()
         },
     },
 
