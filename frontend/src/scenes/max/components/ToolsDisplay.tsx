@@ -50,6 +50,7 @@ export const ToolsDisplay: React.FC<ToolsDisplayProps> = ({ isFloating, tools, b
                 }
                 delayMs={50}
                 title={<ToolsExplanation toolsInReverse={toolsInReverse} />}
+                interactive
             >
                 <div
                     className={clsx(
@@ -274,7 +275,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
     )
 
     return (
-        <>
+        <div className="max-h-[calc(100vh-(var(--spacing)*5))] overflow-y-auto show-scrollbar-on-hover">
             <div className="mb-2">
                 <div className="font-semibold mb-0.5">PostHog AI can:</div>
                 <ul className="space-y-0.5 text-sm *:flex *:items-start">
@@ -297,6 +298,6 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
                     ))}
                 </ul>
             </div>
-        </>
+        </div>
     )
 }
