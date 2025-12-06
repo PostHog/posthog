@@ -42,6 +42,7 @@ import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
+import { PieChart } from '~/queries/nodes/DataVisualization/Components/Charts/PieChart'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
@@ -736,10 +737,12 @@ function InternalDataTableVisualization(
         visualizationType === ChartDisplayType.ActionsLineGraph ||
         visualizationType === ChartDisplayType.ActionsBar ||
         visualizationType === ChartDisplayType.ActionsAreaGraph ||
-        visualizationType === ChartDisplayType.ActionsStackedBar
+        visualizationType === ChartDisplayType.ActionsStackedBar ||
+        visualizationType === ChartDisplayType.ActionsUnstackedBar
     ) {
         const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+
         component = (
             <LineGraph
                 className="p-2"
@@ -754,6 +757,18 @@ function InternalDataTableVisualization(
         )
     } else if (visualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
+    } else if (visualizationType === ChartDisplayType.ActionsPie) {
+        const _xData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.xData : xData
+        const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
+        component = (
+            <PieChart
+                className="p-2"
+                xData={_xData}
+                yData={_yData}
+                chartSettings={chartSettings}
+                presetChartHeight={presetChartHeight}
+            />
+        )
     }
 
     return (

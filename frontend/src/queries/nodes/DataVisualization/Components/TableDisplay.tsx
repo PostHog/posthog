@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGraph, IconLifecycle, IconTrends } from '@posthog/icons'
+import { IconGraph, IconLifecycle, IconPieChart, IconTrends } from '@posthog/icons'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemon-ui'
 
 import { Icon123, IconAreaChart, IconTableChart } from 'lib/lemon-ui/icons'
@@ -24,20 +24,20 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconTableChart />,
                     label: 'Table',
                 },
-                {
-                    value: ChartDisplayType.BoldNumber,
-                    icon: <Icon123 />,
-                    label: 'Big Number',
-                },
             ],
         },
         {
-            title: 'Charts',
+            title: 'Time series',
             options: [
                 {
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconTrends />,
                     label: 'Line chart',
+                },
+                {
+                    value: ChartDisplayType.ActionsAreaGraph,
+                    icon: <IconAreaChart />,
+                    label: 'Area chart',
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
@@ -49,10 +49,20 @@ export const TableDisplay = ({ disabledReason }: TableDisplayProps): JSX.Element
                     icon: <IconLifecycle />,
                     label: 'Stacked bar chart',
                 },
+            ],
+        },
+        {
+            title: 'Total value',
+            options: [
                 {
-                    value: ChartDisplayType.ActionsAreaGraph,
-                    icon: <IconAreaChart />,
-                    label: 'Area chart',
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie chart',
+                },
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    icon: <Icon123 />,
+                    label: 'Number',
                 },
             ],
         },
