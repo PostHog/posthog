@@ -10,6 +10,7 @@ class TestAITemporalModuleIntegrity:
             "SummarizeSingleSessionWorkflow",
             "SummarizeSessionGroupWorkflow",
             "AssistantConversationRunnerWorkflow",
+            "ChatAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.WORKFLOWS]
@@ -42,6 +43,7 @@ class TestAITemporalModuleIntegrity:
             "combine_patterns_from_chunks_activity",
             "split_session_summaries_into_chunks_for_patterns_extraction_activity",
             "process_conversation_activity",
+            "process_chat_agent_activity",
             "validate_llm_single_session_summary_with_videos_activity",
             "summarize_llm_traces_activity",
         ]
