@@ -1370,17 +1370,28 @@ function FeatureFlagRollout({
                                 </span>
                             ) : (
                                 <>
-                                    {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                                    {multivariateEnabled ? (
-                                        <>
-                                            <strong>a variant key</strong> according to the below distribution
-                                        </>
-                                    ) : (
-                                        <strong>
-                                            <code>true</code>
-                                        </strong>
-                                    )}{' '}
-                                    <span>if they match one or more release condition groups.</span>
+                                    <div>
+                                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                        {multivariateEnabled ? (
+                                            <>
+                                                <strong>a variant key</strong> according to the below distribution
+                                            </>
+                                        ) : (
+                                            <strong>
+                                                <code>true</code>
+                                            </strong>
+                                        )}{' '}
+                                        if they match one or more release condition groups.
+                                    </div>
+                                    {multivariateEnabled && (
+                                        <div>
+                                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                            <strong>
+                                                <code>false</code>
+                                            </strong>{' '}
+                                            otherwise.
+                                        </div>
+                                    )}
                                 </>
                             )}
                         </div>
