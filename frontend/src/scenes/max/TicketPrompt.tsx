@@ -1,15 +1,11 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useEffect, useState } from 'react'
-import { v4 as uuidv4 } from 'uuid'
 
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
-
-import { AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
 
 import { maxThreadLogic } from './maxThreadLogic'
 
@@ -37,7 +33,7 @@ export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptP
     const { sendSupportRequest, lastSubmittedTicketId } = useValues(supportLogic)
     const { resetSendSupportRequest, setSendSupportRequestValue, submitSendSupportRequest, closeSupportForm } =
         useActions(supportLogic)
-    const { addMessage } = useActions(maxThreadLogic)
+    const { appendMessageToConversation } = useActions(maxThreadLogic)
 
     const [pendingTicketSubmission, setPendingTicketSubmission] = useState(false)
     const [ticketIdBeforeSubmission, setTicketIdBeforeSubmission] = useState<string | null>(null)
@@ -45,7 +41,7 @@ export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptP
     const messageContent = summary || issueText
 
     const handleTicketCreated = useCallback(
-        async (ticketId: string): Promise<void> => {
+        (ticketId: string): void => {
             posthog.capture('posthog_ai_support_ticket_created', {
                 $ai_conversation_id: conversationId,
                 $ai_session_id: conversationId,
@@ -53,28 +49,20 @@ export function TicketPrompt({ conversationId, traceId, summary }: TicketPromptP
                 $ai_support_ticket_id: ticketId,
             })
 
-            // Persist the confirmation message to the conversation
+            // Persist the confirmation message and add it to the thread
             const confirmationMessage = formatConfirmationMessage(ticketId)
-            await api.conversations.appendMessage(conversationId, confirmationMessage)
-
-            // Add the message to the local thread state
-            addMessage({
-                type: AssistantMessageType.Assistant,
-                content: confirmationMessage,
-                id: uuidv4(),
-                status: 'completed',
-            })
+            appendMessageToConversation(confirmationMessage)
 
             setIsSupportModalOpen(false)
             setIsSubmitting(false)
             closeSupportForm()
         },
-        [conversationId, traceId, addMessage, closeSupportForm]
+        [conversationId, traceId, appendMessageToConversation, closeSupportForm]
     )
 
     useEffect(() => {
         if (pendingTicketSubmission && lastSubmittedTicketId && lastSubmittedTicketId !== ticketIdBeforeSubmission) {
-            void handleTicketCreated(lastSubmittedTicketId)
+            handleTicketCreated(lastSubmittedTicketId)
             setPendingTicketSubmission(false)
         }
     }, [lastSubmittedTicketId, pendingTicketSubmission, ticketIdBeforeSubmission, handleTicketCreated])

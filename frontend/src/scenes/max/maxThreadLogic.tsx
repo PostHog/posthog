@@ -178,6 +178,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        appendMessageToConversation: (message: string) => ({ message }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
@@ -655,6 +656,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             } catch (error) {
                 console.error('Failed to navigate to notebook:', error)
             }
+        },
+        appendMessageToConversation: async ({ message }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+
+            await api.conversations.appendMessage(conversationId, message)
+
+            actions.addMessage({
+                type: AssistantMessageType.Assistant,
+                content: message,
+                id: uuid(),
+                status: 'completed',
+            })
         },
     })),
 
