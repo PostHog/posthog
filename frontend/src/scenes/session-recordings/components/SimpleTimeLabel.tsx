@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { getLocalizedDateFormat } from 'lib/utils/dateTimeUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { shortTimeZone } from 'lib/utils'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -32,9 +33,9 @@ function formatStringFor(d: Dayjs, timeOnly?: boolean): string {
 
     const today = dayjs()
     if (d.isSame(today, 'year')) {
-        return 'DD/MMM, HH:mm:ss'
+        return `${getLocalizedDateFormat()}, HH:mm:ss`
     }
-    return 'DD/MM/YYYY HH:mm:ss'
+    return `${getLocalizedDateFormat()} YYYY, HH:mm:ss`
 }
 
 const truncateToSeconds = (time: string | number | Dayjs): number => {
