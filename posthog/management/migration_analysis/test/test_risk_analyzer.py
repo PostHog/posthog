@@ -1399,3 +1399,166 @@ class TestUnmanagedModels:
         )
 
         assert is_unmanaged_model(op, mock_migration) is False
+
+
+class TestAtomicFalsePolicy:
+    """Tests for AtomicFalsePolicy - validates atomic=False usage in migrations."""
+
+    def setup_method(self):
+        self.analyzer = RiskAnalyzer()
+
+    def test_atomic_false_with_addfield_warns(self):
+        """atomic=False with regular AddField should warn (not block)"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("WARNING" in v for v in migration_risk.policy_violations)
+        assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_with_add_index_concurrently_ok(self):
+        """atomic=False with AddIndexConcurrently is correct - no warning"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Create AddIndexConcurrently operation
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_true_with_concurrent_blocked(self):
+        """CONCURRENTLY without atomic=False should be BLOCKED (will fail at runtime)"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        # Create AddIndexConcurrently operation
+        op = MagicMock()
+        op.__class__.__name__ = "AddIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_with_runsql_concurrently_ok(self):
+        """atomic=False with RunSQL CONCURRENTLY is correct - no warning"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_test ON test_table (col);")
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_true_with_runsql_concurrently_blocked(self):
+        """RunSQL with CONCURRENTLY without atomic=False should be BLOCKED"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(migrations.RunSQL, sql="CREATE INDEX CONCURRENTLY idx_test ON test_table (col);")
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_false_mixed_ops_recommends_split(self):
+        """atomic=False with AddField + CONCURRENTLY should recommend splitting"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        add_index_op = MagicMock()
+        add_index_op.__class__.__name__ = "AddIndexConcurrently"
+
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            ),
+            add_index_op,
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have "atomic=False without CONCURRENTLY" warning (CONCURRENTLY is present)
+        assert not any("atomic=False without CONCURRENTLY" in v for v in migration_risk.policy_violations)
+        # Should recommend splitting
+        assert any("RECOMMEND SPLIT" in v for v in migration_risk.policy_violations)
+
+    def test_third_party_app_not_checked(self):
+        """Third-party app migrations should not be checked for atomic policy"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = False
+        mock_migration.app_label = "some_third_party_app"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "some_third_party_app/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings (not a PostHog app)
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_atomic_default_true_no_warning(self):
+        """Migration without explicit atomic (defaults to True) with regular ops should have no atomic warning"""
+        mock_migration = MagicMock()
+        # No atomic attribute set - defaults to True
+        del mock_migration.atomic
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+        mock_migration.operations = [
+            create_mock_operation(
+                migrations.AddField, model_name="mymodel", name="field", field=models.CharField(null=True)
+            )
+        ]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        # Should not have atomic-related warnings
+        assert not any("atomic=False" in v for v in migration_risk.policy_violations)
+
+    def test_remove_index_concurrently_requires_atomic_false(self):
+        """RemoveIndexConcurrently without atomic=False should be blocked"""
+        mock_migration = MagicMock()
+        mock_migration.atomic = True
+        mock_migration.app_label = "posthog"
+        mock_migration.name = "0001_test"
+
+        op = MagicMock()
+        op.__class__.__name__ = "RemoveIndexConcurrently"
+        mock_migration.operations = [op]
+
+        migration_risk = self.analyzer.analyze_migration(mock_migration, "posthog/migrations/0001_test.py")
+
+        assert any("BLOCKED" in v for v in migration_risk.policy_violations)
+        assert any("CONCURRENTLY" in v for v in migration_risk.policy_violations)
