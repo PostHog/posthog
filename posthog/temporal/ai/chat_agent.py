@@ -44,6 +44,7 @@ class AssistantConversationRunnerWorkflowInputs:
     session_id: Optional[str] = None
     mode: AssistantMode = AssistantMode.ASSISTANT
     billing_context: Optional[MaxBillingContext] = None
+    is_workflow_billable: bool = True
     agent_mode: AgentMode | None = None
 
 
@@ -99,6 +100,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
         trace_id=inputs.trace_id,
         session_id=inputs.session_id,
         billing_context=inputs.billing_context,
+        is_workflow_billable=inputs.is_workflow_billable,
         agent_mode=inputs.agent_mode,
     )
 

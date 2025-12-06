@@ -17291,6 +17291,9 @@
                 "inputTokens": {
                     "type": "number"
                 },
+                "isSupportTrace": {
+                    "type": "boolean"
+                },
                 "outputCost": {
                     "type": "number"
                 },
@@ -29328,6 +29331,9 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterSupportTraces": {
+                    "type": "boolean"
                 },
                 "filterTestAccounts": {
                     "type": "boolean"

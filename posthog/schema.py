@@ -4827,6 +4827,7 @@ class LLMTrace(BaseModel):
     inputCost: float | None = None
     inputState: Any | None = None
     inputTokens: float | None = None
+    isSupportTrace: bool | None = None
     outputCost: float | None = None
     outputState: Any | None = None
     outputTokens: float | None = None
@@ -12143,6 +12144,7 @@ class TracesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterSupportTraces: bool | None = None
     filterTestAccounts: bool | None = None
     groupKey: str | None = None
     groupTypeIndex: int | None = None

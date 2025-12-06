@@ -71,6 +71,7 @@ class BaseAgentRunner(ABC):
     _initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState]
     _stream_processor: AssistantStreamProcessorProtocol
     """The stream processor that processes dispatcher actions and message chunks."""
+    _is_workflow_billable: bool
 
     def __init__(
         self,
@@ -91,6 +92,7 @@ class BaseAgentRunner(ABC):
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         callback_handler: Optional[BaseCallbackHandler] = None,
         stream_processor: AssistantStreamProcessorProtocol,
+        is_workflow_billable: bool = True,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -117,6 +119,7 @@ class BaseAgentRunner(ABC):
                     "$session_id": self._session_id,
                     "assistant_mode": mode.value,
                     "$groups": event_usage.groups(team=team),
+                    "$ai_support_impersonated": not is_workflow_billable,
                 }
                 return CallbackHandler(
                     client,
@@ -140,6 +143,7 @@ class BaseAgentRunner(ABC):
         self._billing_context = billing_context
         self._mode = mode
         self._initial_state = initial_state
+        self._is_workflow_billable = is_workflow_billable
         # Initialize the stream processor with node configuration
         self._stream_processor = stream_processor
 
@@ -296,6 +300,7 @@ class BaseAgentRunner(ABC):
                 "team": self._team,
                 "user": self._user,
                 "billing_context": self._billing_context,
+                "is_workflow_billable": self._is_workflow_billable,
                 # Metadata to be sent to PostHog SDK (error tracking, etc).
                 "sdk_metadata": {
                     "assistant_mode": self._mode.value,
