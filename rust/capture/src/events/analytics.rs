@@ -95,6 +95,7 @@ pub fn process_single_event(
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
+        session_id: metadata.session_id.clone(),
         ip: resolved_ip,
         data,
         now: context

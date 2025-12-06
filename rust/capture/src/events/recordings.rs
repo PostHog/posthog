@@ -284,6 +284,7 @@ pub async fn process_replay_events<'a>(
     let event = CapturedEvent {
         uuid,
         distinct_id, // No clone - we own it from extract_distinct_id()
+        session_id: Some(session_id_str.to_string()),
         ip: context.client_ip.clone(),
         data: serialized_data,
         now: context
