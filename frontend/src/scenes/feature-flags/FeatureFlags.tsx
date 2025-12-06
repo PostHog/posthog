@@ -358,7 +358,7 @@ export function OverViewTab({
                         {isMultivariate && (
                             <div className="flex flex-wrap gap-1">
                                 {variants.map((variant) => (
-                                    <span>
+                                    <span key={variant.key}>
                                         <LemonTag type="muted" size="small">
                                             {variant.key}: {variant.rollout_percentage}%
                                         </LemonTag>
