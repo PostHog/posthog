@@ -283,7 +283,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuid,
-                    [{ distinctId: anonId, version: 0 }]
+                    { distinctId: anonId, version: 0 }
                 )
                 return result.person
             }
@@ -337,9 +337,10 @@ describe('PersonState dual-write compatibility', () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'conflict-test-user'
 
-            await singleWriteRepository.createPerson(timestamp, { first: true }, {}, {}, teamId, null, false, uuid, [
-                { distinctId: 'first-' + distinctId, version: 0 },
-            ])
+            await singleWriteRepository.createPerson(timestamp, { first: true }, {}, {}, teamId, null, false, uuid, {
+                distinctId: 'first-' + distinctId,
+                version: 0,
+            })
 
             await dualWriteRepository.createPerson(
                 timestamp,
@@ -350,7 +351,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'dual-first-' + distinctId, version: 0 }]
+                { distinctId: 'dual-first-' + distinctId, version: 0 }
             )
 
             const singleResult = await singleWriteRepository.createPerson(
@@ -362,7 +363,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'first-' + distinctId, version: 0 }]
+                { distinctId: 'first-' + distinctId, version: 0 }
             )
 
             const dualResult = await dualWriteRepository.createPerson(
@@ -374,7 +375,7 @@ describe('PersonState dual-write compatibility', () => {
                 null,
                 false,
                 new UUIDT().toString(),
-                [{ distinctId: 'dual-first-' + distinctId, version: 0 }]
+                { distinctId: 'dual-first-' + distinctId, version: 0 }
             )
 
             expect(singleResult.success).toBe(false)
@@ -465,7 +466,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, existingDistinctId),
-                    [{ distinctId: existingDistinctId, version: 0 }]
+                    { distinctId: existingDistinctId, version: 0 }
                 )
 
                 expect(existingPersonResult.success).toBe(true)
@@ -697,7 +698,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     true, // is_identified
                     uuidFromDistinctId(teamId, person1DistinctId),
-                    [{ distinctId: person1DistinctId, version: 0 }]
+                    { distinctId: person1DistinctId, version: 0 }
                 )
                 expect(person1Result.success).toBe(true)
                 if (!person1Result.success) {
@@ -718,7 +719,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false, // not identified
                     uuidFromDistinctId(teamId, person2DistinctId),
-                    [{ distinctId: person2DistinctId, version: 0 }]
+                    { distinctId: person2DistinctId, version: 0 }
                 )
                 expect(person2Result.success).toBe(true)
                 if (!person2Result.success) {
@@ -863,7 +864,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, person1Id),
-                    [{ distinctId: person1Id, version: 0 }]
+                    { distinctId: person1Id, version: 0 }
                 )
 
                 const person2Result = await dualWriteRepository.createPerson(
@@ -875,7 +876,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, person2Id),
-                    [{ distinctId: person2Id, version: 0 }]
+                    { distinctId: person2Id, version: 0 }
                 )
 
                 expect(person1Result.success).toBe(true)
@@ -1004,7 +1005,7 @@ describe('PersonState dual-write compatibility', () => {
                     null,
                     false,
                     uuidFromDistinctId(teamId, existingId),
-                    [{ distinctId: existingId, version: 0 }]
+                    { distinctId: existingId, version: 0 }
                 )
 
                 expect(existingResult.success).toBe(true)

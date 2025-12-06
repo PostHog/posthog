@@ -29,7 +29,8 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
-        distinctIds?: { distinctId: string; version?: number }[]
+        primaryDistinctId: { distinctId: string; version?: number },
+        extraDistinctIds?: { distinctId: string; version?: number }[]
     ): Promise<CreatePersonResult> {
         const p = await this.primaryRepo.createPerson(
             createdAt,
@@ -40,7 +41,8 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.lTx
         )
         if (!p.success) {
@@ -61,7 +63,8 @@ export class DualWritePersonRepositoryTransaction implements PersonRepositoryTra
             isUserId,
             isIdentified,
             uuid,
-            distinctIds,
+            primaryDistinctId,
+            extraDistinctIds,
             this.rTx,
             forcedId
         )

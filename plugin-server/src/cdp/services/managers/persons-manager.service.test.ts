@@ -35,7 +35,8 @@ describe('PersonsManager', () => {
             null,
             true,
             new UUIDT().toString(),
-            [{ distinctId: 'distinct_id_A_1' }, { distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
+            { distinctId: 'distinct_id_A_1' },
+            [{ distinctId: 'distinct_id_A_2' }, { distinctId: 'distinct_id_A_3' }]
         )
         if (!result.success) {
             throw new Error('Failed to create person')
@@ -50,7 +51,7 @@ describe('PersonsManager', () => {
             null,
             true,
             new UUIDT().toString(),
-            [{ distinctId: 'distinct_id_B_1' }]
+            { distinctId: 'distinct_id_B_1' }
         )
         if (!result2.success) {
             throw new Error('Failed to create person')
@@ -65,7 +66,7 @@ describe('PersonsManager', () => {
             null,
             true,
             new UUIDT().toString(),
-            [{ distinctId: 'distinct_id_A_1' }]
+            { distinctId: 'distinct_id_A_1' }
         )
         if (!result3.success) {
             throw new Error('Failed to create person')

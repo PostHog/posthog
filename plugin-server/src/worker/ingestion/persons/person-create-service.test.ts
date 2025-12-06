@@ -64,7 +64,7 @@ describe('PersonCreateService', () => {
         const isUserId = null
         const isIdentified = true
         const creatorEventUuid = new UUIDT().toString()
-        const distinctIds = [{ distinctId: 'test-distinct-id', version: 0 }]
+        const primaryDistinctId = { distinctId: 'test-distinct-id', version: 0 }
 
         it('should successfully create a person when store succeeds', async () => {
             const mockPerson = {
@@ -93,7 +93,7 @@ describe('PersonCreateService', () => {
                 isUserId,
                 isIdentified,
                 creatorEventUuid,
-                distinctIds
+                primaryDistinctId
             )
 
             expect(person).toEqual(mockPerson)
@@ -120,7 +120,7 @@ describe('PersonCreateService', () => {
                     isUserId,
                     isIdentified,
                     creatorEventUuid,
-                    distinctIds
+                    primaryDistinctId
                 )
             ).rejects.toThrow(PersonPropertiesSizeViolationError)
 
@@ -165,7 +165,7 @@ describe('PersonCreateService', () => {
                 isUserId,
                 isIdentified,
                 creatorEventUuid,
-                distinctIds
+                primaryDistinctId
             )
 
             expect(person).toEqual(existingPerson)
@@ -192,7 +192,7 @@ describe('PersonCreateService', () => {
                     isUserId,
                     isIdentified,
                     creatorEventUuid,
-                    distinctIds
+                    primaryDistinctId
                 )
             ).rejects.toThrow('Person creation failed with constraint violation, but could not fetch existing person')
         })
@@ -210,26 +210,11 @@ describe('PersonCreateService', () => {
                     isUserId,
                     isIdentified,
                     creatorEventUuid,
-                    distinctIds
+                    primaryDistinctId
                 )
             ).rejects.toThrow('Some other database error')
 
             expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
-        })
-
-        it('should throw error when no distinct IDs provided', async () => {
-            await expect(
-                personCreateService.createPerson(
-                    createdAt,
-                    properties,
-                    propertiesOnce,
-                    teamId,
-                    isUserId,
-                    isIdentified,
-                    creatorEventUuid,
-                    [] // empty distinctIds
-                )
-            ).rejects.toThrow('at least 1 distinctId is required in `createPerson`')
         })
     })
 })

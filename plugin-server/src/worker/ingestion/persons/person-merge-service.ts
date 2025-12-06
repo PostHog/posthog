@@ -326,10 +326,8 @@ export class PersonMergeService {
                     null,
                     true,
                     this.context.event.uuid,
-                    [
-                        { distinctId: distinctId1, version: distinctId1Version },
-                        { distinctId: distinctId2, version: distinctId2Version },
-                    ],
+                    { distinctId: distinctId1, version: distinctId1Version },
+                    [{ distinctId: distinctId2, version: distinctId2Version }],
                     tx
                 )
                 // If person was not created (creation conflict) and is not identified,

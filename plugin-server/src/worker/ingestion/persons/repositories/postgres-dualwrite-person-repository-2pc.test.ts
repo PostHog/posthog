@@ -92,7 +92,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 true,
                 uuid,
-                [{ distinctId: 'dw-1', version: 0 }]
+                { distinctId: 'dw-1', version: 0 }
             )
             expect(result.success).toBe(true)
 
@@ -136,9 +136,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 .mockRejectedValue(new Error('simulated secondary failure'))
 
             await expect(
-                repository.createPerson(createdAt, { y: 1 }, {}, {}, team.id, null, false, uuid, [
-                    { distinctId: 'dw-fail' },
-                ])
+                repository.createPerson(createdAt, { y: 1 }, {}, {}, team.id, null, false, uuid, {
+                    distinctId: 'dw-fail',
+                })
             ).rejects.toThrow('simulated secondary failure')
 
             spy.mockRestore()
@@ -167,9 +167,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const mockSpy = mockDatabaseError(postgres, new Error('primary database connection lost'), 'insertPerson')
 
             await expect(
-                repository.createPerson(createdAt, { name: 'Test Person' }, {}, {}, team.id, null, false, uuid, [
-                    { distinctId: 'test-primary-fail', version: 0 },
-                ])
+                repository.createPerson(createdAt, { name: 'Test Person' }, {}, {}, team.id, null, false, uuid, {
+                    distinctId: 'test-primary-fail',
+                    version: 0,
+                })
             ).rejects.toThrow('primary database connection lost')
 
             mockSpy.mockRestore()
@@ -220,9 +221,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             )
 
             await expect(
-                repository.createPerson(createdAt, { name: 'Test Person' }, {}, {}, team.id, null, false, uuid, [
-                    { distinctId: 'test-secondary-fail', version: 0 },
-                ])
+                repository.createPerson(createdAt, { name: 'Test Person' }, {}, {}, team.id, null, false, uuid, {
+                    distinctId: 'test-secondary-fail',
+                    version: 0,
+                })
             ).rejects.toThrow('secondary database connection lost')
 
             mockSpy.mockRestore()
@@ -276,7 +278,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'dw-2' }]
+                { distinctId: 'dw-2' }
             )) as any
 
             const [updated] = await repository.updatePerson(
@@ -304,9 +306,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '88888888-8888-8888-8888-888888888888'
-            const { person } = (await repository.createPerson(createdAt, { y: 1 }, {}, {}, team.id, null, false, uuid, [
-                { distinctId: 'dw-fail' },
-            ])) as any
+            const { person } = (await repository.createPerson(createdAt, { y: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'dw-fail',
+            })) as any
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'updatePerson')
@@ -348,7 +350,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'update-primary-fail', version: 0 }]
+                { distinctId: 'update-primary-fail', version: 0 }
             )) as any
 
             const mockSpy = mockDatabaseError(postgres, new Error('primary update failed'), 'updatePerson')
@@ -391,7 +393,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'update-secondary-fail', version: 0 }]
+                { distinctId: 'update-secondary-fail', version: 0 }
             )) as any
 
             const mockSpy = mockDatabaseError(migrationPostgres, new Error('secondary update failed'), 'updatePerson')
@@ -426,7 +428,27 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '33333333-3333-3333-3333-333333333333'
-            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, false, uuid)) as any
+            const result = await repository.createPerson(createdAt, {}, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'delete-test-1',
+            })
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
+
+            // Delete distinct IDs first to avoid FK constraint violation
+            await postgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [person.id],
+                'deleteDistinctIds'
+            )
+            await migrationPostgres.query(
+                PostgresUse.PERSONS_WRITE,
+                'DELETE FROM posthog_persondistinctid WHERE person_id = $1',
+                [person.id],
+                'deleteDistinctIds'
+            )
 
             await repository.deletePerson(person)
 
@@ -450,7 +472,13 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-16T10:30:00.000Z').toUTC()
             const uuid = '33333333-3333-3333-3333-333333333334'
-            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, false, uuid)) as any
+            const result = await repository.createPerson(createdAt, {}, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'delete-test-2',
+            })
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'deletePerson')
@@ -481,7 +509,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '55555555-5555-5555-5555-555555555555'
 
-            const { person } = (await repository.createPerson(
+            const result = await repository.createPerson(
                 createdAt,
                 { name: 'To Delete' },
                 {},
@@ -490,8 +518,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'delete-primary-fail', version: 0 }]
-            )) as any
+                { distinctId: 'delete-primary-fail', version: 0 }
+            )
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
 
             const mockSpy = mockDatabaseError(postgres, new Error('primary delete failed'), 'deletePerson')
 
@@ -522,7 +554,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '66666666-6666-6666-6666-666666666666'
 
-            const { person } = (await repository.createPerson(
+            const result = await repository.createPerson(
                 createdAt,
                 { name: 'To Delete' },
                 {},
@@ -531,8 +563,12 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'delete-secondary-fail', version: 0 }]
-            )) as any
+                { distinctId: 'delete-secondary-fail', version: 0 }
+            )
+            if (!result.success) {
+                throw new Error('Failed to create person')
+            }
+            const person = result.person
 
             const mockSpy = mockDatabaseError(migrationPostgres, new Error('secondary delete failed'), 'deletePerson')
 
@@ -564,9 +600,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '44444444-4444-4444-4444-444444444444'
-            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'dw-3' },
-            ])) as any
+            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'dw-3',
+            })) as any
 
             await repository.addDistinctId(person, 'dw-3b', 1)
 
@@ -590,9 +626,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-17T10:30:00.000Z').toUTC()
             const uuid = '44444444-4444-4444-4444-444444444445'
-            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, true, uuid, [
-                { distinctId: 'dw-3c', version: 0 },
-            ])) as any
+            const { person } = (await repository.createPerson(createdAt, {}, {}, {}, team.id, null, true, uuid, {
+                distinctId: 'dw-3c',
+                version: 0,
+            })) as any
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'addDistinctId')
@@ -634,7 +671,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'original-did', version: 0 }]
+                { distinctId: 'original-did', version: 0 }
             )) as any
 
             const mockSpy = mockDatabaseError(postgres, new Error('primary addDistinctId failed'), 'addDistinctId')
@@ -677,7 +714,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'original-did-2', version: 0 }]
+                { distinctId: 'original-did-2', version: 0 }
             )) as any
 
             const mockSpy = mockDatabaseError(
@@ -727,7 +764,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 srcUuid,
-                [{ distinctId: 'src-a', version: 0 }]
+                { distinctId: 'src-a', version: 0 }
             )) as any
             const { person: tgt } = (await repository.createPerson(
                 createdAt,
@@ -738,7 +775,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 tgtUuid,
-                [{ distinctId: 'tgt-a', version: 0 }]
+                { distinctId: 'tgt-a', version: 0 }
             )) as any
 
             await repository.addDistinctId(src, 'src-b', 1)
@@ -779,7 +816,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 srcUuid,
-                [{ distinctId: 'src-c', version: 0 }]
+                { distinctId: 'src-c', version: 0 }
             )) as any
             const { person: tgt } = (await repository.createPerson(
                 createdAt,
@@ -790,7 +827,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 tgtUuid,
-                [{ distinctId: 'tgt-c', version: 0 }]
+                { distinctId: 'tgt-c', version: 0 }
             )) as any
 
             await repository.addDistinctId(src, 'src-d', 1)
@@ -843,7 +880,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 srcUuid,
-                [{ distinctId: 'src-did', version: 0 }]
+                { distinctId: 'src-did', version: 0 }
             )) as any
 
             const { person: tgt } = (await repository.createPerson(
@@ -855,7 +892,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 tgtUuid,
-                [{ distinctId: 'tgt-did', version: 0 }]
+                { distinctId: 'tgt-did', version: 0 }
             )) as any
 
             await repository.addDistinctId(src, 'src-did-2', 1)
@@ -889,7 +926,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 srcUuid,
-                [{ distinctId: 'src-did-b', version: 0 }]
+                { distinctId: 'src-did-b', version: 0 }
             )) as any
 
             const { person: tgt } = (await repository.createPerson(
@@ -901,7 +938,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 tgtUuid,
-                [{ distinctId: 'tgt-did-b', version: 0 }]
+                { distinctId: 'tgt-did-b', version: 0 }
             )) as any
 
             await repository.addDistinctId(src, 'src-did-b-2', 1)
@@ -1170,16 +1207,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-15T10:30:00.000Z').toUTC()
             const uuid = '77777777-7777-7777-7777-777777777777'
-            const { person } = (await repository.createPerson(
-                createdAt,
-                { x: 1 },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid
-            )) as any
+            const { person } = (await repository.createPerson(createdAt, { x: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'dw-assert-1',
+            })) as any
 
             const [version] = await repository.updatePersonAssertVersion({
                 id: person.id,
@@ -1215,16 +1245,9 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const team = await getFirstTeam(postgres)
             const createdAt = DateTime.fromISO('2024-01-19T10:30:00.000Z').toUTC()
             const uuid = '77777777-7777-7777-7777-777777777778'
-            const { person } = (await repository.createPerson(
-                createdAt,
-                { x: 1 },
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                uuid
-            )) as any
+            const { person } = (await repository.createPerson(createdAt, { x: 1 }, {}, {}, team.id, null, false, uuid, {
+                distinctId: 'dw-assert-2',
+            })) as any
 
             const spy = jest
                 .spyOn((repository as any).secondaryRepo, 'updatePersonAssertVersion')
@@ -1287,7 +1310,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid1,
-                [{ distinctId: 'person1', version: 0 }]
+                { distinctId: 'person1', version: 0 }
             )) as any
 
             const { person: person2 } = (await repository.createPerson(
@@ -1299,7 +1322,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid2,
-                [{ distinctId: 'person2', version: 0 }]
+                { distinctId: 'person2', version: 0 }
             )) as any
 
             // Mock primary database to fail during cohort update
@@ -1336,7 +1359,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid1,
-                [{ distinctId: 'person1b', version: 0 }]
+                { distinctId: 'person1b', version: 0 }
             )) as any
 
             const { person: person2 } = (await repository.createPerson(
@@ -1348,7 +1371,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid2,
-                [{ distinctId: 'person2b', version: 0 }]
+                { distinctId: 'person2b', version: 0 }
             )) as any
 
             // Mock secondary database to fail during cohort update
@@ -1386,7 +1409,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                     null,
                     false,
                     uuid,
-                    [{ distinctId: 'tx-did-1', version: 0 }]
+                    { distinctId: 'tx-did-1', version: 0 }
                 )
 
                 if (!createResult.success) {
@@ -1451,7 +1474,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         uuid,
-                        [{ distinctId: 'tx-rollback-1', version: 0 }]
+                        { distinctId: 'tx-rollback-1', version: 0 }
                     )
 
                     if (!createResult.success) {
@@ -1517,7 +1540,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 sourceUuid,
-                [{ distinctId: 'source-main', version: 0 }]
+                { distinctId: 'source-main', version: 0 }
             )) as any
 
             const { person: targetPerson } = (await repository.createPerson(
@@ -1529,7 +1552,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 targetUuid,
-                [{ distinctId: 'target-main', version: 0 }]
+                { distinctId: 'target-main', version: 0 }
             )) as any
 
             // Add extra distinct IDs to source
@@ -1587,7 +1610,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 sourceUuid,
-                [{ distinctId: 'merge-fail-source', version: 0 }]
+                { distinctId: 'merge-fail-source', version: 0 }
             )) as any
 
             const { person: targetPerson } = (await repository.createPerson(
@@ -1599,7 +1622,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 targetUuid,
-                [{ distinctId: 'merge-fail-target', version: 0 }]
+                { distinctId: 'merge-fail-target', version: 0 }
             )) as any
 
             // Mock moveDistinctIds to fail
@@ -1642,9 +1665,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
             const uuid2 = '88888888-8888-8888-8888-888888888888'
 
             // Create first person with a distinct ID
-            await repository.createPerson(createdAt, { first: true }, {}, {}, team.id, null, false, uuid1, [
-                { distinctId: 'conflict-did', version: 0 },
-            ])
+            await repository.createPerson(createdAt, { first: true }, {}, {}, team.id, null, false, uuid1, {
+                distinctId: 'conflict-did',
+                version: 0,
+            })
 
             // Try to create another person with the same distinct ID in a transaction
             // Should now return a failure result instead of throwing
@@ -1658,7 +1682,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                     null,
                     false,
                     uuid2,
-                    [{ distinctId: 'conflict-did', version: 0 }]
+                    { distinctId: 'conflict-did', version: 0 }
                 )
 
                 // The transaction should handle the conflict gracefully
@@ -1728,7 +1752,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         uuid,
-                        [{ distinctId: 'primary-fail-did', version: 0 }]
+                        { distinctId: 'primary-fail-did', version: 0 }
                     )
 
                     if (!createResult.success) {
@@ -1778,7 +1802,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         uuid,
-                        [{ distinctId: 'secondary-fail-did', version: 0 }]
+                        { distinctId: 'secondary-fail-did', version: 0 }
                     )
 
                     return createResult
@@ -1812,7 +1836,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 sourceUuid,
-                [{ distinctId: 'mismatch-source', version: 0 }]
+                { distinctId: 'mismatch-source', version: 0 }
             )) as any
 
             const { person: targetPerson } = (await repository.createPerson(
@@ -1824,7 +1848,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 targetUuid,
-                [{ distinctId: 'mismatch-target', version: 0 }]
+                { distinctId: 'mismatch-target', version: 0 }
             )) as any
 
             const spy = jest.spyOn((repository as any).secondaryRepo, 'moveDistinctIds')
@@ -1858,7 +1882,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 sourceUuid,
-                [{ distinctId: 'identical-fail-source', version: 0 }]
+                { distinctId: 'identical-fail-source', version: 0 }
             )) as any
 
             const { person: targetPerson } = (await repository.createPerson(
@@ -1870,7 +1894,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 targetUuid,
-                [{ distinctId: 'identical-fail-target', version: 0 }]
+                { distinctId: 'identical-fail-target', version: 0 }
             )) as any
 
             const primarySpy = jest.spyOn((repository as any).primaryRepo, 'moveDistinctIds')
@@ -1919,7 +1943,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         '11111111-0000-0000-0000-000000000001',
-                        [{ distinctId: 'outer-tx-did', version: 0 }]
+                        { distinctId: 'outer-tx-did', version: 0 }
                     )
 
                     if (!outerResult.success) {
@@ -1940,7 +1964,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                                 null,
                                 false,
                                 '22222222-0000-0000-0000-000000000002',
-                                [{ distinctId: 'inner-tx-did', version: 0 }]
+                                { distinctId: 'inner-tx-did', version: 0 }
                             )
                             return innerResult
                         })
@@ -1998,7 +2022,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         '33333333-0000-0000-0000-000000000003',
-                        [{ distinctId: 'error-test-1', version: 0 }]
+                        { distinctId: 'error-test-1', version: 0 }
                     )
                     throw customError
                 })
@@ -2010,9 +2034,10 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
 
             // Test 2: Database constraint error
             const uuid4 = '44444444-0000-0000-0000-000000000004'
-            await repository.createPerson(createdAt, { existing: true }, {}, {}, team.id, null, false, uuid4, [
-                { distinctId: 'constraint-test', version: 0 },
-            ])
+            await repository.createPerson(createdAt, { existing: true }, {}, {}, team.id, null, false, uuid4, {
+                distinctId: 'constraint-test',
+                version: 0,
+            })
 
             // Try to create with same distinct ID in transaction
             const result = await repository.inTransaction('test-constraint-error', async (tx) => {
@@ -2025,7 +2050,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                     null,
                     false,
                     '55555555-0000-0000-0000-000000000005',
-                    [{ distinctId: 'constraint-test', version: 0 }]
+                    { distinctId: 'constraint-test', version: 0 }
                 )
                 return result
             })
@@ -2049,7 +2074,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                         null,
                         false,
                         '66666666-0000-0000-0000-000000000006',
-                        [{ distinctId: 'multi-op-1', version: 0 }]
+                        { distinctId: 'multi-op-1', version: 0 }
                     )
 
                     if (!person.success) {
@@ -2085,7 +2110,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 '77777777-0000-0000-0000-000000000007',
-                [{ distinctId: 'outside-tx', version: 0 }]
+                { distinctId: 'outside-tx', version: 0 }
             )
 
             expect(outsideResult.success).toBe(true)
@@ -2117,7 +2142,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                     null,
                     false,
                     '88888888-0000-0000-0000-000000000008',
-                    [{ distinctId: 'inside-tx', version: 0 }]
+                    { distinctId: 'inside-tx', version: 0 }
                 )
 
                 return { updated, newPerson }
@@ -2150,7 +2175,7 @@ describe('PostgresDualWritePersonRepository 2PC Dual-Write Tests', () => {
                 null,
                 false,
                 uuid,
-                [{ distinctId: 'version-sync-did', version: 0 }]
+                { distinctId: 'version-sync-did', version: 0 }
             )) as any
 
             const result = await repository.inTransaction('test-version-sync', async (tx) => {

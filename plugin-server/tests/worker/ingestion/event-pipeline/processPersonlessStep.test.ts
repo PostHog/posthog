@@ -22,7 +22,8 @@ async function createPerson(
     isUserId: number | null,
     isIdentified: boolean,
     uuid: string,
-    distinctIds?: { distinctId: string; version?: number }[]
+    primaryDistinctId: { distinctId: string; version?: number },
+    extraDistinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
     const personRepository = new PostgresPersonRepository(hub.db.postgres)
     const result = await personRepository.createPerson(
@@ -34,7 +35,8 @@ async function createPerson(
         isUserId,
         isIdentified,
         uuid,
-        distinctIds
+        primaryDistinctId,
+        extraDistinctIds
     )
     if (!result.success) {
         throw new Error('Failed to create person')
@@ -98,9 +100,9 @@ describe('processPersonlessStep()', () => {
         it('returns existing person with empty properties when person exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
@@ -140,9 +142,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:00:00 -> more than 1 minute
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -159,9 +161,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:14:30Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:14:30 -> within 1 minute
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -180,9 +182,9 @@ describe('processPersonlessStep()', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, [
-                { distinctId: pluginEvent.distinct_id },
-            ])
+            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+                distinctId: pluginEvent.distinct_id,
+            })
 
             // Event is at 02:15:00, person created at 02:00:00 -> more than 1 minute, but team opted out
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
@@ -211,7 +213,7 @@ describe('processPersonlessStep()', () => {
                 null,
                 false,
                 personUuid,
-                [{ distinctId: pluginEvent.distinct_id }]
+                { distinctId: pluginEvent.distinct_id }
             )
 
             // Mock fetchForChecking to return null initially (simulating no person found)
