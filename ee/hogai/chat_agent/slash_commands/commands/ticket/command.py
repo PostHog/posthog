@@ -1,6 +1,8 @@
 from collections.abc import Sequence
 from uuid import uuid4
 
+from django.conf import settings
+
 from langchain_core.messages import (
     AIMessage,
     HumanMessage as LangchainHumanMessage,
@@ -28,6 +30,10 @@ class TicketCommand(SlashCommand):
 
     def _can_create_ticket(self, config: RunnableConfig) -> bool:
         """Check if user's subscription allows ticket creation."""
+        # Enable ticket creation in local dev
+        if settings.DEBUG:
+            return True
+
         billing_context_data = config.get("configurable", {}).get("billing_context")
         if not billing_context_data:
             return False
