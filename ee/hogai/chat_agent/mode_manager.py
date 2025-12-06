@@ -60,8 +60,8 @@ from ee.hogai.tools import (
 from ee.hogai.utils.feature_flags import (
     has_agent_modes_feature_flag,
     has_create_form_tool_feature_flag,
-    has_task_tool_feature_flag,
     has_phai_tasks_feature_flag,
+    has_task_tool_feature_flag,
 )
 from ee.hogai.utils.prompt import format_prompt_string
 from ee.hogai.utils.types.base import AssistantState, NodePath
