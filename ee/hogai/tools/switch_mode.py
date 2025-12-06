@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
 
-from posthog.schema import AgentMode
+from posthog.schema import AgentMode, AssistantTool
 
 from posthog.models import Team, User
 
@@ -96,22 +96,21 @@ async def _get_default_tools_prompt(
     default_tool_classes: list[type["MaxTool"]],
 ) -> str:
     """Get the prompt containing the description of the default tools."""
+    excluded_tool_classes: set[type[MaxTool]] = {SwitchModeTool}
     resolved_tools = await asyncio.gather(
         *[
             tool_class.create_tool_class(team=team, user=user, state=state, config=config)
             for tool_class in default_tool_classes
-            if tool_class != SwitchModeTool
+            if tool_class not in excluded_tool_classes
         ]
     )
-    return ", ".join([tool.get_name() for tool in resolved_tools]) + ", switch_mode"
-
-
-SwitchModeToolType = Literal["switch_mode"]
-SWITCH_MODE_TOOL_NAME: SwitchModeToolType = "switch_mode"
+    tools = [tool.get_name() for tool in resolved_tools]
+    tools.append(AssistantTool.SWITCH_MODE)
+    return ", ".join(tools)
 
 
 class SwitchModeTool(MaxTool):
-    name: SwitchModeToolType = SWITCH_MODE_TOOL_NAME
+    name: Literal[AssistantTool.SWITCH_MODE] = AssistantTool.SWITCH_MODE
     _mode_registry: dict[AgentMode, "AgentModeDefinition"]
 
     async def _arun_impl(self, new_mode: str) -> tuple[str, AgentMode | None]:

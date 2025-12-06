@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from posthog.schema import (
     AgentMode,
     AssistantMessage,
+    AssistantTool,
     AssistantToolCallMessage,
     ContextMessage,
     FailureMessage,
@@ -308,10 +309,8 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         return normalize_ai_message(message)
 
     def _get_updated_agent_mode(self, generated_message: AssistantMessage, current_mode: AgentMode) -> AgentMode | None:
-        from ee.hogai.tools.switch_mode import SWITCH_MODE_TOOL_NAME
-
         for tool_call in generated_message.tool_calls or []:
-            if tool_call.name == SWITCH_MODE_TOOL_NAME and (new_mode := tool_call.args.get("new_mode")):
+            if tool_call.name == AssistantTool.SWITCH_MODE and (new_mode := tool_call.args.get("new_mode")):
                 return new_mode
         return current_mode
 
