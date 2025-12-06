@@ -2,32 +2,22 @@ import { useActions, useValues } from 'kea'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
 
-import { MarketingAnalyticsItem, NativeMarketingSource } from '~/queries/schema/schema-general'
+import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
-    CampaignMappingInfo,
     MappingTypes,
-    SourceMappingStatus,
+    extractStringValue,
     getAutoMatchedCampaigns,
     getAvailableIntegrationsForCampaign,
     getAvailableIntegrationsForSource,
     getCampaignMappings,
     getGlobalCampaignMapping,
     getSourceMappingStatus,
+    removeCampaignFromMappings,
+    removeSourceFromMappings,
 } from './mappingUtils'
 import { buildCampaignMappingMenuItems, buildSourceMappingMenuItems } from './menuBuilders'
-
-function extractStringValue(value: unknown): string {
-    if (value == null) {
-        return ''
-    }
-    if (typeof value === 'object' && 'value' in value) {
-        const item = value as MarketingAnalyticsItem
-        return String(item.value ?? '').trim()
-    }
-    return String(value).trim()
-}
 
 export interface NonIntegratedConversionsCellActionsProps {
     columnName: string
@@ -56,51 +46,33 @@ function SourceCellActions({ value }: { value: unknown }): JSX.Element | null {
     const { updateCustomSourceMappings, openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     const utmSource = extractStringValue(value)
-
     if (!utmSource) {
         return null
     }
 
-    const mappingStatus: SourceMappingStatus = getSourceMappingStatus(utmSource, marketingAnalyticsConfig)
-
+    const mappingStatus = getSourceMappingStatus(utmSource, marketingAnalyticsConfig)
     const availableIntegrations = getAvailableIntegrationsForSource(utmSource, marketingAnalyticsConfig).filter(
         (integration) => !!integrationCampaignTables[integration]
     )
-
-    const handleOpenSettings = (integration: NativeMarketingSource, utmValue: string): void => {
-        openIntegrationSettingsModal(integration, 'sources', utmValue)
-    }
-
-    const handleRemoveCustomMapping = (): void => {
-        if (mappingStatus.type !== MappingTypes.Custom) {
-            return
-        }
-        const customMappings = { ...marketingAnalyticsConfig?.custom_source_mappings }
-        const integrationSources = [...(customMappings[mappingStatus.integration] || [])]
-        const updatedSources = integrationSources.filter((s) => s.toLowerCase() !== utmSource.toLowerCase())
-
-        if (updatedSources.length === 0) {
-            delete customMappings[mappingStatus.integration]
-        } else {
-            customMappings[mappingStatus.integration] = updatedSources
-        }
-
-        updateCustomSourceMappings(customMappings)
-    }
 
     const menuItems = buildSourceMappingMenuItems({
         utmSource,
         mappingStatus,
         availableIntegrations,
-        onOpenIntegrationSettings: handleOpenSettings,
-        onRemoveMapping: handleRemoveCustomMapping,
+        onOpenIntegrationSettings: (integration: NativeMarketingSource, utmValue: string) => {
+            openIntegrationSettingsModal(integration, 'sources', utmValue)
+        },
+        onRemoveMapping:
+            mappingStatus.type === MappingTypes.Custom
+                ? () => {
+                      updateCustomSourceMappings(
+                          removeSourceFromMappings(marketingAnalyticsConfig, mappingStatus.integration, utmSource)
+                      )
+                  }
+                : undefined,
     })
 
-    if (!menuItems) {
-        return null
-    }
-
-    return <LemonMenuOverlay items={menuItems} />
+    return menuItems ? <LemonMenuOverlay items={menuItems} /> : null
 }
 
 function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null {
@@ -110,7 +82,6 @@ function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null 
     const { updateCampaignNameMappings, openIntegrationSettingsModal } = useActions(marketingAnalyticsSettingsLogic)
 
     const utmCampaign = extractStringValue(value)
-
     if (!utmCampaign) {
         return null
     }
@@ -118,48 +89,25 @@ function CampaignCellActions({ value }: { value: unknown }): JSX.Element | null 
     const globalMapping = getGlobalCampaignMapping(utmCampaign, marketingAnalyticsConfig)
     const autoMatched = getAutoMatchedCampaigns(utmCampaign, integrationCampaigns, marketingAnalyticsConfig)
     const autoMatchedIntegrations = new Set(autoMatched.map((m) => m.integration))
-    const existingMappings: CampaignMappingInfo[] = getCampaignMappings(utmCampaign, marketingAnalyticsConfig)
+    const existingMappings = getCampaignMappings(utmCampaign, marketingAnalyticsConfig)
     const availableIntegrations = getAvailableIntegrationsForCampaign(utmCampaign, marketingAnalyticsConfig).filter(
         (integration) => !!integrationCampaignTables[integration] && !autoMatchedIntegrations.has(integration)
     )
-
-    const handleOpenSettings = (integration: NativeMarketingSource, utmValue: string): void => {
-        openIntegrationSettingsModal(integration, 'mappings', utmValue)
-    }
-
-    const handleRemoveCampaignMapping = (integration: NativeMarketingSource, campaignName: string): void => {
-        const campaignMappings = { ...marketingAnalyticsConfig?.campaign_name_mappings }
-        const integrationMappings = { ...campaignMappings[integration] }
-        const currentValues = [...(integrationMappings[campaignName] || [])]
-        const updatedValues = currentValues.filter((v) => v.toLowerCase() !== utmCampaign.toLowerCase())
-
-        if (updatedValues.length === 0) {
-            delete integrationMappings[campaignName]
-            if (Object.keys(integrationMappings).length === 0) {
-                delete campaignMappings[integration]
-            } else {
-                campaignMappings[integration] = integrationMappings
-            }
-        } else {
-            integrationMappings[campaignName] = updatedValues
-            campaignMappings[integration] = integrationMappings
-        }
-
-        updateCampaignNameMappings(campaignMappings)
-    }
 
     const menuItems = buildCampaignMappingMenuItems({
         utmCampaign,
         globalMapping,
         existingMappings,
         availableIntegrations,
-        onOpenIntegrationSettings: handleOpenSettings,
-        onRemoveMapping: handleRemoveCampaignMapping,
+        onOpenIntegrationSettings: (integration: NativeMarketingSource, utmValue: string) => {
+            openIntegrationSettingsModal(integration, 'mappings', utmValue)
+        },
+        onRemoveMapping: (integration: NativeMarketingSource, campaignName: string) => {
+            updateCampaignNameMappings(
+                removeCampaignFromMappings(marketingAnalyticsConfig, integration, campaignName, utmCampaign)
+            )
+        },
     })
 
-    if (!menuItems) {
-        return null
-    }
-
-    return <LemonMenuOverlay items={menuItems} />
+    return menuItems ? <LemonMenuOverlay items={menuItems} /> : null
 }

@@ -1,48 +1,74 @@
 import {
     MARKETING_DEFAULT_SOURCE_MAPPINGS,
     MarketingAnalyticsConfig,
+    MarketingAnalyticsItem,
     NativeMarketingSource,
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 
-/**
- * Check if a UTM source value is mapped to any integration
- * Returns the integration name if mapped, null otherwise
- */
-export function getIntegrationForSource(
-    utmSource: string,
-    config: MarketingAnalyticsConfig | null
-): NativeMarketingSource | null {
-    if (!utmSource) {
-        return null
+/** Parse comma-separated values into a trimmed array */
+export const parseCommaSeparatedValues = (value: string): string[] =>
+    value
+        .split(',')
+        .map((v) => v.trim())
+        .filter((v) => v.length > 0)
+
+/** Extract string value from a MarketingAnalyticsItem or raw value */
+export function extractStringValue(value: unknown): string {
+    if (value == null) {
+        return ''
     }
-
-    const normalizedSource = utmSource.toLowerCase().trim()
-
-    // Check default mappings first
-    for (const integration of VALID_NATIVE_MARKETING_SOURCES) {
-        const defaults = MARKETING_DEFAULT_SOURCE_MAPPINGS[integration] || []
-        if (defaults.some((d) => d.toLowerCase() === normalizedSource)) {
-            return integration
-        }
+    if (typeof value === 'object' && 'value' in value) {
+        const item = value as MarketingAnalyticsItem
+        return String(item.value ?? '').trim()
     }
-
-    // Check custom mappings
-    const customMappings = config?.custom_source_mappings || {}
-    for (const [integration, sources] of Object.entries(customMappings)) {
-        if ((sources as string[]).some((s) => s.toLowerCase() === normalizedSource)) {
-            return integration as NativeMarketingSource
-        }
-    }
-
-    return null
+    return String(value).trim()
 }
 
-/**
- * Check if a UTM source is unmapped (not in any integration's default or custom mappings)
- */
-export function isSourceUnmapped(utmSource: string, config: MarketingAnalyticsConfig | null): boolean {
-    return getIntegrationForSource(utmSource, config) === null
+/** Create updated source mappings with a source removed from an integration */
+export function removeSourceFromMappings(
+    config: MarketingAnalyticsConfig | null,
+    integration: NativeMarketingSource,
+    sourceToRemove: string
+): Record<string, string[]> {
+    const customMappings = { ...config?.custom_source_mappings }
+    const integrationSources = [...(customMappings[integration] || [])]
+    const updatedSources = integrationSources.filter((s) => s.toLowerCase() !== sourceToRemove.toLowerCase())
+
+    if (updatedSources.length === 0) {
+        delete customMappings[integration]
+    } else {
+        customMappings[integration] = updatedSources
+    }
+
+    return customMappings
+}
+
+/** Create updated campaign mappings with a campaign removed from an integration */
+export function removeCampaignFromMappings(
+    config: MarketingAnalyticsConfig | null,
+    integration: NativeMarketingSource,
+    campaignName: string,
+    campaignToRemove: string
+): Record<string, Record<string, string[]>> {
+    const campaignMappings = { ...config?.campaign_name_mappings }
+    const integrationMappings = { ...campaignMappings[integration] }
+    const currentValues = [...(integrationMappings[campaignName] || [])]
+    const updatedValues = currentValues.filter((v) => v.toLowerCase() !== campaignToRemove.toLowerCase())
+
+    if (updatedValues.length === 0) {
+        delete integrationMappings[campaignName]
+        if (Object.keys(integrationMappings).length === 0) {
+            delete campaignMappings[integration]
+        } else {
+            campaignMappings[integration] = integrationMappings
+        }
+    } else {
+        integrationMappings[campaignName] = updatedValues
+        campaignMappings[integration] = integrationMappings
+    }
+
+    return campaignMappings
 }
 
 /**
@@ -88,48 +114,6 @@ export function getAvailableIntegrationsForSource(
 }
 
 /**
- * Check if a UTM campaign value is mapped for a specific integration
- */
-export function isCampaignMappedForIntegration(
-    utmCampaign: string,
-    integration: string,
-    config: MarketingAnalyticsConfig | null
-): boolean {
-    if (!utmCampaign || !integration) {
-        return false
-    }
-
-    const campaignMappings = config?.campaign_name_mappings || {}
-    const integrationMappings = campaignMappings[integration] || {}
-
-    // Check if this UTM campaign is in any mapping's values
-    for (const rawValues of Object.values(integrationMappings)) {
-        if ((rawValues as string[]).some((v) => v.toLowerCase() === utmCampaign.toLowerCase())) {
-            return true
-        }
-    }
-
-    return false
-}
-
-/**
- * Check if a UTM campaign value is unmapped for all integrations
- */
-export function isCampaignUnmapped(utmCampaign: string, config: MarketingAnalyticsConfig | null): boolean {
-    if (!utmCampaign) {
-        return false
-    }
-
-    for (const integration of VALID_NATIVE_MARKETING_SOURCES) {
-        if (isCampaignMappedForIntegration(utmCampaign, integration, config)) {
-            return false
-        }
-    }
-
-    return true
-}
-
-/**
  * Check if a UTM campaign value is already mapped to ANY integration globally.
  * Returns the integration and campaign name if mapped, null otherwise.
  * This enforces the constraint that a utm_campaign can only be in one mapping.
@@ -160,31 +144,17 @@ export function getGlobalCampaignMapping(
 }
 
 /**
- * Check if a utm_campaign value is already mapped (returns true if mapped to any integration)
- */
-export function isCampaignMappedGlobally(utmCampaign: string, config: MarketingAnalyticsConfig | null): boolean {
-    return getGlobalCampaignMapping(utmCampaign, config) !== null
-}
-
-/**
  * Get integrations where a campaign could be mapped.
- * IMPORTANT: A utm_campaign can only be mapped to ONE integration globally.
+ * A utm_campaign can only be mapped to ONE integration globally.
  * Returns empty array if already mapped to any integration.
  */
 export function getAvailableIntegrationsForCampaign(
     utmCampaign: string,
     config: MarketingAnalyticsConfig | null
 ): NativeMarketingSource[] {
-    if (!utmCampaign) {
+    if (!utmCampaign || getGlobalCampaignMapping(utmCampaign, config) !== null) {
         return []
     }
-
-    // If already mapped to any integration, no integrations are available
-    if (isCampaignMappedGlobally(utmCampaign, config)) {
-        return []
-    }
-
-    // Return all integrations since this campaign isn't mapped anywhere yet
     return [...VALID_NATIVE_MARKETING_SOURCES]
 }
 
@@ -318,41 +288,4 @@ export function getAutoMatchedCampaigns(
     }
 
     return matches
-}
-
-/**
- * Check if a campaign has any actions available (not fully auto-matched to all available integrations)
- */
-export function campaignHasAvailableActions(
-    utmCampaign: string,
-    integrationCampaigns: Record<string, Array<{ name: string; id: string }>>,
-    integrationCampaignTables: Record<string, string>,
-    config: MarketingAnalyticsConfig | null
-): boolean {
-    if (!utmCampaign) {
-        return false
-    }
-
-    // Get auto-matched integrations
-    const autoMatched = getAutoMatchedCampaigns(utmCampaign, integrationCampaigns, config)
-    const autoMatchedIntegrations = new Set(autoMatched.map((m) => m.integration))
-
-    // Get manually mapped integrations
-    const manualMappings = getCampaignMappings(utmCampaign, config)
-    const manuallyMappedIntegrations = new Set(manualMappings.map((m) => m.integration))
-
-    // Get available integrations (those with data)
-    const availableIntegrations = VALID_NATIVE_MARKETING_SOURCES.filter(
-        (integration) => !!integrationCampaignTables[integration]
-    )
-
-    // Check if there are any integrations where we can still map
-    const hasMapAction = availableIntegrations.some(
-        (integration) => !autoMatchedIntegrations.has(integration) && !manuallyMappedIntegrations.has(integration)
-    )
-
-    // Check if there are manual mappings to remove
-    const hasRemoveAction = manualMappings.length > 0
-
-    return hasMapAction || hasRemoveAction
 }
