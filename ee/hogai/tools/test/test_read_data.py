@@ -214,7 +214,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
+        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=False)
 
         assert "Test Insight" in result
         assert "abc123" in result
@@ -254,7 +254,7 @@ class TestReadDataTool(BaseTest):
                 node_path=(NodePath(name="test_node", tool_call_id=tool_call_id, message_id="test"),),
             )
 
-            result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": True})
+            result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=True)
 
             # When execute=True, returns empty string and artifact
             assert result == ""
@@ -292,7 +292,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with pytest.raises(MaxToolRetryableError) as exc_info:
-            await tool._arun_impl({"kind": "insight", "insight_id": "nonexistent", "execute": False})
+            await tool._arun_impl(kind="insight", insight_id="nonexistent", execute=False)
 
         assert "nonexistent" in str(exc_info.value)
 
@@ -326,7 +326,7 @@ class TestReadDataTool(BaseTest):
         )
 
         # Don't pass execute, it should default to False and return schema only
-        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123"})
+        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123")
 
         assert artifact is None
         assert "Test Insight" in result
@@ -359,7 +359,7 @@ class TestReadDataTool(BaseTest):
             context_manager=context_manager,
         )
 
-        result, artifact = await tool._arun_impl({"kind": "insight", "insight_id": "abc123", "execute": False})
+        result, artifact = await tool._arun_impl(kind="insight", insight_id="abc123", execute=False)
 
         assert "Insight abc123" in result
 
