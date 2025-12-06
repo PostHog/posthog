@@ -44,6 +44,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "usage_display",
         "limited_products_display",
         "customer_trust_scores",
+        "is_active",
         "is_hipaa",
         "is_platform",
         "members_can_invite",

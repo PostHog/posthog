@@ -7,6 +7,7 @@ from ipaddress import ip_address, ip_network
 from typing import Optional, cast
 
 from django.conf import settings
+from django.contrib.auth import logout
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
@@ -33,7 +34,7 @@ from posthog.cloud_utils import is_cloud, is_dev_mode
 from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.exceptions import generate_exception_response
 from posthog.geoip import get_geoip_properties
-from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, OrganizationMembership, Team, User
 from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.utils import generate_random_token
 from posthog.rate_limit import DecideRateThrottle
@@ -287,6 +288,9 @@ class AutoProjectMiddleware:
                 request.suggested_users_with_access = UserBasicSerializer(  # type: ignore
                     new_team.all_users_with_access().order_by("first_name", "last_name", "id"), many=True
                 ).data
+            return False
+
+        if new_team.organization.is_active is False:
             return False
 
         return True
@@ -594,9 +598,6 @@ class SessionAgeMiddleware:
 
                 current_time = time.time()
                 if current_time - session_created_at > session_age:
-                    # Log out the user
-                    from django.contrib.auth import logout
-
                     logout(request)
                     return redirect("/login?message=Your session has expired. Please log in again.")
 
@@ -804,3 +805,47 @@ class SocialAuthExceptionMiddleware:
 
         # Handle other exceptions with existing middleware
         return None
+
+
+class ActiveOrganizationMiddleware:
+    """
+    Middleware to verify that the current authenticated session is attached to an active organization (is_active = None or True)
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest) -> HttpResponse:
+        if not request.user.is_authenticated or request.user.is_anonymous:
+            return self.get_response(request)
+
+        user = cast(User, request.user)
+
+        if user.current_organization is not None and user.current_organization.is_active is not False:
+            return self.get_response(request)
+
+        # attempt to automatically update the session to a new organization
+        new_org_membership = (
+            OrganizationMembership.objects.filter(user=user).exclude(organization__is_active=False).first()
+        )
+
+        if not new_org_membership:
+            logout(request)
+            return redirect(
+                "/login?error_code=no_organization&error_detail=Your account is not a member of any active organizations. Sign in with a different account."
+            )
+
+        new_org = new_org_membership.organization
+        new_team = user.teams.filter(organization=new_org).first() if new_org is not None else None
+
+        user.team = new_team
+        user.current_team = new_team
+        user.current_organization_id = new_org.id if new_org is not None else None
+        user.current_organization = new_org
+
+        user.save()
+
+        if new_team is not None:
+            return redirect(f"/project/{new_team.id}")
+
+        return redirect("/")

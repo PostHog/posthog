@@ -131,6 +131,7 @@ class OrganizationSerializer(
             "default_experiment_stats_method",
             "default_anonymize_ips",
             "default_role_id",
+            "is_active",
         ]
         read_only_fields = [
             "id",

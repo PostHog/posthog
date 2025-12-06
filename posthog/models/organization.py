@@ -11,6 +11,7 @@ from django.db.models.query_utils import Q
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
 
 import structlog
 import dateutil.parser
@@ -151,6 +152,13 @@ class Organization(ModelActivityMixin, UUIDTModel):
     logo_media = models.ForeignKey("posthog.UploadedMedia", on_delete=models.SET_NULL, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    is_active = models.BooleanField(
+        _("active"),
+        default=True,
+        null=True,
+        blank=True,
+        help_text=_("Set this to 'No' to temporarily disable an organization."),
+    )
 
     # Security / management settings
     session_cookie_age = models.IntegerField(

@@ -303,7 +303,7 @@ class User(AbstractUser, UUIDTClassicModel):
         if self.current_organization is None:
             if self.current_team is not None:
                 self.current_organization_id = self.current_team.organization_id
-            self.current_organization = self.organizations.first()
+            self.current_organization = self.organizations.exclude(is_active=False).first()
             if self.current_organization is not None:
                 self.save(update_fields=["current_organization"])
         return self.current_organization
@@ -315,6 +315,10 @@ class User(AbstractUser, UUIDTClassicModel):
             if self.current_team:
                 self.save(update_fields=["current_team"])
         return self.current_team
+
+    @cached_property
+    def active_organizations(self) -> list[Organization]:
+        return self.organizations.exclude(is_active=False)
 
     def join(
         self,

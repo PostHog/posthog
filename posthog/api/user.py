@@ -99,7 +99,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
-    organizations = OrganizationBasicSerializer(many=True, read_only=True)
+    organizations = OrganizationBasicSerializer(source="active_organizations", many=True, read_only=True)
     set_current_organization = serializers.CharField(write_only=True, required=False)
     set_current_team = serializers.CharField(write_only=True, required=False)
     current_password = serializers.CharField(write_only=True, required=False)
