@@ -21,7 +21,6 @@ import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsMan
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
-import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -155,10 +154,6 @@ export function Cohorts(): JSX.Element {
                                     <LemonButton
                                         onClick={() => {
                                             if (cohort.id === 'new') {
-                                                return
-                                            }
-                                            // Can only create survey for static cohort
-                                            if (!cohort.is_static) {
                                                 return
                                             }
                                             openQuickSurveyModal(cohort.id, cohort.name)
@@ -308,11 +303,7 @@ export function Cohorts(): JSX.Element {
                 useURLForSorting={false}
             />
             <QuickSurveyModal
-                context={{
-                    type: QuickSurveyType.COHORT,
-                    cohortId: quickSurveyModalState.cohortId,
-                    cohortName: quickSurveyModalState.cohortName,
-                }}
+                context={quickSurveyModalState.context}
                 info="This survey will display to all users in the cohort."
                 isOpen={quickSurveyModalState.isOpen}
                 onCancel={() => {
