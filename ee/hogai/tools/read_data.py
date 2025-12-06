@@ -64,6 +64,31 @@ INSIGHT_NOT_FOUND_PROMPT = """
 The insight with the ID "{short_id}" was not found or uses an unsupported query type. Please verify the insight ID is correct.
 """.strip()
 
+INSIGHT_RESULT_TEMPLATE = """
+# {{{insight_name}}}
+{{#description}}
+Description: {{{description}}}
+{{/description}}
+
+Query type: {{{query_type}}}
+
+{{{results}}}
+""".strip()
+
+INSIGHT_SCHEMA_TEMPLATE = """
+# {{{insight_name}}}
+{{#description}}
+Description: {{{description}}}
+{{/description}}
+
+Query type: {{{query_type}}}
+
+Query definition:
+```json
+{{{query_schema}}}
+```
+""".strip()
+
 
 class ReadDataWarehouseSchema(BaseModel):
     """Returns the SQL ClickHouse schema for the user's data warehouse."""
@@ -211,11 +236,22 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
 
         query_type = content.query.kind
         insight_name = content.name or f"Insight {artifact_or_insight_id}"
-        description_line = f"\nDescription: {content.description}" if content.description else ""
 
         if execute:
             results = await execute_and_format_query(self._team, content.query)
-            return f"# {insight_name}{description_line}\n\nQuery type: {query_type}\n\n{results}"
+            return format_prompt_string(
+                INSIGHT_RESULT_TEMPLATE,
+                insight_name=insight_name,
+                description=content.description,
+                query_type=query_type,
+                results=results,
+            )
 
         query_schema = content.query.model_dump_json(exclude_none=True)
-        return f"# {insight_name}{description_line}\n\nQuery type: {query_type}\n\nQuery definition:\n```json\n{query_schema}\n```"
+        return format_prompt_string(
+            INSIGHT_SCHEMA_TEMPLATE,
+            insight_name=insight_name,
+            description=content.description,
+            query_type=query_type,
+            query_schema=query_schema,
+        )

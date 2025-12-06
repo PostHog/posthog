@@ -22,6 +22,10 @@ import { RecordingUniversalFilters } from '~/types'
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
 
+export interface DisplayFormatterContext {
+    registeredToolMap: Record<string, ToolRegistration>
+}
+
 /** Static tool definition for display purposes. */
 export interface ToolDefinition<N extends string = string> {
     /** A user-friendly display name for the tool. Must be a verb phrase, like "Create surveys" or "Search docs" */
@@ -41,7 +45,7 @@ export interface ToolDefinition<N extends string = string> {
     icon: JSX.Element
     displayFormatter?: (
         toolCall: EnhancedToolCall,
-        { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
+        { registeredToolMap }: DisplayFormatterContext
     ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
@@ -215,6 +219,30 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         name: 'Read data',
         description: 'Read data, such as your data warehouse schema and billed usage statistics',
         icon: iconForType('data_warehouse'),
+        displayFormatter: function readDataDisplayFormatter(
+            toolCall: EnhancedToolCall,
+            context: DisplayFormatterContext
+        ) {
+            if (
+                this.subtools &&
+                typeof toolCall.args.query === 'object' &&
+                toolCall.args.query &&
+                'kind' in toolCall.args.query &&
+                typeof toolCall.args.query.kind === 'string' &&
+                toolCall.args.query.kind in this.subtools
+            ) {
+                const { displayFormatter } = this.subtools[toolCall.args.query.kind]
+                if (displayFormatter) {
+                    return displayFormatter(toolCall, context)
+                }
+            }
+
+            if (toolCall.status === 'completed') {
+                return 'Read data'
+            }
+
+            return 'Reading data...'
+        },
         subtools: {
             billing_info: {
                 name: 'Check your billing data',
@@ -247,6 +275,17 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                         return 'Read conversation artifacts'
                     }
                     return 'Reading conversation artifacts...'
+                },
+            },
+            insight: {
+                name: 'Read an insight',
+                description: 'Read an insight',
+                icon: iconForType('product_analytics'),
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return toolCall.args.execute ? 'Read and query an insight' : 'Read an insight'
+                    }
+                    return toolCall.args.execute ? 'Reading and querying an insight...' : 'Reading an insight...'
                 },
             },
         },
