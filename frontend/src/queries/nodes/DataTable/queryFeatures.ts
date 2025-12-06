@@ -5,6 +5,7 @@ import {
     isGroupsQuery,
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
+    isNonIntegratedConversionsTableQuery,
     isPersonsNode,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
@@ -38,8 +39,8 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
-    rowActions,
-    cellActions,
+    /** Enables cell and row actions for non-integrated conversions mapping */
+    nonIntegratedConversionsActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -125,6 +126,14 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.selectAndOrderByColumns)
+    }
+
+    if (isNonIntegratedConversionsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.nonIntegratedConversionsActions)
     }
 
     if (isTracesQuery(query)) {

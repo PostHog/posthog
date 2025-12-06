@@ -110,7 +110,10 @@ class MarketingAnalyticsAggregatedQueryRunner(
         return all_columns
 
     def _build_basic_summed_columns(self, basic_summed_columns: dict[str, ast.Expr]) -> dict[str, ast.Expr]:
-        """Convert columns to aggregated versions - wrap numeric columns in SUM(), skip rate metrics and cost per conversion"""
+        """Convert columns to aggregated versions.
+
+        Wraps numeric columns in SUM(), skips rate metrics and cost per conversion.
+        """
         summed_columns: dict[str, ast.Expr] = {}
 
         for column_name, column_expr in basic_summed_columns.items():

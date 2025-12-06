@@ -214,7 +214,8 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             self.team.marketing_analytics_config.conversion_goals, self.team.pk
         )
 
-        if self.query.draftConversionGoal:
+        # Only check draftConversionGoal if the query type supports it
+        if hasattr(self.query, "draftConversionGoal") and self.query.draftConversionGoal:
             conversion_goals = [self.query.draftConversionGoal, *conversion_goals]
 
         return conversion_goals

@@ -70,6 +70,7 @@ export enum TileId {
     // Marketing Tiles
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
+    MARKETING_NON_INTEGRATED_CONVERSIONS = 'MARKETING_NON_INTEGRATED_CONVERSIONS',
 }
 
 export enum ProductTab {
@@ -131,6 +132,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.MARKETING_OVERVIEW]: 1,
     [TileId.MARKETING]: 2,
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 4,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -189,6 +191,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
 }
 
 export interface BaseTile {

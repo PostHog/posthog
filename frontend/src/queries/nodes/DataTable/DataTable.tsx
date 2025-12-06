@@ -62,6 +62,7 @@ import {
     HogQLQuery,
     MarketingAnalyticsTableQuery,
     NodeKind,
+    NonIntegratedConversionsColumnsSchemaNames,
     PersonsNode,
     SessionAttributionExplorerQuery,
     SessionsQuery,
@@ -82,6 +83,8 @@ import {
     taxonomicGroupFilterToHogQL,
     taxonomicPersonFilterToHogQL,
 } from '~/queries/utils'
+import { NonIntegratedConversionsCellActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsCellActions'
+import { NonIntegratedConversionsRowActions } from '~/scenes/web-analytics/tabs/marketing-analytics/frontend/components/NonIntegratedConversionsTable/NonIntegratedConversionsRowActions'
 import { EventType, InsightLogicProps } from '~/types'
 
 import { GroupPropertyFilters } from '../GroupsQuery/GroupPropertyFilters'
@@ -295,6 +298,21 @@ export function DataTable({
                     }
                 },
                 sorter: undefined, // using custom sorting code
+                cellActions:
+                    sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions) &&
+                    Object.values(NonIntegratedConversionsColumnsSchemaNames).includes(
+                        key as NonIntegratedConversionsColumnsSchemaNames
+                    )
+                        ? (_: unknown, record: DataTableRow) => {
+                              if (!record.result) {
+                                  return null
+                              }
+                              const value = sourceFeatures.has(QueryFeature.resultIsArrayOfArrays)
+                                  ? record.result[index]
+                                  : record.result[key]
+                              return <NonIntegratedConversionsCellActions columnName={key} value={value} />
+                          }
+                        : undefined,
                 more:
                     !isReadOnly && showActions && sourceFeatures.has(QueryFeature.selectAndOrderByColumns) ? (
                         <>
@@ -364,7 +382,8 @@ export function DataTable({
                                         data-attr="datatable-sort-asc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'ASC')
                                                     : [key]
                                             setQuery?.({
@@ -383,7 +402,8 @@ export function DataTable({
                                         data-attr="datatable-sort-desc"
                                         onClick={() => {
                                             const orderBy =
-                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery
+                                                query.source.kind === NodeKind.MarketingAnalyticsTableQuery ||
+                                                query.source.kind === NodeKind.NonIntegratedConversionsTableQuery
                                                     ? createMarketingAnalyticsOrderBy(key, 'DESC')
                                                     : [`${key}\n DESC`]
                                             setQuery?.({
@@ -904,7 +924,19 @@ export function DataTable({
                                               }
                                               return null
                                           }
-                                        : undefined
+                                        : sourceFeatures.has(QueryFeature.nonIntegratedConversionsActions)
+                                          ? (row: DataTableRow) => {
+                                                if (row.label || !row.result || !columnsInResponse) {
+                                                    return null
+                                                }
+                                                return (
+                                                    <NonIntegratedConversionsRowActions
+                                                        result={row.result}
+                                                        columnsInResponse={columnsInResponse}
+                                                    />
+                                                )
+                                            }
+                                          : undefined
                                 }
                             />
                         </div>
