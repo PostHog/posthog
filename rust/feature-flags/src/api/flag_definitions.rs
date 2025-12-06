@@ -1,5 +1,7 @@
 use crate::{
     api::{auth, errors::FlagError},
+    flags::{flag_analytics::increment_request_count, flag_request::FlagRequestType},
+    handler::types::Library,
     router::State as AppState,
     team::{team_models::Team, team_operations},
 };
@@ -10,6 +12,7 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use common_hypercache::{CacheSource, HyperCacheConfig, HyperCacheReader, KeyType};
+use common_metrics::inc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::{info, warn};
@@ -71,6 +74,24 @@ pub async fn flags_definitions(
 
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
+
+    // Record usage for billing with library tracking
+    let library = Library::from_headers(&headers);
+    if let Err(e) = increment_request_count(
+        state.redis_writer.clone(),
+        team.id,
+        1,
+        FlagRequestType::FlagDefinitions,
+        Some(library),
+    )
+    .await
+    {
+        inc(
+            "flag_request_redis_error",
+            &[("error".to_string(), e.to_string())],
+            1,
+        );
+    }
 
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team).await?;
