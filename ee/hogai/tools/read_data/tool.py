@@ -1,9 +1,10 @@
+import asyncio
 from typing import Literal, Self, Union
 from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 from posthoganalytics import capture_exception
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, Field, PrivateAttr, create_model
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
@@ -64,7 +65,7 @@ class ReadDashboard(BaseModel):
     """Retrieves an existing dashboard by its ID."""
 
     kind: Literal["dashboard"] = "dashboard"
-    dashboard_id: str = Field(description="The numeric ID of the dashboard.")
+    dashboard_id: str = Field(description="The numeric ID of the dashboard (found in URLs like /dashboard/123).")
     execute: bool = Field(
         default=False,
         description="If true, executes all insight queries in the dashboard and returns results. If false, returns only the dashboard and insight definitions.",
@@ -103,6 +104,8 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     context_prompt_template: str = (
         "Reads user data created in PostHog (data warehouse schema, saved insights, dashboards, billing information)"
     )
+    _query_semaphore: asyncio.Semaphore = PrivateAttr(default_factory=lambda: asyncio.Semaphore(3))
+    """Concurrency limit for executing dashboard insight queries."""
 
     @classmethod
     async def create_tool_class(
@@ -325,7 +328,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 .aget(id=int(dashboard_id), team=self._team, deleted=False)
             )
         except (Dashboard.DoesNotExist, ValueError):
-            raise MaxToolFatalError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
+            raise MaxToolRetryableError(DASHBOARD_NOT_FOUND_PROMPT.format(dashboard_id=dashboard_id))
 
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
