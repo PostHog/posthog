@@ -142,7 +142,7 @@ export function DuplicateToProjectModal(): JSX.Element {
                             </label>
                         ))}
                         {(!currentOrganization?.teams || currentOrganization.teams.length === 0) && (
-                            <div className="text-center p-2 text-muted">No projects available</div>
+                            <div className="text-center p-2 text-muted-foreground">No projects available</div>
                         )}
                     </div>
                 </div>

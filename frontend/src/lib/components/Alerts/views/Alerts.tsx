@@ -46,7 +46,7 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                     <>
                         <LemonTableLink
                             to={urls.alert(alert.id)}
-                            className={alert.enabled ? '' : 'text-muted'}
+                            className={alert.enabled ? '' : 'text-muted-foreground'}
                             title={
                                 <div className="flex flex-row gap-3 items-center">
                                     <div>{name}</div>

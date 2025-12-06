@@ -339,8 +339,10 @@ export function KanbanView(): JSX.Element {
                                             style={{ backgroundColor: workflow.color }}
                                         />
                                         <h2 className="text-lg font-semibold">{workflow.name}</h2>
-                                        <span className="text-sm text-muted">({totalTasks} tasks)</span>
-                                        <div className="text-muted-foreground ml-auto">{isCollapsed ? '▶' : '▼'}</div>
+                                        <span className="text-sm text-muted-foreground">({totalTasks} tasks)</span>
+                                        <div className="text-muted-foreground-foreground ml-auto">
+                                            {isCollapsed ? '▶' : '▼'}
+                                        </div>
                                     </div>
                                 </div>
 
@@ -380,7 +382,7 @@ export function KanbanView(): JSX.Element {
                                                         {isAgentOnly && (
                                                             <div className="absolute top-2 right-2 z-10 pointer-events-none">
                                                                 <div className="bg-card border border-border rounded-lg px-2 py-1 shadow-sm">
-                                                                    <div className="flex items-center gap-1 text-xs text-muted">
+                                                                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
                                                                         <span className="w-2 h-2 bg-warning rounded-full" />
                                                                         Agent
                                                                     </div>
@@ -395,7 +397,7 @@ export function KanbanView(): JSX.Element {
                                                                 />
                                                                 <h3 className="font-medium text-sm">{stage.name}</h3>
                                                             </div>
-                                                            <span className="text-xs text-muted-foreground bg-border rounded-full px-2 py-1">
+                                                            <span className="text-xs text-muted-foreground-foreground bg-border rounded-full px-2 py-1">
                                                                 {stageTasks.length}
                                                             </span>
                                                         </div>
@@ -441,7 +443,7 @@ export function KanbanView(): JSX.Element {
                     })}
 
                     {workflowKanbanData.length === 0 && (
-                        <div className="text-center py-12 text-muted">
+                        <div className="text-center py-12 text-muted-foreground">
                             <p className="mb-2">No workflows configured</p>
                             <p className="text-sm">Create a workflow in Settings to see tasks organized by stages</p>
                         </div>

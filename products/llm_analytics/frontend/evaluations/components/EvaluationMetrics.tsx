@@ -36,9 +36,9 @@ function SummaryCard({
 }): JSX.Element {
     return (
         <div className="bg-card border rounded p-4 flex flex-col">
-            <div className="text-muted-foreground text-xs font-medium uppercase mb-2">{title}</div>
+            <div className="text-muted-foreground-foreground text-xs font-medium uppercase mb-2">{title}</div>
             <div className={`text-3xl font-semibold ${colorClass || ''}`}>{value}</div>
-            {subtitle && <div className="text-muted-foreground text-sm mt-1">{subtitle}</div>}
+            {subtitle && <div className="text-muted-foreground-foreground text-sm mt-1">{subtitle}</div>}
         </div>
     )
 }
@@ -64,7 +64,7 @@ export function EvaluationMetrics(): JSX.Element {
                 {chartQuery ? (
                     <div className="flex-1 bg-card rounded p-4 flex flex-col InsightCard h-full">
                         <h3 className="text-lg font-semibold mb-2">Pass rate over time</h3>
-                        <p className="text-muted-foreground text-sm mb-4">
+                        <p className="text-muted-foreground-foreground text-sm mb-4">
                             Showing pass rate trends for enabled evaluations
                         </p>
                         <div className="flex-1 flex flex-col min-h-0">
@@ -84,7 +84,7 @@ export function EvaluationMetrics(): JSX.Element {
                     </div>
                 ) : (
                     <div className="flex-1 bg-card border rounded p-8 flex items-center justify-center">
-                        <div className="text-muted-foreground text-center">
+                        <div className="text-muted-foreground-foreground text-center">
                             No enabled evaluations to display. Create and enable evaluations to see metrics.
                         </div>
                     </div>

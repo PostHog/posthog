@@ -123,7 +123,7 @@ const renderItemContents = ({
         listGroupType === TaxonomicFilterGroupType.ErrorTrackingProperties ||
         listGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ? (
         <>
-            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted')}>
+            <div className={clsx('taxonomic-list-row-contents', isStale && 'text-muted-foreground')}>
                 {icon}
                 <PropertyKeyInfo
                     value={item.name ?? ''}
@@ -286,11 +286,11 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     }}
                     onClick={selectNonCapturedEvent}
                     onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                    icon={<IconPlus className="text-muted-foreground size-4" />}
+                    icon={<IconPlus className="text-muted-foreground-foreground size-4" />}
                     data-attr="prop-filter-event-option-custom"
                 >
                     <div className="flex items-center gap-2">
-                        <span className="text-muted">Select event:</span>
+                        <span className="text-muted-foreground">Select event:</span>
                         <span className="font-medium">{trimmedSearchQuery}</span>
                         <LemonTag type="caution" size="small">
                             Not seen yet

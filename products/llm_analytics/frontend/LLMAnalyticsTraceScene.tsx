@@ -353,7 +353,7 @@ function TraceSidebar({
                     data-attr="trace-search-input"
                 />
                 {searchValue.trim() && (
-                    <div className="text-xs text-muted-foreground ml-1 mt-1">
+                    <div className="text-xs text-muted-foreground-foreground ml-1 mt-1">
                         {searchOccurrences.length > 0 ? (
                             <>
                                 {searchOccurrences.length}{' '}
@@ -403,9 +403,9 @@ function NestingGroup({
     children: React.ReactNode
 }): JSX.Element {
     return (
-        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted')}>
+        <li className={clsx('flex items-stretch min-w-0', isCollapsed && 'text-border hover:text-muted-foreground')}>
             <div
-                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted')}
+                className={clsx('mb-1 ml-1 cursor-pointer', !isCollapsed && 'text-border hover:text-muted-foreground')}
                 onClick={onToggle}
             >
                 <div
@@ -990,7 +990,7 @@ function EventTypeFilters(): JSX.Element {
 
     return (
         <fieldset className="border border-border rounded p-1.5">
-            <legend className="text-xs font-medium text-muted-foreground px-1">Expand</legend>
+            <legend className="text-xs font-medium text-muted-foreground-foreground px-1">Expand</legend>
             <div className="flex flex-wrap gap-x-3 gap-y-1">
                 {availableEventTypes.map((eventType: string) => (
                     <LemonCheckbox

@@ -53,7 +53,7 @@ export function OptOutCategories(): JSX.Element {
                         <div className="flex items-center gap-2">
                             <div>
                                 <div className="font-medium">{category.name}</div>
-                                <div className="text-xs text-muted">{category.description}</div>
+                                <div className="text-xs text-muted-foreground">{category.description}</div>
                             </div>
                             <LemonTag type={category.category_type === 'marketing' ? 'success' : 'completion'}>
                                 {category.category_type.toUpperCase()}
@@ -106,9 +106,9 @@ export function OptOutCategories(): JSX.Element {
                 content: (
                     <div>
                         <div className="mb-3">
-                            <div className="text-sm text-muted-foreground mb-1">Key: {category.key}</div>
+                            <div className="text-sm text-muted-foreground-foreground mb-1">Key: {category.key}</div>
                             {category.public_description && (
-                                <div className="text-sm text-muted">
+                                <div className="text-sm text-muted-foreground">
                                     Public description: {category.public_description}
                                 </div>
                             )}
@@ -118,7 +118,7 @@ export function OptOutCategories(): JSX.Element {
                             {category.category_type === 'marketing' ? (
                                 <OptOutList category={category} />
                             ) : (
-                                <div className="text-sm text-muted-foreground mb-1">
+                                <div className="text-sm text-muted-foreground-foreground mb-1">
                                     Transactional messages are not eligible for opt-outs
                                 </div>
                             )}

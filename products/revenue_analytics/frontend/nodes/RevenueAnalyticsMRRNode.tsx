@@ -109,7 +109,7 @@ const Tile = ({ context }: TileProps): JSX.Element => {
             title={mrrMode === 'mrr' ? 'MRR' : 'ARR'}
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
-                <div className="flex items-center gap-1 text-muted-foreground">
+                <div className="flex items-center gap-1 text-muted-foreground-foreground">
                     <LemonButton
                         icon={<IconGraph />}
                         onClick={handleBreakdownClick}

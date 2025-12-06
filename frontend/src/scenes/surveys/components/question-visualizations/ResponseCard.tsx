@@ -13,7 +13,7 @@ interface ResponseCardProps {
 export function ScrollToSurveyResultsCard({ numOfResponses }: { numOfResponses: number }): JSX.Element {
     return (
         <button
-            className="border rounded p-3 bg-card flex items-center justify-center text-sm text-muted-foreground cursor-pointer"
+            className="border rounded p-3 bg-card flex items-center justify-center text-sm text-muted-foreground-foreground cursor-pointer"
             onClick={() => {
                 const surveyTableResults = document.querySelector('.survey-table-results')
                 if (surveyTableResults) {

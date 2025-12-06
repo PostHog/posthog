@@ -410,7 +410,7 @@ export function EditAlertModal({
                                             <AlertDestinationSelector alertId={alertId} />
                                         </div>
                                     ) : (
-                                        <div className="text-muted-foreground">
+                                        <div className="text-muted-foreground-foreground">
                                             Save alert first to add destinations (e.g. Slack, Webhooks)
                                         </div>
                                     )}

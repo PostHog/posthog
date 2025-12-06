@@ -51,7 +51,7 @@ export function LLMAnalyticsErrors(): JSX.Element {
                         render: function RenderError(x) {
                             const errorValue = x.value
                             if (!errorValue || errorValue === 'null' || errorValue === '') {
-                                return <span className="text-muted">No error</span>
+                                return <span className="text-muted-foreground">No error</span>
                             }
 
                             const errorString = String(errorValue)

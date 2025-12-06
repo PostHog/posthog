@@ -198,7 +198,7 @@ const MarketingAnalyticsCellInternal = ({
         return (
             <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
-                    className="flex items-center justify-start min-w-0 cursor-default text-muted-foreground w-full hover:bg-warning-highlight h-full"
+                    className="flex items-center justify-start min-w-0 cursor-default text-muted-foreground-foreground w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
                 >
                     <span className="overflow-hidden text-ellipsis whitespace-nowrap">-</span>
@@ -216,7 +216,7 @@ const MarketingAnalyticsCellInternal = ({
         return (
             <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
-                    className="flex flex-wrap items-center min-w-0 cursor-default text-muted-foreground w-full hover:bg-warning-highlight h-full"
+                    className="flex flex-wrap items-center min-w-0 cursor-default text-muted-foreground-foreground w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
                 >
                     <div className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap w-full">
@@ -272,7 +272,7 @@ const MarketingAnalyticsCellInternal = ({
                 </div>
                 {changePercFormatted && (
                     <div
-                        className="w-full text-muted-foreground overflow-hidden text-ellipsis whitespace-nowrap"
+                        className="w-full text-muted-foreground-foreground overflow-hidden text-ellipsis whitespace-nowrap"
                         style={{ color: trend?.color }}
                     >
                         {changePercFormatted}

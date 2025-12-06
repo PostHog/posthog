@@ -41,7 +41,7 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
     return (
         <LemonModal isOpen={isOpen} onClose={handleClose} title="Duplicate experiment" width="max-content">
             <div className="space-y-4">
-                <div className="text-muted-foreground max-w-xl">
+                <div className="text-muted-foreground-foreground max-w-xl">
                     Select a feature flag for the duplicated experiment. You can reuse the original flag or choose a
                     different one. If the flag doesn't exist, create it first, then return to this page.
                 </div>

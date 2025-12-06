@@ -51,14 +51,14 @@ export function TaskCard({
                 <h4 className="font-medium text-sm leading-tight">{task.title}</h4>
             </div>
 
-            <p className="text-xs text-muted-foreground mb-3 line-clamp-2">{task.description}</p>
+            <p className="text-xs text-muted-foreground-foreground mb-3 line-clamp-2">{task.description}</p>
 
             {/* GitHub Integration Status */}
             {(task.github_branch || task.github_pr_url) && (
                 <div className="flex items-center gap-1 mb-2">
                     <IconGithub className="text-xs" />
                     {task.github_branch && (
-                        <div className="flex items-center gap-1 text-xs text-muted">
+                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
                             <IconBranch />
                             <span className="truncate max-w-32">{task.github_branch}</span>
                         </div>
@@ -80,7 +80,7 @@ export function TaskCard({
             {/* Repository Information */}
             {task.repository_scope && (
                 <div className="mb-2">
-                    <div className="flex items-center gap-2 text-xs text-muted">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span className="font-medium">Repos:</span>
                         {task.repository_scope === 'single' && task.primary_repository && (
                             <span className="text-foreground">

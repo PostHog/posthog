@@ -52,7 +52,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                             </code>
                         </pre>
                         {exceptionEvent?.uuid && (
-                            <div className="text-muted-foreground text-xs mb-2">
+                            <div className="text-muted-foreground-foreground text-xs mb-2">
                                 Exception ID: {exceptionEvent.uuid}
                             </div>
                         )}

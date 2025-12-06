@@ -143,7 +143,7 @@ export function EnvironmentRollbackModal(): JSX.Element {
                             <Spinner />
                         </div>
                     ) : projectsWithEnvironments.length === 0 ? (
-                        <div className="text-muted">No projects with multiple environments found</div>
+                        <div className="text-muted-foreground">No projects with multiple environments found</div>
                     ) : (
                         <>
                             {projectsWithEnvironments.map((project) => (
@@ -153,13 +153,15 @@ export function EnvironmentRollbackModal(): JSX.Element {
                                 <div className="flex items-center gap-4 w-full opacity-50">
                                     <div className="min-w-0 flex-1 flex items-center gap-2">
                                         <div className="w-6 h-6 bg-border rounded-full flex-shrink-0" />
-                                        <div className="flex-1 text-muted-foreground text-sm">
+                                        <div className="flex-1 text-muted-foreground-foreground text-sm">
                                             + {pluralize(hiddenProjectsCount, 'project')} already using single
                                             environment
                                         </div>
                                     </div>
                                     <div className="w-[300px] h-8 bg-border rounded flex-shrink-0 flex items-center justify-center">
-                                        <span className="text-muted-foreground text-xs">No action needed</span>
+                                        <span className="text-muted-foreground-foreground text-xs">
+                                            No action needed
+                                        </span>
                                     </div>
                                 </div>
                             )}

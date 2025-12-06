@@ -133,8 +133,8 @@ export function SurveyEventTrigger(): JSX.Element {
             <>
                 {events.length === 0 ? (
                     <LemonCard className="border-dashed" hoverEffect={false}>
-                        <div className="text-muted-foreground text-sm mb-1">No events selected</div>
-                        <div className="text-xs text-muted">
+                        <div className="text-muted-foreground-foreground text-sm mb-1">No events selected</div>
+                        <div className="text-xs text-muted-foreground">
                             Add events to trigger this survey when those events are captured in the current user session
                         </div>
                     </LemonCard>
@@ -156,7 +156,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                                         <div className="flex items-center gap-2">
                                                             <span className="font-semibold text-sm">{event.name}</span>
                                                             {hasPropertyFilters && (
-                                                                <span className="text-xs text-muted-foreground bg-border px-1.5 py-0.5 rounded">
+                                                                <span className="text-xs text-muted-foreground-foreground bg-border px-1.5 py-0.5 rounded">
                                                                     {Object.keys(event.propertyFilters!).length} filter
                                                                     {Object.keys(event.propertyFilters!).length !== 1
                                                                         ? 's'
@@ -179,7 +179,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                             },
                                             content: (
                                                 <div>
-                                                    <div className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+                                                    <div className="text-xs font-medium text-muted-foreground-foreground mb-2 uppercase tracking-wide">
                                                         Property Filters
                                                     </div>
                                                     <PropertyFilters
@@ -201,7 +201,7 @@ export function SurveyEventTrigger(): JSX.Element {
                                                         buttonSize="small"
                                                         operatorAllowlist={supportedOperators}
                                                     />
-                                                    <span className="text-xs text-muted">
+                                                    <span className="text-xs text-muted-foreground">
                                                         Only primitive types (strings, numbers, booleans) are supported
                                                         for property filters. Array and object properties are not
                                                         supported and will not be shown.

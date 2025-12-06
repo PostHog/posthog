@@ -60,7 +60,7 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
             <div>
                 <LemonCard hoverEffect={false} className="p-4 flex flex-col flex-1 justify-between max-w-80 min-h-36 ">
                     <div>
-                        <div className="text-sm font-semibold text-muted-foreground mb-1">{metric.name}</div>
+                        <div className="text-sm font-semibold text-muted-foreground-foreground mb-1">{metric.name}</div>
                         <div className="text-3xl font-bold text-foreground my-2 truncate">{formatValue()}</div>
                     </div>
                     {trend && metric?.change_from_previous_pct !== null && (
@@ -69,7 +69,7 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                             {formatPercentage(metric.change_from_previous_pct)}
                         </div>
                     )}
-                    <div className="text-xs text-muted">Last {metric.interval} days</div>
+                    <div className="text-xs text-muted-foreground">Last {metric.interval} days</div>
                 </LemonCard>
             </div>
         </Tooltip>

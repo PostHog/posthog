@@ -84,7 +84,7 @@ function AISummaryMessage({ heading, subheading }: { heading: string; subheading
         <div className="mb-2">
             <div>
                 <h3 className="font-semibold mb-1">{heading}</h3>
-                <div className="text-sm text-muted">{subheading}</div>
+                <div className="text-sm text-muted-foreground">{subheading}</div>
             </div>
         </div>
     )

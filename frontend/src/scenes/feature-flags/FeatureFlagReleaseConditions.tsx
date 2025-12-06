@@ -254,7 +254,9 @@ export function FeatureFlagReleaseConditions({
                             />
                         </div>
                     )}
-                    {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
+                    {readOnly && group.description && (
+                        <div className="mt-2 text-muted-foreground">{group.description}</div>
+                    )}
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">

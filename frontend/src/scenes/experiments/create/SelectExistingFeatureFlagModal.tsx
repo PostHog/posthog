@@ -41,7 +41,7 @@ export const SelectExistingFeatureFlagModal = ({
     return (
         <LemonModal isOpen={isModalOpen} onClose={handleClose} title="Choose an existing feature flag" width="50%">
             <div className="deprecated-space-y-2">
-                <div className="text-muted-foreground mb-2 max-w-xl">
+                <div className="text-muted-foreground-foreground mb-2 max-w-xl">
                     Select an existing multivariate feature flag to use with this experiment. The feature flag must use
                     multiple variants with <code>'control'</code> as the first.
                 </div>

@@ -75,7 +75,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                             we have, so we're gently bringing it to your attention :) Feel free to 
                             dismiss it to make it go away."
             >
-                <p className="text-xxs text-muted-foreground mb-1 mr-0.5 p-0 text-right">ads via PostHog</p>
+                <p className="text-xxs text-muted-foreground-foreground mb-1 mr-0.5 p-0 text-right">ads via PostHog</p>
             </Tooltip>
             <Link
                 to={payload.app_link}
@@ -101,7 +101,7 @@ export function NavPanelAdvertisementContent({ payload }: { payload: Payload }):
                             <strong>{payload.header || product?.name}</strong>
                         </div>
                         <LemonButton
-                            icon={<IconX className="text-muted" />}
+                            icon={<IconX className="text-muted-foreground" />}
                             tooltip="Dismiss"
                             tooltipPlacement="right"
                             size="xxsmall"

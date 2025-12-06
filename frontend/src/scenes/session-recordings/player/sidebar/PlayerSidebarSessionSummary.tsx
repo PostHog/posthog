@@ -94,7 +94,7 @@ function LoadingTimer({ operation }: { operation?: string }): JSX.Element {
         return () => clearInterval(interval)
     })
 
-    return <span className="font-mono text-xs text-muted">{elapsedSeconds}s</span>
+    return <span className="font-mono text-xs text-muted-foreground">{elapsedSeconds}s</span>
 }
 
 interface SessionSegmentCollapseProps {
@@ -166,23 +166,23 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
         <div className="grid grid-cols-2 gap-2 text-xs mt-2">
             <div className="flex items-center gap-1">
                 <IconKeyboard className={meta.key_action_count && meta.key_action_count > 0 ? 'text-success' : ''} />
-                <span className="text-muted">Key actions:</span>
+                <span className="text-muted-foreground">Key actions:</span>
                 {isValidMetaNumber(meta.key_action_count) && <span>{meta.key_action_count}</span>}
             </div>
             <div className="flex items-center gap-1">
                 <IconWarning
                     className={meta.failure_count && meta.failure_count > 0 ? 'text-destructive-foreground' : ''}
                 />
-                <span className="text-muted">Issues:</span>
+                <span className="text-muted-foreground">Issues:</span>
                 {isValidMetaNumber(meta.failure_count) && <span>{meta.failure_count}</span>}
             </div>
             <div className="flex items-center gap-1">
                 <IconClock />
-                <span className="text-muted">Duration:</span>
+                <span className="text-muted-foreground">Duration:</span>
                 {isValidMetaNumber(meta.duration) && isValidMetaNumber(meta.duration_percentage) && (
                     <span>
                         {meta.duration === 0 ? (
-                            <span className="text-muted">...</span>
+                            <span className="text-muted-foreground">...</span>
                         ) : (
                             `${formatMsIntoTime(meta.duration * 1000)} (${(
                                 (meta.duration_percentage || 0) * 100
@@ -193,11 +193,11 @@ function SegmentMetaTable({ meta }: SegmentMetaProps): JSX.Element | null {
             </div>
             <div className="flex items-center gap-1">
                 <IconPointer />
-                <span className="text-muted">Events:</span>
+                <span className="text-muted-foreground">Events:</span>
                 {isValidMetaNumber(meta.events_count) && isValidMetaNumber(meta.events_percentage) && (
                     <span>
                         {meta.events_count === 0 ? (
-                            <span className="text-muted">...</span>
+                            <span className="text-muted-foreground">...</span>
                         ) : (
                             `${meta.events_count} (${((meta.events_percentage || 0) * 100).toFixed(2)}%)`
                         )}
@@ -293,7 +293,7 @@ function SessionSegmentView({
                                 ))}
                             </>
                         ) : (
-                            <div className="text-muted-foreground">
+                            <div className="text-muted-foreground-foreground">
                                 Waiting for key actions... <Spinner />
                             </div>
                         )}
@@ -335,18 +335,20 @@ function SessionSummaryKeyActions({
                         }}
                     >
                         <div className="flex flex-row gap-2">
-                            <span className="text-muted-foreground shrink-0 min-w-[4rem] font-mono text-xs">
+                            <span className="text-muted-foreground-foreground shrink-0 min-w-[4rem] font-mono text-xs">
                                 {formatMsIntoTime(event.milliseconds_since_start)}
                                 <div className="flex flex-row gap-2 mt-1">
                                     {event.current_url ? (
                                         <Link to={event.current_url} target="_blank">
                                             <Tooltip title={event.current_url} placement="top">
-                                                <span className="font-mono text-xs text-muted-foreground">url</span>
+                                                <span className="font-mono text-xs text-muted-foreground-foreground">
+                                                    url
+                                                </span>
                                             </Tooltip>
                                         </Link>
                                     ) : null}
                                     <Tooltip title={formatEventMetaInfo(event)} placement="top">
-                                        <span className="font-mono text-xs text-muted-foreground">meta</span>
+                                        <span className="font-mono text-xs text-muted-foreground-foreground">meta</span>
                                     </Tooltip>
                                 </div>
                             </span>
@@ -385,7 +387,7 @@ function SessionSummaryLoadingState({ operation, counter, name, outOf }: Session
         <div className="mb-4 grid grid-cols-[auto_1fr] gap-x-2">
             <Spinner className="text-2xl row-span-2 self-center" />
             <div className="flex items-center justify-between">
-                <span className="text-muted">
+                <span className="text-muted-foreground">
                     {operation}&nbsp;
                     {counter !== undefined && (
                         <span className="font-semibold">
@@ -627,7 +629,9 @@ function SessionSummary(): JSX.Element {
                     <SessionSummaryComponent.Feedback />
                 </>
             ) : (
-                <div className="text-center text-muted-foreground">No summary available for this session</div>
+                <div className="text-center text-muted-foreground-foreground">
+                    No summary available for this session
+                </div>
             )}
         </SessionSummaryComponent.Root>
     )

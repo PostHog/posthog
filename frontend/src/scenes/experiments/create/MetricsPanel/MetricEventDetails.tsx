@@ -53,18 +53,21 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
             const hasMore = funnelMetric.series.length > 3
 
             return (
-                <div className="flex items-center gap-1 flex-wrap text-xs text-muted">
+                <div className="flex items-center gap-1 flex-wrap text-xs text-muted-foreground">
                     {steps.map((step, index) => (
                         <div key={index} className="flex items-center gap-1">
                             {index > 0 && (
-                                <IconArrowRight className="text-muted-foreground flex-shrink-0" fontSize="14" />
+                                <IconArrowRight
+                                    className="text-muted-foreground-foreground flex-shrink-0"
+                                    fontSize="14"
+                                />
                             )}
                             <span className="truncate max-w-[150px]">{getSourceName(step)}</span>
                         </div>
                     ))}
                     {hasMore && (
                         <Tooltip title={funnelMetric.series.slice(3).map(getSourceName).join(', ')}>
-                            <span className="text-muted">... +{funnelMetric.series.length - 3} more</span>
+                            <span className="text-muted-foreground">... +{funnelMetric.series.length - 3} more</span>
                         </Tooltip>
                     )}
                 </div>
@@ -75,9 +78,9 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
             const mathLabel = getMathLabel(meanMetric.source.math)
 
             return (
-                <div className="text-xs text-muted">
+                <div className="text-xs text-muted-foreground">
                     <span className="truncate">{sourceName}</span>
-                    <span className="text-muted"> ({mathLabel})</span>
+                    <span className="text-muted-foreground"> ({mathLabel})</span>
                 </div>
             )
         })
@@ -88,16 +91,16 @@ export const MetricEventDetails = ({ metric }: MetricEventDetailsProps): JSX.Ele
             const denominatorMath = getMathLabel(ratioMetric.denominator.math)
 
             return (
-                <div className="text-xs text-muted">
+                <div className="text-xs text-muted-foreground">
                     <div className="flex items-center gap-1">
                         <span className="font-semibold text-default">Numerator:</span>
                         <span className="truncate">{numeratorName}</span>
-                        <span className="text-muted">({numeratorMath})</span>
+                        <span className="text-muted-foreground">({numeratorMath})</span>
                     </div>
                     <div className="flex items-center gap-1">
                         <span className="font-semibold text-default">Denominator:</span>
                         <span className="truncate">{denominatorName}</span>
-                        <span className="text-muted">({denominatorMath})</span>
+                        <span className="text-muted-foreground">({denominatorMath})</span>
                     </div>
                 </div>
             )

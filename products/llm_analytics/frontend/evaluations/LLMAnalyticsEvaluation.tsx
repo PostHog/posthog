@@ -138,7 +138,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 <div className="flex items-center gap-2">
                                     <LemonSwitch checked={evaluation.enabled} onChange={setEvaluationEnabled} />
                                     <span>{evaluation.enabled ? 'Enabled' : 'Disabled'}</span>
-                                    <span className="text-muted-foreground text-sm">
+                                    <span className="text-muted-foreground-foreground text-sm">
                                         {evaluation.enabled
                                             ? 'This evaluation will run automatically based on triggers'
                                             : 'This evaluation is paused and will not run'}
@@ -157,7 +157,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     {/* Trigger Configuration */}
                     <div ref={triggersRef} className="bg-card border rounded p-6">
                         <h3 className="text-lg font-semibold mb-4">Triggers</h3>
-                        <p className="text-muted-foreground text-sm mb-4">
+                        <p className="text-muted-foreground-foreground text-sm mb-4">
                             Configure when this evaluation should run on your LLM generations.
                         </p>
                         <EvaluationTriggers />
@@ -173,7 +173,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                         <div className="flex justify-between items-center mb-4">
                             <div>
                                 <h3 className="text-lg font-semibold">Evaluation runs</h3>
-                                <p className="text-muted-foreground text-sm">
+                                <p className="text-muted-foreground-foreground text-sm">
                                     History of when this evaluation has been executed.
                                 </p>
                             </div>
@@ -181,19 +181,19 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                                 <div className="flex gap-4 text-sm">
                                     <div className="text-center">
                                         <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                        <div className="text-muted">Total Runs</div>
+                                        <div className="text-muted-foreground">Total Runs</div>
                                     </div>
                                     <div className="text-center">
                                         <div className="font-semibold text-lg text-success">
                                             {runsSummary.successRate}%
                                         </div>
-                                        <div className="text-muted">Success Rate</div>
+                                        <div className="text-muted-foreground">Success Rate</div>
                                     </div>
                                     <div className="text-center">
                                         <div className="font-semibold text-lg text-destructive-foreground">
                                             {runsSummary.errors}
                                         </div>
-                                        <div className="text-muted">Errors</div>
+                                        <div className="text-muted-foreground">Errors</div>
                                     </div>
                                 </div>
                             )}

@@ -21,14 +21,14 @@ function getShortcutIcon(shortcut: AppShortcutType): JSX.Element | null {
         case 'focus':
             return (
                 <div className="flex items-center gap-1 size-4">
-                    <IconArrowRight className="w-4 h-4 text-muted" />
+                    <IconArrowRight className="w-4 h-4 text-muted-foreground" />
                 </div>
             )
         case 'click':
         default:
             return (
                 <div className="flex items-center gap-1 size-4">
-                    <IconArrowRight className="w-4 h-4 text-muted" />
+                    <IconArrowRight className="w-4 h-4 text-muted-foreground" />
                 </div>
             )
     }

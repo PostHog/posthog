@@ -58,7 +58,7 @@ export const BillingProductPricingTable = ({
             title: showProjectedTotalWithLimitTooltip ? (
                 <Tooltip title="The projected total for the product tiers and add-ons does not account for billing limits. To see the projected total that accounts for the billing limits, see the projected amount for the whole product above.">
                     <span>
-                        Projected Total <IconInfo className="text-muted-foreground text-sm" />
+                        Projected Total <IconInfo className="text-muted-foreground-foreground text-sm" />
                     </span>
                 </Tooltip>
             ) : (

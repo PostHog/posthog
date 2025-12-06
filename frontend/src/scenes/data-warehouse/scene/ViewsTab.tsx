@@ -40,7 +40,7 @@ function RunHistoryDisplay({
     }
 
     if (!runHistory || runHistory.length === 0) {
-        return <span className="text-muted">-</span>
+        return <span className="text-muted-foreground">-</span>
     }
 
     // Show up to 5 most recent runs
@@ -107,7 +107,7 @@ export function ViewsTab(): JSX.Element {
             {filteredMaterializedViews.length > 0 && (
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Materialized views</h3>
-                    <p className="text-muted-foreground mb-2">
+                    <p className="text-muted-foreground-foreground mb-2">
                         Materialized views are refreshed on a schedule and stored as tables for faster query
                         performance.
                     </p>
@@ -136,9 +136,12 @@ export function ViewsTab(): JSX.Element {
                                                 <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
-                                            <span className="text-muted-foreground text-xs">
+                                            <span className="text-muted-foreground-foreground text-xs">
                                                 Created by the{' '}
-                                                <Link to={urls.dataWarehouseManagedViewsets()} className="text-muted">
+                                                <Link
+                                                    to={urls.dataWarehouseManagedViewsets()}
+                                                    className="text-muted-foreground"
+                                                >
                                                     <code>{view.managed_viewset_kind}</code>
                                                 </Link>{' '}
                                                 managed viewset
@@ -255,7 +258,7 @@ export function ViewsTab(): JSX.Element {
             {filteredViews.length > 0 && (
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Views</h3>
-                    <p className="text-muted-foreground mb-2">
+                    <p className="text-muted-foreground-foreground mb-2">
                         Views are virtual tables created from SQL queries. They are computed on-the-fly when queried.
                     </p>
                     <LemonTable
@@ -283,9 +286,12 @@ export function ViewsTab(): JSX.Element {
                                                 <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
-                                            <span className="text-muted-foreground text-xs">
+                                            <span className="text-muted-foreground-foreground text-xs">
                                                 Created by the{' '}
-                                                <Link to={urls.dataWarehouseManagedViewsets()} className="text-muted">
+                                                <Link
+                                                    to={urls.dataWarehouseManagedViewsets()}
+                                                    className="text-muted-foreground"
+                                                >
                                                     <code>{view.managed_viewset_kind}</code>
                                                 </Link>{' '}
                                                 managed viewset
@@ -368,9 +374,11 @@ export function ViewsTab(): JSX.Element {
                 <div className="text-center py-12">
                     <h3 className="text-xl font-semibold mb-2">No views found</h3>
                     {searchTerm ? (
-                        <p className="text-muted">No views match your search. Try adjusting your search term.</p>
+                        <p className="text-muted-foreground">
+                            No views match your search. Try adjusting your search term.
+                        </p>
                     ) : (
-                        <p className="text-muted">
+                        <p className="text-muted-foreground">
                             Create your first view to transform and organize your data warehouse tables.
                         </p>
                     )}

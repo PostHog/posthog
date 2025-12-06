@@ -73,7 +73,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
             case ProgressStatus.FAILED:
                 return 'text-destructive-foreground'
             default:
-                return 'text-muted'
+                return 'text-muted-foreground'
         }
     }
 
@@ -95,7 +95,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
         return (
             <div className={`${className} flex items-center gap-2 p-3 bg-card rounded border`}>
                 <Spinner className="w-4 h-4" />
-                <span className="text-sm text-muted">Loading execution progress...</span>
+                <span className="text-sm text-muted-foreground">Loading execution progress...</span>
             </div>
         )
     }
@@ -116,7 +116,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
     if (!progress?.has_progress) {
         return (
             <div className={`${className} p-3 bg-card rounded border`}>
-                <span className="text-sm text-muted">No Claude Code execution found for this task</span>
+                <span className="text-sm text-muted-foreground">No Claude Code execution found for this task</span>
             </div>
         )
     }
@@ -130,13 +130,13 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                     <div className="space-y-2">
                         {task.github_branch && (
                             <div className="flex items-center gap-2 text-sm">
-                                <span className="text-muted">Branch:</span>
+                                <span className="text-muted-foreground">Branch:</span>
                                 <code className="px-2 py-1 bg-bg-dark rounded text-xs">{task.github_branch}</code>
                             </div>
                         )}
                         {task.github_pr_url && (
                             <div className="flex items-center gap-2 text-sm">
-                                <span className="text-muted">Pull Request:</span>
+                                <span className="text-muted-foreground">Pull Request:</span>
                                 <LemonButton
                                     icon={<IconExternal />}
                                     size="xsmall"
@@ -167,7 +167,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {/* Progress Bar - only show if we have meaningful progress tracking */}
                 {progress.total_steps && progress.total_steps > 0 && (
                     <div className="mb-3">
-                        <div className="flex justify-between text-xs text-muted-foreground mb-1">
+                        <div className="flex justify-between text-xs text-muted-foreground-foreground mb-1">
                             <span>Progress</span>
                             <span>
                                 {progress.completed_steps}/{progress.total_steps} steps
@@ -189,7 +189,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {/* Current Step */}
                 {progress.current_step && (
                     <div className="mb-3">
-                        <span className="text-xs text-muted">Current step:</span>
+                        <span className="text-xs text-muted-foreground">Current step:</span>
                         <div className="text-sm font-medium">{progress.current_step}</div>
                     </div>
                 )}
@@ -206,7 +206,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
                 {progress.output_log && (
                     <div>
                         <div className="flex items-center justify-between mb-2">
-                            <span className="text-xs text-muted">Live Output:</span>
+                            <span className="text-xs text-muted-foreground">Live Output:</span>
                             <LemonButton icon={<IconRefresh />} size="xsmall" onClick={fetchProgress} loading={loading}>
                                 Refresh
                             </LemonButton>
@@ -225,7 +225,7 @@ export function TaskProgressDisplay({ task, className = '' }: TaskProgressDispla
 
                 {/* Timestamp Info */}
                 <div className="mt-3 pt-3 border-t border-border">
-                    <div className="flex justify-between text-xs text-muted">
+                    <div className="flex justify-between text-xs text-muted-foreground">
                         <span>
                             Started: {progress.created_at ? new Date(progress.created_at).toLocaleString() : 'Unknown'}
                         </span>

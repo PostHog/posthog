@@ -103,7 +103,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
 
         return (
             <div key={type}>
-                <div className="px-2 py-1 text-xs font-medium text-muted-foreground">{title}</div>
+                <div className="px-2 py-1 text-xs font-medium text-muted-foreground-foreground">{title}</div>
                 {integrations.map((integrationId) => (
                     <LemonButton
                         key={integrationId}
@@ -135,7 +135,9 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
             onVisibilityChange={setShowPopover}
             overlay={
                 <div className="max-w-80 space-y-px p-1">
-                    <div className="px-2 py-1 text-xs text-muted-foreground font-bold">Connect new data source</div>
+                    <div className="px-2 py-1 text-xs text-muted-foreground-foreground font-bold">
+                        Connect new data source
+                    </div>
                     {renderIntegrationGroup('native', groupedIntegrations.native, 'Native integrations')}
                     {renderIntegrationGroup('external', groupedIntegrations.external, 'External sources')}
                     {renderIntegrationGroup(

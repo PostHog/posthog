@@ -469,7 +469,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     {previousQuery && (
                         <div className="w-full px-2" ref={maxSuggestionActionsBanner}>
                             <div className="bg-background/80 w-full flex justify-between items-center p-1 pl-2 mx-auto rounded-bl rounded-br">
-                                <div className="text-sm text-muted-foreground flex items-center gap-2 no-wrap">
+                                <div className="text-sm text-muted-foreground-foreground flex items-center gap-2 no-wrap">
                                     <span className="size-2 bg-accent-active rounded-full" />
                                     {(() => {
                                         const changedLabels = compareInsightTopLevelSections(
@@ -488,7 +488,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                                     <Tooltip
                                                         title={<div className="whitespace-pre-line">{diffString}</div>}
                                                     >
-                                                        <IconInfo className="text-sm text-muted-foreground cursor-help" />
+                                                        <IconInfo className="text-sm text-muted-foreground-foreground cursor-help" />
                                                     </Tooltip>
                                                 )}
                                             </div>

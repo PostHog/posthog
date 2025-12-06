@@ -17,12 +17,12 @@ export function SessionGroupSummaryDetailsMetadata({
     const sessionDuration = event.session_duration !== null ? colonDelimitedDuration(event.session_duration) : 'N/A'
 
     return (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
             <div className="flex flex-wrap items-center gap-2">
                 <span>{sessionId}</span>
                 <span className="hidden sm:inline">·</span>
                 <span className="flex items-center gap-1">
-                    <IconClock className="text-muted" />
+                    <IconClock className="text-muted-foreground" />
                     {issueTime}/{sessionDuration}
                 </span>
                 <span className="hidden sm:inline">·</span>

@@ -20,7 +20,7 @@ export function SourceMapStatus(): JSX.Element {
                             <div className="animate-pulse w-6 h-6 rounded-full bg-border" />
                             <div>
                                 <div className="font-semibold">Looking for source maps...</div>
-                                <div className="text-sm text-muted">Last updated: N/A</div>
+                                <div className="text-sm text-muted-foreground">Last updated: N/A</div>
                             </div>
                         </>
                     ) : lastSymbolSet ? (
@@ -28,7 +28,7 @@ export function SourceMapStatus(): JSX.Element {
                             <IconCheckCircle className="text-success text-2xl" />
                             <div>
                                 <div className="font-semibold">Source maps uploaded</div>
-                                <div className="text-sm text-muted">
+                                <div className="text-sm text-muted-foreground">
                                     Last uploaded <TZLabel time={lastSymbolSet.created_at} />
                                 </div>
                             </div>
@@ -38,7 +38,7 @@ export function SourceMapStatus(): JSX.Element {
                             <IconWarning className="text-warning-foreground text-2xl" />
                             <div>
                                 <div className="font-semibold">No source maps uploaded yet</div>
-                                <div className="text-sm text-muted">
+                                <div className="text-sm text-muted-foreground">
                                     Upload source maps to see readable stack traces
                                 </div>
                             </div>

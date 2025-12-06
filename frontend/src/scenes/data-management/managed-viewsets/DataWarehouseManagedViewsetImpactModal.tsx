@@ -91,7 +91,7 @@ export function DataWarehouseManagedViewsetImpactModal({
                     </p>
                     <div className="flex flex-wrap gap-2 max-w-2xl">
                         {viewsLoading ? (
-                            <div className="text-muted">Loading views...</div>
+                            <div className="text-muted-foreground">Loading views...</div>
                         ) : views.length > 0 ? (
                             views.map((view) => (
                                 <LemonTag key={view.id} type="default">
@@ -99,7 +99,7 @@ export function DataWarehouseManagedViewsetImpactModal({
                                 </LemonTag>
                             ))
                         ) : (
-                            <p className="text-muted">No existing views found.</p>
+                            <p className="text-muted-foreground">No existing views found.</p>
                         )}
                     </div>
                 </div>

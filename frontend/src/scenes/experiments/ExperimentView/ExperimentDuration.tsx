@@ -152,7 +152,7 @@ export const ExperimentDuration = (): JSX.Element => {
                                             size="medium"
                                             percent={(actualRunningTime / recommendedRunningTime) * 100}
                                         />
-                                        <div className="text-center mt-2 mb-4 text-xs text-muted">
+                                        <div className="text-center mt-2 mb-4 text-xs text-muted-foreground">
                                             {actualRunningTime} of {humanFriendlyNumber(recommendedRunningTime, 0)} days
                                             completed ({Math.round((actualRunningTime / recommendedRunningTime) * 100)}
                                             %)

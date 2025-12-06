@@ -515,7 +515,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     </div>
 
                     <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground mb-3">
+                        <p className="text-xs text-muted-foreground-foreground mb-3">
                             Your research has been completed. Each notebook contains detailed analysis:
                         </p>
 
@@ -538,7 +538,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                                                     {notebook.title || `${displayName} Notebook`}
                                                 </span>
                                             </div>
-                                            <div className="text-xs text-muted">{description}</div>
+                                            <div className="text-xs text-muted-foreground">{description}</div>
                                         </div>
                                     </div>
                                     <LemonButton
@@ -612,7 +612,7 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                 </div>
                 <div className="flex items-center gap-1.5 flex-1 min-w-0">
                     <span>Planning</span>
-                    <span className="text-muted">
+                    <span className="text-muted-foreground">
                         ({completedCount}/{totalCount})
                     </span>
                     {hasMultipleSteps && (
@@ -638,12 +638,14 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                 <span
                                     className={clsx(
                                         'leading-relaxed',
-                                        isCompleted && 'text-muted-foreground line-through',
+                                        isCompleted && 'text-muted-foreground-foreground line-through',
                                         isInProgress && 'font-medium'
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && <span className="text-muted-foreground ml-1">(in progress)</span>}
+                                    {isInProgress && (
+                                        <span className="text-muted-foreground-foreground ml-1">(in progress)</span>
+                                    )}
                                 </span>
                             </div>
                         )
@@ -730,7 +732,7 @@ function AssistantActionComponent({
             <div
                 className={clsx(
                     'transition-all duration-500 flex',
-                    (isPending || isFailed) && 'text-muted',
+                    (isPending || isFailed) && 'text-muted-foreground',
                     !isInProgress && !isPending && !isFailed && 'text-default',
                     !showChevron ? 'cursor-default' : 'cursor-pointer'
                 )}
@@ -742,7 +744,7 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{icon}</ShimmeringContent>
                         ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{icon}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted-foreground')}>{icon}</span>
                         )}
                     </div>
                 )}
@@ -751,7 +753,9 @@ function AssistantActionComponent({
                         {isInProgress && animate ? (
                             <ShimmeringContent>{markdownContent}</ShimmeringContent>
                         ) : (
-                            <span className={clsx('inline-flex', isInProgress && 'text-muted')}>{markdownContent}</span>
+                            <span className={clsx('inline-flex', isInProgress && 'text-muted-foreground')}>
+                                {markdownContent}
+                            </span>
                         )}
                     </div>
                     {isCompleted && showCompletionIcon && <IconCheck className="text-success size-3" />}
@@ -788,7 +792,7 @@ function AssistantActionComponent({
                                     className={clsx(
                                         'leading-relaxed',
                                         isFailed && 'text-destructive-foreground',
-                                        !isFailed && isCompletedSubstep && 'text-muted',
+                                        !isFailed && isCompletedSubstep && 'text-muted-foreground',
                                         !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
                                     )}
                                     content={handleThreeDots(substep ?? '', true)}
@@ -1197,7 +1201,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
         <div className="flex">
             {/* Sidebar with visualization list */}
             <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted-foreground mb-3">VISUALIZATIONS</h5>
+                <h5 className="text-xs font-semibold text-muted-foreground-foreground mb-3">VISUALIZATIONS</h5>
                 <div className="space-y-1">
                     {messages.map((item, index) => (
                         <button

@@ -8,7 +8,7 @@ import { ExternalDataJobStatus } from '~/types'
 
 export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.Element {
     if (!status) {
-        return <IconRadioButtonUnchecked className="text-muted" />
+        return <IconRadioButtonUnchecked className="text-muted-foreground" />
     }
 
     if (status === ExternalDataJobStatus.Failed) {
@@ -23,7 +23,7 @@ export function StatusIcon({ status }: { status?: ExternalDataJobStatus }): JSX.
     if (status === ExternalDataJobStatus.Completed) {
         return <IconCheckCircle className="text-success" />
     }
-    return <IconRadioButtonUnchecked className="text-muted" />
+    return <IconRadioButtonUnchecked className="text-muted-foreground" />
 }
 
 export function StatusTag({ status }: { status?: ExternalDataJobStatus }): JSX.Element {

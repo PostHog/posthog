@@ -169,9 +169,9 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
 
                     {savedFilters.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-8 border rounded-lg bg-card">
-                            <IconBookmark className="text-4xl text-muted-foreground mb-4" />
+                            <IconBookmark className="text-4xl text-muted-foreground-foreground mb-4" />
                             <h3 className="text-lg font-medium mb-2">No saved filters yet</h3>
-                            <p className="text-muted-foreground text-center max-w-md">
+                            <p className="text-muted-foreground-foreground text-center max-w-md">
                                 Save your frequently used filter combinations to quickly access them later
                             </p>
                         </div>
@@ -210,7 +210,9 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
                 }
             >
                 <div className="space-y-4">
-                    <p className="text-muted">Give your filter combination a name to easily access it later</p>
+                    <p className="text-muted-foreground">
+                        Give your filter combination a name to easily access it later
+                    </p>
                     <LemonInput
                         value={saveFilterName}
                         onChange={setSaveFilterName}

@@ -51,7 +51,7 @@ export function StepTriggerConfiguration({
             labelInMenu: (
                 <div className="flex flex-col my-1">
                     <div className="font-semibold">Event</div>
-                    <p className="text-xs text-muted">
+                    <p className="text-xs text-muted-foreground">
                         Trigger your workflow based on incoming realtime PostHog events
                     </p>
                 </div>
@@ -64,7 +64,9 @@ export function StepTriggerConfiguration({
             labelInMenu: (
                 <div className="flex flex-col my-1">
                     <div className="font-semibold">Webhook</div>
-                    <p className="text-xs text-muted">Trigger your workflow using an incoming HTTP webhook</p>
+                    <p className="text-xs text-muted-foreground">
+                        Trigger your workflow using an incoming HTTP webhook
+                    </p>
                 </div>
             ),
         },
@@ -75,7 +77,7 @@ export function StepTriggerConfiguration({
             labelInMenu: (
                 <div className="flex flex-col my-1">
                     <div className="font-semibold">Manual</div>
-                    <p className="text-xs text-muted">Trigger your workflow manually... with a button!</p>
+                    <p className="text-xs text-muted-foreground">Trigger your workflow manually... with a button!</p>
                 </div>
             ),
         },
@@ -86,7 +88,7 @@ export function StepTriggerConfiguration({
             labelInMenu: (
                 <div className="flex flex-col my-1">
                     <div className="font-semibold">Tracking pixel</div>
-                    <p className="text-xs text-muted">Trigger your workflow using a 1x1 tracking pixel</p>
+                    <p className="text-xs text-muted-foreground">Trigger your workflow using a 1x1 tracking pixel</p>
                 </div>
             ),
         },
@@ -100,7 +102,9 @@ export function StepTriggerConfiguration({
             labelInMenu: (
                 <div className="flex flex-col my-1">
                     <div className="font-semibold">Schedule</div>
-                    <p className="text-xs text-muted">Schedule your workflow to run at a specific time in the future</p>
+                    <p className="text-xs text-muted-foreground">
+                        Schedule your workflow to run at a specific time in the future
+                    </p>
                 </div>
             ),
         })
@@ -255,7 +259,7 @@ function StepTriggerConfigurationWebhook({
                         content: (
                             <>
                                 {!webhookUrl ? (
-                                    <div className="text-xs text-muted-foreground italic border rounded p-1 bg-card">
+                                    <div className="text-xs text-muted-foreground-foreground italic border rounded p-1 bg-card">
                                         The webhook URL will be shown here once you save the workflow
                                     </div>
                                 ) : (
@@ -340,7 +344,7 @@ function StepTriggerConfigurationSchedule({
                             showTimeToggle={false}
                         />
                         {scheduledDateTime && (
-                            <div className="text-xs text-muted">
+                            <div className="text-xs text-muted-foreground">
                                 Timezone: {dayjs.tz.guess()} • Scheduled for:{' '}
                                 {scheduledDateTime.format('MMMM D, YYYY [at] h:mm A')}
                             </div>
@@ -386,7 +390,7 @@ function StepTriggerConfigurationTrackingPixel({
                         content: (
                             <>
                                 {!trackingPixelUrl ? (
-                                    <div className="text-xs text-muted-foreground italic border rounded p-1 bg-card">
+                                    <div className="text-xs text-muted-foreground-foreground italic border rounded p-1 bg-card">
                                         The tracking pixel URL will be shown here once you save the workflow
                                     </div>
                                 ) : (

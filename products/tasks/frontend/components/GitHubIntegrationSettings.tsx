@@ -44,7 +44,7 @@ export function GitHubIntegrationSettings(): JSX.Element {
                     <div className="space-y-4">
                         <div>
                             <h3 className="font-medium">Connected to {githubIntegration.display_name}</h3>
-                            <p className="text-muted-foreground text-sm">
+                            <p className="text-muted-foreground-foreground text-sm">
                                 Issues moved to "To Do" will automatically create branches and pull requests.
                             </p>
                         </div>
@@ -80,7 +80,7 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                 </div>
                             </div>
                             {githubRepositoriesLoading ? (
-                                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                                <div className="flex items-center gap-2 text-muted-foreground-foreground text-sm">
                                     <Spinner className="text-lg" />
                                     Loading repositories...
                                 </div>
@@ -91,7 +91,7 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                             key={repo}
                                             className="flex items-center gap-2 text-sm bg-accent-3000 rounded px-2 py-1"
                                         >
-                                            <IconBranch className="text-muted" />
+                                            <IconBranch className="text-muted-foreground" />
                                             <span className="font-mono">
                                                 {githubIntegration.config?.account?.name || 'GitHub'}/{repo}
                                             </span>
@@ -99,7 +99,7 @@ export function GitHubIntegrationSettings(): JSX.Element {
                                     ))}
                                 </div>
                             ) : (
-                                <div className="text-muted-foreground text-sm">
+                                <div className="text-muted-foreground-foreground text-sm">
                                     <p>No repositories found.</p>
                                     <p className="mt-1">
                                         <LemonButton
@@ -127,7 +127,7 @@ export function GitHubIntegrationSettings(): JSX.Element {
                     <div className="space-y-4">
                         <div>
                             <h3 className="font-medium">No GitHub integration</h3>
-                            <p className="text-muted-foreground text-sm">
+                            <p className="text-muted-foreground-foreground text-sm">
                                 Connect GitHub to enable automatic branch creation and pull requests for issues.
                             </p>
                         </div>

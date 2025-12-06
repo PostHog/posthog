@@ -365,7 +365,7 @@ const getActorName = (logItem: ActivityLogItem): JSX.Element => {
         return (
             <>
                 <strong className="ph-no-capture">{userName}</strong>{' '}
-                <span className="text-muted">(via scheduled change)</span>
+                <span className="text-muted-foreground">(via scheduled change)</span>
             </>
         )
     }

@@ -12,7 +12,7 @@
         &.editable {
             cursor: pointer;
 
-            .EntityFilterInfo:not(.text-muted) {
+            .EntityFilterInfo:not(.text-muted-foreground) {
                 font-weight: 500;
                 color: var(--color-primary);
             }

@@ -37,10 +37,10 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
         return (
             <LemonCard className="p-6 text-center">
                 <div className="space-y-4">
-                    <IconGear className="mx-auto text-4xl text-muted" />
+                    <IconGear className="mx-auto text-4xl text-muted-foreground" />
                     <div>
                         <h3 className="font-medium">No GitHub Integration</h3>
-                        <p className="text-muted-foreground text-sm">
+                        <p className="text-muted-foreground-foreground text-sm">
                             Connect a GitHub integration to enable repository selection.
                         </p>
                     </div>
@@ -104,7 +104,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             )}
 
             {githubRepositoriesLoading && availableRepos.length === 0 && (
-                <div className="flex items-center gap-2 text-muted">
+                <div className="flex items-center gap-2 text-muted-foreground">
                     <Spinner /> Loading repositories...
                 </div>
             )}

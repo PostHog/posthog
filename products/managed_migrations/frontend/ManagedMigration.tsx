@@ -358,7 +358,7 @@ export function ManagedMigrations(): JSX.Element {
                                                         : undefined
                                                 }
                                             />
-                                            <span className="text-xs text-muted">
+                                            <span className="text-xs text-muted-foreground">
                                                 {migration.status === 'completed'
                                                     ? 'Complete'
                                                     : migration.status === 'paused'

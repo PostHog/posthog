@@ -148,10 +148,10 @@ export function TimeseriesModal({
                         )}
                         <div className="flex justify-between items-center mt-2 mb-4">
                             <div className="flex items-center gap-1">
-                                <div className="text-xs text-muted">{progressMessage || ''}</div>
+                                <div className="text-xs text-muted-foreground">{progressMessage || ''}</div>
                                 {progressMessage && (
                                     <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
-                                        <IconInfo className="text-muted-foreground text-base" />
+                                        <IconInfo className="text-muted-foreground-foreground text-base" />
                                     </Tooltip>
                                 )}
                             </div>
@@ -167,12 +167,12 @@ export function TimeseriesModal({
                             processedChartData ? (
                                 <VariantTimeseriesChart chartData={processedChartData} />
                             ) : (
-                                <div className="p-10 text-center text-muted">
+                                <div className="p-10 text-center text-muted-foreground">
                                     No timeseries data available for this variant
                                 </div>
                             )
                         ) : (
-                            <div className="p-10 text-center text-muted-foreground -translate-y-6">
+                            <div className="p-10 text-center text-muted-foreground-foreground -translate-y-6">
                                 No timeseries data available
                             </div>
                         )}

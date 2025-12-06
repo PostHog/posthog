@@ -294,7 +294,7 @@ function Category({
                                                                 </span>
                                                             )}
                                                             {lastViewedAt ? (
-                                                                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                                                                <span className="text-xs text-muted-foreground-foreground whitespace-nowrap">
                                                                     {formatRelativeTimeShort(lastViewedAt)}
                                                                 </span>
                                                             ) : null}

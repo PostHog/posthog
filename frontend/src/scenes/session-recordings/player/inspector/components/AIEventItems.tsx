@@ -125,7 +125,7 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
     }
 
     return (
-        <div className="hidden @sm:flex flex-col items-center gap-1 text-muted-foreground">
+        <div className="hidden @sm:flex flex-col items-center gap-1 text-muted-foreground-foreground">
             {messageChain.map((m) => (
                 <div
                     className={cn(

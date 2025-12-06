@@ -45,7 +45,7 @@ const TargetingSummary = ({ flag }: { flag: FeatureFlagType }): JSX.Element => {
 
     return (
         <div className="space-y-2">
-            <div className="text-xs uppercase tracking-wide font-semibold text-muted">Targeting</div>
+            <div className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">Targeting</div>
             <ul className="list-disc pl-4 text-sm space-y-1">
                 {displayConditions.map((condition, index) => (
                     <li key={index}>{condition}</li>
@@ -89,10 +89,10 @@ export const VariantsPanelLinkFeatureFlag = ({
                 <label className="text-sm font-semibold">Selected Feature Flag</label>
                 <div className="mt-2 p-8 border border-dashed rounded-lg bg-card flex flex-col items-center gap-3">
                     <div className="flex items-center gap-2">
-                        <IconToggle className="text-muted-foreground text-2xl" />
+                        <IconToggle className="text-muted-foreground-foreground text-2xl" />
                         <div className="text-base font-semibold">No feature flag selected</div>
                     </div>
-                    <div className="text-sm text-muted-foreground text-center">
+                    <div className="text-sm text-muted-foreground-foreground text-center">
                         Select an existing multivariate feature flag to use with this experiment
                     </div>
                     <LemonButton type="primary" size="small" onClick={setShowFeatureFlagSelector}>
@@ -148,12 +148,12 @@ export const VariantsPanelLinkFeatureFlag = ({
 
                 {/* Description */}
                 {linkedFeatureFlag.name && (
-                    <div className="text-sm text-muted-foreground">{linkedFeatureFlag.name}</div>
+                    <div className="text-sm text-muted-foreground-foreground">{linkedFeatureFlag.name}</div>
                 )}
 
                 {/* Variants */}
                 <div className="space-y-2">
-                    <div className="text-xs uppercase tracking-wide font-semibold text-muted">Variants</div>
+                    <div className="text-xs uppercase tracking-wide font-semibold text-muted-foreground">Variants</div>
                     <div className="flex flex-wrap gap-1.5">
                         {variants.map(({ key }) => (
                             <LemonTag key={key} type={key === 'control' ? 'primary' : 'default'}>

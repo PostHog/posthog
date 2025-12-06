@@ -398,7 +398,7 @@ export function InsightMeta({
                                 {insight.last_refresh ? (
                                     <div className="block my-1">
                                         Refresh data
-                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                        <p className="text-xs text-muted-foreground-foreground mt-0.5">
                                             Last computed{' '}
                                             <TZLabel
                                                 time={insight.last_refresh}
@@ -456,7 +456,12 @@ export function InsightMetaContent({
                     title={loading ? 'This insight is loading results.' : 'This insight is waiting to load results.'}
                     placement="top-end"
                 >
-                    <span className={clsx('text-sm font-medium ml-1.5', loading ? 'text-accent' : 'text-muted')}>
+                    <span
+                        className={clsx(
+                            'text-sm font-medium ml-1.5',
+                            loading ? 'text-accent' : 'text-muted-foreground'
+                        )}
+                    >
                         <Spinner className="mr-1.5 text-base" textColored />
                         {loading ? 'Loading' : 'Waiting to load'}
                     </span>

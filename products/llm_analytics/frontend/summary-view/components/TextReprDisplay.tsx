@@ -24,7 +24,7 @@ export function TextReprDisplay({ textRepr }: TextReprDisplayProps): JSX.Element
                         id={lineNumber ? `summary-line-${lineNumber}` : undefined}
                         className="transition-all duration-300 ease-in-out"
                     >
-                        {linePrefix && <span className="text-muted">{linePrefix}</span>}
+                        {linePrefix && <span className="text-muted-foreground">{linePrefix}</span>}
                         {lineContent}
                     </div>
                 )

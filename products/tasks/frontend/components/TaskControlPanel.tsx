@@ -77,7 +77,9 @@ export function TaskControlPanel(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Task Control Panel</h2>
-                    <p className="text-muted-foreground text-sm mt-1">Monitor and manage your task workflows</p>
+                    <p className="text-muted-foreground-foreground text-sm mt-1">
+                        Monitor and manage your task workflows
+                    </p>
                 </div>
             </div>
 
@@ -119,7 +121,7 @@ export function TaskControlPanel(): JSX.Element {
 
                     <div className="space-y-3">
                         {needsAttention.length === 0 ? (
-                            <p className="text-muted-foreground text-sm">No tasks need attention</p>
+                            <p className="text-muted-foreground-foreground text-sm">No tasks need attention</p>
                         ) : (
                             needsAttention
                                 .slice(0, 5)
@@ -143,7 +145,7 @@ export function TaskControlPanel(): JSX.Element {
 
                     <div className="space-y-3">
                         {recentlyCompleted.length === 0 ? (
-                            <p className="text-muted-foreground text-sm">No completed tasks</p>
+                            <p className="text-muted-foreground-foreground text-sm">No completed tasks</p>
                         ) : (
                             recentlyCompleted.map((task) => (
                                 <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskDetail(task.id)} />
@@ -169,13 +171,13 @@ export function TaskControlPanel(): JSX.Element {
 
                                 <div className="text-2xl font-bold text-foreground mb-1">{stageTasks.length}</div>
 
-                                <div className="text-xs text-muted">
+                                <div className="text-xs text-muted-foreground">
                                     {stage.is_manual_only ? 'Manual' : 'Automated'}
                                 </div>
 
                                 {stageTasks.length > 0 && (
                                     <div className="mt-3">
-                                        <div className="text-xs text-muted-foreground mb-1">Latest:</div>
+                                        <div className="text-xs text-muted-foreground-foreground mb-1">Latest:</div>
                                         <div className="text-xs font-medium truncate">
                                             {stageTasks[stageTasks.length - 1]?.title}
                                         </div>
@@ -202,7 +204,7 @@ function OverviewCard({ title, value, icon, color }: OverviewCardProps): JSX.Ele
         <LemonCard className="p-4">
             <div className="flex items-center justify-between">
                 <div>
-                    <p className="text-sm text-muted">{title}</p>
+                    <p className="text-sm text-muted-foreground">{title}</p>
                     <p className="text-2xl font-bold">{value}</p>
                 </div>
                 <div className={color}>{icon}</div>
@@ -243,7 +245,7 @@ function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
                 }
             }
         }
-        return 'text-muted'
+        return 'text-muted-foreground'
     }
 
     return (

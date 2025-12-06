@@ -29,7 +29,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
             <>
                 {capitalizeFirstLetter(mode)}
                 {mode === 'variables' && variablesCount > 0 && (
-                    <span className="ml-1 text-muted">({variablesCount})</span>
+                    <span className="ml-1 text-muted-foreground">({variablesCount})</span>
                 )}
             </>
         ),

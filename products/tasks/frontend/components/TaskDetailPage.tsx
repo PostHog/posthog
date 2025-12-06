@@ -130,7 +130,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                     {/* Description */}
                     <div>
                         <h3 className="text-sm font-medium text-default mb-2">Description</h3>
-                        <p className="text-sm text-muted-foreground leading-relaxed">{task.description}</p>
+                        <p className="text-sm text-muted-foreground-foreground leading-relaxed">{task.description}</p>
                     </div>
 
                     {/* Repository Configuration */}
@@ -170,13 +170,13 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                             <div className="bg-card p-3 rounded border">
                                 {task.repository_config?.organization && task.repository_config?.repository ? (
                                     <div className="flex items-center gap-2">
-                                        <span className="text-xs font-medium text-muted">Repository:</span>
+                                        <span className="text-xs font-medium text-muted-foreground">Repository:</span>
                                         <span className="text-sm font-mono text-foreground">
                                             {task.repository_config.organization}/{task.repository_config.repository}
                                         </span>
                                     </div>
                                 ) : (
-                                    <div className="text-sm text-muted-foreground italic">
+                                    <div className="text-sm text-muted-foreground-foreground italic">
                                         No repository configured - click Edit to add one
                                     </div>
                                 )}
@@ -188,15 +188,15 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                     <div className="grid grid-cols-2 gap-4 text-sm">
                         <div>
                             <span className="font-medium text-default">Created:</span>
-                            <div className="text-muted">{formatDate(task.created_at)}</div>
+                            <div className="text-muted-foreground">{formatDate(task.created_at)}</div>
                         </div>
                         <div>
                             <span className="font-medium text-default">Last Updated:</span>
-                            <div className="text-muted">{formatDate(task.updated_at)}</div>
+                            <div className="text-muted-foreground">{formatDate(task.updated_at)}</div>
                         </div>
                         <div>
                             <span className="font-medium text-default">Position:</span>
-                            <div className="text-muted">{task.position}</div>
+                            <div className="text-muted-foreground">{task.position}</div>
                         </div>
                     </div>
 

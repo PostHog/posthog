@@ -143,7 +143,7 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
         title: '# events, last 7 days',
         dataIndex: 'count',
         render: function RenderCount(_, record) {
-            return <div className="text-xs text-muted-foreground">{record.count}</div>
+            return <div className="text-xs text-muted-foreground-foreground">{record.count}</div>
         },
     },
 ]
@@ -240,11 +240,11 @@ export function SidePanelSdkDoctor(): JSX.Element | null {
 
             <div className="p-3">
                 {loading ? null : hasErrors ? (
-                    <div className="text-center text-muted-foreground p-4">
+                    <div className="text-center text-muted-foreground-foreground p-4">
                         Error loading SDK information. Please try again later.
                     </div>
                 ) : Object.keys(sdkVersionsMap).length === 0 ? (
-                    <div className="text-center text-muted-foreground p-4">
+                    <div className="text-center text-muted-foreground-foreground p-4">
                         No SDK information found. Are you sure you have our SDK installed? You can scan events to get
                         started.
                     </div>

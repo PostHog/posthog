@@ -27,7 +27,7 @@ export function PlayerSidebarEditPinnedPropertiesPopover(): JSX.Element {
     return (
         <>
             <div className="flex items-center gap-2 px-4 py-3">
-                <IconPinFilled className="text-muted" />
+                <IconPinFilled className="text-muted-foreground" />
                 <h4 className="font-semibold m-0">Pinned overview properties</h4>
             </div>
 

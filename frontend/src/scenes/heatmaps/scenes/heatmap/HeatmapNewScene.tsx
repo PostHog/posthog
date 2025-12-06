@@ -72,7 +72,7 @@ export function HeatmapNewScene(): JSX.Element {
                     }}
                     fullWidth={true}
                 />
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs text-muted-foreground-foreground mt-1">
                     Add * for wildcards to aggregate data from multiple pages
                 </div>
                 {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}

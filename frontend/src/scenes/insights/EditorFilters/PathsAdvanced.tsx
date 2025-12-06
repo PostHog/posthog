@@ -44,7 +44,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                     bordered
                     fullWidth
                 />
-                <div className="text-muted-foreground text-xs mt-1">
+                <div className="text-muted-foreground-foreground text-xs mt-1">
                     Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
                 </div>
             </div>
@@ -120,7 +120,7 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
                         bordered
                         fullWidth
                     />
-                    <div className="text-muted-foreground text-xs mt-1">
+                    <div className="text-muted-foreground-foreground text-xs mt-1">
                         Display complete URLs instead of truncated versions. Useful for comparing paths side-by-side.
                     </div>
                 </div>

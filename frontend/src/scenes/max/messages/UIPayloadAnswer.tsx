@@ -68,7 +68,7 @@ function RecordingsListContent(): JSX.Element {
     return (
         <div className="*:border-t max-h-80 overflow-y-auto">
             {sessionRecordingsResponseLoading && !hasRecordings ? (
-                <div className="flex items-center justify-center gap-2 py-12 text-muted">
+                <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
                     <Spinner textColored />
                     <span>Loading recordings...</span>
                 </div>

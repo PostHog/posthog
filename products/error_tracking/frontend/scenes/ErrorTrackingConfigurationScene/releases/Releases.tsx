@@ -59,7 +59,7 @@ const ReleasesTable = (): JSX.Element => {
                         {project}
                     </div>
                 ) : (
-                    <span className="text-muted">-</span>
+                    <span className="text-muted-foreground">-</span>
                 )
             },
         },

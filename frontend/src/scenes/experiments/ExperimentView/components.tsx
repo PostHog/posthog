@@ -181,7 +181,7 @@ export function VariantTag({
 
     const variantColor = experiment.parameters?.feature_flag_variants
         ? getVariantColor(variantKey, experiment.parameters.feature_flag_variants)
-        : 'var(--text-muted)'
+        : 'var(--text-muted-foreground)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (
@@ -638,7 +638,7 @@ export function ConclusionForm(): JSX.Element {
                                         <span>{CONCLUSION_DISPLAY_CONFIG[conclusion].title}</span>
                                     </div>
                                 </div>
-                                <div className="text-xs text-muted">
+                                <div className="text-xs text-muted-foreground">
                                     {CONCLUSION_DISPLAY_CONFIG[conclusion].description}
                                 </div>
                             </div>

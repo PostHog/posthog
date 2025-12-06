@@ -88,7 +88,7 @@ export function HogFlowEditorPanelMetrics(): JSX.Element | null {
                         </div>
                     ) : !appMetricsTrends ? (
                         <div className="flex-1 flex items-center justify-center">
-                            <div className="text-muted">No data</div>
+                            <div className="text-muted-foreground">No data</div>
                         </div>
                     ) : (
                         <LineGraph

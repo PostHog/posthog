@@ -39,7 +39,7 @@ export function EditCustomProductsModal(): JSX.Element {
         >
             <div className="flex flex-col gap-2">
                 <div>
-                    <p className="text-sm text-muted">
+                    <p className="text-sm text-muted-foreground">
                         Select which products you want to see in your sidebar. You can change this anytime.
                         {customProductsLoading && <Spinner />}
                     </p>
@@ -115,7 +115,7 @@ export function EditCustomProductsModal(): JSX.Element {
                             </span>
                         }
                     />
-                    <span className="text-sm text-muted">
+                    <span className="text-sm text-muted-foreground">
                         When we detect you are using a new product, we'll automatically add it to your sidebar as a
                         suggestion. We might also suggest products that are related to the ones you are using when we
                         launch a new product.

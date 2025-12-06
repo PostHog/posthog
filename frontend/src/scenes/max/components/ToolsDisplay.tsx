@@ -157,7 +157,7 @@ function TruncatedHorizontalCollection<Children extends React.ReactElement>({
                         {index === visibleElementsCount && (
                             <span
                                 ref={overflowIndicatorRef}
-                                className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground flex items-center"
+                                className="absolute left-0 top-0 bottom-0 text-xs text-muted-foreground-foreground flex items-center"
                             >
                                 + {childrenFlattened.length - visibleElementsCount} more
                             </span>

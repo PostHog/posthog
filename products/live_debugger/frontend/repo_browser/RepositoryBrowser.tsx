@@ -37,9 +37,9 @@ export function RepositoryBrowser(): JSX.Element {
                 </div>
                 <div className="flex-1 overflow-auto">
                     {repositoryTreeLoading ? (
-                        <div className="p-4 text-center text-muted">Loading repository...</div>
+                        <div className="p-4 text-center text-muted-foreground">Loading repository...</div>
                     ) : treeData.length === 0 ? (
-                        <div className="p-4 text-center text-muted">
+                        <div className="p-4 text-center text-muted-foreground">
                             {fileSearchQuery ? 'No files found' : 'No Python files in repository'}
                         </div>
                     ) : (
@@ -71,7 +71,7 @@ export function RepositoryBrowser(): JSX.Element {
                 </div>
                 <div className="flex-1 overflow-auto font-mono text-xs">
                     {!codeLines ? (
-                        <div className="flex items-center justify-center h-full text-muted-foreground p-4 text-center">
+                        <div className="flex items-center justify-center h-full text-muted-foreground-foreground p-4 text-center">
                             <p>Select a file from the file browser to view its contents and set breakpoints</p>
                         </div>
                     ) : (

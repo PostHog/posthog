@@ -43,7 +43,10 @@ export const SyncMoreNotice = (): JSX.Element | null => {
                 </div>
                 <h4 className="mb-2">No data warehouse sources connected</h4>
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <p className="text-muted-foreground mb-4 text-xs px-2 break-words w" style={{ whiteSpace: 'normal' }}>
+                <p
+                    className="text-muted-foreground-foreground mb-4 text-xs px-2 break-words w"
+                    style={{ whiteSpace: 'normal' }}
+                >
                     Import data from external sources like Postgres, Stripe, or other databases to enrich your
                     analytics.
                 </p>

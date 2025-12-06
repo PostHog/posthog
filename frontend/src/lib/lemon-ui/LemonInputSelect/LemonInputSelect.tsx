@@ -536,7 +536,7 @@ export function LemonInputSelect<T = string>({
             return null
         }
         return values.length === 0 ? (
-            <span className="-ml-2 text-muted">Select from {options.length} options</span>
+            <span className="-ml-2 text-muted-foreground">Select from {options.length} options</span>
         ) : (
             <span className="-ml-2">
                 {values.length === options.length
@@ -902,7 +902,7 @@ function DraggableValueSnack<T = string>({
                     className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"
                     {...listeners}
                 >
-                    <SortableDragIcon className="text-muted-foreground w-3.5" />
+                    <SortableDragIcon className="text-muted-foreground-foreground w-3.5" />
                 </span>
                 <span
                     className="overflow-hidden text-ellipsis px-1 cursor-text"

@@ -46,7 +46,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
             key: 'description',
             width: '50%',
             render: function renderDescription(description) {
-                return <span className="text-muted">{description || <i>–</i>}</span>
+                return <span className="text-muted-foreground">{description || <i>–</i>}</span>
             },
         },
         {
@@ -121,7 +121,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     className="max-w-md"
                     data-testid="search-datasets-input"
                 />
-                <div className="text-muted-foreground">{datasetCountLabel}</div>
+                <div className="text-muted-foreground-foreground">{datasetCountLabel}</div>
             </div>
 
             <LemonTable

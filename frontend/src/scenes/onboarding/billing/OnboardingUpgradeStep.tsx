@@ -23,7 +23,7 @@ export const OnboardingUpgradeStep = ({ product, stepKey }: Props): JSX.Element 
     if (billingLoading) {
         return (
             <div className="flex items-center justify-center my-20">
-                <Spinner className="text-2xl text-muted-foreground w-10 h-10" />
+                <Spinner className="text-2xl text-muted-foreground-foreground w-10 h-10" />
             </div>
         )
     }

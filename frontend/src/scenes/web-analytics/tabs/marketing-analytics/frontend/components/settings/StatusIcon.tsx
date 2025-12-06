@@ -36,7 +36,7 @@ function getStatusDisplay(status: SourceStatus): {
         case MarketingSourceStatus.Warning:
             return { icon: <IconWarning className="text-warning-foreground" /> }
         case MarketingSourceStatus.Error:
-            return { icon: <IconX className="text-muted" /> }
+            return { icon: <IconX className="text-muted-foreground" /> }
         case MarketingSourceStatus.Success:
             return { icon: <IconCheck className="text-success" /> }
         default:

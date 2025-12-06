@@ -42,7 +42,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
         labelComponent: (
             <div className="flex justify-between items-center w-full">
                 <span className="truncate">{option.url}</span>
-                <span className="text-muted-foreground ml-2">{option.count.toLocaleString()}</span>
+                <span className="text-muted-foreground-foreground ml-2">{option.count.toLocaleString()}</span>
             </div>
         ),
     }))
@@ -53,7 +53,7 @@ export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element
             left={
                 <div className="flex-1">
                     <div className="relative">
-                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                        <IconGlobe className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <LemonInputSelect
                             allowCustomValues={false}
                             placeholder="Click or type to see top pages"

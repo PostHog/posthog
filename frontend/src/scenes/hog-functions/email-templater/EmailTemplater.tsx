@@ -164,7 +164,7 @@ function NativeEmailIntegrationChoice({
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
             <div className="flex gap-2 justify-end items-center">
-                <span className="text-muted">No email senders configured yet</span>
+                <span className="text-muted-foreground">No email senders configured yet</span>
                 <LemonButton
                     size="small"
                     type="tertiary"
@@ -337,7 +337,7 @@ function NativeEmailTemplaterForm({
                                                     <div className="flex items-center justify-between w-full gap-2">
                                                         <span className="flex-1">{template.name}</span>
                                                         <span
-                                                            className="cursor-pointer text-muted-foreground hover:text-default"
+                                                            className="cursor-pointer text-muted-foreground-foreground hover:text-default"
                                                             onClick={() => {
                                                                 isPreviewClick.current = true
                                                                 setPreviewTemplate(template)

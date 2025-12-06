@@ -86,7 +86,7 @@ export function WorkflowBuilder({ workflow, onSave, onCancel }: WorkflowBuilderP
                 <div className="flex justify-between items-center mb-4">
                     <div>
                         <h3 className="text-lg font-medium">Workflow Stages</h3>
-                        <p className="text-sm text-muted-foreground mt-1">
+                        <p className="text-sm text-muted-foreground-foreground mt-1">
                             All workflows start with "Input" and end with "Complete". Add stages in between as needed.
                         </p>
                     </div>
@@ -110,7 +110,7 @@ export function WorkflowBuilder({ workflow, onSave, onCancel }: WorkflowBuilderP
                     ))}
 
                     {stages.length === 0 && (
-                        <div className="text-center py-8 text-muted">
+                        <div className="text-center py-8 text-muted-foreground">
                             No stages defined. Add a stage to get started.
                         </div>
                     )}
@@ -183,7 +183,9 @@ function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFi
                         {position}
                     </div>
                     <h4 className="font-medium">Stage {position}</h4>
-                    {isLast && <span className="text-xs bg-border rounded px-2 py-1 text-muted">Required</span>}
+                    {isLast && (
+                        <span className="text-xs bg-border rounded px-2 py-1 text-muted-foreground">Required</span>
+                    )}
                 </div>
                 {!(isFirst || isLast) && (
                     <LemonButton size="xsmall" type="secondary" icon={<IconX />} onClick={onRemove} />
@@ -206,7 +208,7 @@ function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFi
                 <div>
                     <label className="block text-sm font-medium mb-1">Assigned Agent</label>
                     {isLast ? (
-                        <div className="h-10 px-3 py-2 border border-border rounded bg-card text-muted-foreground text-sm flex items-center">
+                        <div className="h-10 px-3 py-2 border border-border rounded bg-card text-muted-foreground-foreground text-sm flex items-center">
                             No agent - tasks complete here
                         </div>
                     ) : (
@@ -230,7 +232,7 @@ function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFi
             </div>
             {isLast && (
                 <div className="mt-3 p-3 bg-card rounded border">
-                    <p className="text-sm text-muted">
+                    <p className="text-sm text-muted-foreground">
                         ✅ This is the final stage - tasks are marked as complete when they reach here.
                     </p>
                 </div>

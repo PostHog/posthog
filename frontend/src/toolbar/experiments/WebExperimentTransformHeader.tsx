@@ -33,7 +33,7 @@ export function WebExperimentTransformHeader({
                         <span className="max-w-[290px] truncate inline-block">{transform.selector}</span>
                     </Tooltip>
                 ) : (
-                    <span className="text-muted-foreground italic">No element selected</span>
+                    <span className="text-muted-foreground-foreground italic">No element selected</span>
                 )}
             </div>
 

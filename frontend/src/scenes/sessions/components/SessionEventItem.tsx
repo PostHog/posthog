@@ -30,7 +30,7 @@ function ExceptionTitlePill({ event }: { event: RecordingEventType }): JSX.Eleme
     const value = errorProps.value
 
     if (!type && !value) {
-        return <span className="text-muted-foreground text-xs">Exception</span>
+        return <span className="text-muted-foreground-foreground text-xs">Exception</span>
     }
 
     return (
@@ -153,7 +153,7 @@ export function SessionEventItem({
                         formatDate="MMMM DD, YYYY"
                         formatTime="h:mm:ss A"
                         showPopover={false}
-                        className="text-xs text-muted-foreground min-w-32"
+                        className="text-xs text-muted-foreground-foreground min-w-32"
                     />
                     <PropertyKeyInfo
                         value={event.event}
@@ -166,7 +166,7 @@ export function SessionEventItem({
                     ) : (
                         event.properties?.$pathname &&
                         event.properties?.$host && (
-                            <span className="text-muted-foreground truncate text-xs">
+                            <span className="text-muted-foreground-foreground truncate text-xs">
                                 - {event.properties.$host}
                                 {event.properties.$pathname}
                             </span>

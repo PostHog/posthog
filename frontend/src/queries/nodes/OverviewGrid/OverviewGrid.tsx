@@ -236,7 +236,7 @@ const OverviewItemCell = ({
                         {formatPercentage(item.changeFromPreviousPct)}
                     </div>
                 ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
-                    <div className="text-muted">-</div>
+                    <div className="text-muted-foreground">-</div>
                 ) : (
                     <div />
                 )}

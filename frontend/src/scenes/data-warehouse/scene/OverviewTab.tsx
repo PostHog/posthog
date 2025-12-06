@@ -96,17 +96,17 @@ export function OverviewTab(): JSX.Element {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-start gap-1">
-                        <div className="text-sm text-muted">Rows processed</div>
+                        <div className="text-sm text-muted-foreground">Rows processed</div>
                         <Tooltip
                             title="Total rows processed this month by all data sources and materialized views"
                             placement="bottom"
                         >
-                            <IconInfo className="text-muted-foreground mt-0.5" />
+                            <IconInfo className="text-muted-foreground-foreground mt-0.5" />
                         </Tooltip>
                     </div>
                     <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
                         {totalRowsStatsLoading && !totalRowsStats?.total_rows ? (
-                            <Spinner className="text-muted" />
+                            <Spinner className="text-muted-foreground" />
                         ) : (
                             (totalRowsStats?.total_rows ?? 0).toLocaleString()
                         )}
@@ -115,7 +115,7 @@ export function OverviewTab(): JSX.Element {
 
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted">Data sources</div>
+                        <div className="text-sm text-muted-foreground">Data sources</div>
                         {jobStats && jobStats.external_data_jobs.running > 0 && (
                             <LemonTag type="primary" size="small">
                                 {jobStats.external_data_jobs.running} syncing
@@ -124,7 +124,7 @@ export function OverviewTab(): JSX.Element {
                     </div>
                     <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
                         {tablesLoading && !dataWarehouseSources ? (
-                            <Spinner className="text-muted" />
+                            <Spinner className="text-muted-foreground" />
                         ) : (
                             (dataWarehouseSources?.results?.length ?? 0)
                         )}
@@ -133,7 +133,7 @@ export function OverviewTab(): JSX.Element {
 
                 <LemonCard className="p-4 hover:transform-none">
                     <div className="flex items-center justify-between">
-                        <div className="text-sm text-muted">Materialized views</div>
+                        <div className="text-sm text-muted-foreground">Materialized views</div>
                         {jobStats && jobStats.modeling_jobs.running > 0 && (
                             <LemonTag type="primary" size="small">
                                 {jobStats.modeling_jobs.running} syncing
@@ -142,7 +142,7 @@ export function OverviewTab(): JSX.Element {
                     </div>
                     <div className="text-2xl font-semibold mt-1 flex items-center gap-2">
                         {tablesLoading && !materializedViews ? (
-                            <Spinner className="text-muted" />
+                            <Spinner className="text-muted-foreground" />
                         ) : (
                             (materializedViews?.length ?? 0)
                         )}
@@ -164,7 +164,7 @@ export function OverviewTab(): JSX.Element {
                                 <div className="flex items-start gap-1">
                                     <div className="text-lg font-medium">Sync success rate</div>
                                 </div>
-                                {jobStatsLoading && <Spinner className="text-muted" />}
+                                {jobStatsLoading && <Spinner className="text-muted-foreground" />}
                             </div>
                             <LemonSegmentedButton
                                 size="xsmall"
@@ -193,7 +193,7 @@ export function OverviewTab(): JSX.Element {
             <LemonCard className="hover:transform-none mt-4">
                 <div className="flex items-center gap-2 pb-2">
                     <span className="font-medium text-lg">Currently running</span>
-                    {tablesLoading && runningActivityResponse !== null && <Spinner className="text-muted" />}
+                    {tablesLoading && runningActivityResponse !== null && <Spinner className="text-muted-foreground" />}
                 </div>
                 <LemonTable
                     dataSource={activityRunningPagination.dataSourcePage as DataWarehouseActivityRecord[]}
@@ -213,7 +213,9 @@ export function OverviewTab(): JSX.Element {
             <LemonCard className="hover:transform-none mt-4">
                 <div className="flex items-center gap-2 pb-2">
                     <span className="font-medium text-lg">Recently completed</span>
-                    {tablesLoading && completedActivityResponse !== null && <Spinner className="text-muted" />}
+                    {tablesLoading && completedActivityResponse !== null && (
+                        <Spinner className="text-muted-foreground" />
+                    )}
                 </div>
                 <LemonTable
                     dataSource={activityCompletedPagination.dataSourcePage as DataWarehouseActivityRecord[]}

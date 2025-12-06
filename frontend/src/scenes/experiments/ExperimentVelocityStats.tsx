@@ -34,7 +34,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
             <div className="metric-cell-header font-semibold flex items-center gap-1">
                 Velocity (last 30d)
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
-                    <IconInfo className="text-muted-foreground" fontSize="16" />
+                    <IconInfo className="text-muted-foreground-foreground" fontSize="16" />
                 </Tooltip>
             </div>
             <div className="h-4 w-px bg-border" />

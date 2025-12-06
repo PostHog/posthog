@@ -125,7 +125,7 @@ function OverlayMenu(): JSX.Element {
                     <>
                         {!searchForm.search && recentDatasets.length > 0 && (
                             <>
-                                <p className="text-muted-foreground text-xs px-2">Recent datasets</p>
+                                <p className="text-muted-foreground-foreground text-xs px-2">Recent datasets</p>
                                 {recentDatasets.map((dataset, index) => (
                                     <LemonButton
                                         key={dataset.id}
@@ -163,7 +163,7 @@ function OverlayMenu(): JSX.Element {
                         ))}
                     </>
                 ) : (
-                    <p className="text-muted-foreground text-sm px-2">No datasets found</p>
+                    <p className="text-muted-foreground-foreground text-sm px-2">No datasets found</p>
                 )}
             </div>
             <LemonDivider className="my-0 mb-2" />

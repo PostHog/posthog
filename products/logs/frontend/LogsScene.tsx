@@ -123,7 +123,7 @@ export function LogsScene(): JSX.Element {
                         onSelectionChange={onSelectionChange}
                     />
                 ) : !sparklineLoading ? (
-                    <div className="flex-1 text-muted-foreground flex items-center justify-center">
+                    <div className="flex-1 text-muted-foreground-foreground flex items-center justify-center">
                         No results matching filters
                     </div>
                 ) : null}
@@ -234,7 +234,7 @@ function LogsTable({
                                             'transition-opacity',
                                             pinned
                                                 ? 'text-foreground opacity-100'
-                                                : 'text-muted-foreground opacity-0 group-hover:opacity-100'
+                                                : 'text-muted-foreground-foreground opacity-0 group-hover:opacity-100'
                                         )}
                                     />
                                     <LogsTableRowActions log={record} />

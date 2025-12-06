@@ -105,10 +105,10 @@ export function RunningTimeConfigModal({
                                 step={0.1}
                                 className="flex-1"
                             />
-                            <span className="text-muted">%</span>
+                            <span className="text-muted-foreground">%</span>
                         </div>
                     </div>
-                    <div className="text-xs text-muted-foreground mt-1">
+                    <div className="text-xs text-muted-foreground-foreground mt-1">
                         The smallest change you want to detect. Lower values require more data and longer run times.
                     </div>
                 </div>

@@ -413,7 +413,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                                 })}
                                             >
                                                 {label}
-                                                {!optional && <span className="text-muted">&nbsp;*</span>}
+                                                {!optional && <span className="text-muted-foreground">&nbsp;*</span>}
                                             </span>
                                             {description && (
                                                 <Tooltip title={description}>

@@ -105,7 +105,7 @@ function QueryIdDisplay({ queryId }: { queryId?: string | null }): JSX.Element |
     }
 
     return (
-        <div className="text-muted-foreground text-xs">
+        <div className="text-muted-foreground-foreground text-xs">
             Query ID: <span className="font-mono">{queryId}</span>
         </div>
     )
@@ -536,7 +536,7 @@ export function InsightValidationError({
             data-attr="insight-empty-state"
             className="flex flex-col items-center justify-center gap-2 rounded p-4 h-full w-full text-center text-balance"
         >
-            <IconWarning className="text-4xl shrink-0 text-muted" />
+            <IconWarning className="text-4xl shrink-0 text-muted-foreground" />
 
             <h2
                 data-attr="insight-loading-too-long"
@@ -550,7 +550,7 @@ export function InsightValidationError({
                 {/* but rather that it's something with the definition of the query itself */}
             </h2>
 
-            <p className="text-sm text-muted-foreground max-w-120">{detail}</p>
+            <p className="text-sm text-muted-foreground-foreground max-w-120">{detail}</p>
             <QueryDebuggerButton query={query} />
 
             {detail.includes('Exclusion') && (
@@ -661,11 +661,11 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 items-center justify-center text-center text-balance"
         >
-            <div className="text-5xl text-muted-foreground mb-2">
+            <div className="text-5xl text-muted-foreground-foreground mb-2">
                 <IconPlusSquare />
             </div>
             <h2 className="text-xl leading-tight font-medium">Add another step!</h2>
-            <p className="mb-0 text-sm text-muted">
+            <p className="mb-0 text-sm text-muted-foreground">
                 <span>You're almost there! Funnels require at least two steps before calculating.</span>
                 {actionable && (
                     <>

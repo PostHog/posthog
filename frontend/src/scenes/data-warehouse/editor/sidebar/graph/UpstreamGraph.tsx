@@ -125,7 +125,7 @@ function LineageNode({ data, edges, tabId }: LineageNodeProps): JSX.Element {
             </div>
 
             {data.last_run_at && (
-                <div className="text-xs text-muted-foreground mt-2">
+                <div className="text-xs text-muted-foreground-foreground mt-2">
                     Last run: {humanFriendlyDetailedTime(data.last_run_at)}
                 </div>
             )}

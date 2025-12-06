@@ -32,7 +32,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
                     <LemonTag type="muted">Optional</LemonTag>
                 )}
             </div>
-            <div className="flex-1 text-muted">{property.description || '—'}</div>
+            <div className="flex-1 text-muted-foreground">{property.description || '—'}</div>
         </div>
     )
 }
@@ -184,7 +184,7 @@ export function EventDefinitionSchema({ definition }: { definition: EventDefinit
                         ))}
                     </div>
                 ) : (
-                    <div className="text-center text-muted-foreground py-8 border rounded bg-card">
+                    <div className="text-center text-muted-foreground-foreground py-8 border rounded bg-card">
                         No property groups added yet. Add a property group above to define the schema for this event.
                     </div>
                 )}

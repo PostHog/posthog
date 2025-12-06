@@ -44,7 +44,7 @@ function ScopesList({
 
     if (!showAll && visibleScopes.length === 0) {
         return (
-            <div className="text-muted-foreground text-sm italic py-2">
+            <div className="text-muted-foreground-foreground text-sm italic py-2">
                 No scopes selected. Click "Manage scopes" to select permissions.
             </div>
         )
@@ -150,7 +150,7 @@ export function CLIAuthorize(): JSX.Element {
                             <p>You can now close this window and return to your terminal.</p>
                         </div>
                     </LemonBanner>
-                    <div className="text-muted-foreground text-sm mt-4">
+                    <div className="text-muted-foreground-foreground text-sm mt-4">
                         <p>
                             A Personal API Key has been created for your CLI. You can manage your API keys in{' '}
                             <Link to={urls.settings('user-api-keys')} className="font-semibold">
@@ -162,7 +162,7 @@ export function CLIAuthorize(): JSX.Element {
             ) : (
                 <div className="space-y-4">
                     <h2>Authorize CLI Access</h2>
-                    <p className="text-muted-foreground text-sm">
+                    <p className="text-muted-foreground-foreground text-sm">
                         The PostHog CLI should have displayed a 9-character code (e.g., ABCD-1234). Enter it below to
                         authorize your CLI.
                     </p>
@@ -208,7 +208,7 @@ export function CLIAuthorize(): JSX.Element {
                                     Manage scopes
                                 </LemonButton>
                             </div>
-                            <p className="text-muted-foreground text-sm mb-2">
+                            <p className="text-muted-foreground-foreground text-sm mb-2">
                                 Selected permissions for the CLI. Only grant the scopes you need.
                             </p>
                         </div>

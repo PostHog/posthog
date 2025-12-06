@@ -584,11 +584,11 @@ export const NPS_PASSIVE_VALUES = ['7', '8']
 export const NPS_DETRACTOR_VALUES = ['0', '1', '2', '3', '4', '5', '6']
 
 export const QUESTION_TYPE_ICON_MAP = {
-    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
-    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
-    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
-    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
-    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+    [SurveyQuestionType.Open]: <IconComment className="text-muted-foreground" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted-foreground" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted-foreground" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted-foreground" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted-foreground" />,
 }
 
 export const SURVEY_TYPE_LABEL_MAP = {

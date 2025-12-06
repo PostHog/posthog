@@ -52,7 +52,7 @@ function PropertyRow({ property }: { property: SchemaPropertyGroupProperty }): J
                     <LemonTag type="muted">Optional</LemonTag>
                 )}
             </div>
-            <div className="flex-1 text-muted">{property.description || '—'}</div>
+            <div className="flex-1 text-muted-foreground">{property.description || '—'}</div>
         </div>
     )
 }
@@ -82,7 +82,7 @@ export function SchemaManagement(): JSX.Element {
             title: 'Description',
             key: 'description',
             dataIndex: 'description',
-            render: (description) => <span className="text-muted">{description || '—'}</span>,
+            render: (description) => <span className="text-muted-foreground">{description || '—'}</span>,
         },
         {
             title: 'Properties',
@@ -180,7 +180,7 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted-foreground py-4">
+                                            <div className="text-center text-muted-foreground-foreground py-4">
                                                 No events using this property group
                                             </div>
                                         )}
@@ -204,7 +204,7 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted-foreground py-4">
+                                            <div className="text-center text-muted-foreground-foreground py-4">
                                                 No properties defined
                                             </div>
                                         )}

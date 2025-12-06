@@ -79,7 +79,7 @@ function renderValue(value: unknown): React.ReactNode {
         if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
             return (
                 <Tooltip title="Value redacted by SDK code variables masking configuration">
-                    <span className="text-muted">***</span>
+                    <span className="text-muted-foreground">***</span>
                 </Tooltip>
             )
         }

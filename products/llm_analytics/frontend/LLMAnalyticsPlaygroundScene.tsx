@@ -105,7 +105,7 @@ function ConversationPanel(): JSX.Element {
                         <MessageDisplay key={index} index={index} message={message} expandTextAreas={expandTextAreas} />
                     ))}
                     {messages.length === 0 && (
-                        <div className="flex flex-col items-center justify-center py-12 text-muted">
+                        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
                             <IconMessage className="text-3xl mb-2" />
                             <p>Add messages to start the conversation.</p>
                         </div>
@@ -444,10 +444,10 @@ function OutputSection(): JSX.Element {
                         }`}
                     >
                         {currentResponse}
-                        {submitting && <span className="text-muted-foreground italic"> (streaming...)</span>}
+                        {submitting && <span className="text-muted-foreground-foreground italic"> (streaming...)</span>}
                     </pre>
                 ) : (
-                    <div className="flex items-center justify-center h-24 text-muted">
+                    <div className="flex items-center justify-center h-24 text-muted-foreground">
                         <p>AI response will appear here after running your prompt</p>
                     </div>
                 )}
@@ -505,7 +505,9 @@ function ConfigurationPanel(): JSX.Element {
                     step={64}
                     placeholder="Leave empty for model default"
                 />
-                <div className="text-xs text-muted-foreground mt-1">Leave empty to use model's default max tokens</div>
+                <div className="text-xs text-muted-foreground-foreground mt-1">
+                    Leave empty to use model's default max tokens
+                </div>
             </div>
 
             <div className="flex items-center space-x-2">
@@ -537,7 +539,7 @@ function ConfigurationPanel(): JSX.Element {
                     ]}
                     dropdownMatchSelectWidth={false}
                 />
-                <div className="text-xs text-muted-foreground mt-1">
+                <div className="text-xs text-muted-foreground-foreground mt-1">
                     If set and supported by the model, enables enhanced reasoning.
                 </div>
             </div>
@@ -679,7 +681,7 @@ function StickyActionBar(): JSX.Element {
 
                     <div className="flex items-center gap-3">
                         {/* Model and params summary */}
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground bg-bg-dark dark:bg-card px-2 py-1 rounded">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground-foreground bg-bg-dark dark:bg-card px-2 py-1 rounded">
                             <span className="font-medium">{model || 'No model'}</span>
                             {maxTokens && (
                                 <>

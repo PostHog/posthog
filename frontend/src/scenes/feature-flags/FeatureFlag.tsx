@@ -610,12 +610,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                             onClick={() => onChange(option.value)}
                                                         >
                                                             <div className="flex items-start gap-3">
-                                                                <div className="text-lg text-muted">{option.icon}</div>
+                                                                <div className="text-lg text-muted-foreground">
+                                                                    {option.icon}
+                                                                </div>
                                                                 <div className="flex-1">
                                                                     <div className="font-medium text-sm">
                                                                         {option.title}
                                                                     </div>
-                                                                    <div className="text-xs text-muted-foreground mt-1">
+                                                                    <div className="text-xs text-muted-foreground-foreground mt-1">
                                                                         {option.description}
                                                                     </div>
                                                                 </div>
@@ -1214,7 +1216,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     <div className="flex items-center gap-2">
                                         {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
                                             <>
-                                                <IconGlobe className="text-lg text-muted" />
+                                                <IconGlobe className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Both client and server</span>
                                                 <LemonTag type="primary" size="small">
                                                     Single + multi-user
@@ -1222,7 +1224,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             </>
                                         ) : featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.CLIENT ? (
                                             <>
-                                                <IconLaptop className="text-lg text-muted" />
+                                                <IconLaptop className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Client-side only</span>
                                                 <LemonTag type="completion" size="small">
                                                     Single-user apps
@@ -1230,7 +1232,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             </>
                                         ) : (
                                             <>
-                                                <IconServer className="text-lg text-muted" />
+                                                <IconServer className="text-lg text-muted-foreground" />
                                                 <span className="font-medium">Server-side only</span>
                                                 <LemonTag type="caution" size="small">
                                                     Multi-user systems
@@ -1292,7 +1294,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                             <div className="flex items-center gap-2">
                                                 {featureFlag.evaluation_runtime === FeatureFlagEvaluationRuntime.ALL ? (
                                                     <>
-                                                        <IconGlobe className="text-lg text-muted" />
+                                                        <IconGlobe className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Both client and server</span>
                                                         <LemonTag type="primary" size="small">
                                                             Single + multi-user
@@ -1301,7 +1303,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                 ) : featureFlag.evaluation_runtime ===
                                                   FeatureFlagEvaluationRuntime.CLIENT ? (
                                                     <>
-                                                        <IconLaptop className="text-lg text-muted" />
+                                                        <IconLaptop className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Client-side only</span>
                                                         <LemonTag type="completion" size="small">
                                                             Single-user apps
@@ -1309,7 +1311,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                                     </>
                                                 ) : (
                                                     <>
-                                                        <IconServer className="text-lg text-muted" />
+                                                        <IconServer className="text-lg text-muted-foreground" />
                                                         <span className="font-medium">Server-side only</span>
                                                         <LemonTag type="caution" size="small">
                                                             Multi-user systems

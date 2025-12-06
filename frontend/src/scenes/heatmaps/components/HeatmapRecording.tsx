@@ -25,7 +25,7 @@ function UrlSearchHeader(): JSX.Element {
                     <div className="flex-1">
                         <div className="mt-2">
                             <LemonLabel>Heatmap data URL</LemonLabel>
-                            <div className="text-xs text-muted-foreground mb-1">
+                            <div className="text-xs text-muted-foreground-foreground mb-1">
                                 Add * for wildcards to aggregate data from multiple pages
                             </div>
                             <LemonInput

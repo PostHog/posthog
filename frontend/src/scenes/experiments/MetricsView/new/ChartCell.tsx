@@ -202,7 +202,7 @@ export function ChartCell({
                             className={`px-3 py-1 rounded text-xs whitespace-nowrap ${
                                 validationFailureType === 'error'
                                     ? 'bg-danger-highlight text-destructive-foreground'
-                                    : 'bg-border-light text-muted'
+                                    : 'bg-border-light text-muted-foreground'
                             }`}
                         >
                             {validationFailureType === 'error' ? 'Error' : 'Not enough data yet'}

@@ -8,14 +8,16 @@ interface ListDisplayProps {
 
 export const ListDisplay = ({ list }: ListDisplayProps): JSX.Element => {
     if (list.length === 0) {
-        return <span className="text-muted">-</span>
+        return <span className="text-muted-foreground">-</span>
     }
 
     const joinedList = list.join(', ')
 
     return (
         <Tooltip title={joinedList}>
-            <div className="text-muted-foreground text-sm leading-tight ListDisplay--truncated">{joinedList}</div>
+            <div className="text-muted-foreground-foreground text-sm leading-tight ListDisplay--truncated">
+                {joinedList}
+            </div>
         </Tooltip>
     )
 }

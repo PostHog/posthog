@@ -91,7 +91,7 @@ export function FeatureFlagVariantsForm({
                                 </CopyToClipboardInline>
                             </div>
                             <div className="col-span-2">
-                                <span className={variant.name ? '' : 'text-muted'}>
+                                <span className={variant.name ? '' : 'text-muted-foreground'}>
                                     {variant.name || 'There is no description for this variant key'}
                                 </span>
                             </div>

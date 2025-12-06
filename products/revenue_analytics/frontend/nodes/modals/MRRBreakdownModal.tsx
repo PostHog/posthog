@@ -31,7 +31,7 @@ const LEGEND_ITEMS = [
 function MRRLegend(): JSX.Element {
     return (
         <div>
-            <p className="text-sm text-muted-foreground mb-3">
+            <p className="text-sm text-muted-foreground-foreground mb-3">
                 This chart shows the breakdown of Monthly Recurring Revenue (MRR) by category:
             </p>
             <div className="grid grid-cols-2 gap-3">
@@ -43,7 +43,7 @@ function MRRLegend(): JSX.Element {
                         />
                         <div>
                             <span className="font-semibold text-foreground">{item.label}:</span>
-                            <span className="text-muted-foreground text-sm ml-2">{item.description}</span>
+                            <span className="text-muted-foreground-foreground text-sm ml-2">{item.description}</span>
                         </div>
                     </div>
                 ))}

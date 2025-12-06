@@ -48,8 +48,10 @@ export const MetricsPanelHeader = ({
                     <IconWarning className="text-warning-foreground w-4 h-4 shrink-0" />
                 )}
                 <span className="font-semibold shrink-0">Metrics</span>
-                <span className="text-muted-foreground shrink-0">•</span>
-                <span className={clsx('text-sm truncate', isValid ? 'text-muted' : 'text-warning-foreground')}>
+                <span className="text-muted-foreground-foreground shrink-0">•</span>
+                <span
+                    className={clsx('text-sm truncate', isValid ? 'text-muted-foreground' : 'text-warning-foreground')}
+                >
                     {summaryText}
                 </span>
             </div>

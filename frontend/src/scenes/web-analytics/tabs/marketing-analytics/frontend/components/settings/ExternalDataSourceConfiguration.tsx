@@ -243,18 +243,20 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                     <div className="space-y-1">
                                         {item.syncingTables.length > 0 && (
                                             <div className="text-xs">
-                                                <span className="text-muted">Syncing: </span>
+                                                <span className="text-muted-foreground">Syncing: </span>
                                                 <ListDisplay list={item.syncingTables} />
                                             </div>
                                         )}
                                         {item.tablesToSync.length > 0 && (
                                             <div className="text-xs">
-                                                <span className="text-muted">To sync: </span>
+                                                <span className="text-muted-foreground">To sync: </span>
                                                 <ListDisplay list={item.tablesToSync} />
                                             </div>
                                         )}
                                         {item.syncingTables.length === 0 && item.tablesToSync.length === 0 && (
-                                            <span className="text-muted-foreground text-xs">No tables required</span>
+                                            <span className="text-muted-foreground-foreground text-xs">
+                                                No tables required
+                                            </span>
                                         )}
                                     </div>
                                 )
@@ -268,12 +270,12 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                         {mappedFields > 0 ? (
                                             <span>{mappedFields} columns mapped</span>
                                         ) : (
-                                            <span className="text-muted">No columns mapped</span>
+                                            <span className="text-muted-foreground">No columns mapped</span>
                                         )}
                                     </span>
                                 )
                             }
-                            return <span className="text-muted-foreground text-xs">-</span>
+                            return <span className="text-muted-foreground-foreground text-xs">-</span>
                         },
                     },
                     {

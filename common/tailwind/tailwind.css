@@ -472,6 +472,9 @@
     --radius-lg: 0.625rem;
     --radius-full: 9999px;
 
+    /* Opacity variables */
+    --opacity-disabled: 0.65;
+
     /* Animations */
     --animate-input-focus-pulse: inputFocusPulse 1s ease-in-out forwards;
 

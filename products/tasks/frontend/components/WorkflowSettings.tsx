@@ -48,7 +48,7 @@ export function WorkflowSettings(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Workflow Configuration</h2>
-                    <p className="text-muted-foreground text-sm mt-1">
+                    <p className="text-muted-foreground-foreground text-sm mt-1">
                         Configure custom workflows to define how tasks move through different stages
                     </p>
                 </div>
@@ -59,9 +59,9 @@ export function WorkflowSettings(): JSX.Element {
 
             {workflows.length === 0 ? (
                 <LemonCard className="p-8 text-center">
-                    <IconInfo className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <IconInfo className="w-12 h-12 text-muted-foreground-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-medium mb-2">No Workflows Configured</h3>
-                    <p className="text-muted-foreground mb-4">Creating default workflow...</p>
+                    <p className="text-muted-foreground-foreground mb-4">Creating default workflow...</p>
                 </LemonCard>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -125,9 +125,9 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
                 </div>
             </div>
 
-            <p className="text-sm text-muted-foreground mb-3">{workflow.description}</p>
+            <p className="text-sm text-muted-foreground-foreground mb-3">{workflow.description}</p>
 
-            <div className="flex justify-between items-center text-xs text-muted">
+            <div className="flex justify-between items-center text-xs text-muted-foreground">
                 <span>{workflow.stages.length} stages</span>
                 <span>{workflow.task_count} tasks</span>
             </div>
@@ -141,7 +141,9 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
                         title={stage.name}
                     />
                 ))}
-                {workflow.stages.length > 5 && <div className="text-xs text-muted">+{workflow.stages.length - 5}</div>}
+                {workflow.stages.length > 5 && (
+                    <div className="text-xs text-muted-foreground">+{workflow.stages.length - 5}</div>
+                )}
             </div>
         </LemonCard>
     )
@@ -174,7 +176,7 @@ function WorkflowDetailView(): JSX.Element {
             <div className="flex justify-between items-start mb-4">
                 <div>
                     <h3 className="text-lg font-semibold">{selectedWorkflow.name}</h3>
-                    <p className="text-muted">{selectedWorkflow.description}</p>
+                    <p className="text-muted-foreground">{selectedWorkflow.description}</p>
                 </div>
                 <LemonButton type="primary" size="small" onClick={() => setEditingWorkflow(selectedWorkflow)}>
                     Edit Workflow
@@ -189,7 +191,7 @@ function WorkflowDetailView(): JSX.Element {
                             <div key={stage.id} className="flex items-center gap-3 p-2 bg-card rounded">
                                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                                 <span className="flex-1">{stage.name}</span>
-                                <span className="text-xs text-muted">{stage.task_count} tasks</span>
+                                <span className="text-xs text-muted-foreground">{stage.task_count} tasks</span>
                                 {stage.is_manual_only && <LemonTag size="small">Manual</LemonTag>}
                             </div>
                         ))}
@@ -200,7 +202,7 @@ function WorkflowDetailView(): JSX.Element {
                     <h4 className="font-medium mb-3">Workflow Flow</h4>
                     <div className="space-y-2">
                         <div className="p-3 bg-card rounded text-sm">
-                            <div className="text-center text-muted">
+                            <div className="text-center text-muted-foreground">
                                 <p className="mb-2">Linear workflow progression:</p>
                                 <div className="flex items-center justify-center gap-2">
                                     {selectedWorkflow.stages.map((stage, index) => (

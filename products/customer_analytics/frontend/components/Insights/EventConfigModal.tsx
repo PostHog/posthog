@@ -40,7 +40,7 @@ export function EventConfigModal(): JSX.Element {
                         Configure the events or actions that define different user behaviors for your customer analytics
                         dashboard
                     </p>
-                    <div className="flex items-center gap-1 text-muted-foreground text-xs">
+                    <div className="flex items-center gap-1 text-muted-foreground-foreground text-xs">
                         <IconInfo className="text-base" />
                         <span>
                             To track multiple events as activity, you can{' '}
@@ -89,7 +89,7 @@ function EventSelector({ filters, setFilters, title, caption }: EventSelectorPro
         <div className={`p-2 ${highlight}`}>
             <div className="ml-1">
                 <LemonLabel>{title}</LemonLabel>
-                <p className="text-xs text-muted-foreground">{caption}</p>
+                <p className="text-xs text-muted-foreground-foreground">{caption}</p>
             </div>
             {filters ? (
                 <ActionFilter

@@ -98,10 +98,10 @@ export const SidePanelActivity = (): JSX.Element => {
             <>
                 <SidePanelPaneHeader title="Team activity" />
                 <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
-                    <IconNotification className="text-5xl text-muted" />
+                    <IconNotification className="text-5xl text-muted-foreground" />
                     <div>
                         <div className="font-semibold mb-1">Access denied</div>
-                        <div className="text-xs text-muted-foreground">
+                        <div className="text-xs text-muted-foreground-foreground">
                             You don't have sufficient permissions to view activity logs. Please contact your project
                             administrator.
                         </div>
@@ -309,7 +309,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                     <Link
                                                         to={urls.advancedActivityLogs()}
                                                         onClick={() => closeSidePanel()}
-                                                        className="text-muted-foreground text-xs"
+                                                        className="text-muted-foreground-foreground text-xs"
                                                     >
                                                         or browse all activity logs
                                                     </Link>
@@ -332,7 +332,7 @@ export const SidePanelActivity = (): JSX.Element => {
                                                         Clear user filter
                                                     </LemonButton>
                                                 ) : null}
-                                                <div className="flex flex-col items-center justify-center text-xs text-muted-foreground">
+                                                <div className="flex flex-col items-center justify-center text-xs text-muted-foreground-foreground">
                                                     <LemonButton
                                                         size="small"
                                                         type="secondary"
@@ -348,15 +348,15 @@ export const SidePanelActivity = (): JSX.Element => {
                                     </>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center gap-3 p-6 text-center h-full">
-                                        <IconList className="text-5xl text-muted" />
+                                        <IconList className="text-5xl text-muted-foreground" />
                                         <div>
                                             <div className="font-semibold mb-1">Activity is context-aware</div>
-                                            <div className="text-xs text-muted-foreground">
+                                            <div className="text-xs text-muted-foreground-foreground">
                                                 Navigate to a page like dashboards or a specific dashboard to see
                                                 activity in this panel
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                        <div className="flex items-center gap-2 text-xs text-muted-foreground-foreground">
                                             <div className="border-t flex-1" />
                                             <span>or</span>
                                             <div className="border-t flex-1" />

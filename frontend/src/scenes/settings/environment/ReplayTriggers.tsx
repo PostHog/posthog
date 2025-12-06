@@ -158,7 +158,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-muted-foreground cursor-help" />
+                                <IconInfo className="text-muted-foreground-foreground cursor-help" />
                             </Tooltip>
                         </LemonLabel>
                         <AccessControlAction
@@ -433,7 +433,7 @@ function UrlConfigSection({
                         className="mb-2"
                     />
                     {checkUrl && (
-                        <div className="text-xs text-muted">
+                        <div className="text-xs text-muted-foreground">
                             {Object.values(checkUrlResults).some(Boolean) ? (
                                 <span className="text-success">✓ This URL matches at least one pattern</span>
                             ) : (
@@ -944,11 +944,11 @@ export function RecordingTriggersSummary({ selectedPlatform }: { selectedPlatfor
                             {trigger.enabled ? (
                                 <IconCheck className="text-success" />
                             ) : (
-                                <IconCircleDashed className="text-muted" />
+                                <IconCircleDashed className="text-muted-foreground" />
                             )}
-                            <span className={trigger.enabled ? '' : 'text-muted'}>
+                            <span className={trigger.enabled ? '' : 'text-muted-foreground'}>
                                 {trigger.label}
-                                {trigger.detail && <span className="text-muted"> ({trigger.detail})</span>}
+                                {trigger.detail && <span className="text-muted-foreground"> ({trigger.detail})</span>}
                             </span>
                         </div>
                     ))}

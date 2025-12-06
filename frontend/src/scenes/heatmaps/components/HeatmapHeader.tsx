@@ -27,7 +27,7 @@ export function HeatmapHeader(): JSX.Element {
                                     fullWidth={true}
                                 />
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
+                            <div className="text-xs text-muted-foreground-foreground mt-1">
                                 Add * for wildcards to aggregate data from multiple pages
                             </div>
                         </div>

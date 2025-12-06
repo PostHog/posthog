@@ -16,7 +16,7 @@ export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecen
 
     if (eventCountLoading) {
         return (
-            <div className="text-xs text-muted">
+            <div className="text-xs text-muted-foreground">
                 <Spinner className="mr-1" />
                 Loading...
             </div>
@@ -27,7 +27,7 @@ export const MetricRecentActivity = ({ metric, filterTestAccounts }: MetricRecen
 
     return (
         <div className="flex flex-col gap-1">
-            <span className="text-muted">events in the past 14 days</span>
+            <span className="text-muted-foreground">events in the past 14 days</span>
             <span className="text-2xl font-semibold text-right">{count.toLocaleString()}</span>
         </div>
     )

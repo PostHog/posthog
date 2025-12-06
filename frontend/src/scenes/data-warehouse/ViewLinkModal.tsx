@@ -59,7 +59,7 @@ function TablePreview({
                               <div className="font-medium text-xs truncate" title={column.name}>
                                   {column.name}
                               </div>
-                              <div className="text-muted-foreground text-xxs">{column.type}</div>
+                              <div className="text-muted-foreground-foreground text-xxs">{column.type}</div>
                           </div>
                       ),
                       dataIndex: column.name,
@@ -87,14 +87,14 @@ function TablePreview({
                         rowKey={(_, index) => index}
                         emptyState={
                             loading ? null : (
-                                <div className="text-muted-foreground text-sm text-center p-4">
+                                <div className="text-muted-foreground-foreground text-sm text-center p-4">
                                     {previewData.length === 0 ? 'No data available' : 'Loading...'}
                                 </div>
                             )
                         }
                     />
                 ) : (
-                    <div className="h-full flex items-center justify-center text-muted-foreground text-sm">
+                    <div className="h-full flex items-center justify-center text-muted-foreground-foreground text-sm">
                         {emptyMessage}
                     </div>
                 )}

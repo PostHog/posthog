@@ -246,7 +246,9 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                                             <div className="py-1 flex items-center gap-1 flex-1">
                                                 <div className="flex-1">
                                                     <div>{template.name}</div>
-                                                    <div className="text-xs text-muted">{template.description}</div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {template.description}
+                                                    </div>
                                                 </div>
                                                 {template.status && <HogFunctionStatusTag status={template.status} />}
                                             </div>

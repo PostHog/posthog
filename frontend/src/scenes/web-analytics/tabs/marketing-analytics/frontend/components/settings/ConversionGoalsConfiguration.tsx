@@ -205,7 +205,7 @@ export function ConversionGoalsConfiguration({
                             title: 'Schema mapping',
                             render: (_, goal: ConversionGoalFilter) =>
                                 goal.schema_map ? (
-                                    <div className="text-xs text-muted">
+                                    <div className="text-xs text-muted-foreground">
                                         <div>Campaign: {goal.schema_map.utm_campaign_name}</div>
                                         <div>Source: {goal.schema_map.utm_source_name}</div>
                                         {goal.kind === 'DataWarehouseNode' && goal.schema_map.timestamp_field && (

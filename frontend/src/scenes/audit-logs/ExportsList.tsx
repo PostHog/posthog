@@ -40,7 +40,7 @@ export function ExportsList(): JSX.Element {
             key: 'filters',
             render: (_: any, exportAsset: ExportedAsset) => (
                 <Tooltip title={getFilterTooltip(exportAsset)}>
-                    <div className="text-muted-foreground text-xs cursor-help truncate max-w-48">
+                    <div className="text-muted-foreground-foreground text-xs cursor-help truncate max-w-48">
                         {getFilterSummary(exportAsset)}
                     </div>
                 </Tooltip>
@@ -89,7 +89,7 @@ export function ExportsList(): JSX.Element {
                 rowKey="id"
                 footer={
                     <div className="flex items-center justify-end mt-2 mr-2">
-                        <p className="text-muted-foreground text-xs">Refreshed every 5 seconds</p>
+                        <p className="text-muted-foreground-foreground text-xs">Refreshed every 5 seconds</p>
                     </div>
                 }
             />

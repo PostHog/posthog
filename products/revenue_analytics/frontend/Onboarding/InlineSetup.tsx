@@ -113,7 +113,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             </div>
                             <div>
                                 <h3 className="text-lg font-semibold mb-1">Enable Revenue Analytics</h3>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm text-muted-foreground-foreground">
                                     First, enable revenue analytics to create optimized database views for your revenue
                                     data
                                 </p>
@@ -128,7 +128,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             displayConfigLink={false}
                         />
 
-                        <div className="text-sm text-muted-foreground p-3 bg-card rounded">
+                        <div className="text-sm text-muted-foreground-foreground p-3 bg-card rounded">
                             <strong>Note:</strong> Once enabled, you'll be able to configure your revenue sources and
                             events in the next step.
                         </div>
@@ -148,7 +148,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                     )}
                                     <div>
                                         <h3 className="text-lg font-semibold mb-1">Configure Revenue Sources</h3>
-                                        <p className="text-sm text-muted-foreground">
+                                        <p className="text-sm text-muted-foreground-foreground">
                                             Set up your revenue tracking to get started
                                         </p>
                                     </div>
@@ -163,7 +163,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         {hasEvents ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
-                                            <IconPieChart className="w-6 h-6 text-muted" />
+                                            <IconPieChart className="w-6 h-6 text-muted-foreground" />
                                         )}
                                     </div>
                                     <div className="flex-1">
@@ -172,7 +172,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                                 ? `${events.length} Event${events.length !== 1 ? 's' : ''} Configured`
                                                 : 'No Events Configured'}
                                         </span>
-                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                        <p className="text-xs text-muted-foreground-foreground mt-0.5">
                                             {hasEvents
                                                 ? 'Revenue events are set up'
                                                 : 'Configure events to track revenue'}
@@ -186,14 +186,14 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                         {hasSources ? (
                                             <IconCheckCircle className="w-6 h-6" />
                                         ) : (
-                                            <IconDatabase className="w-6 h-6 text-muted" />
+                                            <IconDatabase className="w-6 h-6 text-muted-foreground" />
                                         )}
                                     </div>
                                     <div className="flex-1">
                                         <span className="font-medium text-sm">
                                             {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
                                         </span>
-                                        <p className="text-xs text-muted-foreground mt-0.5">
+                                        <p className="text-xs text-muted-foreground-foreground mt-0.5">
                                             {hasSources ? (
                                                 'Revenue data source is set up'
                                             ) : hasConnectedButDisabledStripeSources ? (
@@ -284,7 +284,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                             </div>
                             <div>
                                 <h4 className="text-lg font-semibold">Connect Revenue Source</h4>
-                                <p className="text-sm text-muted-foreground">
+                                <p className="text-sm text-muted-foreground-foreground">
                                     Choose a revenue platform to import data from
                                 </p>
                             </div>
@@ -325,7 +325,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
                                             )}
                                         </div>
                                     </div>
-                                    <p className="text-xs text-muted-foreground">{source.description}</p>
+                                    <p className="text-xs text-muted-foreground-foreground">{source.description}</p>
                                 </div>
                             ))}
                         </div>
@@ -352,7 +352,7 @@ export function InlineSetup({ completeOnboarding, initialSetupView }: InlineSetu
 
             {/* Help Footer */}
             <div className="text-center">
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-muted-foreground-foreground">
                     Need help? Check our{' '}
                     <Link to="https://posthog.com/docs/revenue-analytics" target="_blank">
                         documentation

@@ -94,7 +94,7 @@ export function ProjectAccessSelector({ inviteIndex }: { inviteIndex: number }):
                         </span>
                     }
                 >
-                    <IconInfo className="text-muted-foreground" />
+                    <IconInfo className="text-muted-foreground-foreground" />
                 </Tooltip>
                 {availableProjectsToShow.length > 0 && (
                     <LemonSelect

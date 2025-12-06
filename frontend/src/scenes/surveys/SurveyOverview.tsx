@@ -52,11 +52,11 @@ function SurveyOption({ label, children }: { label: string; children: React.Reac
 }
 
 const QuestionIconMap = {
-    [SurveyQuestionType.Open]: <IconComment className="text-muted" />,
-    [SurveyQuestionType.Link]: <IconLink className="text-muted" />,
-    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted" />,
-    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted" />,
-    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted" />,
+    [SurveyQuestionType.Open]: <IconComment className="text-muted-foreground" />,
+    [SurveyQuestionType.Link]: <IconLink className="text-muted-foreground" />,
+    [SurveyQuestionType.Rating]: <IconAreaChart className="text-muted-foreground" />,
+    [SurveyQuestionType.SingleChoice]: <IconListView className="text-muted-foreground" />,
+    [SurveyQuestionType.MultipleChoice]: <IconGridView className="text-muted-foreground" />,
 }
 
 export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) => void }): JSX.Element {
@@ -105,7 +105,7 @@ export function SurveyOverview({ onTabChange }: { onTabChange?: (tab: string) =>
                                     <span className="flex-1 truncate">
                                         {idx + 1}. {q.question}
                                     </span>
-                                    <span className="flex items-center gap-1 text-xs text-muted">
+                                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
                                         {QuestionIconMap[q.type]}
                                         {SurveyQuestionLabel[q.type]}
                                     </span>

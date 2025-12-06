@@ -161,7 +161,7 @@ export function VerifyEmail(): JSX.Element {
 
                                 <SupportButtons />
 
-                                <p className="text-xs text-muted-foreground mt-6">
+                                <p className="text-xs text-muted-foreground-foreground mt-6">
                                     If you've already verified your email, then{' '}
                                     <Link to={urls.login()}>log in here</Link>.
                                 </p>

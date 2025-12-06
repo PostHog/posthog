@@ -62,7 +62,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                         <div>
                             <h2 className="text-lg font-semibold mb-1">
                                 {event.target_event.description}
-                                <span className="text-muted-foreground font-normal ml-2">
+                                <span className="text-muted-foreground-foreground font-normal ml-2">
                                     @ {colonDelimitedDuration(event.target_event.milliseconds_since_start / 1000)}
                                 </span>
                             </h2>
@@ -91,13 +91,13 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                         <div className="space-y-4">
                             <div className="space-y-4">
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         What user was doing
                                     </h4>
                                     <p className="text-sm mb-0">{event.segment_name}</p>
                                 </div>
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         What's the outcome
                                     </h4>
                                     <div className="space-y-2">
@@ -113,7 +113,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                         <div className="space-y-4">
                             <div className="space-y-4">
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         What confirmed the pattern
                                     </h4>
                                     <p className="text-sm mb-0">
@@ -121,7 +121,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                                         {event.target_event.event && (
                                             <>
                                                 {' ('}
-                                                <code className="text-xs text-muted-foreground bg-fill-secondary px-1 py-0.5 rounded">
+                                                <code className="text-xs text-muted-foreground-foreground bg-fill-secondary px-1 py-0.5 rounded">
                                                     {event.target_event.event}
                                                     {event.target_event.event_type &&
                                                         ` (${event.target_event.event_type})`}
@@ -132,7 +132,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                                     </p>
                                 </div>
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         Where it happened
                                     </h4>
                                     <p
@@ -149,7 +149,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                         <div className="space-y-4">
                             <div className="space-y-4">
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         What happened before
                                     </h4>
                                     {event.previous_events_in_segment.length > 0 ? (
@@ -163,7 +163,7 @@ export function SessionGroupSummaryDetailsModal({ isOpen, onClose, event }: Sess
                                     )}
                                 </div>
                                 <div>
-                                    <h4 className="text-sm font-medium text-muted-foreground mb-1">
+                                    <h4 className="text-sm font-medium text-muted-foreground-foreground mb-1">
                                         What happened after
                                     </h4>
                                     {event.next_events_in_segment.length > 0 ? (

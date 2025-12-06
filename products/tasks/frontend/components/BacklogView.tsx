@@ -20,7 +20,7 @@ export function BacklogView(): JSX.Element {
                     <h2 className="text-xl font-semibold">All Tasks</h2>
                 </div>
                 <div className="flex items-center gap-3">
-                    <span className="text-sm text-muted">{totalTasks} tasks</span>
+                    <span className="text-sm text-muted-foreground">{totalTasks} tasks</span>
                     <LemonButton type="primary" onClick={openCreateModal}>
                         Create Task
                     </LemonButton>
@@ -30,7 +30,7 @@ export function BacklogView(): JSX.Element {
             {/* Unassigned Tasks Section */}
             {unassignedTasks.length > 0 && (
                 <div className="space-y-3">
-                    <h3 className="font-semibold text-muted">Unassigned Tasks ({unassignedTasks.length})</h3>
+                    <h3 className="font-semibold text-muted-foreground">Unassigned Tasks ({unassignedTasks.length})</h3>
                     <div className="space-y-2">
                         {unassignedTasks.map((task) => (
                             <TaskCard
@@ -48,7 +48,7 @@ export function BacklogView(): JSX.Element {
             {/* Assigned Tasks Section */}
             {assignedTasks.length > 0 && (
                 <div className="space-y-3">
-                    <h3 className="font-semibold text-muted">Assigned Tasks ({assignedTasks.length})</h3>
+                    <h3 className="font-semibold text-muted-foreground">Assigned Tasks ({assignedTasks.length})</h3>
                     <div className="space-y-2">
                         {assignedTasks.map((task) => (
                             <TaskCard
@@ -64,7 +64,7 @@ export function BacklogView(): JSX.Element {
             )}
 
             {totalTasks === 0 && (
-                <div className="text-center py-8 text-muted">
+                <div className="text-center py-8 text-muted-foreground">
                     <span>No tasks created yet. Create a task to get started.</span>
                     <TaskSummariesMaxTool />
                 </div>

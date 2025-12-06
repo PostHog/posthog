@@ -192,7 +192,7 @@ function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetai
                       : String(value),
             value:
                 value === null ? (
-                    <span className="text-muted">null</span>
+                    <span className="text-muted-foreground">null</span>
                 ) : isJson ? (
                     <div className="flex gap-2 w-full">
                         <div className="w-full overflow-hidden">

@@ -97,7 +97,7 @@ function SessionExampleCard({
             <div className="mb-2">
                 <SessionGroupSummaryDetailsMetadata event={event} />
             </div>
-            <p className="text-xs font-normal text-muted-foreground mb-0">
+            <p className="text-xs font-normal text-muted-foreground-foreground mb-0">
                 <b>Outcome:</b> {segment_outcome}
             </p>
         </div>
@@ -125,7 +125,7 @@ function FilterBar({
 }): JSX.Element {
     return (
         <div className="flex flex-wrap gap-6 mb-4 items-center">
-            <span className="text-sm text-muted-foreground">
+            <span className="text-sm text-muted-foreground-foreground">
                 Showing {filteredCount} of {totalCount} issues
             </span>
             <div className="flex items-center gap-2">
@@ -146,7 +146,7 @@ function FilterBar({
                             onChange={() => onIssueTypeFilterChange(key)}
                             label={
                                 <>
-                                    {label} <span className="text-muted-foreground">({count})</span>
+                                    {label} <span className="text-muted-foreground-foreground">({count})</span>
                                 </>
                             }
                             size="small"
@@ -190,7 +190,7 @@ function PatternCard({
         <div className="py-3 px-1">
             <div>
                 <h3 className="text-base font-medium mb-0">{pattern.pattern_name}</h3>
-                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground mb-2">
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground-foreground mb-2">
                     <span>
                         {pattern.stats.sessions_affected} session{pattern.stats.sessions_affected > 1 ? 's' : ''}
                     </span>
@@ -209,7 +209,7 @@ function PatternCard({
                     </div> */}
                 </div>
             </div>
-            <p className="text-sm text-muted-foreground mb-0">{pattern.pattern_description}</p>
+            <p className="text-sm text-muted-foreground-foreground mb-0">{pattern.pattern_description}</p>
         </div>
     )
 
@@ -464,7 +464,7 @@ export function SessionGroupSummary(): JSX.Element {
                     iconType: 'notebook',
                 }}
             />
-            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted">
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
                 <div className="flex items-center gap-3">
                     <span>{totalSessions} sessions analyzed</span>
                     <span className="hidden sm:inline">·</span>
@@ -501,7 +501,7 @@ export function SessionGroupSummary(): JSX.Element {
                 />
                 <div className="flex flex-col gap-2">
                     {sortedPatterns.length === 0 && summary.patterns && summary.patterns.length > 0 ? (
-                        <p className="text-muted">No patterns match your search</p>
+                        <p className="text-muted-foreground">No patterns match your search</p>
                     ) : (
                         sortedPatterns.map((pattern) => (
                             <PatternCard

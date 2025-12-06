@@ -30,13 +30,13 @@ const TriggerPopover = ({
                 <div className="pb-2 border-b">
                     <h3 className="text-sm font-semibold">Configure variables</h3>
                 </div>
-                <div className="text-muted-foreground text-sm">No variables to configure.</div>
+                <div className="text-muted-foreground-foreground text-sm">No variables to configure.</div>
             </>
         ) : (
             <>
                 <div className="pb-2 border-b">
                     <h3 className="text-sm font-semibold">Configure variables</h3>
-                    <p className="text-xs text-muted-foreground mt-0.5">
+                    <p className="text-xs text-muted-foreground-foreground mt-0.5">
                         Set variable values or leave empty to use defaults
                     </p>
                 </div>

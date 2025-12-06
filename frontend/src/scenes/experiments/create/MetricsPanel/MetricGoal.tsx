@@ -14,7 +14,7 @@ export const MetricGoal = ({ metric }: MetricGoalProps): JSX.Element => {
 
     return (
         <div className="flex items-center gap-1 text-xs">
-            <span className="text-muted">Goal:</span>
+            <span className="text-muted-foreground">Goal:</span>
             <Icon className="text-success flex-shrink-0" fontSize="16" />
             <span className="font-semibold">{isIncrease ? 'Increase' : 'Decrease'}</span>
         </div>

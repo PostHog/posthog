@@ -55,7 +55,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
     } else {
         modalContent = (
             <div className="space-y-2 max-w-[60rem]">
-                <p className="text-sm text-muted">
+                <p className="text-sm text-muted-foreground">
                     These DNS records are required to verify ownership of your domain. They also ensure your emails are
                     delivered to inboxes and not marked as spam.
                 </p>
@@ -116,7 +116,7 @@ export const EmailSetupModal = (props: EmailSetupModalLogicProps): JSX.Element =
                                         ) : (
                                             <Tooltip title="We are unable to verify this record at the moment">
                                                 <div className="flex gap-1 items-center">
-                                                    <IconQuestion className="size-6 text-muted" /> Unknown
+                                                    <IconQuestion className="size-6 text-muted-foreground" /> Unknown
                                                 </div>
                                             </Tooltip>
                                         )}

@@ -242,7 +242,7 @@ export function LLMAnalyticsSessionsScene(): JSX.Element {
                                                                 View full trace →
                                                             </Link>
                                                         </div>
-                                                        <div className="text-xs text-muted">
+                                                        <div className="text-xs text-muted-foreground">
                                                             <TZLabel time={trace.createdAt} />
                                                         </div>
                                                     </div>

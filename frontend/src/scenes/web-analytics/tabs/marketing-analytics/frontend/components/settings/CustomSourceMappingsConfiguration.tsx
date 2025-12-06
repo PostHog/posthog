@@ -91,14 +91,14 @@ export function CustomSourceMappingsConfiguration(): JSX.Element {
         <div className="space-y-4">
             <div>
                 <h3 className="text-lg font-semibold mb-1">Custom UTM source mappings</h3>
-                <p className="text-muted-foreground mb-4">
+                <p className="text-muted-foreground-foreground mb-4">
                     Add custom <code className="text-xs">utm_source</code> values that should be attributed to your
                     integrated ad platforms. For example, if you tag links with{' '}
                     <code className="text-xs">utm_source=partner_a</code> but want conversions attributed to your Google
                     Ads campaigns, add "partner_a" as a custom source for GoogleAds. This supplements the default source
                     mappings (e.g., GoogleAds automatically includes "google", "youtube", "adwords", etc.).
                 </p>
-                <p className="text-muted-foreground text-xs mb-4">
+                <p className="text-muted-foreground-foreground text-xs mb-4">
                     <strong>Important:</strong> Each custom UTM source value must be unique across all integrations. You
                     cannot map the same source value (e.g., "partner_a") to multiple platforms.
                 </p>
@@ -109,7 +109,7 @@ export function CustomSourceMappingsConfiguration(): JSX.Element {
                     <h4 className="font-semibold">Current custom sources ({totalMappings})</h4>
                     {Object.entries(customMappings).map(([integration, utmSources]) => (
                         <div key={integration} className="space-y-2">
-                            <div className="font-medium text-sm text-muted">{integration}</div>
+                            <div className="font-medium text-sm text-muted-foreground">{integration}</div>
                             <div className="flex flex-wrap gap-2">
                                 {(utmSources as string[]).map((utmSource) => (
                                     <div key={utmSource} className="flex items-center gap-2 bg-card rounded px-3 py-2">
@@ -147,7 +147,7 @@ export function CustomSourceMappingsConfiguration(): JSX.Element {
                             ]}
                             fullWidth
                         />
-                        <div className="text-xs text-muted-foreground mt-1">
+                        <div className="text-xs text-muted-foreground-foreground mt-1">
                             The ad platform integration to attribute these UTM sources to
                         </div>
                     </div>
@@ -160,7 +160,7 @@ export function CustomSourceMappingsConfiguration(): JSX.Element {
                             placeholder="e.g., partner_a, influencer_campaign, custom_source"
                             fullWidth
                         />
-                        <div className="text-xs text-muted-foreground mt-1">
+                        <div className="text-xs text-muted-foreground-foreground mt-1">
                             Comma-separated list of <code className="text-xs">utm_source</code> values that should map
                             to this integration
                         </div>

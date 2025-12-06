@@ -87,7 +87,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                         onMouseEnter={() => setShowPopover(true)}
                         onMouseLeave={() => setShowPopover(false)}
                     >
-                        <IconBolt className={isUsingNewEngine ? 'text-warning-foreground' : 'text-muted'} />
+                        <IconBolt className={isUsingNewEngine ? 'text-warning-foreground' : 'text-muted-foreground'} />
                         <span className="text-sm font-medium">
                             {isUsingNewEngine ? 'New Query Engine' : 'Regular Query Engine'}
                         </span>

@@ -56,7 +56,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
             <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                     <div className="font-medium text-sm mb-1">{tierName}</div>
-                    <div className="text-xs text-muted">
+                    <div className="text-xs text-muted-foreground">
                         {unitPrice === 0 ? (
                             'Free tier'
                         ) : (
@@ -68,7 +68,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                 </div>
                 <div className="text-right">
                     <div className="text-xl font-semibold">${currentCost.toFixed(2)}</div>
-                    <div className="text-xs text-muted">{compactNumber(tier.current_usage)} rows</div>
+                    <div className="text-xs text-muted-foreground">{compactNumber(tier.current_usage)} rows</div>
                 </div>
             </div>
 
@@ -128,7 +128,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                                         'repeating-linear-gradient(-45deg, var(--data-color-1), var(--data-color-1) 0.125rem, var(--data-color-1-hover) 0.125rem, var(--data-color-1-hover) 0.25rem)',
                                 }}
                             />
-                            <span className="text-muted">
+                            <span className="text-muted-foreground">
                                 Projected: {compactNumber(tier.projected_usage || 0)} rows · ${projectedCost.toFixed(2)}
                             </span>
                         </div>
@@ -141,7 +141,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
 
 export function DataWarehouseTierBreakdown({ product }: { product: BillingProductV2Type }): JSX.Element {
     if (!product.tiers || product.tiers.length === 0) {
-        return <div className="text-muted">No tier data available</div>
+        return <div className="text-muted-foreground">No tier data available</div>
     }
 
     return (

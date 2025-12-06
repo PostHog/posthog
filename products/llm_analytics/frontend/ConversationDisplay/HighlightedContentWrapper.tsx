@@ -157,7 +157,7 @@ export function HighlightedContentWrapper({
                 } else {
                     // Default expand logic for XML and simple collapsed sections
                     container.querySelectorAll('.cursor-pointer').forEach((collapsible) => {
-                        const dotsElement = collapsible.querySelector('.text-muted')
+                        const dotsElement = collapsible.querySelector('.text-muted-foreground')
                         if (dotsElement && dotsElement.textContent === '...') {
                             // Click to expand
                             ;(dotsElement as HTMLElement).click()

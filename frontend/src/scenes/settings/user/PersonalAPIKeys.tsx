@@ -141,7 +141,7 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                             <div
                                                                 className={clsx(
                                                                     'flex items-center gap-1',
-                                                                    disabledDueToProjectScope && 'text-muted'
+                                                                    disabledDueToProjectScope && 'text-muted-foreground'
                                                                 )}
                                                             >
                                                                 <b>{capitalizeFirstLetter(key.replace(/_/g, ' '))}</b>

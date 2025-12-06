@@ -69,7 +69,7 @@ export function SessionEventsList(): JSX.Element {
     if (isInitialLoading) {
         return (
             <LemonCard className="p-6">
-                <div className="text-muted-foreground text-center">Loading events...</div>
+                <div className="text-muted-foreground-foreground text-center">Loading events...</div>
             </LemonCard>
         )
     }
@@ -77,7 +77,7 @@ export function SessionEventsList(): JSX.Element {
     if (!sessionEvents || sessionEvents?.length === 0) {
         return (
             <LemonCard className="p-6">
-                <div className="text-muted-foreground text-center">No events found</div>
+                <div className="text-muted-foreground-foreground text-center">No events found</div>
             </LemonCard>
         )
     }
@@ -132,7 +132,7 @@ export function SessionEventsList(): JSX.Element {
                         />
                     ))}
                     {hasMoreEvents && (
-                        <div className="text-center py-4 text-muted-foreground">
+                        <div className="text-center py-4 text-muted-foreground-foreground">
                             {isLoadingMore ? 'Loading more events...' : 'Scroll for more'}
                         </div>
                     )}

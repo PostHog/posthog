@@ -12,7 +12,7 @@ export const MetricConversionWindow = ({ metric }: MetricConversionWindowProps):
         const unit = metric.conversion_window_unit || FunnelConversionWindowTimeUnit.Day
         return (
             <div className="text-xs">
-                <span className="text-muted">Conversion window:</span>{' '}
+                <span className="text-muted-foreground">Conversion window:</span>{' '}
                 <span className="font-semibold">
                     {metric.conversion_window} {formatUnitByQuantity(metric.conversion_window, unit)}
                 </span>
@@ -21,7 +21,7 @@ export const MetricConversionWindow = ({ metric }: MetricConversionWindowProps):
     }
     return (
         <div className="text-xs">
-            <span className="text-muted">Conversion window:</span>{' '}
+            <span className="text-muted-foreground">Conversion window:</span>{' '}
             <span className="font-semibold">Experiment duration</span>
         </div>
     )

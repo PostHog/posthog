@@ -59,7 +59,11 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
     })()
 
     if (!isSummarizable) {
-        return <div className="p-4 text-muted">Summary is only available for traces, generations, and spans.</div>
+        return (
+            <div className="p-4 text-muted-foreground">
+                Summary is only available for traces, generations, and spans.
+            </div>
+        )
     }
 
     // Extract error message from loader failure if any
@@ -76,7 +80,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
         <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                    <div className="text-muted-foreground text-center">
+                    <div className="text-muted-foreground-foreground text-center">
                         <p>Generate an AI-powered summary of this {eventTypeName}.</p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -130,7 +134,7 @@ export function SummaryViewDisplay({ trace, event, tree }: SummaryViewDisplayPro
             {summaryDataLoading && (
                 <div className="flex flex-col items-center gap-4 py-8">
                     <Spinner />
-                    <div className="text-muted">Generating summary...</div>
+                    <div className="text-muted-foreground">Generating summary...</div>
                 </div>
             )}
 

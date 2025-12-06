@@ -32,7 +32,7 @@ export function NewRunningTimeCalculatorPopover({
     if (primaryMetricsResultsLoading) {
         return (
             <div className="p-2">
-                <div className="text-sm text-muted">Loading...</div>
+                <div className="text-sm text-muted-foreground">Loading...</div>
             </div>
         )
     }
@@ -41,7 +41,7 @@ export function NewRunningTimeCalculatorPopover({
     if (!firstMetric?.metric || !firstMetric?.result?.baseline || !experiment.start_date) {
         return (
             <div className="p-2">
-                <div className="text-sm text-muted">Waiting for results...</div>
+                <div className="text-sm text-muted-foreground">Waiting for results...</div>
             </div>
         )
     }
@@ -57,7 +57,7 @@ export function NewRunningTimeCalculatorPopover({
     if (daysElapsed < 1 || currentExposures < 100) {
         return (
             <div className="p-2">
-                <div className="text-sm text-muted">Gathering data...</div>
+                <div className="text-sm text-muted-foreground">Gathering data...</div>
             </div>
         )
     }
@@ -73,7 +73,7 @@ export function NewRunningTimeCalculatorPopover({
     if (estimatedRemainingDays === null) {
         return (
             <div className="p-2">
-                <div className="text-sm text-muted">Waiting for results...</div>
+                <div className="text-sm text-muted-foreground">Waiting for results...</div>
             </div>
         )
     }
@@ -96,7 +96,7 @@ export function NewRunningTimeCalculatorPopover({
                     tooltip="Configure settings"
                 />
             </div>
-            <div className="text-xs text-muted-foreground space-y-1">
+            <div className="text-xs text-muted-foreground-foreground space-y-1">
                 <div>
                     Progress: {exposures?.toLocaleString()} / {recommendedSampleSize?.toLocaleString()} exposures
                 </div>

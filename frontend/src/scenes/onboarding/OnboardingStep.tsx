@@ -74,7 +74,7 @@ export const OnboardingStep = ({
                                         key={stepName}
                                         onClick={() => setStepKey(stepName)}
                                     >
-                                        <span className={`text-sm ${!highlightStep && 'text-muted'}`}>
+                                        <span className={`text-sm ${!highlightStep && 'text-muted-foreground'}`}>
                                             {stepKeyToTitle(stepName)}
                                         </span>
                                     </Link>

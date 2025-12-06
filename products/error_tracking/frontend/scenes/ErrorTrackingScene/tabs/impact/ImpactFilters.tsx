@@ -46,7 +46,9 @@ const EventSelector = ({ multiple }: { multiple: boolean }): JSX.Element => {
             renderValue={(value) => (
                 <div className="flex gap-x-1">
                     <PropertyKeyInfo value={value} disablePopover type={TaxonomicFilterGroupType.Events} />
-                    {events!.length > 1 ? <span className="text-muted">+ {events!.length - 1} more</span> : null}
+                    {events!.length > 1 ? (
+                        <span className="text-muted-foreground">+ {events!.length - 1} more</span>
+                    ) : null}
                 </div>
             )}
         />

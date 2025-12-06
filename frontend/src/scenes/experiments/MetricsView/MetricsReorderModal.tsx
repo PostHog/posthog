@@ -166,7 +166,7 @@ export function MetricsReorderModal({ isSecondary = false }: { isSecondary?: boo
                 <DndContext modifiers={[restrictToVerticalAxis, restrictToParentElement]} onDragEnd={handleDragEnd}>
                     <SortableContext items={orderedUuids} strategy={verticalListSortingStrategy}>
                         {displayMetrics.length === 0 && (
-                            <div className="p-4 text-center text-muted">
+                            <div className="p-4 text-center text-muted-foreground">
                                 <p>No metrics available for reordering</p>
                             </div>
                         )}

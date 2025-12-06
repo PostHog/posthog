@@ -113,7 +113,7 @@ function NotebooksChoiceList(props: {
                         >
                             <div className="flex flex-col text-left w-full">
                                 <span className="truncate">{renderedTitle || `Untitled (${notebook.short_id})`}</span>
-                                <span className="text-muted-foreground text-xs">
+                                <span className="text-muted-foreground-foreground text-xs">
                                     {notebook.created_by?.first_name || notebook.created_by?.email || 'Unknown'}
                                     {` · ${dayjs(notebook.last_modified_at ?? notebook.created_at).fromNow()}`}
                                     {isSession ? (
@@ -253,7 +253,7 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                         />
                         {(notebooksContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT ||
                             notebooksNotContainingResource.length >= NOTEBOOK_DROPDOWN_LIMIT) && (
-                            <div className="text-xs text-muted-foreground px-2 py-1 border-t">
+                            <div className="text-xs text-muted-foreground-foreground px-2 py-1 border-t">
                                 Showing first {NOTEBOOK_DROPDOWN_LIMIT} results. Use search to narrow down.
                             </div>
                         )}

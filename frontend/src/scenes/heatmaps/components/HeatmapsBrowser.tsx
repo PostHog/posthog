@@ -106,12 +106,12 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                         {hasValidReplayIframeData ? (
                             <>
                                 <LemonLabel>Display URL</LemonLabel>
-                                <div className="text-xs text-muted-foreground mb-1">
+                                <div className="text-xs text-muted-foreground-foreground mb-1">
                                     You're using session recording data as the background for this heatmap.
                                 </div>
                                 <div className="mt-2">
                                     <LemonLabel>Heatmap data URL</LemonLabel>
-                                    <div className="text-xs text-muted-foreground mb-1">
+                                    <div className="text-xs text-muted-foreground-foreground mb-1">
                                         Same as display URL by default - add * for wildcards to aggregate data from
                                         multiple pages
                                     </div>
@@ -127,7 +127,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                             <>
                                 <div className="relative">
                                     <LemonLabel>Display URL</LemonLabel>
-                                    <div className="text-xs text-muted-foreground mb-1">
+                                    <div className="text-xs text-muted-foreground-foreground mb-1">
                                         Enter a working URL from your site for iframe preview
                                     </div>
                                     <div className="flex gap-2">
@@ -195,7 +195,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                 </div>
                                 <div className="mt-2">
                                     <LemonLabel>Heatmap data URL</LemonLabel>
-                                    <div className="text-xs text-muted-foreground mb-1">
+                                    <div className="text-xs text-muted-foreground-foreground mb-1">
                                         Same as display URL by default - add * for wildcards to aggregate data from
                                         multiple pages
                                     </div>

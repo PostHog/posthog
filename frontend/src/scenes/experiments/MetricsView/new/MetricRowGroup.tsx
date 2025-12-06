@@ -271,7 +271,7 @@ export function MetricRowGroup({
 
     const ratioMetricLabel = (variant: ExperimentStatsBaseValidated, metric: ExperimentMetric): JSX.Element => {
         return (
-            <div className="text-xs text-muted">
+            <div className="text-xs text-muted-foreground">
                 {(() => {
                     const { numerator, denominator } = getMetricSubtitleValues(variant, metric)
                     return (
@@ -419,7 +419,9 @@ export function MetricRowGroup({
                             </svg>
                         </div>
                     ) : (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-xs">—</div>
+                        <div className="flex items-center justify-center h-full text-muted-foreground-foreground text-xs">
+                            —
+                        </div>
                     )}
                 </td>
             </tr>
@@ -696,7 +698,7 @@ export function MetricRowGroup({
                                         </svg>
                                     </div>
                                 ) : (
-                                    <div className="flex items-center justify-center h-full text-muted-foreground text-xs">
+                                    <div className="flex items-center justify-center h-full text-muted-foreground-foreground text-xs">
                                         —
                                     </div>
                                 )}

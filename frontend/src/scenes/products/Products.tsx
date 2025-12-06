@@ -103,7 +103,7 @@ export function SelectableProductCard({
                     <div className="flex-1">
                         <h3 className="font-semibold mb-1">{product.name}</h3>
                         {showDescription && description && (
-                            <p className="text-muted-foreground text-sm mb-0">{description}</p>
+                            <p className="text-muted-foreground-foreground text-sm mb-0">{description}</p>
                         )}
                     </div>
                 </div>
@@ -134,7 +134,7 @@ export function Products(): JSX.Element {
                 {isUseCaseOnboardingEnabled && (
                     <div className="w-full max-w-[800px] mb-4">
                         <button
-                            className="text-muted-foreground hover:text-default text-sm flex items-center gap-1 cursor-pointer"
+                            className="text-muted-foreground-foreground hover:text-default text-sm flex items-center gap-1 cursor-pointer"
                             onClick={() => router.actions.push(urls.useCaseSelection())}
                         >
                             ← Go back to change my goal
@@ -145,7 +145,7 @@ export function Products(): JSX.Element {
                 <div className="flex flex-col justify-center flex-grow items-center">
                     <div className="mb-8">
                         <h2 className="text-center text-4xl">Which apps would you like to use?</h2>
-                        <p className="text-center text-muted">
+                        <p className="text-center text-muted-foreground">
                             {isUseCaseOnboardingEnabled
                                 ? `We've pre-selected some products based on your goal. Feel free to change or add more.`
                                 : "Don't worry – you can pick more than one! Please select all that apply."}
@@ -189,7 +189,7 @@ export function Products(): JSX.Element {
                                                     })
                                                 }
                                             }}
-                                            className="text-muted-foreground hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
+                                            className="text-muted-foreground-foreground hover:text-default text-sm mb-2 flex items-center gap-1 cursor-pointer"
                                         >
                                             {showAllProducts ? (
                                                 <>

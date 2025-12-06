@@ -229,7 +229,8 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {humanFriendlyCurrency(combinedMonetaryData.currentTotal)}
                                         </div>
                                         <span className="text-xs text-secondary whitespace-nowrap">
-                                            Month-to-date <IconInfo className="text-muted-foreground text-sm" />
+                                            Month-to-date{' '}
+                                            <IconInfo className="text-muted-foreground-foreground text-sm" />
                                         </span>
                                     </div>
                                 </Tooltip>
@@ -248,7 +249,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                             {humanFriendlyCurrency(combinedMonetaryData.projectedTotal)}
                                         </div>
                                         <span className="text-xs text-secondary whitespace-nowrap">
-                                            Projected <IconInfo className="text-muted-foreground text-sm" />
+                                            Projected <IconInfo className="text-muted-foreground-foreground text-sm" />
                                         </span>
                                     </div>
                                 </Tooltip>
@@ -443,7 +444,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                         billing?.billing_period?.interval || ''
                                                                     )}
                                                                     -to-date{' '}
-                                                                    <IconInfo className="text-muted-foreground text-sm" />
+                                                                    <IconInfo className="text-muted-foreground-foreground text-sm" />
                                                                 </span>
                                                             </div>
                                                         </Tooltip>
@@ -479,7 +480,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
                                                                     </div>
                                                                     <span className="text-xs text-secondary whitespace-nowrap">
                                                                         Projected{' '}
-                                                                        <IconInfo className="text-muted-foreground text-sm" />
+                                                                        <IconInfo className="text-muted-foreground-foreground text-sm" />
                                                                     </span>
                                                                 </div>
                                                             </Tooltip>

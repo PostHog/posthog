@@ -410,7 +410,7 @@ function DatasetMetadata({ dataset }: { dataset: Dataset }): JSX.Element {
                         <HighlightedJSONViewer src={dataset.metadata} />
                     </div>
                 ) : (
-                    <p className="text-muted-foreground m-0">No metadata available.</p>
+                    <p className="text-muted-foreground-foreground m-0">No metadata available.</p>
                 )}
             </div>
         </div>
