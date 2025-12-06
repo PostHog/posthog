@@ -347,22 +347,22 @@ export function OverViewTab({
                 const isMultivariate = variants && variants.length > 0
 
                 return (
-                    <div className="flex flex-col gap-1">
-                        {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
-                            <LemonTag type="highlight">{releaseText}</LemonTag>
-                        ) : (
-                            releaseText
-                        )}
+                    <div className="space-y-1">
+                        <div>
+                            {typeof releaseText === 'string' && releaseText.startsWith('100% of') ? (
+                                <LemonTag type="highlight">{releaseText}</LemonTag>
+                            ) : (
+                                releaseText
+                            )}
+                        </div>
                         {isMultivariate && (
-                            <div className="flex flex-wrap justify-evenly gap-x-2 gap-y-1">
+                            <div className="flex flex-wrap gap-1">
                                 {variants.map((variant) => (
-                                    <Tooltip key={variant.key} title={variant.name || variant.key} placement="top">
-                                        <span>
-                                            <LemonTag type="muted" size="small">
-                                                {variant.key}: {variant.rollout_percentage}%
-                                            </LemonTag>
-                                        </span>
-                                    </Tooltip>
+                                    <span>
+                                        <LemonTag type="muted" size="small">
+                                            {variant.key}: {variant.rollout_percentage}%
+                                        </LemonTag>
+                                    </span>
                                 ))}
                             </div>
                         )}
@@ -628,7 +628,7 @@ export function groupFilters(
             ) : (
                 <div className="flex items-center">
                     <span className="shrink-0 mr-2">{rollout_percentage ?? 100}% of</span>
-                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} />
+                    <PropertyFiltersDisplay filters={properties as AnyPropertyFilter[]} compact />
                 </div>
             )
         } else if (rollout_percentage !== null) {
