@@ -8,6 +8,7 @@ interface ChartGradientsProps {
     upper?: number
     gradientId?: string
     metric?: ExperimentMetric
+    isSignificant?: boolean
 }
 
 /**
@@ -19,9 +20,21 @@ export function ChartGradients({
     upper = 0,
     gradientId = 'chart-gradient',
     metric,
+    isSignificant = false,
 }: ChartGradientsProps): JSX.Element {
     const colors = useChartColors()
     const goalColors = getMetricColors(colors, metric?.goal)
+
+    // Use solid gray for non-significant results
+    if (!isSignificant) {
+        return (
+            <defs>
+                <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="0">
+                    <stop offset="100%" stopColor={colors.BAR_DEFAULT} />
+                </linearGradient>
+            </defs>
+        )
+    }
 
     if (lower < 0 && upper > 0) {
         const zeroOffset = (-lower / (upper - lower)) * 100
