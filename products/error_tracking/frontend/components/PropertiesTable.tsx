@@ -80,23 +80,19 @@ function renderValue(value: unknown): React.ReactNode {
     } else if (typeof value === 'string') {
         if (value === '$$_posthog_redacted_based_on_masking_rules_$$') {
             return (
-                <span className="inline-flex items-center gap-1">
-                    <Tooltip title="This value got redacted by SDK code variables masking configuration">
-                        <IconInfo className="text-muted text-sm" />
-                    </Tooltip>
-                    ***
-                </span>
+                <MaskedValue
+                    value="***"
+                    tooltip="This value got redacted by SDK code variables masking configuration"
+                />
             )
         }
         if (value.includes('$$_posthog_redacted_based_on_masking_rules_$$')) {
             const masked = value.replaceAll('$$_posthog_redacted_based_on_masking_rules_$$', '***')
             return (
-                <span className="inline-flex items-center gap-1">
-                    <Tooltip title="Some values inside got redacted by SDK code variables masking configuration">
-                        <IconInfo className="text-muted text-sm" />
-                    </Tooltip>
-                    {masked}
-                </span>
+                <MaskedValue
+                    value={masked}
+                    tooltip="Some values inside got redacted by SDK code variables masking configuration"
+                />
             )
         }
         if (/^https?:\/\/.+/.test(value)) {
@@ -109,4 +105,15 @@ function renderValue(value: unknown): React.ReactNode {
         return value // no quotes
     }
     return String(value)
+}
+
+export function MaskedValue({ value, tooltip }: { value: string; tooltip: string }): JSX.Element {
+    return (
+        <span className="inline-flex items-center gap-1">
+            <Tooltip title={tooltip}>
+                <IconInfo className="text-muted text-sm" />
+            </Tooltip>
+            {value}
+        </span>
+    )
 }
