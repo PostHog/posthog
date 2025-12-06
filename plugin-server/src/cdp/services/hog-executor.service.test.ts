@@ -881,6 +881,33 @@ describe('Hog Executor', () => {
             expect(result.invocation.queue).toBe('hog')
         })
 
+        it('sets result.error after retries are exhausted', async () => {
+            mockRequest.mockImplementation((req: any, res: any) => {
+                res.writeHead(500, { 'Content-Type': 'text/plain' })
+                res.end('server error')
+            })
+
+            const invocation = await createFetchInvocation({
+                url: `${baseUrl}/test`,
+                method: 'GET',
+            })
+
+            const maxRetries = hub.CDP_FETCH_RETRIES
+            let result = await executor.executeFetch(invocation)
+
+            for (let attempt = 1; attempt < maxRetries; attempt++) {
+                expect(result.error).toBeUndefined()
+                expect(result.invocation.state.attempts).toBe(attempt)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                result = await executor.executeFetch(result.invocation)
+            }
+
+            expect(result.error).toBeInstanceOf(Error)
+            expect(result.error.message).toContain(`HTTP fetch failed on attempt ${maxRetries}`)
+            expect(result.error.message).toContain('with status code 500')
+            expect(result.invocation.queueScheduledAt).toBeUndefined()
+        })
+
         it('handles request errors', async () => {
             const invocation = await createFetchInvocation({
                 url: 'http://non-existent-host-name',

@@ -198,6 +198,7 @@ export class HogFlowExecutorService {
         if (result.error) {
             const lastExecutedActionId = result.invocation.state.currentAction?.id
             const lastExecutedAction = result.invocation.hogFlow.actions.find((a) => a.id === lastExecutedActionId)
+
             if (lastExecutedAction?.on_error === 'abort') {
                 shouldAbortAfterError = true
                 logs.push({
@@ -339,6 +340,10 @@ export class HogFlowExecutorService {
                     hogExecutorOptions: options?.hogExecutorOptions,
                 })
 
+                if (handlerResult.error) {
+                    throw handlerResult.error instanceof Error ? handlerResult.error : new Error(handlerResult.error)
+                }
+
                 if (handlerResult.result) {
                     this.trackActionResult(result, currentAction, handlerResult.result)
                 }
@@ -366,6 +371,7 @@ export class HogFlowExecutorService {
         } catch (err) {
             // The final catch - in this case we are always just logging the final outcome
             result.error = err.message
+
             result.finished = true // Explicitly set to true to prevent infinite loops
 
             this.maybeContinueToNextActionOnError(result)
