@@ -116,14 +116,10 @@ class SessionSummaryVideoValidator:
         # Return the updated summary and the run metadata
         return updated_summary, updated_run_metadata
 
-    def _generate_video_description_prompt(self, event: EnrichedKeyActionSerializer) -> str:
+    def _generate_video_description_prompt(self) -> str:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
-        prompt = load_custom_template(
-            template_dir,
-            "description-prompt.djt",
-            {"EVENT_DESCRIPTION": event.data["description"]},
-        )
+        prompt = load_custom_template(template_dir, "description-prompt.djt")
         return prompt
 
     def _pick_events_to_validate(
@@ -177,7 +173,7 @@ class SessionSummaryVideoValidator:
                             new_value=None,
                         )
                 # Generate prompt
-                prompt = self._generate_video_description_prompt(event=validated_event)
+                prompt = self._generate_video_description_prompt()
                 events_to_validate.append((prompt, validated_event))
         if not events_to_validate:
             # No blocking issues detected in the summary, no need to validate
