@@ -1,7 +1,10 @@
 from typing import Literal, Self
+from uuid import uuid4
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
+
+from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
 
 from posthog.models import Team, User
 
@@ -9,12 +12,11 @@ from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.tool import MaxTool
+from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.read_billing_tool.tool import ReadBillingTool
 from ee.hogai.utils.prompt import format_prompt_string
-from ee.hogai.utils.types.base import AssistantState, NodePath
-
-from .read_billing_tool.tool import ReadBillingTool
+from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantState, NodePath
 
 READ_DATA_BILLING_PROMPT = """
 # Billing information
@@ -70,8 +72,6 @@ INSIGHT_RESULT_TEMPLATE = """
 Description: {{{description}}}
 {{/description}}
 
-Query type: {{{query_type}}}
-
 {{{results}}}
 """.strip()
 
@@ -80,8 +80,6 @@ INSIGHT_SCHEMA_TEMPLATE = """
 {{#description}}
 Description: {{{description}}}
 {{/description}}
-
-Query type: {{{query_type}}}
 
 Query definition:
 ```json
@@ -209,11 +207,66 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             case ReadDataWarehouseSchema():
                 return await self._serialize_database_schema(), None
             case ReadArtifacts():
-                return await self._read_artifacts(), None
+                return await self._read_artifacts()
             case ReadInsight() as schema:
-                return await self._read_insight(schema.insight_id, schema.execute), None
+                return await self._read_insight(schema.insight_id, schema.execute)
 
-    async def _read_artifacts(self) -> str:
+    async def _read_insight(
+        self, artifact_or_insight_id: str, execute: bool
+    ) -> tuple[str, ToolMessagesArtifact | None]:
+        # Fetch the artifact content along with its source
+        result = await self._context_manager.artifacts.aget_insight_with_source(
+            self._state.messages, artifact_or_insight_id
+        )
+
+        if result is None:
+            raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
+
+        content, source = result
+        query_type = content.query.kind
+        insight_name = content.name or f"Insight {artifact_or_insight_id}"
+
+        # Only create artifact message for insights from DB (not for existing artifacts in state/artifacts)
+        if source == ArtifactSource.INSIGHT:
+            artifact_message: ArtifactRefMessage | None = ArtifactRefMessage(
+                content_type=ArtifactContentType.VISUALIZATION,
+                artifact_id=artifact_or_insight_id,
+                source=source,
+                id=str(uuid4()),
+            )
+        else:
+            artifact_message = None
+
+        if execute:
+            results = await execute_and_format_query(self._team, content.query)
+            text_result = format_prompt_string(
+                INSIGHT_RESULT_TEMPLATE,
+                insight_name=insight_name,
+                description=content.description,
+                query_type=query_type,
+                results=results,
+            )
+        else:
+            query_schema = content.query.model_dump_json(exclude_none=True)
+            text_result = format_prompt_string(
+                INSIGHT_SCHEMA_TEMPLATE,
+                insight_name=insight_name,
+                description=content.description,
+                query_type=query_type,
+                query_schema=query_schema,
+            )
+
+        if artifact_message is None:
+            return text_result, None
+
+        tool_call_message = AssistantToolCallMessage(
+            content=text_result,
+            id=str(uuid4()),
+            tool_call_id=self.tool_call_id,
+        )
+        return "", ToolMessagesArtifact(messages=[artifact_message, tool_call_message])
+
+    async def _read_artifacts(self) -> tuple[str, None]:
         conversation_artifacts = await self._context_manager.artifacts.aget_conversation_artifact_messages()
         formatted_artifacts = []
 
@@ -226,32 +279,3 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if len(formatted_artifacts) == 0:
             return "No artifacts available"
         return "\n\n".join(formatted_artifacts)
-
-    async def _read_insight(self, artifact_or_insight_id: str, execute: bool) -> str:
-        # First fetch the artifact content from the state messages
-        content = await self._context_manager.artifacts.aget_insight(self._state.messages, artifact_or_insight_id)
-
-        if content is None:
-            raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
-
-        query_type = content.query.kind
-        insight_name = content.name or f"Insight {artifact_or_insight_id}"
-
-        if execute:
-            results = await execute_and_format_query(self._team, content.query)
-            return format_prompt_string(
-                INSIGHT_RESULT_TEMPLATE,
-                insight_name=insight_name,
-                description=content.description,
-                query_type=query_type,
-                results=results,
-            )
-
-        query_schema = content.query.model_dump_json(exclude_none=True)
-        return format_prompt_string(
-            INSIGHT_SCHEMA_TEMPLATE,
-            insight_name=insight_name,
-            description=content.description,
-            query_type=query_type,
-            query_schema=query_schema,
-        )

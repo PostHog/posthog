@@ -95,19 +95,33 @@ class ArtifactManager(AssistantContextMixin):
         Retrieve artifact content by ID, checking state first then database.
         Returns None if not found in either location.
         """
+        result = await self.aget_insight_with_source(state_messages, artifact_id)
+        return result[0] if result else None
+
+    async def aget_insight_with_source(
+        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
+    ) -> tuple[VisualizationArtifactContent, ArtifactSource] | None:
+        """
+        Retrieve artifact content by ID along with its source.
+        Checks state first, then artifacts, then insights.
+        Returns tuple of (content, source) or None if not found.
+        """
         # Try state first if messages provided
         if state_messages is not None:
             content = self._content_from_state(artifact_id, state_messages)
             if content is not None:
-                return content
+                return content, ArtifactSource.STATE
 
         # Fall back to database (artifact, then insight)
         artifact_contents = await self._afetch_artifact_contents([artifact_id])
         if content := artifact_contents.get(artifact_id):
-            return content
+            return content, ArtifactSource.ARTIFACT
 
         insight_contents = await self._afetch_insight_contents([artifact_id])
-        return insight_contents.get(artifact_id)
+        if content := insight_contents.get(artifact_id):
+            return content, ArtifactSource.INSIGHT
+
+        return None
 
     async def aget_enriched_message(
         self,
