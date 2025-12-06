@@ -46,20 +46,17 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                     </div>
                     <div className="flex-1">
                         <LemonField name="propertyName" label="Event property">
-                            {({ value, onChange, error }) => (
-                                <>
-                                    <TaxonomicPopover
-                                        groupType={TaxonomicFilterGroupType.EventProperties}
-                                        value={value}
-                                        onChange={onChange}
-                                        groupTypes={[TaxonomicFilterGroupType.EventProperties]}
-                                        placeholder="Select property..."
-                                        disabled={quickFiltersLoading}
-                                        type="secondary"
-                                        fullWidth
-                                    />
-                                    {error && <LemonField.Error error={error} />}
-                                </>
+                            {({ value, onChange }) => (
+                                <TaxonomicPopover
+                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    value={value}
+                                    onChange={onChange}
+                                    groupTypes={[TaxonomicFilterGroupType.EventProperties]}
+                                    placeholder="Select property..."
+                                    disabled={quickFiltersLoading}
+                                    type="secondary"
+                                    fullWidth
+                                />
                             )}
                         </LemonField>
                     </div>
