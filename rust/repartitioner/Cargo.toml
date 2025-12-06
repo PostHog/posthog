@@ -1,0 +1,26 @@
+[package]
+name = "repartitioner"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+common-kafka = { path = "../common/kafka" }
+envconfig = { workspace = true }
+futures = { workspace = true }
+health = { path = "../common/health" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rdkafka = { workspace = true }
+serde_json = { workspace = true }
+serve-metrics = { path = "../common/serve_metrics" }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+uuid = { workspace = true }
+
