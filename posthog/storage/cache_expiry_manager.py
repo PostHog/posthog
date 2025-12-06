@@ -51,7 +51,12 @@ class CacheExpiryConfig:
         return f"{self.cache_name.replace('_', ' ')} caches"
 
 
-def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int, redis_url: str | None = None) -> None:
+def track_cache_expiry(
+    sorted_set_key: str,
+    identifier: str | int,
+    ttl_seconds: int,
+    redis_url: str | None = None,
+) -> None:
     """
     Track cache expiration in Redis sorted set for efficient expiry queries.
 
@@ -61,20 +66,20 @@ def track_cache_expiry(sorted_set_key: str, team: Team | int, ttl_seconds: int, 
 
     Args:
         sorted_set_key: Redis sorted set key for tracking expiry
-        team: Team object or team ID
+        identifier: The identifier to store in the sorted set. Use team.id for
+                   ID-based caches, or team.api_token for token-based caches.
         ttl_seconds: TTL in seconds from now
         redis_url: Optional Redis URL for dedicated cache (e.g., FLAGS_REDIS_URL)
     """
     try:
         redis_client = get_client(redis_url)
-        team_id = team.id if isinstance(team, Team) else team
         expiry_timestamp = int(time.time()) + ttl_seconds
 
-        # Store team ID with expiry timestamp as score for efficient range queries
-        redis_client.zadd(sorted_set_key, {str(team_id): expiry_timestamp})
+        # Store identifier with expiry timestamp as score for efficient range queries
+        redis_client.zadd(sorted_set_key, {str(identifier): expiry_timestamp})
     except Exception as e:
         # Don't fail the cache update if expiry tracking fails
-        logger.warning("Failed to track cache expiry", team_id=team_id, error=str(e))
+        logger.warning("Failed to track cache expiry", identifier=identifier, error=str(e))
         capture_exception(e)
 
 

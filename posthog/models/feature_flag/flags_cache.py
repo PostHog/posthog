@@ -140,17 +140,6 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     return result
 
 
-def _track_cache_expiry(team: Team | int, ttl_seconds: int) -> None:
-    """
-    Track cache expiration in Redis sorted set for efficient expiry queries.
-
-    Args:
-        team: Team object or team ID
-        ttl_seconds: TTL in seconds from now
-    """
-    track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, team, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
-
-
 # HyperCache instance for feature-flags service
 # Use dedicated flags cache alias if available, otherwise defaults to default cache
 flags_hypercache = HyperCache(
@@ -214,7 +203,7 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     else:
         # Track expiration in sorted set for efficient queries
         ttl_seconds = ttl if ttl is not None else settings.FLAGS_CACHE_TTL
-        _track_cache_expiry(team, ttl_seconds)
+        track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, team_id, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
 
     return success
 

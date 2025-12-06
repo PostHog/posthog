@@ -418,8 +418,15 @@ def warm_caches(
                         from posthog.storage.cache_expiry_manager import track_cache_expiry
 
                         actual_ttl = ttl_seconds if ttl_seconds is not None else config.hypercache.cache_ttl
+
+                        # For token-based caches, use API token as identifier; otherwise use team ID
+                        expiry_identifier = team.api_token if config.hypercache.token_based else team.id
+
                         track_cache_expiry(
-                            config.expiry_sorted_set_key, team, actual_ttl, redis_url=config.hypercache.redis_url
+                            config.expiry_sorted_set_key,
+                            expiry_identifier,
+                            actual_ttl,
+                            redis_url=config.hypercache.redis_url,
                         )
                     else:
                         # Fall back to regular update (will load individually and track expiry)

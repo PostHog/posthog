@@ -555,19 +555,22 @@ class TestGetTeamsWithExpiringCaches(BaseTest):
     @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/1")
     @patch("posthog.storage.cache_expiry_manager.get_client")
     def test_track_cache_expiry_uses_correct_redis_url(self, mock_get_client):
-        """Test that _track_cache_expiry uses FLAGS_REDIS_URL.
+        """Test that track_cache_expiry uses FLAGS_REDIS_URL when passed.
 
-        This is a regression test for a bug where _track_cache_expiry was using
+        This is a regression test for a bug where expiry tracking was using
         the default Redis database (0) instead of the dedicated flags cache database (1).
         """
-        from posthog.models.feature_flag.flags_cache import _track_cache_expiry
+        from posthog.models.feature_flag.flags_cache import FLAGS_CACHE_EXPIRY_SORTED_SET
+        from posthog.storage.cache_expiry_manager import track_cache_expiry
 
         # Mock Redis client
         mock_redis = MagicMock()
         mock_get_client.return_value = mock_redis
 
-        # Call _track_cache_expiry
-        _track_cache_expiry(self.team, ttl_seconds=3600)
+        # Call track_cache_expiry with FLAGS_REDIS_URL (as update_flags_cache does)
+        track_cache_expiry(
+            FLAGS_CACHE_EXPIRY_SORTED_SET, self.team.id, ttl_seconds=3600, redis_url="redis://localhost:6379/1"
+        )
 
         # Verify get_client was called with FLAGS_REDIS_URL
         mock_get_client.assert_called_once_with("redis://localhost:6379/1")

@@ -41,7 +41,6 @@ Note: Redis adds ~100 bytes overhead per key. S3 storage uses similar compressio
 """
 
 import os
-import time
 from typing import Any
 
 from django.conf import settings
@@ -144,32 +143,6 @@ def _serialize_team_field(field: str, value: Any) -> Any:
     elif field == "session_recording_sample_rate":
         return float(value) if value is not None else None
     return value
-
-
-def _track_cache_expiry(team: Team | str | int, ttl_seconds: int) -> None:
-    """
-    Track cache expiration in Redis sorted set for efficient expiry queries.
-
-    Args:
-        team: Team object, API token string, or team ID
-        ttl_seconds: TTL in seconds from now
-    """
-    try:
-        redis_client = get_client(settings.FLAGS_REDIS_URL)
-
-        # Get team token for tracking
-        if isinstance(team, Team):
-            token = team.api_token
-        elif isinstance(team, str):
-            token = team
-        else:
-            # If team ID, need to fetch token - but this is rare, skip tracking
-            return
-
-        expiration_timestamp = time.time() + ttl_seconds
-        redis_client.zadd(TEAM_CACHE_EXPIRY_SORTED_SET, {token: expiration_timestamp})
-    except Exception as e:
-        logger.warning("Failed to track cache expiry in sorted set", error=str(e), error_type=type(e).__name__)
 
 
 def _serialize_team_to_metadata(team: Team) -> dict[str, Any]:
@@ -289,6 +262,8 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     Returns:
         True if cache update succeeded, False otherwise
     """
+    from posthog.storage.cache_expiry_manager import track_cache_expiry
+
     success = team_metadata_hypercache.update_cache(team, ttl=ttl)
 
     team_id = team.id if isinstance(team, Team) else "unknown"
@@ -298,7 +273,21 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
     else:
         # Track expiration in sorted set for efficient queries
         ttl_seconds = ttl if ttl is not None else TEAM_METADATA_CACHE_TTL
-        _track_cache_expiry(team, ttl_seconds)
+
+        # Derive token for expiry tracking (token-based cache)
+        if isinstance(team, Team):
+            token = team.api_token
+        elif isinstance(team, str):
+            token = team
+        else:
+            # Look up token from team ID
+            try:
+                token = Team.objects.values_list("api_token", flat=True).get(id=team)
+            except Team.DoesNotExist:
+                logger.warning("Team not found for expiry tracking", team_id=team)
+                return success
+
+        track_cache_expiry(TEAM_CACHE_EXPIRY_SORTED_SET, token, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
 
     return success
 
