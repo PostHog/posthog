@@ -419,12 +419,9 @@ def warm_caches(
 
                         actual_ttl = ttl_seconds if ttl_seconds is not None else config.hypercache.cache_ttl
 
-                        # For token-based caches, use API token as identifier; otherwise use team ID
-                        expiry_identifier = team.api_token if config.hypercache.token_based else team.id
-
                         track_cache_expiry(
                             config.expiry_sorted_set_key,
-                            expiry_identifier,
+                            config.hypercache.get_cache_identifier(team),
                             actual_ttl,
                             redis_url=config.hypercache.redis_url,
                         )

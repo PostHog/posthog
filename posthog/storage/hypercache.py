@@ -119,6 +119,15 @@ class HyperCache:
         else:
             return Team.objects.get(id=key)
 
+    def get_cache_identifier(self, team: Team) -> str | int:
+        """
+        Get the identifier used for cache keys and expiry tracking.
+
+        For token-based caches, returns api_token. For ID-based caches, returns team.id.
+        This ensures consistency between cache keys and expiry tracking entries.
+        """
+        return team.api_token if self.token_based else team.id
+
     def get_cache_key(self, key: KeyType) -> str:
         if self.token_based:
             if isinstance(key, Team):

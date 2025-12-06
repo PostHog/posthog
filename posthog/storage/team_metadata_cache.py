@@ -274,20 +274,22 @@ def update_team_metadata_cache(team: Team | str | int, ttl: int | None = None) -
         # Track expiration in sorted set for efficient queries
         ttl_seconds = ttl if ttl is not None else TEAM_METADATA_CACHE_TTL
 
-        # Derive token for expiry tracking (token-based cache)
+        # Derive identifier for expiry tracking using HyperCache's centralized logic
         if isinstance(team, Team):
-            token = team.api_token
+            identifier = team_metadata_hypercache.get_cache_identifier(team)
         elif isinstance(team, str):
-            token = team
+            identifier = team  # Already have the token
         else:
-            # Look up token from team ID
+            # Look up token from team ID (token-based cache requires token)
             try:
-                token = Team.objects.values_list("api_token", flat=True).get(id=team)
+                identifier = Team.objects.values_list("api_token", flat=True).get(id=team)
             except Team.DoesNotExist:
                 logger.warning("Team not found for expiry tracking", team_id=team)
                 return success
 
-        track_cache_expiry(TEAM_CACHE_EXPIRY_SORTED_SET, token, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
+        track_cache_expiry(
+            TEAM_CACHE_EXPIRY_SORTED_SET, identifier, ttl_seconds, redis_url=team_metadata_hypercache.redis_url
+        )
 
     return success
 
@@ -315,17 +317,18 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
 
     # Remove from expiry tracking sorted set
     try:
-        redis_client = get_client(settings.FLAGS_REDIS_URL)
+        redis_client = get_client(team_metadata_hypercache.redis_url)
 
+        # Derive identifier using HyperCache's centralized logic
         if isinstance(team, Team):
-            token = team.api_token
+            identifier = team_metadata_hypercache.get_cache_identifier(team)
         elif isinstance(team, str):
-            token = team
+            identifier = team  # Already have the token
         else:
             # If team ID, skip sorted set cleanup (rare case)
             return
 
-        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, token)
+        redis_client.zrem(TEAM_CACHE_EXPIRY_SORTED_SET, identifier)
     except Exception as e:
         logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 

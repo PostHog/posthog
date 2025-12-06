@@ -203,7 +203,9 @@ def update_flags_cache(team: Team | int, ttl: int | None = None) -> bool:
     else:
         # Track expiration in sorted set for efficient queries
         ttl_seconds = ttl if ttl is not None else settings.FLAGS_CACHE_TTL
-        track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, team_id, ttl_seconds, redis_url=settings.FLAGS_REDIS_URL)
+        # Use HyperCache's centralized identifier logic (ID-based cache uses team.id)
+        identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
+        track_cache_expiry(FLAGS_CACHE_EXPIRY_SORTED_SET, identifier, ttl_seconds, redis_url=flags_hypercache.redis_url)
 
     return success
 
@@ -236,9 +238,10 @@ def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
 
     # Remove from expiry tracking sorted set
     try:
-        redis_client = get_client()
-        team_id = team.id if isinstance(team, Team) else team
-        redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(team_id))
+        redis_client = get_client(flags_hypercache.redis_url)
+        # Use HyperCache's centralized identifier logic (ID-based cache uses team.id)
+        identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
+        redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(identifier))
     except Exception as e:
         logger.warning("Failed to remove from expiry tracking", error=str(e), error_type=type(e).__name__)
 
