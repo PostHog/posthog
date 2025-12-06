@@ -151,18 +151,24 @@ export function Cohorts(): JSX.Element {
                                 >
                                     Export all columns for users
                                 </LemonButton>
-                                <LemonButton
-                                    onClick={() => {
-                                        if (cohort.id === 'new') {
-                                            return
-                                        }
-                                        openQuickSurveyModal(cohort.id, cohort.name)
-                                    }}
-                                    tooltip="Create a survey that targets the cohort"
-                                    fullWidth
-                                >
-                                    Create survey
-                                </LemonButton>
+                                {cohort.is_static && (
+                                    <LemonButton
+                                        onClick={() => {
+                                            if (cohort.id === 'new') {
+                                                return
+                                            }
+                                            // Can only create survey for static cohort
+                                            if (!cohort.is_static) {
+                                                return
+                                            }
+                                            openQuickSurveyModal(cohort.id, cohort.name)
+                                        }}
+                                        tooltip="Create a survey that targets the cohort"
+                                        fullWidth
+                                    >
+                                        Create survey
+                                    </LemonButton>
+                                )}
                                 <LemonDivider />
                                 <LemonButton
                                     status="danger"
