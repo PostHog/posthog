@@ -14,10 +14,6 @@ from structlog import get_logger
 
 from products.data_warehouse.backend import types
 
-os.environ["DEBUG"] = "1"
-os.environ["SKIP_ASYNC_MIGRATIONS_SETUP"] = "1"
-
-
 SOURCE_TEMPLATE = """\
 from typing import cast
 
@@ -27,7 +23,7 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.base import SimpleSource, FieldType
 from posthog.temporal.data_imports.sources.common.config import Config
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -37,7 +33,7 @@ from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class {pascal}Source(BaseSource[Config]):
+class {pascal}Source(SimpleSource[Config]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.{caps}
@@ -75,7 +71,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "{max_migration}"),
+        ("data_warehouse", "{max_migration}"),
     ]
 
     operations = [
@@ -254,7 +250,7 @@ class Command(BaseCommand):
         return False
 
     def _add_warehouse_types_enum(self, repo: Repo, transforms: NameTransforms):
-        file = os.path.join(repo.working_dir, "posthog", "warehouse", "types.py")
+        file = os.path.join(repo.working_dir, "products", "data_warehouse", "backend", "types.py")
         assert os.path.exists(file), f"File not found {file}"
 
         key, val = transforms["caps"], transforms["pascal"]
@@ -325,7 +321,7 @@ class Command(BaseCommand):
     def _migrate(self, repo: Repo):
         importlib.reload(types)  # reload types to include our modifications
 
-        migrations_dir = os.path.join(repo.working_dir, "posthog", "migrations")
+        migrations_dir = os.path.join(repo.working_dir, "products", "data_warehouse", "backend", "migrations")
         assert os.path.exists(migrations_dir), "Migrations dir not found. Yikes..."
 
         with open(os.path.join(migrations_dir, "max_migration.txt")) as f:
