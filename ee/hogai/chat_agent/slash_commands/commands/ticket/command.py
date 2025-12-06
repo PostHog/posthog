@@ -53,7 +53,7 @@ class TicketCommand(SlashCommand):
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
-                        content="The `/ticket` command is available for customers on paid plans. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help.",
+                        content="The `/ticket` command is available for customers on paid plans or active trials. You can upgrade your plan in the billing settings, or ask the community at https://posthog.com/questions for help.",
                         id=str(uuid4()),
                     )
                 ]
