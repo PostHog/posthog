@@ -17,6 +17,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { DataWarehouseTab, dataWarehouseSceneLogic } from './dataWarehouseSceneLogic'
+import { DataModelingTab } from './scene/DataModelingTab'
 import { OverviewTab } from './scene/OverviewTab'
 import { SourcesTab } from './scene/SourcesTab'
 import { ViewsTab } from './scene/ViewsTab'
@@ -84,6 +85,11 @@ export function DataWarehouseScene(): JSX.Element {
                         key: DataWarehouseTab.VIEWS,
                         label: 'Views',
                         content: <ViewsTab />,
+                    },
+                    {
+                        key: DataWarehouseTab.DATA_MODELING,
+                        label: 'Modeling',
+                        content: <DataModelingTab />,
                     },
                 ]}
             />

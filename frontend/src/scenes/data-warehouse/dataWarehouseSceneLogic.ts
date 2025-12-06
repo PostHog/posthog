@@ -26,6 +26,7 @@ export enum DataWarehouseTab {
     OVERVIEW = 'overview',
     SOURCES = 'sources',
     VIEWS = 'views',
+    DATA_MODELING = 'data_modeling',
 }
 
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([

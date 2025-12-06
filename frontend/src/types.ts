@@ -5008,6 +5008,23 @@ export type DataWarehouseTableTypes = 'CSV' | 'Parquet' | 'JSON' | 'CSVWithNames
 
 export type DataModelingJobStatus = 'Running' | 'Completed' | 'Failed' | 'Cancelled'
 
+export type DataModelingNodeType = 'table' | 'view' | 'matview'
+
+export interface DataModelingNode {
+    /** UUID */
+    id: string
+    name: string
+    type: DataModelingNodeType
+    dag_id: string
+    saved_query_id?: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+    upstream_count: number
+    downstream_count: number
+    last_run_at: string
+}
+
 export interface DataWarehouseSavedQueryRunHistory {
     status: DataModelingJobStatus
     timestamp?: string

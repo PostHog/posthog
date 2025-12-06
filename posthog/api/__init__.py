@@ -21,6 +21,7 @@ import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.customer_analytics.backend.api.views as customer_analytics
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_modeling.backend.api.node import NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
     data_warehouse,
@@ -498,6 +499,12 @@ environments_router.register(
     r"managed_viewsets",
     managed_viewset.DataWarehouseManagedViewSetViewSet,
     "environment_managed_viewsets",
+    ["team_id"],
+)
+environments_router.register(
+    r"data_modeling_nodes",
+    NodeViewSet,
+    "environment_data_modeling_nodes",
     ["team_id"],
 )
 
