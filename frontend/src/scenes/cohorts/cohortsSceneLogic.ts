@@ -13,6 +13,7 @@ import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
@@ -46,8 +47,11 @@ type QuickSurveyModalState =
       }
     | {
           isOpen: true
-          cohortId: number
-          cohortName?: string
+          context: {
+              type: QuickSurveyType.COHORT
+              cohortId: number
+              cohortName?: string
+          }
       }
 
 export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
@@ -104,8 +108,11 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 openQuickSurveyModal: (_, { cohortId, cohortName }) => {
                     return {
                         isOpen: true,
-                        cohortId,
-                        cohortName,
+                        context: {
+                            type: QuickSurveyType.COHORT,
+                            cohortId,
+                            cohortName,
+                        },
                     }
                 },
                 closeQuickSurveyModal: () => {
