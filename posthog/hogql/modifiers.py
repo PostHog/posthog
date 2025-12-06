@@ -39,6 +39,20 @@ def create_default_modifiers_for_user(
         send_feature_flag_events=False,
     )
 
+    modifiers.optimizeProjections = posthoganalytics.feature_enabled(
+        "projection-pushdown",
+        str(team.uuid),
+        groups={"organization": str(team.organization_id)},
+        group_properties={
+            "organization": {
+                "id": str(team.organization_id),
+                "created_at": team.organization.created_at,
+            }
+        },
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+
     return create_default_modifiers_for_team(team, modifiers)
 
 
@@ -108,6 +122,9 @@ def set_default_modifier_values(modifiers: HogQLQueryModifiers, team: "Team"):
 
     if modifiers.convertToProjectTimezone is None:
         modifiers.convertToProjectTimezone = True
+
+    if modifiers.optimizeProjections is None:
+        modifiers.optimizeProjections = False
 
 
 def set_default_in_cohort_via(modifiers: HogQLQueryModifiers) -> HogQLQueryModifiers:
