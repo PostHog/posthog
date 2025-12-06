@@ -3841,6 +3841,15 @@ const api = {
             }
             return await apiRequest.withQueryString(queryParams).create()
         },
+        async getSummaryHeadline(
+            surveyId: Survey['id'],
+            forceRefresh: boolean = false
+        ): Promise<{ headline: string; responses_sampled: number; has_more: boolean }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('summary_headline')
+                .create({ data: { force_refresh: forceRefresh } })
+        },
         async getSurveyStats({
             surveyId,
             dateFrom = null,

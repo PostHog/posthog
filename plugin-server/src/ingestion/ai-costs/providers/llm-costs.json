@@ -2019,6 +2019,10 @@
             "modelrun": {
                 "prompt_token": 0,
                 "completion_token": 0
+            },
+            "open-inference-int8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -2563,10 +2567,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 6e-7
             },
-            "gmicloud-bf16": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 7.5e-7
-            },
             "google-vertex": {
                 "prompt_token": 7.2e-7,
                 "completion_token": 7.2e-7
@@ -2621,6 +2621,10 @@
                 "completion_token": 0
             },
             "modelrun": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
                 "prompt_token": 0,
                 "completion_token": 0
             },
@@ -3298,12 +3302,12 @@
         "model": "mistralai/mistral-small-24b-instruct-2501",
         "cost": {
             "default": {
-                "prompt_token": 5e-8,
-                "completion_token": 8e-8
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 5e-8,
@@ -4561,6 +4565,21 @@
         }
     },
     {
+        "model": "openai/gpt-5.1-codex-max",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.1-codex-mini",
         "cost": {
             "default": {
@@ -4700,6 +4719,19 @@
         }
     },
     {
+        "model": "openai/gpt-oss-120b:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "openai/gpt-oss-20b",
         "cost": {
             "default": {
@@ -4785,6 +4817,10 @@
                 "completion_token": 0
             },
             "chutes-bf16": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
