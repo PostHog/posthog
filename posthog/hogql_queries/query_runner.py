@@ -1025,6 +1025,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         start_time = perf_counter()
         cache_key = self.get_cache_key()
 
+        def _has_error_from_response(response: Any) -> bool:
+            if response is None:
+                return False
+
+            candidate = None
+            if isinstance(response, dict):
+                candidate = response.get("error") or response.get("errors")
+            else:
+                candidate = getattr(response, "error", None) or getattr(response, "errors", None)
+
+            if candidate is None:
+                return False
+
+            if isinstance(candidate, str):
+                return candidate.strip() != ""
+
+            if isinstance(candidate, list):
+                return len(candidate) > 0
+
+            return bool(candidate)
+
         with posthoganalytics.new_context():
             posthoganalytics.tag("cache_key", cache_key)
             posthoganalytics.tag("query_type", getattr(self.query, "kind", "Other"))
@@ -1090,6 +1111,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     execution_mode=execution_mode, cache_manager=cache_manager, user=user
                 )
                 if results:
+                    has_error = _has_error_from_response(results)
                     cache_tracking_props = {}
                     if isinstance(results, CachedResponse):
                         if (not trigger or not trigger.startswith("warming")) and results.query_metadata:
@@ -1120,6 +1142,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                             "cache_key": cache_key,
                             "cache_hit": True if isinstance(results, CachedResponse) else False,
                             "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                            "has_error": has_error,
                             **cache_tracking_props,
                         },
                         groups=(groups(self.team.organization, self.team)),
@@ -1161,8 +1184,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                         is_api=get_query_tag_value("access_method") == "personal_api_key",
                     ):
                         query_start_time = perf_counter()
-                        query_result = self.calculate()
-                        query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+                        try:
+                            query_result = self.calculate()
+                            query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+                        except Exception as error:
+                            query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
+                            posthoganalytics.capture(
+                                distinct_id=user.distinct_id if user else str(self.team.uuid),
+                                event="query executed",
+                                properties={
+                                    "insight_id": insight_id,
+                                    "dashboard_id": dashboard_id,
+                                    "cache_hit": False,
+                                    "cache_key": cache_key,
+                                    "calculation_trigger": trigger,
+                                    "execution_mode": execution_mode.value,
+                                    "query_type": getattr(self.query, "kind", "Other"),
+                                    "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
+                                    "query_duration_ms": query_duration_ms,
+                                    "has_error": True,
+                                    "error_type": type(error).__name__,
+                                },
+                                groups=(groups(self.team.organization, self.team)),
+                            )
+                            raise
 
                         fresh_response_dict = {
                             **query_result.model_dump(),
@@ -1195,8 +1240,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 fresh_response_dict["calculation_trigger"] = trigger
 
             # Don't cache debug queries with errors and export queries
-            errors: Optional[list] = fresh_response_dict.get("error", None)
-            has_error = errors is not None and len(errors) > 0
+            has_error = _has_error_from_response(fresh_response_dict)
             if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
