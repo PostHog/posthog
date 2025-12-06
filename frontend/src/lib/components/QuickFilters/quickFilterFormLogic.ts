@@ -1,4 +1,4 @@
-import { connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
 import { propertyFilterTypeToPropertyDefinitionType } from 'lib/components/PropertyFilters/utils'
@@ -45,8 +45,6 @@ const trimValue = (value: string | string[] | null): string | string[] | null =>
 
 export const operatorsWithoutValues = [PropertyOperator.IsSet, PropertyOperator.IsNotSet]
 
-const DEFAULT_OPTION: QuickFilterOption = { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact }
-
 export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
     path(['lib', 'components', 'QuickFilters', 'quickFilterFormLogic']),
     props({} as QuickFilterFormLogicProps),
@@ -57,12 +55,20 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
         actions: [propertyDefinitionsModel, ['loadPropertyValues'], quickFiltersModalLogic(props), ['closeModal']],
     })),
 
+    actions({
+        addOption: true,
+        removeOption: (index: number) => ({ index }),
+        updateOption: (index: number, updates: Partial<QuickFilterOption>) => ({ index, updates }),
+    }),
+
     forms(({ actions, props }) => ({
         quickFilter: {
             defaults: {
                 name: props.filter?.name || '',
                 propertyName: props.filter?.property_name || '',
-                options: (props.filter?.options || [{ ...DEFAULT_OPTION, id: uuid() }]) as QuickFilterOption[],
+                options: (props.filter?.options || [
+                    { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
+                ]) as QuickFilterOption[],
             } as QuickFilterFormValues,
             errors: ({ name, propertyName, options }) => {
                 const errors: Record<string, string | object | undefined> = {}
@@ -91,15 +97,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
 
                         const operatorNeedsValue = !operatorsWithoutValues.includes(opt.operator as PropertyOperator)
                         if (operatorNeedsValue) {
-                            if (opt.value === null) {
-                                optError.value = 'Value is required'
-                                hasOptionErrors = true
-                            } else if (Array.isArray(opt.value)) {
-                                if (opt.value.length === 0 || !opt.value.every((v) => v.trim() !== '')) {
-                                    optError.value = 'Value is required'
-                                    hasOptionErrors = true
-                                }
-                            } else if (opt.value.trim() === '') {
+                            if (!opt.value) {
                                 optError.value = 'Value is required'
                                 hasOptionErrors = true
                             }
@@ -176,36 +174,22 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
                 }
             }
         },
+        addOption: () => {
+            actions.setQuickFilterValue('options', [
+                ...values.options,
+                { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
+            ])
+        },
+        removeOption: ({ index }) => {
+            actions.setQuickFilterValue(
+                'options',
+                values.options.filter((_, i) => i !== index)
+            )
+        },
+        updateOption: ({ index, updates }) => {
+            for (const [key, value] of Object.entries(updates)) {
+                actions.setQuickFilterValue(['options', index, key], value)
+            }
+        },
     })),
 ])
-
-export function addOption(
-    actions: { setQuickFilterValue: (name: string, value: QuickFilterOption[]) => void },
-    currentOptions: QuickFilterOption[]
-): void {
-    actions.setQuickFilterValue('options', [
-        ...currentOptions,
-        { id: uuid(), value: null, label: '', operator: PropertyOperator.Exact },
-    ])
-}
-
-export function removeOption(
-    actions: { setQuickFilterValue: (name: string, value: QuickFilterOption[]) => void },
-    currentOptions: QuickFilterOption[],
-    index: number
-): void {
-    actions.setQuickFilterValue(
-        'options',
-        currentOptions.filter((_, i) => i !== index)
-    )
-}
-
-export function updateOption(
-    actions: { setQuickFilterValue: (name: (string | number)[], value: any) => void },
-    index: number,
-    updates: Partial<QuickFilterOption>
-): void {
-    for (const [key, value] of Object.entries(updates)) {
-        actions.setQuickFilterValue(['options', index, key], value)
-    }
-}

@@ -13,14 +13,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
 
-import {
-    addOption,
-    allowedOperators,
-    operatorsWithoutValues,
-    quickFilterFormLogic,
-    removeOption,
-    updateOption,
-} from './quickFilterFormLogic'
+import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
@@ -35,7 +28,7 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
     const { handleFormBack } = useActions(modalLogic)
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
     const { name, propertyName, options, isQuickFilterSubmitting } = useValues(formLogic)
-    const { setQuickFilterValue } = useActions(formLogic)
+    const { addOption } = useActions(formLogic)
 
     return (
         <Form
@@ -76,12 +69,7 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="block font-medium">Filter options</label>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                icon={<IconPlus />}
-                                onClick={() => addOption({ setQuickFilterValue }, options)}
-                            >
+                            <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={addOption}>
                                 Add option
                             </LemonButton>
                         </div>
@@ -142,7 +130,7 @@ function FilterOptionRow({
     const { propertyName, options, quickFilterErrors } = useValues(
         quickFilterFormLogic({ context, filter: editedFilter })
     )
-    const { setQuickFilterValue } = useActions(quickFilterFormLogic({ context, filter: editedFilter }))
+    const { updateOption, removeOption } = useActions(quickFilterFormLogic({ context, filter: editedFilter }))
     const { propertyDefinitionsByType } = useValues(propertyDefinitionsModel)
 
     const propertyDefinitions = propertyDefinitionsByType(PropertyFilterType.Event)
@@ -171,7 +159,7 @@ function FilterOptionRow({
                             } else if (value !== null && value !== undefined) {
                                 newValue = String(value)
                             }
-                            updateOption({ setQuickFilterValue }, index, { operator, value: newValue })
+                            updateOption(index, { operator, value: newValue })
                         }}
                         propertyDefinitions={propertyDefinitions}
                         operatorAllowlist={allowedOperators}
@@ -183,7 +171,7 @@ function FilterOptionRow({
             <div className="flex flex-col w-[30%] gap-2">
                 <LemonInput
                     value={option.label}
-                    onChange={(value) => updateOption({ setQuickFilterValue }, index, { label: value })}
+                    onChange={(value) => updateOption(index, { label: value })}
                     placeholder="Display name (e.g., Production)"
                     disabledReason={!propertyName ? 'Select an event property first' : undefined}
                 />
@@ -194,7 +182,7 @@ function FilterOptionRow({
                     size="small"
                     status="danger"
                     icon={<IconTrash />}
-                    onClick={() => removeOption({ setQuickFilterValue }, options, index)}
+                    onClick={() => removeOption(index)}
                     disabled={quickFiltersLoading}
                 />
             )}
