@@ -41,7 +41,7 @@ def _create_action(**kwargs):
     return action
 
 
-class TestFunnelUnorderedStepsBreakdown(
+class BaseTestFunnelUnorderedStepsBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
@@ -50,6 +50,7 @@ class TestFunnelUnorderedStepsBreakdown(
         _create_person,
     ),
 ):
+    __test__ = False
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
@@ -533,27 +534,32 @@ class TestFunnelUnorderedStepsBreakdown(
         self.assertCountEqual([res[0]["breakdown"] for res in results], [[""], ["Mac"], ["Safari"]])
 
 
-class TestFunnelUnorderedGroupBreakdown(
+class BaseTestFunnelUnorderedGroupBreakdown(
     ClickhouseTestMixin,
     funnel_breakdown_group_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
-    maxDiff = None
+    __test__ = False
+    pass
 
 
-class TestFunnelUnorderedStepsConversionTime(
+class BaseTestFunnelUnorderedStepsConversionTime(
     ClickhouseTestMixin,
     funnel_conversion_time_test_factory(  # type: ignore
         FunnelOrderType.UNORDERED,
         PseudoFunnelActors,
     ),
 ):
+    __test__ = False
     maxDiff = None
+    pass
 
 
-class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
         filter = Filter(data=filter, team=self.team)
         person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})

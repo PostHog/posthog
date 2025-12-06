@@ -52,7 +52,8 @@ def _create_action(**kwargs):
     return action
 
 
-class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
+class BaseTestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
     maxDiff = None
 
     def _get_events_for_filters(
@@ -2088,6 +2089,10 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         #     ),
         #     6,
         # )
+
+
+class TestClickhouseFunnelCorrelation(BaseTestClickhouseFunnelCorrelation):
+    __test__ = True
 
 
 class TestCorrelationFunctions(unittest.TestCase):
