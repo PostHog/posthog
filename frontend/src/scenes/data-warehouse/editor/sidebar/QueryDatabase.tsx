@@ -357,6 +357,7 @@ export const QueryDatabase = (): JSX.Element => {
 
                 // Show menu for endpoints
                 if (item.record?.type === 'endpoint') {
+                    const isHogQLEndpoint = item.record?.endpoint?.query.kind === 'HogQLQuery'
                     return (
                         <DropdownMenuGroup>
                             <DropdownMenuItem
@@ -368,24 +369,26 @@ export const QueryDatabase = (): JSX.Element => {
                             >
                                 <ButtonPrimitive menuItem>View endpoint</ButtonPrimitive>
                             </DropdownMenuItem>
-                            <DropdownMenuItem
-                                asChild
-                                onClick={(e) => {
-                                    e.stopPropagation()
-                                    sceneLogic.actions.newTab(
-                                        urls.sqlEditor(
-                                            item.record?.endpoint?.query.query,
-                                            undefined,
-                                            undefined,
-                                            undefined,
-                                            OutputTab.Endpoint,
-                                            item.record?.endpoint?.name
+                            {isHogQLEndpoint && (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        sceneLogic.actions.newTab(
+                                            urls.sqlEditor(
+                                                item.record?.endpoint?.query.query,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                OutputTab.Endpoint,
+                                                item.record?.endpoint?.name
+                                            )
                                         )
-                                    )
-                                }}
-                            >
-                                <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
-                            </DropdownMenuItem>
+                                    }}
+                                >
+                                    <ButtonPrimitive menuItem>Edit endpoint query</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            )}
                         </DropdownMenuGroup>
                     )
                 }
