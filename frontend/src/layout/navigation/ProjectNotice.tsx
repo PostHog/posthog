@@ -4,13 +4,11 @@ import { useEffect, useState } from 'react'
 import { IconGear, IconPlus } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { verifyEmailLogic } from 'scenes/authentication/signup/verify-email/verifyEmailLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -67,14 +65,12 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
     const { showInviteModal } = useActions(inviteLogic)
     const { requestVerificationLink } = useActions(verifyEmailLogic)
     const { sceneConfig, productFromUrl } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!projectNoticeVariant) {
         return null
     }
 
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
-    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
 
     const NOTICES: Record<ProjectNoticeVariant, ProjectNoticeBlueprint> = {
         demo_project: {
@@ -86,10 +82,7 @@ export function ProjectNotice({ className }: { className?: string }): JSX.Elemen
                             {' '}
                             When you're ready, head on over to the{' '}
                             <Link
-                                to={urls.project(
-                                    altTeamForIngestion.id,
-                                    useUseCaseSelection ? urls.useCaseSelection() : urls.products()
-                                )}
+                                to={urls.project(altTeamForIngestion.id, urls.useCaseSelection())}
                                 data-attr="demo-project-alt-team-ingestion_link"
                             >
                                 onboarding wizard
