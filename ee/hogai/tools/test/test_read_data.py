@@ -16,7 +16,7 @@ from posthog.schema import (
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 
 from ee.hogai.tool_errors import MaxToolRetryableError
-from ee.hogai.tools.read_data import ReadDataTool
+from ee.hogai.tools.read_data.tool import ReadDataTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, NodePath
 
@@ -65,7 +65,7 @@ class TestReadDataTool(BaseTest):
         user = MagicMock()
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
 
-        with patch("ee.hogai.tools.read_data.AssistantContextManager") as mock_context_class:
+        with patch("ee.hogai.tools.read_data.tool.AssistantContextManager") as mock_context_class:
             mock_context = MagicMock()
             mock_context.check_user_has_billing_access = AsyncMock(return_value=False)
             mock_context_class.return_value = mock_context
@@ -244,7 +244,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch(
-            "ee.hogai.tools.read_data.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
+            "ee.hogai.tools.read_data.tool.execute_and_format_query", new=AsyncMock(return_value="Formatted results")
         ):
             tool = ReadDataTool(
                 team=team,
