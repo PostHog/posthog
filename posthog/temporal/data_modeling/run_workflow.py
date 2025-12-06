@@ -44,8 +44,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.data_load.create_table import create_table_from_saved_query
 from products.data_warehouse.backend.data_load.saved_query_service import pause_saved_query_schedule
@@ -57,6 +56,8 @@ from products.data_warehouse.backend.models import (
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
+
+from .metrics import get_data_modeling_finished_metric
 
 LOGGER = get_logger(__name__)
 

@@ -35,7 +35,7 @@ from posthog.temporal.data_modeling.metrics import (
     get_ducklake_copy_data_modeling_finished_metric,
     get_ducklake_copy_data_modeling_verification_metric,
 )
-from posthog.temporal.utils import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
+from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.s3 import ensure_bucket_exists
@@ -183,7 +183,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake_dev"
         try:
-            _configure_source_storage(conn, logger)
+            _configure_source_storage(conn)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -224,7 +224,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            _configure_source_storage(conn, logger)
+            _configure_source_storage(conn)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
@@ -438,7 +438,7 @@ class DuckLakeCopyDataModelingWorkflow(PostHogWorkflow):
         get_ducklake_copy_data_modeling_finished_metric(status="completed").add(1)
 
 
-def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
+def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL httpfs")
     conn.execute("LOAD httpfs")
     conn.execute("INSTALL delta")
