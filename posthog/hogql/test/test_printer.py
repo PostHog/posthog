@@ -2509,7 +2509,7 @@ class TestPrinter(BaseTest):
                 "select uuid from events where uniqueSurveySubmissionsFilter('survey123')",
                 settings=HogQLGlobalSettings(max_execution_time=10),
             )
-            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123")
+            mock_filter_survey_sent_events_by_unique_submission.assert_called_once_with("survey123", self.team.pk)
             self.assertIn("MOCKED SQL FOR UNIQUE SURVEY SUBMISSIONS FILTER", printed)
 
     def test_override_timezone(self):

@@ -240,8 +240,8 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         surveysResponsesCount: {
             __default: {} as { [key: string]: number },
-            loadResponsesCount: async () => {
-                const surveysResponsesCount = await api.surveys.getResponsesCount()
+            loadResponsesCount: async (surveyIds: string) => {
+                const surveysResponsesCount = await api.surveys.getResponsesCount(surveyIds)
                 return surveysResponsesCount
             },
         },
@@ -307,10 +307,14 @@ export const surveysLogic = kea<surveysLogicType>([
         },
         setSurveysFilters: () => {
             actions.loadSurveys()
-            actions.loadResponsesCount()
         },
         loadSurveysSuccess: () => {
             actions.loadCurrentTeam()
+
+            if (values.data.surveys.length > 0) {
+                const surveyIds = values.data.surveys.map((s) => s.id).join(',')
+                actions.loadResponsesCount(surveyIds)
+            }
 
             if (values.data.surveys.some((survey) => survey.start_date)) {
                 activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
@@ -437,6 +441,5 @@ export const surveysLogic = kea<surveysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadSurveys()
-        actions.loadResponsesCount()
     }),
 ])
