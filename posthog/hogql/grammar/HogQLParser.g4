@@ -181,6 +181,8 @@ columnExpr
                  | operator=DASH                                                          // -
                  | operator=CONCAT                                                        // ||
                  ) right=columnExpr                                                       # ColumnExprPrecedence2
+    // LIKE/ILIKE handled separately to support LIKE ANY syntax
+    | left=columnExpr NOT? (LIKE | ILIKE) (ANY LPAREN patterns=columnExprList? RPAREN | right=columnExpr)  # ColumnExprLike
     | left=columnExpr ( operator=EQ_DOUBLE                                                // =
                  | operator=EQ_SINGLE                                                     // ==
                  | operator=NOT_EQ                                                        // !=
@@ -189,7 +191,6 @@ columnExpr
                  | operator=GT_EQ                                                         // >=
                  | operator=GT                                                            // >
                  | operator=NOT? IN COHORT?                                               // in, not in; in cohort; not in cohort
-                 | operator=NOT? (LIKE | ILIKE)                                           // like, not like, ilike, not ilike
                  | operator=REGEX_SINGLE                                                  // ~
                  | operator=REGEX_DOUBLE                                                  // =~
                  | operator=NOT_REGEX                                                     // !~

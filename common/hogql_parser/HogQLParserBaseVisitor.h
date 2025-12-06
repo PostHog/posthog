@@ -383,6 +383,10 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitColumnExprLike(HogQLParser::ColumnExprLikeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTagElement(HogQLParser::ColumnExprTagElementContext *ctx) override {
     return visitChildren(ctx);
   }

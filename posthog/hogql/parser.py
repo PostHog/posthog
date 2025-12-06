@@ -768,7 +768,51 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.getText()}")
 
+    def visitColumnExprLike(self, ctx: HogQLParser.ColumnExprLikeContext):
+        """Handles LIKE/ILIKE with optional ANY for pattern lists"""
+        left = self.visit(ctx.left)
+        is_ilike = ctx.ILIKE() is not None
+        is_negated = ctx.NOT() is not None
+
+        # Check if this is LIKE ANY (patterns list) or regular LIKE (single expression)
+        # Use ANY() token presence, not patterns, since patterns can be empty/null
+        if ctx.ANY() is not None:
+            # LIKE ANY / ILIKE ANY - expand to OR/AND of comparisons
+            patterns_list = self.visit(ctx.patterns) if ctx.patterns is not None else []
+
+            if is_negated and is_ilike:
+                compare_op = ast.CompareOperationOp.NotILike
+            elif is_ilike:
+                compare_op = ast.CompareOperationOp.ILike
+            elif is_negated:
+                compare_op = ast.CompareOperationOp.NotLike
+            else:
+                compare_op = ast.CompareOperationOp.Like
+
+            compare_ops = [ast.CompareOperation(left=left, op=compare_op, right=pattern) for pattern in patterns_list]
+
+            if len(compare_ops) == 0:
+                return ast.Constant(value=1 if is_negated else 0)
+            elif len(compare_ops) == 1:
+                return compare_ops[0]
+            else:
+                if is_negated:
+                    return ast.And(exprs=compare_ops)
+                else:
+                    return ast.Or(exprs=compare_ops)
+
+        # Regular LIKE/ILIKE with single expression
+        right = self.visit(ctx.right)
+
+        if is_ilike:
+            op = ast.CompareOperationOp.NotILike if is_negated else ast.CompareOperationOp.ILike
+        else:
+            op = ast.CompareOperationOp.NotLike if is_negated else ast.CompareOperationOp.Like
+
+        return ast.CompareOperation(left=left, right=right, op=op)
+
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
+        """Handles comparison operators (excluding LIKE/ILIKE which are in ColumnExprLike)"""
         left = self.visit(ctx.left)
         right = self.visit(ctx.right)
 
@@ -784,16 +828,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.CompareOperationOp.Gt
         elif ctx.GT_EQ():
             op = ast.CompareOperationOp.GtEq
-        elif ctx.LIKE():
-            if ctx.NOT():
-                op = ast.CompareOperationOp.NotLike
-            else:
-                op = ast.CompareOperationOp.Like
-        elif ctx.ILIKE():
-            if ctx.NOT():
-                op = ast.CompareOperationOp.NotILike
-            else:
-                op = ast.CompareOperationOp.ILike
         elif ctx.REGEX_SINGLE() or ctx.REGEX_DOUBLE():
             op = ast.CompareOperationOp.Regex
         elif ctx.NOT_REGEX():

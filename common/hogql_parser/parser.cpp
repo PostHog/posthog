@@ -1862,6 +1862,130 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     }
   }
 
+  VISIT(ColumnExprLike) {
+    bool is_ilike = ctx->ILIKE() != nullptr;
+    bool is_negated = ctx->NOT() != nullptr;
+
+    PyObject* left = visitAsPyObject(ctx->left);
+
+    // Check if this is LIKE ANY (patterns list) or regular LIKE (single expression)
+    // Use ANY() token presence, not patterns, since patterns can be empty/null
+    if (ctx->ANY() != nullptr) {
+      // LIKE ANY / ILIKE ANY - expand to OR/AND of comparisons
+      PyObject* patterns_list;
+      if (ctx->patterns != nullptr) {
+        try {
+          patterns_list = visitAsPyObject(ctx->patterns);
+        } catch (...) {
+          Py_DECREF(left);
+          throw;
+        }
+      } else {
+        // Empty patterns list: LIKE ANY ()
+        patterns_list = PyList_New(0);
+        if (!patterns_list) {
+          Py_DECREF(left);
+          throw PyInternalError();
+        }
+      }
+
+      const char* op_name;
+      if (is_negated && is_ilike) {
+        op_name = "NotILike";
+      } else if (is_ilike) {
+        op_name = "ILike";
+      } else if (is_negated) {
+        op_name = "NotLike";
+      } else {
+        op_name = "Like";
+      }
+
+      Py_ssize_t num_patterns = PyList_Size(patterns_list);
+
+      // Handle empty list - return false for positive match, true for negated match
+      if (num_patterns == 0) {
+        Py_DECREF(left);
+        Py_DECREF(patterns_list);
+        RETURN_NEW_AST_NODE("Constant", "{s:i}", "value", is_negated ? 1 : 0);
+      }
+
+      // Single pattern - simple CompareOperation
+      if (num_patterns == 1) {
+        PyObject* op = get_ast_enum_member("CompareOperationOp", op_name);
+        if (!op) {
+          Py_DECREF(left);
+          Py_DECREF(patterns_list);
+          throw PyInternalError();
+        }
+        PyObject* pattern = PyList_GetItem(patterns_list, 0);
+        Py_INCREF(pattern);
+        Py_DECREF(patterns_list);
+        RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", pattern, "op", op);
+      }
+
+      // Multiple patterns - build OR/AND of CompareOperations
+      PyObject* compare_ops = PyList_New(num_patterns);
+      if (!compare_ops) {
+        Py_DECREF(left);
+        Py_DECREF(patterns_list);
+        throw PyInternalError();
+      }
+
+      for (Py_ssize_t i = 0; i < num_patterns; i++) {
+        PyObject* op = get_ast_enum_member("CompareOperationOp", op_name);
+        if (!op) {
+          Py_DECREF(left);
+          Py_DECREF(patterns_list);
+          Py_DECREF(compare_ops);
+          throw PyInternalError();
+        }
+        PyObject* pattern = PyList_GetItem(patterns_list, i);
+        Py_INCREF(pattern);
+        Py_INCREF(left);
+        PyObject* compare_op = build_ast_node("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", pattern, "op", op);
+        if (!compare_op) {
+          Py_DECREF(left);
+          Py_DECREF(patterns_list);
+          Py_DECREF(compare_ops);
+          throw PyInternalError();
+        }
+        PyList_SET_ITEM(compare_ops, i, compare_op);
+      }
+
+      Py_DECREF(left);
+      Py_DECREF(patterns_list);
+
+      if (is_negated) {
+        RETURN_NEW_AST_NODE("And", "{s:N}", "exprs", compare_ops);
+      } else {
+        RETURN_NEW_AST_NODE("Or", "{s:N}", "exprs", compare_ops);
+      }
+    }
+
+    // Regular LIKE/ILIKE with single expression
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+
+    PyObject* op;
+    if (is_ilike) {
+      op = get_ast_enum_member("CompareOperationOp", is_negated ? "NotILike" : "ILike");
+    } else {
+      op = get_ast_enum_member("CompareOperationOp", is_negated ? "NotLike" : "Like");
+    }
+    if (!op) {
+      Py_DECREF(left);
+      Py_DECREF(right);
+      throw PyInternalError();
+    }
+    RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
+  }
+
+  // Handles comparison operators (excluding LIKE/ILIKE which are in ColumnExprLike)
   VISIT(ColumnExprPrecedence3) {
     PyObject* op = NULL;
     if (ctx->EQ_SINGLE() || ctx->EQ_DOUBLE()) {
@@ -1876,18 +2000,6 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
       op = get_ast_enum_member("CompareOperationOp", "Gt");
     } else if (ctx->GT_EQ()) {
       op = get_ast_enum_member("CompareOperationOp", "GtEq");
-    } else if (ctx->LIKE()) {
-      if (ctx->NOT()) {
-        op = get_ast_enum_member("CompareOperationOp", "NotLike");
-      } else {
-        op = get_ast_enum_member("CompareOperationOp", "Like");
-      }
-    } else if (ctx->ILIKE()) {
-      if (ctx->NOT()) {
-        op = get_ast_enum_member("CompareOperationOp", "NotILike");
-      } else {
-        op = get_ast_enum_member("CompareOperationOp", "ILike");
-      }
     } else if (ctx->REGEX_SINGLE() or ctx->REGEX_DOUBLE()) {
       op = get_ast_enum_member("CompareOperationOp", "Regex");
     } else if (ctx->NOT_REGEX()) {
