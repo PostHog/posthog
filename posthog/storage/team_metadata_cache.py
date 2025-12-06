@@ -279,9 +279,6 @@ TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="team_metadata",
 )
 
-# Derive cache expiry config from hypercache management config (eliminates duplication)
-TEAM_CACHE_EXPIRY_CONFIG = TEAM_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config()
-
 
 def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = None) -> None:
     """
@@ -330,7 +327,7 @@ def get_teams_with_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5
     Returns:
         List of Team objects whose caches need refresh (up to limit)
     """
-    return get_teams_generic(TEAM_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+    return get_teams_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
 def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
@@ -353,8 +350,7 @@ def refresh_expiring_caches(ttl_threshold_hours: int = 24, limit: int = 5000) ->
     Returns:
         Tuple of (successful_refreshes, failed_refreshes)
     """
-    # Metrics are now tracked in cache_expiry_manager.py using consolidated counters
-    return refresh_generic(TEAM_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+    return refresh_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
 def cleanup_stale_expiry_tracking() -> int:
@@ -367,7 +363,7 @@ def cleanup_stale_expiry_tracking() -> int:
     Returns:
         Number of stale entries removed
     """
-    removed = cleanup_generic(TEAM_CACHE_EXPIRY_CONFIG)
+    removed = cleanup_generic(TEAM_HYPERCACHE_MANAGEMENT_CONFIG)
 
     if removed > 0:
         TOMBSTONE_COUNTER.labels(

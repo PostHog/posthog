@@ -209,9 +209,6 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
 )
 
-# Derive cache expiry config from hypercache management config (eliminates duplication)
-FLAGS_CACHE_EXPIRY_CONFIG = FLAGS_HYPERCACHE_MANAGEMENT_CONFIG.cache_expiry_config()
-
 
 def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
     """
@@ -231,7 +228,6 @@ def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
     # Remove from expiry tracking sorted set
     try:
         redis_client = get_client(flags_hypercache.redis_url)
-        # Use HyperCache's centralized identifier logic (ID-based cache uses team.id)
         identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
         redis_client.zrem(FLAGS_CACHE_EXPIRY_SORTED_SET, str(identifier))
     except Exception as e:
@@ -252,7 +248,7 @@ def get_teams_with_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: i
     Returns:
         List of Team objects whose caches need refresh (up to limit)
     """
-    return get_teams_with_expiring_caches(FLAGS_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+    return get_teams_with_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
 def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 5000) -> tuple[int, int]:
@@ -279,8 +275,7 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
     Returns:
         Tuple of (successful_refreshes, failed_refreshes)
     """
-    # Metrics are now tracked in cache_expiry_manager.py using consolidated counters
-    return refresh_expiring_caches(FLAGS_CACHE_EXPIRY_CONFIG, ttl_threshold_hours, limit)
+    return refresh_expiring_caches(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG, ttl_threshold_hours, limit)
 
 
 def cleanup_stale_expiry_tracking() -> int:
@@ -293,7 +288,7 @@ def cleanup_stale_expiry_tracking() -> int:
     Returns:
         Number of stale entries removed
     """
-    removed = cleanup_generic(FLAGS_CACHE_EXPIRY_CONFIG)
+    removed = cleanup_generic(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
 
     if removed > 0:
         TOMBSTONE_COUNTER.labels(namespace="flags", operation="stale_expiry_tracking", component="flags_cache").inc(

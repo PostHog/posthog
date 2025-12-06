@@ -13,11 +13,9 @@ Operations include:
 
 import random
 import statistics
-
-# Import TYPE_CHECKING to avoid circular import at runtime
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from django.conf import settings
 from django.db import connection
@@ -30,9 +28,6 @@ from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache
-
-if TYPE_CHECKING:
-    from posthog.storage.cache_expiry_manager import CacheExpiryConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -236,28 +231,6 @@ class HyperCacheManagementConfig:
     def management_command_name(self) -> str:
         """Name of management command for detailed analysis."""
         return f"analyze_{self.cache_name}_cache_sizes"
-
-    def cache_expiry_config(self, redis_url: str | None = None) -> "CacheExpiryConfig":
-        """
-        Derive CacheExpiryConfig from HyperCache management config.
-
-        This eliminates the need to maintain separate CacheExpiryConfig instances
-        by deriving all expiry config properties from the HyperCache configuration.
-
-        Args:
-            redis_url: Optional Redis URL for dedicated cache. If not provided,
-                      uses hypercache.redis_url, which defaults to settings.REDIS_URL if also None.
-        """
-        from posthog.storage.cache_expiry_manager import CacheExpiryConfig
-
-        return CacheExpiryConfig(
-            cache_name=self.cache_name,
-            query_field="api_token" if self.hypercache.token_based else "id",
-            identifier_type=str if self.hypercache.token_based else int,
-            update_fn=self.update_fn,
-            namespace=self.namespace,
-            redis_url=redis_url if redis_url is not None else self.hypercache.redis_url,
-        )
 
 
 def invalidate_all_caches(config: HyperCacheManagementConfig) -> int:
