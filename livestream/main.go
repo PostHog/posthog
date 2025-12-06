@@ -34,13 +34,16 @@ func main() {
 	}
 
 	stats := events.NewStatsKeeper()
+	sessionStats := events.NewSessionStatsKeeper()
 
 	phEventChan := make(chan events.PostHogEvent, 10000)
 	statsChan := make(chan events.CountEvent, 10000)
+	sessionStatsChan := make(chan events.SessionRecordingEvent, 10000)
 	subChan := make(chan events.Subscription, 10000)
 	unSubChan := make(chan events.Subscription, 10000)
 
 	go stats.KeepStats(statsChan)
+	go sessionStats.KeepStats(sessionStatsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if config.Debug {
@@ -54,11 +57,25 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
+	if config.Kafka.SessionRecordingTopic != "" {
+		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
+			config.Kafka.SessionRecordingBrokers, kafkaSecurityProtocol, config.Kafka.GroupID,
+			config.Kafka.SessionRecordingTopic, sessionStatsChan)
+		if err != nil {
+			log.Printf("Failed to create session recording Kafka consumer: %v", err)
+		} else {
+			defer sessionConsumer.Close()
+			go sessionConsumer.Consume()
+			log.Printf("Session recording consumer started for topic: %s", config.Kafka.SessionRecordingTopic)
+		}
+	}
+
 	go func() {
 		for {
 			metrics.IncomingQueue.Set(consumer.IncomingRatio())
 			metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
 			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
+			metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
 			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
 			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
 			time.Sleep(7127 * time.Millisecond)
@@ -94,7 +111,7 @@ func main() {
 		promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true}),
 	)))
 
-	e.GET("/stats", handlers.StatsHandler(stats))
+	e.GET("/stats", handlers.StatsHandler(stats, sessionStats))
 
 	e.GET("/events", handlers.StreamEventsHandler(e.Logger, subChan, filter))
 
