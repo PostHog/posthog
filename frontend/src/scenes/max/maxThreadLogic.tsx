@@ -49,7 +49,7 @@ import {
 } from '~/queries/schema/schema-assistant-messages'
 import { Conversation, ConversationDetail, ConversationStatus, ConversationType } from '~/types'
 
-import { maxBillingContextLogic } from './maxBillingContextLogic'
+import { MaxBillingContext, MaxBillingContextSubscriptionLevel, maxBillingContextLogic } from './maxBillingContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { maxLogic } from './maxLogic'
 import type { maxThreadLogicType } from './maxThreadLogicType'
@@ -178,6 +178,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         setAgentMode: (agentMode: AgentMode | null) => ({ agentMode }),
         syncAgentModeFromConversation: (agentMode: AgentMode | null) => ({ agentMode }),
         processNotebookUpdate: (notebookId: string, notebookContent: JSONContent) => ({ notebookId, notebookContent }),
+        appendMessageToConversation: (message: string) => ({ message }),
         setForAnotherAgenticIteration: (value: boolean) => ({ value }),
         setToolCallUpdate: (update: AssistantUpdateEvent) => ({ update }),
         setCancelLoading: (cancelLoading: boolean) => ({ cancelLoading }),
@@ -656,6 +657,21 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 console.error('Failed to navigate to notebook:', error)
             }
         },
+        appendMessageToConversation: async ({ message }) => {
+            const conversationId = values.conversationId
+            if (!conversationId) {
+                return
+            }
+
+            await api.conversations.appendMessage(conversationId, message)
+
+            actions.addMessage({
+                type: AssistantMessageType.Assistant,
+                content: message,
+                id: uuid(),
+                status: 'completed',
+            })
+        },
     })),
 
     selectors({
@@ -829,13 +845,27 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
         ],
 
         filteredCommands: [
-            (s) => [s.question, s.featureFlags],
-            (question: string, featureFlags: Record<string, boolean | string>): SlashCommand[] =>
-                MAX_SLASH_COMMANDS.filter(
+            (s) => [s.question, s.featureFlags, s.threadLoading, s.billingContext],
+            (
+                question: string,
+                featureFlags: Record<string, boolean | string>,
+                threadLoading: boolean,
+                billingContext: MaxBillingContext | null
+            ): SlashCommand[] => {
+                const hasPaidPlan =
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.PAID ||
+                    billingContext?.subscription_level === MaxBillingContextSubscriptionLevel.CUSTOM ||
+                    billingContext?.trial?.is_active ||
+                    process.env.NODE_ENV === 'development'
+
+                return MAX_SLASH_COMMANDS.filter(
                     (command) =>
                         command.name.toLowerCase().startsWith(question.toLowerCase()) &&
-                        (!command.flag || featureFlags[command.flag])
-                ),
+                        (!command.flag || featureFlags[command.flag]) &&
+                        (!command.requiresIdle || !threadLoading) &&
+                        (!command.requiresPaidPlan || hasPaidPlan)
+                )
+            },
         ],
 
         showDeepResearchModeToggle: [
