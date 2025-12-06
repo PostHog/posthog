@@ -7,8 +7,6 @@ from unittest import skip
 
 from django.test import override_settings
 
-from parameterized import parameterized
-
 from posthog.schema import (
     Breakdown,
     BreakdownFilter,
@@ -29,13 +27,12 @@ from posthog.hogql_queries.experiments.test.experiment_query_runner.base import 
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_mean_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -141,13 +138,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.key)
                 self.assertIsNotNone(variant.number_of_samples)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_funnel_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentFunnelMetric(
@@ -246,13 +242,12 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_ratio_metric_with_breakdown(self):
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRatioMetric(
@@ -383,14 +378,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_null_breakdown_values(self, name, use_new_query_builder):
+    def test_mean_metric_with_null_breakdown_values(self):
         """Test that NULL breakdown values are handled correctly"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -465,14 +459,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             # variants can be empty if no test variants exist for this breakdown
             self.assertIsInstance(breakdown_result.variants, list)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_winsorization_and_breakdown(self, name, use_new_query_builder):
+    def test_mean_metric_with_winsorization_and_breakdown(self):
         """Test that winsorization computes per-breakdown percentiles, not global percentiles"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         # Use winsorization with p5 and p95 bounds
@@ -576,14 +569,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.variants)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_two_breakdowns(self, name, use_new_query_builder):
+    def test_mean_metric_with_two_breakdowns(self):
         """Test mean metric calculations work correctly with 2 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -708,14 +700,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.number_of_samples)
                 self.assertEqual(variant.number_of_samples, 2)  # 2 users per combination
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_mean_metric_with_three_breakdowns(self, name, use_new_query_builder):
+    def test_mean_metric_with_three_breakdowns(self):
         """Test mean metric calculations work correctly with maximum (3) breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -837,14 +828,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert chrome_windows_desktop is not None
         self.assertEqual(chrome_windows_desktop.baseline.number_of_samples, 2)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_two_breakdowns(self, name, use_new_query_builder):
+    def test_funnel_metric_with_two_breakdowns(self):
         """Test funnel metrics work with 2 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentFunnelMetric(
@@ -939,14 +929,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 4)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_funnel_metric_with_three_breakdowns(self, name, use_new_query_builder):
+    def test_funnel_metric_with_three_breakdowns(self):
         """Test funnel metrics work with 3 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentFunnelMetric(
@@ -1051,14 +1040,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         assert result.breakdown_results is not None
         self.assertEqual(len(result.breakdown_results), 8)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_two_breakdowns(self, name, use_new_query_builder):
+    def test_ratio_metric_with_two_breakdowns(self):
         """Test ratio metrics work with 2 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRatioMetric(
@@ -1178,14 +1166,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.sum)
                 self.assertIsNotNone(variant.denominator_sum)
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_ratio_metric_with_three_breakdowns(self, name, use_new_query_builder):
+    def test_ratio_metric_with_three_breakdowns(self):
         """Test ratio metrics work with 3 breakdown dimensions"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRatioMetric(
@@ -1323,8 +1310,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.baseline.sum)
             self.assertIsNotNone(breakdown_result.baseline.denominator_sum)
 
-    @parameterized.expand([("new_query_builder", True)])
-    def test_breakdown_validation_raises_error_for_more_than_three(self, name, use_new_query_builder):
+    def test_breakdown_validation_raises_error_for_more_than_three(self):
         """Verify that using more than 3 breakdowns raises a ValidationError"""
         from pydantic import ValidationError as PydanticValidationError
 
@@ -1342,14 +1328,13 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         # Verify error message mentions too many items
         self.assertIn("at most 3 items", str(context.exception))
 
-    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_missing_variants_across_breakdown_combinations(self, name, use_new_query_builder):
+    def test_missing_variants_across_breakdown_combinations(self):
         """Verify correct handling when control has all breakdown combinations but test is missing some"""
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -1475,18 +1460,17 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         self.assertTrue(chrome_windows_found, "Chrome+Windows breakdown should exist")
         self.assertTrue(safari_mac_found, "Safari+Mac breakdown should exist")
 
-    @parameterized.expand([("new_query_builder", True)])
     @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_data_warehouse_mean_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_data_warehouse_mean_metric_with_breakdown(self):
         """Test data warehouse mean metrics work with breakdowns"""
         table_name = self.create_data_warehouse_table_with_usage()
         feature_flag = self.create_feature_flag()
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentMeanMetric(
@@ -1557,11 +1541,10 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
             self.assertIsNotNone(breakdown_result.baseline)
             self.assertGreater(len(breakdown_result.variants), 0)
 
-    @parameterized.expand([("new_query_builder", True)])
     @skip("potential flakiness")
     @freeze_time("2023-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_data_warehouse_ratio_metric_with_breakdown(self, name, use_new_query_builder):
+    def test_data_warehouse_ratio_metric_with_breakdown(self):
         """Test data warehouse ratio metrics work with breakdowns"""
         usage_table = self.create_data_warehouse_table_with_usage()
         subscriptions_table = self.create_data_warehouse_table_with_subscriptions()
@@ -1570,7 +1553,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
         experiment = self.create_experiment(
             feature_flag=feature_flag, start_date=datetime(2023, 1, 1), end_date=datetime(2023, 1, 31)
         )
-        experiment.stats_config = {"method": "frequentist", "use_new_query_builder": use_new_query_builder}
+        experiment.stats_config = {"method": "frequentist"}
         experiment.save()
 
         metric = ExperimentRatioMetric(

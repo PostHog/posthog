@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -56,7 +56,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_funnel_metric_with_three_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_funnel_metric_with_three_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -121,7 +121,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_funnel_metric_with_two_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -182,7 +182,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_with_breakdown
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -246,7 +246,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_with_null_breakdown_values
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -310,7 +310,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_three_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_with_three_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -388,7 +388,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_with_two_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -459,7 +459,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_mean_metric_with_winsorization_and_breakdown
   '''
   SELECT winsorized_entity_metrics.variant AS variant,
          winsorized_entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -574,7 +574,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations_0_new_query_builder
+# name: TestExperimentBreakdown.test_missing_variants_across_breakdown_combinations
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -645,7 +645,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_ratio_metric_with_breakdown_0_new_query_builder
+# name: TestExperimentBreakdown.test_ratio_metric_with_breakdown
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -759,7 +759,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_ratio_metric_with_three_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_ratio_metric_with_three_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -899,7 +899,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns_0_new_query_builder
+# name: TestExperimentBreakdown.test_ratio_metric_with_two_breakdowns
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
