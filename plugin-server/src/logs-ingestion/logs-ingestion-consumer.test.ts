@@ -9,6 +9,8 @@ import { createTeam, getFirstTeam, getTeam, resetTestDatabase } from '~/tests/he
 
 import { Hub, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
+import { KAFKA_APP_METRICS_2 } from '../config/kafka-topics'
+import { parseJSON } from '../utils/json-parse'
 import {
     LogsIngestionConsumer,
     logMessageDroppedCounter,
@@ -459,7 +461,11 @@ describe('LogsIngestionConsumer', () => {
 
             await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
 
-            expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
+            // Filter to only the logs topic (excludes app_metrics2 messages)
+            const logsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === 'clickhouse_logs_test')
+            expect(logsMessages).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(3072)
             expect(bytesAllowedSpy).toHaveBeenCalledWith(1024)
             expect(bytesDroppedSpy).toHaveBeenCalledWith(2048)
@@ -480,6 +486,457 @@ describe('LogsIngestionConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(0)
             expect(recordsReceivedSpy).toHaveBeenCalledWith(0)
+        })
+    })
+
+    describe('filterRateLimitedMessages', () => {
+        it('should return usageStats with correct structure for allowed messages', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { allowed, usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+
+            expect(allowed).toHaveLength(1)
+            expect(usageStats.size).toBe(1)
+
+            const stats = usageStats.get(team.id)
+            expect(stats).toBeDefined()
+            expect(stats!.bytesReceived).toBe(1024)
+            expect(stats!.recordsReceived).toBe(5)
+            expect(stats!.bytesAllowed).toBe(1024)
+            expect(stats!.recordsAllowed).toBe(5)
+            expect(stats!.bytesDropped).toBe(0)
+            expect(stats!.recordsDropped).toBe(0)
+        })
+
+        it('should aggregate stats for multiple messages from same team', async () => {
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+
+            const stats = usageStats.get(team.id)
+            expect(stats!.bytesReceived).toBe(300)
+            expect(stats!.recordsReceived).toBe(3)
+            expect(stats!.bytesAllowed).toBe(300)
+            expect(stats!.recordsAllowed).toBe(3)
+        })
+
+        it('should track separate stats for different teams', async () => {
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team2.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+
+            expect(usageStats.size).toBe(2)
+            expect(usageStats.get(team.id)!.bytesAllowed).toBe(100)
+            expect(usageStats.get(team2.id)!.bytesAllowed).toBe(200)
+        })
+
+        it('should track dropped stats when rate limited', async () => {
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1 // 1024 bytes - allows first message
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
+            const messages = [
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '512', // Fits in bucket
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([createLogMessage()], {
+                    token: team.api_token,
+                    bytes_uncompressed: '2048', // Exceeds remaining bucket
+                    record_count: '5',
+                }),
+            ]
+
+            const parsed = await consumer['_parseKafkaBatch'](messages)
+            const { allowed, usageStats } = await consumer['filterRateLimitedMessages'](parsed)
+
+            expect(allowed).toHaveLength(1)
+            const stats = usageStats.get(team.id)
+            expect(stats!.bytesReceived).toBe(2560)
+            expect(stats!.bytesAllowed).toBe(512)
+            expect(stats!.bytesDropped).toBe(2048)
+            expect(stats!.recordsDropped).toBe(5)
+        })
+    })
+
+    describe('produceUsageMetric', () => {
+        it('should produce metric with correct structure', async () => {
+            await consumer['produceUsageMetric'](123, 'test_metric', 500, '2025-01-01 00:00:00.000')
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(messages).toHaveLength(1)
+            const value = messages[0].value
+            expect(value.team_id).toBe(123)
+            expect(value.app_source).toBe('logs')
+            expect(value.app_source_id).toBe('')
+            expect(value.instance_id).toBe('')
+            expect(value.metric_kind).toBe('usage')
+            expect(value.metric_name).toBe('test_metric')
+            expect(value.count).toBe(500)
+            expect(value.timestamp).toBe('2025-01-01 00:00:00.000')
+        })
+
+        it('should not produce metric when count is zero', async () => {
+            await consumer['produceUsageMetric'](123, 'test_metric', 0, '2025-01-01 00:00:00.000')
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(messages).toHaveLength(0)
+        })
+    })
+
+    describe('emitUsageMetrics', () => {
+        it('should emit all metric types for each team', async () => {
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 1000,
+                        recordsReceived: 10,
+                        bytesAllowed: 800,
+                        recordsAllowed: 8,
+                        bytesDropped: 200,
+                        recordsDropped: 2,
+                    },
+                ],
+            ])
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(messages).toHaveLength(6)
+
+            const metricNames = messages.map((m) => m.value.metric_name)
+            expect(metricNames).toContain('bytes_received')
+            expect(metricNames).toContain('records_received')
+            expect(metricNames).toContain('bytes_ingested')
+            expect(metricNames).toContain('records_ingested')
+            expect(metricNames).toContain('bytes_dropped')
+            expect(metricNames).toContain('records_dropped')
+        })
+
+        it('should skip zero-count metrics', async () => {
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 1000,
+                        recordsReceived: 10,
+                        bytesAllowed: 1000,
+                        recordsAllowed: 10,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                    },
+                ],
+            ])
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            // Should only have 4 metrics (no dropped)
+            expect(messages).toHaveLength(4)
+            const metricNames = messages.map((m) => m.value.metric_name)
+            expect(metricNames).not.toContain('bytes_dropped')
+            expect(metricNames).not.toContain('records_dropped')
+        })
+
+        it('should handle empty usageStats', async () => {
+            const usageStats = new Map()
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(messages).toHaveLength(0)
+        })
+
+        it('should emit metrics for multiple teams', async () => {
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 100,
+                        recordsReceived: 1,
+                        bytesAllowed: 100,
+                        recordsAllowed: 1,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                    },
+                ],
+                [
+                    team2.id,
+                    {
+                        bytesReceived: 200,
+                        recordsReceived: 2,
+                        bytesAllowed: 200,
+                        recordsAllowed: 2,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                    },
+                ],
+            ])
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const messages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            // 4 metrics per team (no dropped) = 8 total
+            expect(messages).toHaveLength(8)
+
+            const team1Messages = messages.filter((m) => m.value.team_id === team.id)
+            const team2Messages = messages.filter((m) => m.value.team_id === team2.id)
+            expect(team1Messages).toHaveLength(4)
+            expect(team2Messages).toHaveLength(4)
+        })
+    })
+
+    describe('app metrics emission (integration)', () => {
+        const parseMetricValue = (value: any): any => {
+            if (Buffer.isBuffer(value)) {
+                return parseJSON(value.toString())
+            }
+            if (typeof value === 'string') {
+                return parseJSON(value)
+            }
+            return value
+        }
+
+        it('should emit usage metrics to app_metrics2 topic', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '1024',
+                record_count: '5',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            expect(appMetricsMessages.length).toBeGreaterThan(0)
+
+            const metricNames = appMetricsMessages.map((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name
+            })
+
+            expect(metricNames).toContain('bytes_received')
+            expect(metricNames).toContain('records_received')
+            expect(metricNames).toContain('bytes_ingested')
+            expect(metricNames).toContain('records_ingested')
+        })
+
+        it('should emit correct metric values per team', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '2048',
+                record_count: '10',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            const bytesIngestedMetric = appMetricsMessages.find((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'bytes_ingested'
+            })
+
+            expect(bytesIngestedMetric).toBeDefined()
+            const value = parseMetricValue(bytesIngestedMetric!.value)
+            expect(value.team_id).toBe(team.id)
+            expect(value.app_source).toBe('logs')
+            expect(value.metric_kind).toBe('usage')
+            expect(value.count).toBe(2048)
+        })
+
+        it('should emit dropped metrics when rate limited', async () => {
+            hub.LOGS_LIMITER_BUCKET_SIZE_KB = 1
+            hub.LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND = 0.001
+            hub.LOGS_LIMITER_TTL_SECONDS = 3600
+
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub)
+
+            const logData1 = createLogMessage({ message: 'First' })
+            const logData2 = createLogMessage({ message: 'Second - will be dropped' })
+
+            const messages = [
+                ...createKafkaMessages([logData1], {
+                    token: team.api_token,
+                    bytes_uncompressed: '512',
+                    record_count: '2',
+                }),
+                ...createKafkaMessages([logData2], {
+                    token: team.api_token,
+                    bytes_uncompressed: '2048',
+                    record_count: '8',
+                }),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            const bytesDroppedMetric = appMetricsMessages.find((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'bytes_dropped'
+            })
+
+            expect(bytesDroppedMetric).toBeDefined()
+            const value = parseMetricValue(bytesDroppedMetric!.value)
+            expect(value.count).toBe(2048)
+        })
+
+        it('should aggregate metrics across multiple messages from same team', async () => {
+            const logData1 = createLogMessage({ message: 'First' })
+            const logData2 = createLogMessage({ message: 'Second' })
+
+            const messages = [
+                ...createKafkaMessages([logData1], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([logData2], {
+                    token: team.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            const bytesIngestedMetric = appMetricsMessages.find((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'bytes_ingested' && value.team_id === team.id
+            })
+
+            expect(bytesIngestedMetric).toBeDefined()
+            const value = parseMetricValue(bytesIngestedMetric!.value)
+            expect(value.count).toBe(300) // 100 + 200
+        })
+
+        it('should emit separate metrics for different teams', async () => {
+            const logData1 = createLogMessage({ message: 'Team 1' })
+            const logData2 = createLogMessage({ message: 'Team 2' })
+
+            const messages = [
+                ...createKafkaMessages([logData1], {
+                    token: team.api_token,
+                    bytes_uncompressed: '100',
+                    record_count: '1',
+                }),
+                ...createKafkaMessages([logData2], {
+                    token: team2.api_token,
+                    bytes_uncompressed: '200',
+                    record_count: '2',
+                }),
+            ]
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            const team1Metrics = appMetricsMessages.filter((m) => {
+                const value = parseMetricValue(m.value)
+                return value.team_id === team.id && value.metric_name === 'bytes_ingested'
+            })
+
+            const team2Metrics = appMetricsMessages.filter((m) => {
+                const value = parseMetricValue(m.value)
+                return value.team_id === team2.id && value.metric_name === 'bytes_ingested'
+            })
+
+            expect(team1Metrics).toHaveLength(1)
+            expect(team2Metrics).toHaveLength(1)
+            expect(parseMetricValue(team1Metrics[0].value).count).toBe(100)
+            expect(parseMetricValue(team2Metrics[0].value).count).toBe(200)
+        })
+
+        it('should not emit metrics with zero count', async () => {
+            const logData = createLogMessage()
+            const messages = createKafkaMessages([logData], {
+                token: team.api_token,
+                bytes_uncompressed: '100',
+                record_count: '1',
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            const appMetricsMessages = mockProducerObserver
+                .getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+
+            // Should not have bytes_dropped or records_dropped since nothing was dropped
+            const droppedMetrics = appMetricsMessages.filter((m) => {
+                const value = parseMetricValue(m.value)
+                return value.metric_name === 'bytes_dropped' || value.metric_name === 'records_dropped'
+            })
+
+            expect(droppedMetrics).toHaveLength(0)
         })
     })
 })
