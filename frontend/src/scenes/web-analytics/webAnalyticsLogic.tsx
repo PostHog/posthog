@@ -62,7 +62,6 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
@@ -99,7 +98,6 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-    WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
     eventPropertiesToPathClean,
@@ -182,66 +180,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         resetTileVisibility: () => true,
     }),
     loaders(({ values }) => ({
-        // load the status check query here and pass the response into the component, so the response
-        // is accessible in this logic
-        statusCheck: {
-            __default: null as WebAnalyticsStatusCheck | null,
-            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$web_vitals',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageview',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageleave',
-                    }),
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageleave'],
-                        properties: ['$prev_pageview_max_content_percentage'],
-                    }),
-                ])
-
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const webVitalsEntry =
-                    webVitalsResult.status === 'fulfilled'
-                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
-                        : undefined
-
-                const pageviewEntry =
-                    pageviewResult.status === 'fulfilled'
-                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
-                        : undefined
-
-                const pageleaveEntry =
-                    pageleaveResult.status === 'fulfilled'
-                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
-                        : undefined
-
-                const pageleaveScrollEntry =
-                    pageleaveScroll.status === 'fulfilled'
-                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
-                        : undefined
-
-                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
-                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
-                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
-                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
-
-                return {
-                    isSendingWebVitals,
-                    isSendingPageViews,
-                    isSendingPageLeaves,
-                    isSendingPageLeavesScroll,
-                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
-                }
-            },
-        },
         shouldShowGeoIPQueries: {
             _default: null as boolean | null,
             loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
@@ -2155,7 +2093,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
-        actions.loadStatusCheck()
         actions.loadShouldShowGeoIPQueries()
     }),
 
@@ -2182,6 +2119,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter,
                 tileVisualizations,
             } = values
+
+            // These tabs don't support any filters, so we can just return the base path to keep the url clean
+            if (productTab === ProductTab.HEALTH) {
+                return '/web/health'
+            }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
             // spreading from their individual dropdowns to the global filters list
@@ -2253,6 +2195,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             } else if (productTab === ProductTab.MARKETING) {
                 basePath = '/web/marketing'
             }
+
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2304,9 +2247,13 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }: Record<string, any>
         ): void => {
             if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
-                    productTab
-                )
+                ![
+                    ProductTab.ANALYTICS,
+                    ProductTab.WEB_VITALS,
+                    ProductTab.PAGE_REPORTS,
+                    ProductTab.MARKETING,
+                    ProductTab.HEALTH,
+                ].includes(productTab)
             ) {
                 return
             }
