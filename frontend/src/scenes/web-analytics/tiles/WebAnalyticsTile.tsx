@@ -568,7 +568,12 @@ export const MarketingAnalyticsTrendTile = ({
         { value: MarketingAnalyticsColumnsSchemaNames.Cost, label: 'Cost' },
         { value: MarketingAnalyticsColumnsSchemaNames.Impressions, label: 'Impressions' },
         { value: MarketingAnalyticsColumnsSchemaNames.Clicks, label: 'Clicks' },
-        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported Conversion' },
+        { value: MarketingAnalyticsColumnsSchemaNames.ReportedConversion, label: 'Reported conversion' },
+        {
+            value: MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue,
+            label: 'Reported conversion value',
+        },
+        { value: 'roas', label: 'Reported ROAS' },
     ]
     return (
         <div className="border rounded bg-surface-primary flex-1 flex flex-col">

@@ -168,10 +168,15 @@ export function createMarketingAnalyticsOrderBy(
 ): MarketingAnalyticsOrderBy[] {
     return [[column, direction]]
 }
-export type validColumnsForTiles = Extract<
-    MarketingAnalyticsColumnsSchemaNames,
-    'cost' | 'impressions' | 'clicks' | 'reported_conversion'
->
+export type validColumnsForTiles =
+    | Extract<
+          MarketingAnalyticsColumnsSchemaNames,
+          'cost' | 'impressions' | 'clicks' | 'reported_conversion' | 'reported_conversion_value'
+      >
+    | 'roas'
+
+// Raw column types that have actual column mappings (excludes calculated fields like ROAS)
+export type rawColumnsForTiles = Exclude<validColumnsForTiles, 'roas'>
 
 interface ColumnConfig {
     name: string
@@ -184,6 +189,7 @@ interface SourceColumnMappings {
     impressions: string
     clicks: string
     reportedConversion: string
+    reportedConversionValue: string
     costNeedsDivision?: boolean
     currencyColumn?: string
     fallbackCurrency?: string
@@ -208,6 +214,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'metrics_impressions',
             clicks: 'metrics_clicks',
             reportedConversion: 'metrics_conversions',
+            reportedConversionValue: 'metrics_conversions_value',
             costNeedsDivision: true,
             currencyColumn: 'customer_currency_code',
             fallbackCurrency: 'USD',
@@ -221,6 +228,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversion_purchase_total_items',
+            reportedConversionValue: 'conversion_purchase_total_value',
             costNeedsDivision: true,
             currencyColumn: 'currency',
         },
@@ -229,7 +237,14 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                 return {
                     math: 'hogql' as any,
                     math_hogql:
-                        'SUM(toFloat(conversion_signup_total_value) + toFloat(conversion_purchase_total_items))',
+                        'SUM(ifNull(toFloat(conversion_signup_total_value), 0) + ifNull(toFloat(conversion_purchase_total_items), 0))',
+                }
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                return {
+                    math: 'hogql' as any,
+                    math_hogql:
+                        'SUM(ifNull(toFloat(conversion_purchase_total_value), 0) + ifNull(toFloat(conversion_signup_total_value), 0))',
                 }
             }
             return null
@@ -243,7 +258,24 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'external_website_conversions',
+            reportedConversionValue: 'conversion_value_in_local_currency',
             fallbackCurrency: 'USD',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                const hasConversionValueColumn = table.fields && 'conversion_value_in_local_currency' in table.fields
+                if (hasConversionValueColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(ifNull(toFloat(conversion_value_in_local_currency), 0))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
         },
     },
     MetaAds: {
@@ -254,6 +286,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversions',
+            reportedConversionValue: 'conversion_values',
             currencyColumn: 'account_currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
@@ -263,6 +296,19 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversions))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                const hasConversionValuesColumn = table.fields && 'conversion_values' in table.fields
+                if (hasConversionValuesColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(ifNull(toFloat(conversion_values), 0))',
                     }
                 }
                 return {
@@ -281,6 +327,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversion',
+            reportedConversionValue: 'total_complete_payment_value',
             currencyColumn: 'currency',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
@@ -290,6 +337,19 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversion))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                const hasConversionValueColumn = table.fields && 'total_complete_payment_value' in table.fields
+                if (hasConversionValueColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(ifNull(toFloat(total_complete_payment_value), 0))',
                     }
                 }
                 return {
@@ -308,6 +368,7 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
             impressions: 'impressions',
             clicks: 'clicks',
             reportedConversion: 'conversions',
+            reportedConversionValue: 'revenue',
             currencyColumn: 'currency_code',
         },
         specialConversionLogic: (table, tileColumnSelection) => {
@@ -317,6 +378,19 @@ const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
                     return {
                         math: 'hogql' as any,
                         math_hogql: 'SUM(toFloat(conversions))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue) {
+                const hasRevenueColumn = table.fields && 'revenue' in table.fields
+                if (hasRevenueColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(ifNull(toFloat(revenue), 0))',
                     }
                 }
                 return {
@@ -334,7 +408,7 @@ function createColumnConfig(columnName: string, type: 'float' | 'integer', needs
 }
 
 function buildSourceConfig(mappings: SourceColumnMappings): {
-    columns: { [key in validColumnsForTiles]: ColumnConfig }
+    columns: { [key in rawColumnsForTiles]: ColumnConfig }
 } {
     return {
         columns: {
@@ -349,6 +423,10 @@ function buildSourceConfig(mappings: SourceColumnMappings): {
                 mappings.reportedConversion,
                 'integer'
             ),
+            [MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue]: createColumnConfig(
+                mappings.reportedConversionValue,
+                'float'
+            ),
         },
     }
 }
@@ -356,7 +434,7 @@ function buildSourceConfig(mappings: SourceColumnMappings): {
 export const columnTileConfig: {
     [key in NativeMarketingSource]: {
         columns: {
-            [key in validColumnsForTiles]: ColumnConfig
+            [key in rawColumnsForTiles]: ColumnConfig
         }
     }
 } = Object.fromEntries(
@@ -384,7 +462,51 @@ export function createMarketingTile(
         return null
     }
 
-    const column = columnTileConfig[sourceType].columns[tileColumnSelection]
+    // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
+    if (tileColumnSelection === 'roas') {
+        const mappings = tileConfig.columnMappings
+        const costColumn = mappings.cost
+        const conversionValueColumn = mappings.reportedConversionValue
+        const needsDivision = mappings.costNeedsDivision
+
+        // Build cost expression
+        const costExpr = needsDivision ? `toFloat(${costColumn} / 1000000)` : `toFloat(${costColumn})`
+
+        // Build conversion value expression - check if column exists
+        const hasConversionValueColumn = table.fields && conversionValueColumn in table.fields
+        if (!hasConversionValueColumn) {
+            // If no conversion value column, ROAS is 0
+            return {
+                kind: NodeKind.DataWarehouseNode,
+                id: table.id,
+                name: integrationConfig.primarySource,
+                custom_name: `${table.name} roas`,
+                id_field: tileConfig.idField,
+                distinct_id_field: tileConfig.idField,
+                timestamp_field: tileConfig.timestampField,
+                table_name: table.name,
+                math: 'hogql' as any,
+                math_hogql: '0',
+            }
+        }
+
+        const mathHogql = `SUM(ifNull(toFloat(${conversionValueColumn}), 0)) / nullIf(SUM(${costExpr}), 0)`
+
+        return {
+            kind: NodeKind.DataWarehouseNode,
+            id: table.id,
+            name: integrationConfig.primarySource,
+            custom_name: `${table.name} roas`,
+            id_field: tileConfig.idField,
+            distinct_id_field: tileConfig.idField,
+            timestamp_field: tileConfig.timestampField,
+            table_name: table.name,
+            math: 'hogql' as any,
+            math_hogql: mathHogql,
+        }
+    }
+
+    const column = columnTileConfig[sourceType].columns[tileColumnSelection as rawColumnsForTiles]
     if (!column) {
         return null
     }
