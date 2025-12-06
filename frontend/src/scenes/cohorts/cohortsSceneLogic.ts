@@ -61,7 +61,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setCohortSorting: (sorting: Sorting | null) => ({ sorting }),
-        openQuickSurveyModal: (cohortId: number) => ({ cohortId }),
+        openQuickSurveyModal: (cohortId: number, cohortName?: string) => ({ cohortId, cohortName }),
         closeQuickSurveyModal: true,
     })),
     reducers({
