@@ -952,8 +952,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -1630,8 +1629,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -2066,8 +2064,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -2217,8 +2214,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -5163,8 +5159,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -7222,8 +7217,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
@@ -9163,8 +9157,7 @@
   INNER JOIN "posthog_team" ON ("posthog_featureflag"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_featureflagevaluationtag" ON ("posthog_featureflag"."id" = "posthog_featureflagevaluationtag"."feature_flag_id")
   LEFT OUTER JOIN "posthog_tag" ON ("posthog_featureflagevaluationtag"."tag_id" = "posthog_tag"."id")
-  WHERE ("posthog_featureflag"."active"
-         AND NOT "posthog_featureflag"."deleted"
+  WHERE (NOT "posthog_featureflag"."deleted"
          AND "posthog_team"."project_id" = 99999)
   GROUP BY "posthog_featureflag"."id"
   '''
