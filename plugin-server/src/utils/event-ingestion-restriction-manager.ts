@@ -59,6 +59,7 @@ export class EventIngestionRestrictionManager {
             try {
                 logger.info('🔁', 'ingestion_event_restriction_manager - refreshing dynamic config in the background')
                 const config = await this.fetchDynamicEventIngestionRestrictionConfig()
+                logger.info('🔁', 'ingestion_event_restriction_manager - dynamic config refreshed', { config })
                 this.latestDynamicConfig = config
                 return config
             } catch (error) {
