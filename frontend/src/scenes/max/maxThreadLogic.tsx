@@ -793,15 +793,9 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                 isSharedThread || formPending || multiQuestionFormPending || (threadLoading && !dataProcessingAccepted),
         ],
 
-        submissionDisabledReason: [
-            (s) => [s.formPending, s.multiQuestionFormPending, s.question, s.threadLoading, s.activeStreamingThreads],
-            (
-                formPending,
-                multiQuestionFormPending,
-                question,
-                threadLoading,
-                activeStreamingThreads
-            ): string | undefined => {
+        contextDisabledReason: [
+            (s) => [s.formPending, s.multiQuestionFormPending, s.threadLoading, s.activeStreamingThreads],
+            (formPending, multiQuestionFormPending, threadLoading, activeStreamingThreads): string | undefined => {
                 // Allow users to cancel the generation
                 if (threadLoading) {
                     return undefined
@@ -815,16 +809,23 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'Please answer the questions above'
                 }
 
-                if (!question) {
-                    return 'I need some input first'
-                }
-
                 // Prevent submission if there are active streaming threads
                 if (activeStreamingThreads > 0) {
                     return 'Please wait for one of the chats to finish'
                 }
 
                 return undefined
+            },
+        ],
+
+        submissionDisabledReason: [
+            (s) => [s.contextDisabledReason, s.question],
+            (contextDisabledReason, question): string | undefined => {
+                if (!question) {
+                    return 'I need some input first'
+                }
+
+                return contextDisabledReason
             },
         ],
 
