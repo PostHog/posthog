@@ -2698,6 +2698,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'marketing_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
