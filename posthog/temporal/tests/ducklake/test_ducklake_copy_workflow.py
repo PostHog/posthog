@@ -124,7 +124,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
             },
         },
     }
-    monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda: override_config)
+    monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda filename: override_config)
     verification_config._get_data_modeling_verification_config.cache_clear()
     request.addfinalizer(verification_config._get_data_modeling_verification_config.cache_clear)
 
