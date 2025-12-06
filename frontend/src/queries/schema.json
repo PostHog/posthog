@@ -2528,6 +2528,9 @@
                 "breakdown_normalize_url": {
                     "type": "boolean"
                 },
+                "breakdown_path_cleaning": {
+                    "type": "boolean"
+                },
                 "breakdown_type": {
                     "anyOf": [
                         {
