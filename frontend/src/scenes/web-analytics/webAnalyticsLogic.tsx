@@ -971,6 +971,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     showIntervalSelect: true,
                     insightProps: createInsightProps(TileId.GRAPHS, id),
                     canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                    canOpenModal: true,
                 })
 
                 const createTableTab = (
@@ -1029,7 +1030,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 hideTooltipOnScroll: true,
                             },
                             canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                            canOpenModal: false,
+                            canOpenModal: true,
                         }
                     }
 
@@ -1057,7 +1058,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             columns,
                         },
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
-                        canOpenModal: false,
+                        canOpenModal: true,
                     }
                 }
 
@@ -1169,6 +1170,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
+                        canOpenModal: false,
                     },
                     {
                         kind: 'tabs',
