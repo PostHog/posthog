@@ -46,7 +46,7 @@ export function PlayerSidebar(): JSX.Element {
     ]
 
     // Show AI summary tab in the second position if the flag is enabled
-    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY]) {
+    if (featureFlags[FEATURE_FLAGS.AI_SESSION_SUMMARY] || featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION]) {
         sidebarTabs.splice(1, 0, SessionRecordingSidebarTab.SESSION_SUMMARY)
     }
 
