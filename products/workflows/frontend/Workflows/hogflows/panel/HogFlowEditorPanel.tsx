@@ -93,7 +93,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                             )}
                             {selectedNode.deletable && (
                                 <LemonButton
-                                    size="xsmall"
+                                    size="small"
                                     status="danger"
                                     icon={<IconTrash />}
                                     onClick={() => {

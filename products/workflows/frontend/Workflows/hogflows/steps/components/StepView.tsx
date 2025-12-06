@@ -1,6 +1,8 @@
+import { useReactFlow } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconTrash } from '@posthog/icons'
 import { LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -14,9 +16,12 @@ import { StepViewMetrics } from './StepViewMetrics'
 import { StepViewLogicProps, stepViewLogic } from './stepViewLogic'
 
 export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
-    const { selectedNode, mode } = useValues(hogFlowEditorLogic)
+    const { selectedNode, mode, nodesById, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
+    const { setSelectedNodeId } = useActions(hogFlowEditorLogic)
     const { actionValidationErrorsById, logicProps } = useValues(workflowLogic)
+    const { deleteElements } = useReactFlow()
     const isSelected = selectedNode?.id === action.id
+    const node = nodesById[action.id]
 
     const stepViewLogicProps: StepViewLogicProps = { action, workflowLogicProps: logicProps }
     const { isEditingName, isEditingDescription, editNameValue, editDescriptionValue } = useValues(
@@ -166,11 +171,31 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                     )}
                 </div>
             </div>
-            {hasValidationError && (
+            {isSelected && node?.deletable ? (
+                <Tooltip title={selectedNodeCanBeDeleted ? 'Delete action' : 'Clean up branching steps first'}>
+                    <IconTrash
+                        className={`absolute -top-1 -right-1 text-white p-0.5 bg-danger-light rounded shadow-sm transition-all z-20 ${
+                            selectedNodeCanBeDeleted
+                                ? 'cursor-pointer hover:bg-danger hover:scale-110'
+                                : 'cursor-not-allowed opacity-90'
+                        }`}
+                        style={{ fontSize: '12px' }}
+                        onClick={
+                            selectedNodeCanBeDeleted
+                                ? (e) => {
+                                      e.stopPropagation()
+                                      void deleteElements({ nodes: [node] })
+                                      setSelectedNodeId(null)
+                                  }
+                                : undefined
+                        }
+                    />
+                </Tooltip>
+            ) : hasValidationError ? (
                 <div className="absolute top-0 right-0 scale-75">
                     <LemonBadge status="warning" size="small" content="!" position="top-right" />
                 </div>
-            )}
+            ) : null}
             {mode === 'metrics' && (
                 <div
                     style={{
