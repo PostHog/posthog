@@ -83,6 +83,7 @@ export enum Scene {
     Login = 'Login',
     Login2FA = 'Login2FA',
     EmailMFAVerify = 'EmailMFAVerify',
+    MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
