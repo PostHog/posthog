@@ -26,7 +26,7 @@ class Command(BaseCommand):
     help = "Add and enable all feature flags in frontend/src/lib/constants.tsx for all projects"
 
     def handle(self, *args, **options):
-        flags: dict[str, str] = {}
+        flags: dict[str, str | list[str]] = {}
         with open("frontend/src/lib/constants.tsx", encoding="utf_8") as f:
             lines = f.readlines()
             parsing_flags = False
@@ -43,7 +43,7 @@ class Command(BaseCommand):
                                 if len(variant_keys) == 1 and variant_keys[0] == "true":
                                     flags[flag] = ["control", "test"]
                                 else:
-                                    flags[flag] = variant_keys
+                                    flags[flag] = cast(list[str], variant_keys)
                             else:
                                 flags[flag] = "boolean"
                         except IndexError:
@@ -64,7 +64,9 @@ class Command(BaseCommand):
                     ff.deleted = False
                     ff.active = is_enabled
                     ff.save()
-                    print(f"Undeleted feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}")
+                    print(
+                        f"Undeleted feature flag '{flag}' for team {team.id} {' - ' + team.name if team.name else ''}"
+                    )
                 elif flag not in existing_flags:
                     if isinstance(flag_type, list):
                         FeatureFlag.objects.create(
