@@ -1172,6 +1172,47 @@ When set, the specified dashboard's filters and date range override will be appl
 
         return response
 
+    @action(methods=["GET"], detail=True)
+    def suggestions(self, request: Request, **kwargs) -> Response:
+        from posthog.schema import InsightVizNode
+
+        from posthog.api.insight_suggestions import get_insight_suggestions
+        from posthog.api.services.query import process_query_model
+        from posthog.hogql_queries.query_runner import ExecutionMode
+
+        insight = self.get_object()
+
+        if not insight.query:
+            return Response([])
+
+        try:
+            query = InsightVizNode.model_validate(insight.query)
+        except Exception:
+            return Response([])
+
+        result = None
+        try:
+            # We try to get cached result.
+            result_ctx = process_query_model(
+                self.team,
+                query,
+                execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
+                user=request.user,
+            )
+            if isinstance(result_ctx, BaseModel):
+                result = result_ctx.model_dump()
+            else:
+                result = result_ctx
+
+            if result and result.get("results") is None and result.get("result") is None:
+                result = None
+        except Exception:
+            result = None
+
+        suggestions = get_insight_suggestions(query, self.team, result)
+
+        return Response([s.model_dump() for s in suggestions])
+
     @extend_schema(exclude=True)
     @action(methods=["GET", "POST"], detail=False, required_scopes=["insight:read"])
     def trend(self, request: request.Request, *args: Any, **kwargs: Any):
