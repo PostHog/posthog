@@ -1,19 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { CyclotronJobInputType } from '~/types'
-
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
-import { StepFunctionNode } from './hogFunctionStepLogic'
+import { StepHogFunctionNode } from './hogFunctionStepLogic'
 
-export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }): JSX.Element {
+export function StepFunctionConfiguration({ node }: { node: StepHogFunctionNode }): JSX.Element {
     const { actionValidationErrorsById } = useValues(workflowLogic)
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
 
     const templateId = node.data.config.template_id
     const validationResult = actionValidationErrorsById[node.id]
-    const inputs = node.data.config.inputs as Record<string, CyclotronJobInputType>
+    const inputs = node.data.config.inputs
+    const mappings = node.data.config.mappings
 
     return (
         <>
@@ -22,6 +21,8 @@ export function StepFunctionConfiguration({ node }: { node: StepFunctionNode }):
                 templateId={templateId}
                 inputs={inputs}
                 setInputs={(inputs) => partialSetWorkflowActionConfig(node.id, { inputs })}
+                mappings={mappings}
+                setMappings={(mappings) => partialSetWorkflowActionConfig(node.id, { mappings })}
                 errors={validationResult?.errors}
             />
         </>

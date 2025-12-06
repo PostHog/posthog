@@ -94,6 +94,11 @@ describe('HogFunctionHandler', () => {
                                     value: 1,
                                 },
                             },
+                            mappings: [
+                                {
+                                    name: 'input mapping field',
+                                },
+                            ],
                         },
                     },
                     exit: {
@@ -177,6 +182,41 @@ describe('HogFunctionHandler', () => {
         const callArgs = (mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mock.calls[0]
         expect(callArgs[0]).toBeTruthy()
         expect(callArgs[1]).toBe(action)
+    })
+
+    it('should pass proper inputs to buildHogFunctionInvocation', async () => {
+        const buildHogFunctionInvocationSpy = jest.spyOn(mockHogFlowFunctionsService, 'buildHogFunctionInvocation')
+
+        const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+            queue: 'hog',
+            queuePriority: 0,
+        })
+
+        await hogFunctionHandler.execute({ invocation, action, result: invocationResult })
+
+        const calledConfig = buildHogFunctionInvocationSpy.mock.calls[0][1]
+        expect(calledConfig.inputs).toEqual({
+            name: {
+                value: 'John Doe',
+            },
+            oauth: {
+                value: 1,
+            },
+        })
+        expect(calledConfig.inputs_schema).toEqual([
+            {
+                key: 'name',
+                type: 'string',
+                required: true,
+            },
+            {
+                key: 'oauth',
+                type: 'integration',
+                required: true,
+            },
+        ])
+        expect(calledConfig.template_id).toEqual('template-test-hogflow-executor')
+        expect(calledConfig.mappings).toEqual([{ name: 'input mapping field' }])
     })
 
     it('should skip execution if recipient preferences service returns true', async () => {
