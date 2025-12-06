@@ -7,6 +7,7 @@ export type QuickSurveyContext =
     | { type: QuickSurveyType.FUNNEL; funnel: FunnelContext }
     | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
     | { type: QuickSurveyType.ANNOUNCEMENT }
+    | { type: QuickSurveyType.COHORT; cohortId: number; cohortName?: string }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
@@ -19,4 +20,5 @@ export enum QuickSurveyType {
     FUNNEL = 'funnel',
     EXPERIMENT = 'experiment',
     ANNOUNCEMENT = 'announcement',
+    COHORT = 'cohort',
 }
