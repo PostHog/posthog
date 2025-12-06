@@ -1497,3 +1497,69 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_ids = [r["id"] for r in response_data["results"]]
         assert "nonexistent_session" not in session_ids
         assert "existing_session" in session_ids
+
+    @parameterized.expand(
+        [
+            (
+                "recordings_older_than_7_days_with_30_day_retention",
+                "30d",
+                10,
+                "Regression test: recordings older than 7 days should be found using team retention period",
+            ),
+            (
+                "recordings_older_than_7_days_with_90_day_retention",
+                "90d",
+                15,
+                "Regression test: recordings older than 7 days should be found with 90 day retention",
+            ),
+        ]
+    )
+    def test_bulk_delete_recordings_older_than_7_days(
+        self, _test_name: str, retention_period: str, days_old: int, _description: str
+    ):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["user1"],
+            properties={"email": "test@example.com"},
+        )
+
+        # Set team retention period
+        self.team.session_recording_retention_period = retention_period
+        self.team.save()
+
+        # Create recording older than default 7 day lookback
+        old_recording_time = now() - relativedelta(days=days_old)
+        session_id_old = f"bulk_delete_{days_old}_days_old"
+        self.produce_replay_summary("user1", session_id_old, old_recording_time)
+
+        # Create a recent recording within default 7 day lookback
+        recent_recording_time = now() - relativedelta(days=5)
+        session_id_recent = "bulk_delete_5_days_old"
+        self.produce_replay_summary("user1", session_id_recent, recent_recording_time)
+
+        # Verify no PostgreSQL records exist yet
+        assert not SessionRecording.objects.filter(team=self.team, session_id=session_id_old).exists()
+        assert not SessionRecording.objects.filter(team=self.team, session_id=session_id_recent).exists()
+
+        # Bulk delete both recordings
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/session_recordings/bulk_delete",
+            {"session_recording_ids": [session_id_old, session_id_recent]},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+
+        # Both recordings should be deleted successfully
+        assert response_data["success"]
+        assert response_data["deleted_count"] == 2
+        assert response_data["total_requested"] == 2
+
+        # Verify PostgreSQL records were created and marked as deleted
+        old_recording = SessionRecording.objects.get(team=self.team, session_id=session_id_old)
+        assert old_recording.deleted
+        assert old_recording.distinct_id == "user1"
+
+        recent_recording = SessionRecording.objects.get(team=self.team, session_id=session_id_recent)
+        assert recent_recording.deleted
+        assert recent_recording.distinct_id == "user1"
