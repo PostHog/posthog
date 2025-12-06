@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { RefObject, useEffect, useRef, useState } from 'react'
+import { combineUrl, router } from 'kea-router'
+import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -29,20 +29,20 @@ import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
+import { urls } from 'scenes/urls'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
+import { projectDragDataFromEntry, projectDroppableId } from './ProjectDragAndDropContext'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
-import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -79,7 +79,6 @@ export function ProjectTree({
     showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
-    const { viableItems } = useValues(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -88,7 +87,6 @@ export function ProjectTree({
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
-        searchResults,
         checkedItems,
         checkedItemCountNumeric,
         scrollTargetId,
@@ -102,14 +100,12 @@ export function ProjectTree({
     const {
         createFolder,
         rename,
-        moveItem,
         toggleFolderOpen,
         setLastViewedId,
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
         onItemChecked,
-        moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
@@ -125,6 +121,10 @@ export function ProjectTree({
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
+    const newTabProjectExplorerEnabled = useFeatureFlag('NEW_TAB_PROJECT_EXPLORER')
+
+    const droppableScope = useMemo(() => `project-tree-${logicKey ?? uniqueKey}` as const, [logicKey, uniqueKey])
+    const rootProtocol = root ?? 'project://'
 
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
 
@@ -142,6 +142,12 @@ export function ProjectTree({
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
+
+    const getTreeItemProtocol = (item: TreeDataItem): string =>
+        ((item.record as FileSystemEntry & { protocol?: string })?.protocol as string | undefined) ?? 'project://'
+
+    const getTreeItemPath = (item: TreeDataItem): string =>
+        (item.record as FileSystemEntry | undefined)?.path || item.id
 
     const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
     if (fullFileSystemFiltered.length <= 5) {
@@ -321,8 +327,31 @@ export function ProjectTree({
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
                 resetPanelLayout(false)
             }}
-            onFolderClick={(folder, isExpanded) => {
-                if (folder) {
+            onFolderRowClick={(folder, event) => {
+                if (!newTabProjectExplorerEnabled) {
+                    return
+                }
+
+                const expandToggle = (event.target as HTMLElement | null)?.closest('[data-lemon-tree-expand-toggle]')
+
+                if (expandToggle) {
+                    return
+                }
+
+                const folderPath = folder.record?.path
+
+                if (folderPath === undefined) {
+                    return
+                }
+
+                event.preventDefault()
+                event.stopPropagation()
+
+                const searchUrl = combineUrl(urls.newTab(), { folder: folderPath }).url
+                router.actions.push(searchUrl)
+            }}
+            onFolderClick={(folder, isExpanded, event) => {
+                if (folder && !event.isPropagationStopped()) {
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
@@ -339,37 +368,25 @@ export function ProjectTree({
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
-            onDragEnd={(dragEvent) => {
-                const itemToId = (item: FileSystemEntry): string =>
-                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
-                const oldId = dragEvent.active.id as string
-                const newId = dragEvent.over?.id
-                if (oldId === newId) {
-                    return false
-                }
-
-                const items = searchTerm && searchResults.results ? searchResults.results : viableItems
-                const oldItem = items.find((i) => itemToId(i) === oldId)
-                const newItem = items.find((i) => itemToId(i) === newId)
-                if (oldItem === newItem || !oldItem) {
-                    return false
-                }
-
-                const folder = newItem
-                    ? newItem.path || ''
-                    : newId && String(newId).startsWith('project://')
-                      ? String(newId).substring(10)
-                      : ''
-
-                if (checkedItems[oldId]) {
-                    moveCheckedItems(folder)
-                } else {
-                    const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
-                    if (isValidMove) {
-                        moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
-                    }
-                }
-            }}
+            useExternalDndContext
+            getItemDraggableId={(item) =>
+                projectDroppableId(getTreeItemPath(item), getTreeItemProtocol(item), droppableScope)
+            }
+            getItemDroppableId={(item) =>
+                projectDroppableId(getTreeItemPath(item), getTreeItemProtocol(item), droppableScope)
+            }
+            rootDroppableId={projectDroppableId('', rootProtocol, `${droppableScope}-root`)}
+            getItemDragData={(item) =>
+                item.record
+                    ? projectDragDataFromEntry(
+                          item.record as FileSystemEntry,
+                          logicKey ?? uniqueKey,
+                          checkedItems[item.id]
+                              ? Object.keys(checkedItems).filter((key) => checkedItems[key])
+                              : undefined
+                      )
+                    : undefined
+            }
             isItemDraggable={(item) => {
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
