@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
+import { prefetchPersonsStep } from '~/worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -299,6 +300,7 @@ export class IngestionConsumer {
                             // We want to call cookieless with the whole batch at once.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub.cookielessManager))
+                            .pipeBatch(prefetchPersonsStep(this.personsStore, this.hub.PERSONS_PREFETCH_ENABLED))
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )
