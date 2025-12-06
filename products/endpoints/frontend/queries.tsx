@@ -1,4 +1,5 @@
 import { ChartAxis } from '~/queries/schema/schema-general'
+import { hogql } from '~/queries/utils'
 
 export interface QueryConfig {
     dateFrom: string
@@ -7,13 +8,18 @@ export interface QueryConfig {
     requestNameFilter: string[]
 }
 
+const formatSelectColumns = (columns: (string | false | null | undefined)[]): string =>
+    columns.filter(Boolean).join(',\n        ')
+
+const formatCommaSeparated = (items: (string | false | null | undefined)[]): string =>
+    items.filter(Boolean).join(', ')
+
 const createRequestNameFilterClause = (requestNameFilter: string[]): string => {
     if (requestNameFilter.length === 0) {
         return ''
     }
 
-    const escapedNames = requestNameFilter.map((name) => `'${name.replace(/'/g, "''")}'`).join(', ')
-    return `and name in (${escapedNames})`
+    return hogql`and has(${requestNameFilter}, name)`
 }
 
 export const createExpensiveQueriesColumns = (requestNameBreakdownEnabled: boolean): ChartAxis[] => {
@@ -148,138 +154,197 @@ export const createApiQueriesCountQuery = ({
     dateTo,
     requestNameBreakdownEnabled,
     requestNameFilter,
-}: QueryConfig): string => `
-    select 
-        event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : ''} 
-        count(1) as number_of_queries
-    from query_log
-    where is_personal_api_key_request 
-        and event_date >= '${dateFrom}' 
-        and event_date <= '${dateTo}'
-        ${createRequestNameFilterClause(requestNameFilter)}
-    group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
-    order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
+}: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'event_date',
+        requestNameBreakdownEnabled && 'name',
+        'count(1) as number_of_queries',
+    ])
+    const groupByColumns = formatCommaSeparated(['event_date', requestNameBreakdownEnabled && 'name'])
+    const orderByColumns = formatCommaSeparated(['event_date asc', requestNameBreakdownEnabled && 'name asc'])
+    const requestNameFilterClause = createRequestNameFilterClause(requestNameFilter)
+
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            ${hogql.raw(requestNameFilterClause)}
+        group by ${hogql.raw(groupByColumns)}
+        order by ${hogql.raw(orderByColumns)}
+    `
+}
 
 export const createApiReadTbQuery = ({
     dateFrom,
     dateTo,
     requestNameBreakdownEnabled,
     requestNameFilter,
-}: QueryConfig): string => `
-    select 
-        event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : ''}
-        sum(read_bytes)/1e12 as read_tb
-    from query_log
-    where 
-        is_personal_api_key_request 
-        and event_date >= '${dateFrom}' 
-        and event_date <= '${dateTo}'
-        ${createRequestNameFilterClause(requestNameFilter)}
-    group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
-    order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
+}: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'event_date',
+        requestNameBreakdownEnabled && 'name',
+        'sum(read_bytes) / 1e12 as read_tb',
+    ])
+    const groupByColumns = formatCommaSeparated(['event_date', requestNameBreakdownEnabled && 'name'])
+    const orderByColumns = formatCommaSeparated(['event_date asc', requestNameBreakdownEnabled && 'name asc'])
+    const requestNameFilterClause = createRequestNameFilterClause(requestNameFilter)
+
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            ${hogql.raw(requestNameFilterClause)}
+        group by ${hogql.raw(groupByColumns)}
+        order by ${hogql.raw(orderByColumns)}
+    `
+}
 
 export const createApiCpuSecondsQuery = ({
     dateFrom,
     dateTo,
     requestNameBreakdownEnabled,
     requestNameFilter,
-}: QueryConfig): string => `
-    select 
-        event_date, 
-        ${requestNameBreakdownEnabled ? 'name,' : ''}
-        sum(cpu_microseconds)/1e6 as cpu_sec
-    from query_log
-    where 
-        is_personal_api_key_request 
-        and event_date >= '${dateFrom}' 
-        and event_date <= '${dateTo}'
-        ${createRequestNameFilterClause(requestNameFilter)}
-    group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
-    order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
+}: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'event_date',
+        requestNameBreakdownEnabled && 'name',
+        'sum(cpu_microseconds) / 1e6 as cpu_sec',
+    ])
+    const groupByColumns = formatCommaSeparated(['event_date', requestNameBreakdownEnabled && 'name'])
+    const orderByColumns = formatCommaSeparated(['event_date asc', requestNameBreakdownEnabled && 'name asc'])
+    const requestNameFilterClause = createRequestNameFilterClause(requestNameFilter)
 
-export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig): string => `
-    select 
-        event_date, 
-        api_key_label, 
-        count(1) as total_queries
-    from query_log 
-    where 
-        event_date >= '${dateFrom}'
-        and event_date <= '${dateTo}'
-        and is_personal_api_key_request
-    group by event_date, api_key_label
-    order by event_date`
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            ${hogql.raw(requestNameFilterClause)}
+        group by ${hogql.raw(groupByColumns)}
+        order by ${hogql.raw(orderByColumns)}
+    `
+}
+
+export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig): string => {
+    return hogql`
+        select
+            event_date,
+            api_key_label,
+            count(1) as total_queries
+        from query_log
+        where
+            event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            and is_personal_api_key_request
+        group by event_date, api_key_label
+        order by event_date
+    `
+}
 
 export const createLast20QueriesQuery = ({
     dateFrom,
     dateTo,
     requestNameBreakdownEnabled,
     requestNameFilter,
-}: QueryConfig): string => `
-    select 
-        event_time as finished_at, 
-        ${requestNameBreakdownEnabled ? 'name,' : ''}
-        query, 
-        query_duration_ms, 
-        api_key_label,
-        created_by 
-    from query_log
-    where
-        is_personal_api_key_request
-        and event_date >= '${dateFrom}'
-        and event_date <= '${dateTo}'
-        ${createRequestNameFilterClause(requestNameFilter)}
-    order by event_time desc
-    limit 20`
+}: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'event_time as finished_at',
+        requestNameBreakdownEnabled && 'name',
+        'query',
+        'query_duration_ms',
+        'api_key_label',
+        'created_by',
+    ])
+    const requestNameFilterClause = createRequestNameFilterClause(requestNameFilter)
+
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            ${hogql.raw(requestNameFilterClause)}
+        order by event_time desc
+        limit 20
+    `
+}
 
 export const createExpensiveQueriesQuery = ({
     dateFrom,
     dateTo,
     requestNameBreakdownEnabled,
     requestNameFilter,
-}: QueryConfig): string => `
-    select 
-        query_start_time, 
-        ${requestNameBreakdownEnabled ? 'name,' : ''}
-        query,
-        query_duration_ms,
-        api_key_label,
-        read_bytes / 1e12 as read_tb,
-        formatReadableSize(read_bytes) as human_readable_read_size,
-        cpu_microseconds / 1e6 as cpu_sec,
-        memory_usage,
-        created_by
-    from query_log
-    where 
-        is_personal_api_key_request
-        and event_date >= '${dateFrom}'
-        and event_date <= '${dateTo}'
-        ${createRequestNameFilterClause(requestNameFilter)}
-    order by read_tb desc, event_time desc
-    limit 25`
+}: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'query_start_time',
+        requestNameBreakdownEnabled && 'name',
+        'query',
+        'query_duration_ms',
+        'api_key_label',
+        'read_bytes / 1e12 as read_tb',
+        'formatReadableSize(read_bytes) as human_readable_read_size',
+        'cpu_microseconds / 1e6 as cpu_sec',
+        'memory_usage',
+        'created_by',
+    ])
+    const requestNameFilterClause = createRequestNameFilterClause(requestNameFilter)
+    const orderByColumns = formatCommaSeparated(['read_tb desc', 'event_time desc'])
 
-export const createFailedQueriesQuery = ({ dateFrom, dateTo }: QueryConfig): string => `
-    select 
-        event_time as finished_at,
-        query_id,
-        endpoint,
-        query, 
-        query_duration_ms,
-        name,
-        read_bytes / 1e12 as read_tb,
-        formatReadableSize(read_bytes) as human_readable_read_size,
-        cpu_microseconds / 1e6 as cpu_sec,
-        memory_usage,
-        status,
-        exception_code, 
-        exception_name,
-    from query_log 
-    where 
-        is_personal_api_key_request
-        and exception_code != 0 
-        and event_date >= '${dateFrom}'
-        and event_date <= '${dateTo}'
-    order by read_tb desc, event_time desc
-    limit 25`
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+            ${hogql.raw(requestNameFilterClause)}
+        order by ${hogql.raw(orderByColumns)}
+        limit 25
+    `
+}
+
+export const createFailedQueriesQuery = ({ dateFrom, dateTo }: QueryConfig): string => {
+    const selectColumns = formatSelectColumns([
+        'event_time as finished_at',
+        'query_id',
+        'endpoint',
+        'query',
+        'query_duration_ms',
+        'name',
+        'read_bytes / 1e12 as read_tb',
+        'formatReadableSize(read_bytes) as human_readable_read_size',
+        'cpu_microseconds / 1e6 as cpu_sec',
+        'memory_usage',
+        'status',
+        'exception_code',
+        'exception_name',
+    ])
+    const orderByColumns = formatCommaSeparated(['read_tb desc', 'event_time desc'])
+
+    return hogql`
+        select
+            ${hogql.raw(selectColumns)}
+        from query_log
+        where
+            is_personal_api_key_request
+            and exception_code != 0
+            and event_date >= ${dateFrom}
+            and event_date <= ${dateTo}
+        order by ${hogql.raw(orderByColumns)}
+        limit 25
+    `
+}
