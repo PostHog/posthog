@@ -117,7 +117,6 @@ export function InsightViz({
             showingResults={showingResults}
             embedded={isEmbedded}
             inSharedMode={inSharedMode}
-            insightProps={insightProps as InsightLogicProps}
         />
     )
 
