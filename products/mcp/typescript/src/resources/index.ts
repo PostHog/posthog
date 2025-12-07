@@ -49,10 +49,7 @@ async function fetchExamplesMarkdown(context: Context): Promise<Unzipped> {
         return cachedExamplesMarkdown
     }
 
-    const response = await fetch(url, {
-        // Disable HTTP caching for local development
-        cache: localUrl ? 'no-store' : 'default',
-    })
+    const response = await fetch(url, localUrl ? { cache: 'no-store' } : {})
 
     if (!response.ok) {
         throw new Error(`Failed to fetch examples markdown from ${url}: ${response.statusText}`)
