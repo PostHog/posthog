@@ -66,7 +66,13 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="block font-medium">Filter options</label>
-                            <LemonButton size="small" type="secondary" icon={<IconPlus />} onClick={addOption}>
+                            <LemonButton
+                                data-attr="quick-filter-form-add-option-button"
+                                size="small"
+                                type="secondary"
+                                icon={<IconPlus />}
+                                onClick={addOption}
+                            >
                                 Add option
                             </LemonButton>
                         </div>
@@ -97,10 +103,16 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                 </div>
 
                 <div className="flex justify-between gap-2 pt-4 border-t">
-                    <LemonButton type="secondary" onClick={handleFormBack} disabled={quickFiltersLoading}>
+                    <LemonButton
+                        data-attr="quick-filter-form-back-button"
+                        type="secondary"
+                        onClick={handleFormBack}
+                        disabled={quickFiltersLoading}
+                    >
                         Back
                     </LemonButton>
                     <LemonButton
+                        data-attr="quick-filter-form-submit-button"
                         type="primary"
                         htmlType="submit"
                         loading={quickFiltersLoading || isQuickFilterSubmitting}

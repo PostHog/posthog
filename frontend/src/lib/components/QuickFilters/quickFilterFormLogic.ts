@@ -97,7 +97,7 @@ export const quickFilterFormLogic = kea<quickFilterFormLogicType>([
 
                         const operatorNeedsValue = !operatorsWithoutValues.includes(opt.operator as PropertyOperator)
                         if (operatorNeedsValue) {
-                            if (!opt.value) {
+                            if (!opt.value || (Array.isArray(opt.value) && opt.value.length === 0)) {
                                 optError.value = 'Value is required'
                                 hasOptionErrors = true
                             }
