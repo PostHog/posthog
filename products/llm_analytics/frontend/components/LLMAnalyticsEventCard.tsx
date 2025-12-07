@@ -39,7 +39,7 @@ export function LLMAnalyticsEventCard({ event, isExpanded, onToggleExpand }: LLM
     const spanName = event.properties.$ai_span_name || 'Unnamed span'
 
     return (
-        <div className="border rounded bg-bg-3000">
+        <div className="border rounded bg-card">
             <div className="p-2 hover:bg-side-light cursor-pointer flex items-center gap-2" onClick={onToggleExpand}>
                 <div className="flex-shrink-0">
                     {isExpanded ? (

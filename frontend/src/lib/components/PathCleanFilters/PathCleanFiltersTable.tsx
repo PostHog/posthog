@@ -72,7 +72,7 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                 style={style}
                 className={clsx('border-b border-border hover:bg-card transition-colors duration-150 bg-card', {
                     'border-warning': isInvalidRegex,
-                    'bg-bg-3000': isDragging,
+                    'bg-card': isDragging,
                     'shadow-lg': isDragging,
                 })}
             >
@@ -202,7 +202,7 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                 modifiers={[restrictToVerticalAxis]}
             >
                 <table className="w-full bg-card table-fixed">
-                    <thead className="bg-bg-3000">
+                    <thead className="bg-card">
                         <tr>
                             <th className="py-2 px-2 w-8" />
                             <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">

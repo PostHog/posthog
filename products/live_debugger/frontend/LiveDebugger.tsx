@@ -76,7 +76,7 @@ export function LiveDebugger(): JSX.Element {
 
                     {/* Middle - Breakpoint instances for selected line */}
                     <div className="w-64 border rounded bg-card overflow-hidden flex flex-col">
-                        <div className="px-2 py-1.5 border-b bg-bg-3000 flex items-center justify-between">
+                        <div className="px-2 py-1.5 border-b bg-card flex items-center justify-between">
                             <span className="font-semibold text-xs">
                                 {selectedLineForHits ? `Line ${selectedLineForHits}` : 'Hits'}
                             </span>

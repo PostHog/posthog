@@ -178,7 +178,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                                             {browserUrlSearchOptions.slice(0, 5).map((url) => (
                                                 <button
                                                     key={url}
-                                                    className="w-full text-left px-3 py-2 hover:bg-bg-3000 text-sm truncate"
+                                                    className="w-full text-left px-3 py-2 hover:bg-card text-sm truncate"
                                                     onClick={() => {
                                                         setDisplayUrl(url)
                                                         setBrowserSearch('')

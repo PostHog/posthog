@@ -46,7 +46,7 @@ export function FeedGroupedCard({ items, config }: FeedGroupedCardProps): JSX.El
             data-attr={`feed-group-${items[0]?.type || 'unknown'}`}
         >
             <div
-                className="p-4 bg-bg-light hover:bg-bg-3000 cursor-pointer transition-all group"
+                className="p-4 bg-bg-light hover:bg-card cursor-pointer transition-all group"
                 onClick={() => setIsExpanded(!isExpanded)}
                 data-attr={`feed-group-toggle-${items[0]?.type || 'unknown'}`}
             >
@@ -71,7 +71,7 @@ export function FeedGroupedCard({ items, config }: FeedGroupedCardProps): JSX.El
 
             {isExpanded && (
                 <div className="border-t border-border">
-                    <div className="p-4 space-y-4 bg-bg-3000">
+                    <div className="p-4 space-y-4 bg-card">
                         {items.map((item) => (
                             <FeedItemRow key={`${item.type}-${item.id}`} item={item} config={config} />
                         ))}

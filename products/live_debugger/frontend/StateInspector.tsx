@@ -18,7 +18,7 @@ function VariableDisplay({ variables }: { variables: Record<string, any> }): JSX
                         <div className="flex items-center gap-2 mb-1">
                             <div className="text-muted-foreground text-xs font-semibold">{key}</div>
                             {parsed.typeName && (
-                                <div className="text-xs text-muted-foreground bg-bg-3000 px-1.5 py-0.5 rounded font-mono">
+                                <div className="text-xs text-muted-foreground bg-card px-1.5 py-0.5 rounded font-mono">
                                     {parsed.typeName}
                                 </div>
                             )}
@@ -50,7 +50,7 @@ export function StateInspector({
 
     return (
         <div className="flex-[2] border rounded bg-card overflow-hidden flex flex-col">
-            <div className="flex items-center justify-between p-2 border-b bg-bg-3000">
+            <div className="flex items-center justify-between p-2 border-b bg-card">
                 <span className="font-semibold">Debug Details</span>
                 <button onClick={() => selectInstance(null)} className="text-muted-foreground hover:text-default">
                     <IconX />
@@ -66,7 +66,7 @@ export function StateInspector({
                 {selectedInstance.stackTrace && (
                     <div>
                         <h4 className="font-semibold text-sm mb-2">Stack Trace</h4>
-                        <div className="text-xs font-mono bg-bg-3000 p-2 rounded max-h-96 overflow-auto space-y-1">
+                        <div className="text-xs font-mono bg-card p-2 rounded max-h-96 overflow-auto space-y-1">
                             {selectedInstance.stackTrace.map((frame: any, i: number) => {
                                 const functionName = frame[1]
                                 const fileName = frame[0]

@@ -23,7 +23,7 @@ export function RepositoryBrowser(): JSX.Element {
     return (
         <>
             <div className="flex-1 border rounded bg-card overflow-hidden flex flex-col">
-                <div className="p-2 border-b bg-bg-3000">
+                <div className="p-2 border-b bg-card">
                     <span className="font-semibold">Files</span>
                 </div>
                 <div className="p-2 border-b">
@@ -58,7 +58,7 @@ export function RepositoryBrowser(): JSX.Element {
             </div>
 
             <div className="flex-[2] border rounded bg-card overflow-hidden flex flex-col">
-                <div className="flex items-center justify-between p-2 border-b bg-bg-3000">
+                <div className="flex items-center justify-between p-2 border-b bg-card">
                     <span className="font-semibold">{selectedFilePath ? selectedFilePath : 'Code'}</span>
                     <LemonButton
                         size="small"

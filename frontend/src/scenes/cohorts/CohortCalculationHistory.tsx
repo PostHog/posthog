@@ -187,7 +187,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                                             <summary className="cursor-pointer text-foreground">
                                                                 Show Query
                                                             </summary>
-                                                            <pre className="mt-2 text-xs bg-bg-3000 p-2 rounded overflow-auto">
+                                                            <pre className="mt-2 text-xs bg-card p-2 rounded overflow-auto">
                                                                 {query.query}
                                                             </pre>
                                                         </details>
@@ -201,7 +201,7 @@ export function CohortCalculationHistory(props: CohortCalculationHistoryProps): 
                                 {record.filters && (
                                     <div className="mt-4">
                                         <h4>Filters Used</h4>
-                                        <pre className="text-xs bg-bg-3000 p-2 rounded overflow-auto">
+                                        <pre className="text-xs bg-card p-2 rounded overflow-auto">
                                             {JSON.stringify(record.filters, null, 2)}
                                         </pre>
                                     </div>

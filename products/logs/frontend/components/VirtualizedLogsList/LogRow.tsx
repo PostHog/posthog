@@ -179,7 +179,7 @@ export function LogRowHeader({ rowWidth }: { rowWidth: number }): JSX.Element {
 
     return (
         <div
-            className="flex items-center h-8 border-b border-border bg-bg-3000 text-xs font-semibold text-muted-foreground sticky top-0 z-10"
+            className="flex items-center h-8 border-b border-border bg-card text-xs font-semibold text-muted-foreground sticky top-0 z-10"
             style={{ width: rowWidth }}
         >
             {LOG_COLUMNS.map((column) => (

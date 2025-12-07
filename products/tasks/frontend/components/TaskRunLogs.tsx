@@ -92,7 +92,7 @@ export function TaskRunLogs({ logs, loading }: TaskRunLogsProps): JSX.Element {
 
     return (
         <div className="p-4">
-            <pre className="bg-bg-3000 text-default p-4 rounded overflow-auto font-mono text-xs">
+            <pre className="bg-card text-default p-4 rounded overflow-auto font-mono text-xs">
                 {logLines.map((line, index) => (
                     <LogLine key={index} line={line} index={index} />
                 ))}

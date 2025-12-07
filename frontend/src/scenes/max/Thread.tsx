@@ -623,7 +623,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                             return (
                                 <div
                                     key={notebook.notebook_id}
-                                    className="flex items-center justify-between p-3 bg-bg-3000 rounded border border-border-light"
+                                    className="flex items-center justify-between p-3 bg-card rounded border border-border-light"
                                 >
                                     <div className="flex items-start gap-3">
                                         <IconNotebook className="size-4 text-foreground-alt mt-0.5" />

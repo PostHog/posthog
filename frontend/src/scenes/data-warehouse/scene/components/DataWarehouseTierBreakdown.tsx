@@ -52,7 +52,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
     const projectedCost = parseFloat(tier.projected_amount_usd || '0')
 
     return (
-        <div className="border rounded-lg p-4 bg-card hover:bg-bg-3000 transition-colors">
+        <div className="border rounded-lg p-4 bg-card hover:bg-card transition-colors">
             <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
                     <div className="font-medium text-sm mb-1">{tierName}</div>

@@ -24,7 +24,7 @@ export function CodeLine({
     return (
         <div
             className={clsx(
-                'flex items-center group hover:bg-bg-3000 transition-colors',
+                'flex items-center group hover:bg-card transition-colors',
                 hasNewHits && 'bg-yellow-100 dark:bg-yellow-900/20'
             )}
         >

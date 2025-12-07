@@ -161,7 +161,7 @@ export function SharePasswordsTable({ dashboardId, insightId, recordingId }: Sha
                             <div className="text-sm text-muted-foreground mb-3">
                                 Save this password - it won't be shown again for security reasons.
                             </div>
-                            <div className="rounded bg-bg-3000 border border-border p-3">
+                            <div className="rounded bg-card border border-border p-3">
                                 <div className="flex items-center justify-between gap-2">
                                     <div className="flex-1 overflow-hidden">
                                         <div className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">

@@ -215,7 +215,7 @@ function PatternCard({
     )
 
     const content = (
-        <div className="p-2 bg-bg-3000">
+        <div className="p-2 bg-card">
             <p className="mb-3 text-sm font-medium">Examples from sessions:</p>
             <div className="flex flex-col gap-2">
                 {pattern.events.slice(0, visibleCount).map((event, index) => (
