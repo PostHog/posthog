@@ -10,30 +10,18 @@ from posthog.schema import (
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
-    FunnelsFilter,
-    FunnelVizType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.models import Team
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
 class SourceTableKind(Enum):
     EVENTS = auto()
     DATA_WAREHOUSE = auto()
-
-
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
-
-    if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
-        return FunnelTrendsUDF
-
-    return FunnelUDF
 
 
 def funnel_window_interval_unit_to_sql(
