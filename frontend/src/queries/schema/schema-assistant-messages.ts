@@ -392,6 +392,8 @@ export enum AgentMode {
     ProductAnalytics = 'product_analytics',
     SQL = 'sql',
     SessionReplay = 'session_replay',
+    Plan = 'plan',
+    Research = 'research',
 }
 
 export enum SlashCommandName {

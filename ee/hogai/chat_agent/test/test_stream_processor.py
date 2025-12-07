@@ -26,8 +26,6 @@ from posthog.schema import (
     FailureMessage,
     MultiVisualizationMessage,
     NotebookArtifactContent,
-    NotebookUpdateMessage,
-    ProsemirrorJSONContent,
     TrendsQuery,
     VisualizationArtifactContent,
     VisualizationItem,
@@ -273,7 +271,7 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        # VisualizationMessage is filtered for nested messages - only ArtifactMessage, NotebookUpdateMessage, FailureMessage pass
+        # VisualizationMessage is filtered for nested messages - only ArtifactMessage, FailureMessage pass
         self.assertIsNone(result)
 
     async def test_nested_multi_visualization_message_filtered(self):
@@ -294,30 +292,8 @@ class TestStreamProcessor(BaseTest):
         )
         result = await self.stream_processor.process(event)
 
-        # MultiVisualizationMessage is filtered for nested messages - only ArtifactMessage, NotebookUpdateMessage, FailureMessage pass
+        # MultiVisualizationMessage is filtered for nested messages - only ArtifactMessage, FailureMessage pass
         self.assertIsNone(result)
-
-    async def test_nested_notebook_message_returned(self):
-        """Test NotebookUpdateMessage from nested node/graph is returned."""
-        content = ProsemirrorJSONContent(type="doc", content=[])
-        notebook_message = NotebookUpdateMessage(notebook_id="nb123", content=content)
-
-        node_path = (
-            NodePath(name=AssistantGraphName.ASSISTANT),
-            NodePath(name=AssistantNodeName.ROOT, message_id=str(uuid4()), tool_call_id=str(uuid4())),
-            NodePath(name=AssistantGraphName.INSIGHTS),
-            NodePath(name=AssistantNodeName.TRENDS_GENERATOR),
-        )
-
-        event = self._create_dispatcher_event(
-            MessageAction(message=notebook_message), node_name=AssistantNodeName.TRENDS_GENERATOR, node_path=node_path
-        )
-        result = await self.stream_processor.process(event)
-
-        self.assertIsNotNone(result)
-        assert result is not None
-        self.assertEqual(len(result), 1)
-        self.assertEqual(result[0], notebook_message)
 
     async def test_nested_failure_message_returned(self):
         """Test FailureMessage from nested node/graph is returned."""

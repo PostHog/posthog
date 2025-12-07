@@ -38,6 +38,8 @@ class AgentMode(StrEnum):
     PRODUCT_ANALYTICS = "product_analytics"
     SQL = "sql"
     SESSION_REPLAY = "session_replay"
+    PLAN = "plan"
+    RESEARCH = "research"
 
 
 class AggregationAxisFormat(StrEnum):

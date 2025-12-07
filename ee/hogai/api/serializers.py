@@ -10,6 +10,7 @@ from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.artifacts.manager import ArtifactManager
 from ee.hogai.chat_agent import AssistantGraph
+from ee.hogai.research_agent.graph import ResearchAgentGraph
 from ee.hogai.utils.helpers import should_output_assistant_message
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
@@ -21,6 +22,7 @@ _conversation_fields = ["id", "status", "title", "user", "created_at", "updated_
 CONVERSATION_TYPE_MAP: dict[Conversation.Type, tuple[type[AssistantGraph], type[AssistantMaxGraphState]]] = {
     Conversation.Type.ASSISTANT: (AssistantGraph, AssistantState),
     Conversation.Type.TOOL_CALL: (AssistantGraph, AssistantState),
+    Conversation.Type.DEEP_RESEARCH: (ResearchAgentGraph, AssistantState),
 }
 
 
