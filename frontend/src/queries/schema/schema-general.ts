@@ -3433,6 +3433,12 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
+export enum DataWarehouseSavedQueryOrigin {
+    DATA_WAREHOUSE = 'data_warehouse',
+    ENDPOINT = 'endpoint',
+    MANAGED_VIEWSET = 'managed_viewset',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
     type: 'managed_view'
