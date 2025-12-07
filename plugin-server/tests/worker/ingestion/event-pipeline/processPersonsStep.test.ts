@@ -3,7 +3,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineResultType, isOkResult } from '~/ingestion/pipelines/results'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { BatchWritingPersonsStore } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'
 import { closeHub, createHub } from '../../../../src/utils/db/hub'
@@ -66,10 +66,7 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(
-                new PostgresPersonRepository(runner.hub.db.postgres),
-                runner.hub.kafkaProducer
-            )
+            new BatchWritingPersonsStore(new PostgresPersonRepository(runner.hub.db.postgres), runner.hub.kafkaProducer)
         )
 
         expect(result.type).toBe(PipelineResultType.OK)
@@ -115,10 +112,7 @@ describe('processPersonsStep()', () => {
             team,
             timestamp,
             processPerson,
-            new BatchWritingPersonsStoreForBatch(
-                new PostgresPersonRepository(runner.hub.db.postgres),
-                runner.hub.kafkaProducer
-            )
+            new BatchWritingPersonsStore(new PostgresPersonRepository(runner.hub.db.postgres), runner.hub.kafkaProducer)
         )
 
         expect(result.type).toBe(PipelineResultType.OK)

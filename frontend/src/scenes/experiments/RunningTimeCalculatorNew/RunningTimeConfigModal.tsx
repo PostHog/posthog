@@ -8,7 +8,7 @@ import { Label } from 'lib/ui/Label/Label'
 
 import { Experiment } from '~/types'
 
-import { MetricMathType } from './calculations'
+import { ManualCalculatorMetricType } from './calculations'
 import { runningTimeLogic } from './runningTimeLogic'
 
 export interface RunningTimeConfigModalProps {
@@ -16,30 +16,30 @@ export interface RunningTimeConfigModalProps {
     tabId: string
 }
 
-const METRIC_TYPE_OPTIONS: { value: MetricMathType; label: string }[] = [
+const METRIC_TYPE_OPTIONS: { value: ManualCalculatorMetricType; label: string }[] = [
     { value: 'funnel', label: 'Funnel' },
-    { value: 'count', label: 'Count' },
-    { value: 'sum', label: 'Sum/Avg' },
+    { value: 'mean_count', label: 'Count' },
+    { value: 'mean_sum_or_avg', label: 'Sum/Avg' },
 ]
 
-function getBaselineLabel(metricType: MetricMathType): string {
+function getBaselineLabel(metricType: ManualCalculatorMetricType): string {
     switch (metricType) {
         case 'funnel':
             return 'Baseline conversion rate'
-        case 'count':
+        case 'mean_count':
             return 'Avg events per user'
-        case 'sum':
+        case 'mean_sum_or_avg':
             return 'Avg property value per user'
     }
 }
 
-function getBaselineHelp(metricType: MetricMathType): string {
+function getBaselineHelp(metricType: ManualCalculatorMetricType): string {
     switch (metricType) {
         case 'funnel':
             return 'Expected conversion rate for the control group (0-100%)'
-        case 'count':
+        case 'mean_count':
             return 'Average number of events per user in the control group'
-        case 'sum':
+        case 'mean_sum_or_avg':
             return 'Average property value per user in the control group'
     }
 }
@@ -106,7 +106,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 fullWidth
                                 options={METRIC_TYPE_OPTIONS}
                                 value={config.metricType}
-                                onChange={(value) => setConfig({ metricType: value as MetricMathType })}
+                                onChange={(value) => setConfig({ metricType: value as ManualCalculatorMetricType })}
                             />
                         </div>
 

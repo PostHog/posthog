@@ -41,13 +41,16 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
     CustomerAnalytics: () => import('../../products/customer_analytics/frontend/CustomerAnalyticsScene'),
+    CustomerAnalyticsConfiguration: () =>
+        import(
+            '../../products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'
+        ),
     DataWarehouse: () => import('../../products/data_warehouse/DataWarehouseScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
     EndpointsUsage: () => import('../../products/endpoints/frontend/EndpointsUsage'),
     EndpointScene: () => import('../../products/endpoints/frontend/EndpointScene'),
-    EndpointNew: () => import('../../products/endpoints/frontend/EndpointScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -97,13 +100,13 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
     '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+    '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
     '/early_access_features': ['EarlyAccessFeatures', 'earlyAccessFeatures'],
     '/early_access_features/:id': ['EarlyAccessFeature', 'earlyAccessFeature'],
     '/endpoints': ['EndpointsScene', 'endpoints'],
     '/endpoints/usage': ['EndpointsScene', 'endpointsUsage'],
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
-    '/endpoints/new': ['EndpointNew', 'endpointNew'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/configuration': ['ErrorTrackingConfiguration', 'errorTrackingConfiguration'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
@@ -203,6 +206,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Understand how your customers interact with your product ',
         iconType: 'cohort',
     },
+    CustomerAnalyticsConfiguration: { projectBased: true, name: 'Customer analytics configuration' },
     DataWarehouse: {
         name: 'Data warehouse',
         projectBased: true,
@@ -249,7 +253,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'endpoints',
     },
     EndpointScene: { projectBased: true, name: 'Endpoint', activityScope: 'Endpoint' },
-    EndpointNew: { projectBased: true, name: 'EndpointNew', activityScope: 'Endpoint' },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -373,10 +376,10 @@ export const productConfiguration: Record<string, any> = {
         projectBased: true,
         defaultDocsPath: '/docs/tasks',
         activityScope: 'TaskTracker',
-        description: 'Tasks are a way to track your work and get things done.',
+        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
         iconType: 'task',
     },
-    TaskDetail: { name: 'Task Detail', projectBased: true, activityScope: 'TaskDetail' },
+    TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
     UserInterviews: {
         name: 'User interviews',
         projectBased: true,
@@ -408,6 +411,7 @@ export const productUrls = {
     cohorts: (): string => '/cohorts',
     cohortCalculationHistory: (id: string | number): string => `/cohorts/${id}/calculation-history`,
     customerAnalytics: (): string => '/customer_analytics',
+    customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     dashboards: (): string => '/dashboard',
     dashboard: (id: string | number, highlightInsightId?: string): string =>
         combineUrl(`/dashboard/${id}`, highlightInsightId ? { highlightInsightId } : {}).url,
@@ -482,6 +486,7 @@ export const productUrls = {
             timestamp?: string
             exception_ts?: string
             search?: string
+            tab?: string
         }
     ): string => {
         const queryParams = new URLSearchParams(params)
@@ -515,6 +520,7 @@ export const productUrls = {
     logs: (): string => '/logs',
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
+    marketingAnalyticsApp: (): string => '/marketing',
     notebooks: (): string => '/notebooks',
     notebook: (shortId: string): string => `/notebooks/${shortId}`,
     canvas: (): string => `/canvas`,
@@ -592,7 +598,21 @@ export const productUrls = {
             ...(order ? { order } : {}),
         }).url,
     replayPlaylist: (id: string): string => `/replay/playlists/${id}`,
-    replaySingle: (id: string): string => `/replay/${id}`,
+    replaySingle: (
+        id: string,
+        options?: {
+            secondsOffsetFromStart?: number
+            unixTimestampMillis?: number
+        }
+    ): string => {
+        if (options?.unixTimestampMillis) {
+            return `/replay/${id}?timestamp=${options.unixTimestampMillis}`
+        }
+        if (options?.secondsOffsetFromStart) {
+            return `/replay/${id}?t=${options.secondsOffsetFromStart}`
+        }
+        return `/replay/${id}`
+    },
     replayFilePlayback: (): string => '/replay/file-playback',
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     revenueAnalytics: (): string => '/revenue_analytics',
@@ -609,6 +629,7 @@ export const productUrls = {
     webAnalyticsWebVitals: (): string => `/web/web-vitals`,
     webAnalyticsPageReports: (): string => `/web/page-reports`,
     webAnalyticsMarketing: (): string => `/web/marketing`,
+    webAnalyticsHealth: (): string => `/web/health`,
     workflows: (tab?: WorkflowsSceneTab): string => `/workflows${tab ? `/${tab}` : ''}`,
     workflow: (id: string, tab: string): string => `/workflows/${id}/${tab}`,
     workflowNew: (): string => '/workflows/new/workflow',
@@ -904,13 +925,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Customer analytics',
         intents: [ProductKey.CUSTOMER_ANALYTICS],
-        category: 'Unreleased',
+        category: 'Analytics',
         iconType: 'cohort',
         href: urls.customerAnalytics(),
         tags: ['alpha'],
         flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         sceneKey: 'CustomerAnalytics',
-        sceneKeys: ['CustomerAnalytics'],
+        sceneKeys: ['CustomerAnalytics', 'CustomerAnalyticsConfiguration'],
     },
     {
         path: 'Dashboards',
@@ -965,11 +986,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.endpoints(),
         type: 'endpoints',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
+        tags: ['beta'],
         iconType: 'endpoints',
         iconColor: ['var(--color-product-endpoints-light)'] as FileSystemIconColor,
         sceneKey: 'EndpointsScene',
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Error tracking',
@@ -1068,14 +1089,26 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
         path: 'Logs',
         intents: [ProductKey.LOGS],
-        category: 'Unreleased',
+        category: 'Behavior',
         iconType: 'logs' as FileSystemIconType,
         iconColor: ['var(--color-product-logs-light)'] as FileSystemIconColor,
         href: urls.logs(),
         flag: FEATURE_FLAGS.LOGS_PRE_EARLY_ACCESS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Logs',
         sceneKeys: ['Logs'],
+    },
+    {
+        path: 'Marketing analytics',
+        intents: [ProductKey.MARKETING_ANALYTICS],
+        category: 'Analytics',
+        href: urls.marketingAnalyticsApp(),
+        iconType: 'marketing_analytics' as FileSystemIconType,
+        iconColor: ['var(--color-product-marketing-analytics-light)'] as FileSystemIconColor,
+        tags: ['beta'],
+        flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
+        sceneKey: 'MarketingAnalytics',
+        sceneKeys: ['MarketingAnalytics'],
     },
     {
         path: 'Notebooks',
@@ -1167,7 +1200,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
     },
     {
         path: 'Web analytics',
-        intents: [ProductKey.WEB_ANALYTICS, ProductKey.MARKETING_ANALYTICS],
+        intents: [ProductKey.WEB_ANALYTICS],
         category: 'Analytics',
         iconType: 'web_analytics',
         iconColor: ['var(--color-product-web-analytics-light)'] as FileSystemIconColor,
@@ -1249,8 +1282,8 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.endpoints(),
         sceneKey: 'EndpointsScene',
         flag: FEATURE_FLAGS.ENDPOINTS,
-        tags: ['alpha'],
-        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene', 'EndpointNew'],
+        tags: ['beta'],
+        sceneKeys: ['EndpointsScene', 'EndpointsUsage', 'EndpointScene'],
     },
     {
         path: 'Event definitions',
@@ -1265,7 +1298,6 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         category: 'Pipeline',
         iconType: 'ingestion_warning',
         href: urls.ingestionWarnings(),
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
     },

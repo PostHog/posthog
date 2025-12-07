@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
+import { More } from 'lib/lemon-ui/LemonButton/More'
+
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { HogFlowManualTriggerButton } from './hogflows/HogFlowManualTriggerButton'
@@ -12,7 +14,8 @@ import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
     const logic = workflowLogic(props)
     const { workflow, workflowChanged, isWorkflowSubmitting, workflowLoading, workflowHasErrors } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue } = useActions(logic)
+    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, deleteWorkflow } =
+        useActions(logic)
 
     const isSavedWorkflow = props.id && props.id !== 'new'
     const isManualWorkflow = workflow?.trigger?.type === 'manual' || workflow?.trigger?.type === 'schedule'
@@ -73,6 +76,20 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                     </span>
                                 </LemonButton>
                                 <LemonDivider vertical />
+                                <More
+                                    size="small"
+                                    overlay={
+                                        <>
+                                            <LemonButton fullWidth onClick={() => duplicate()}>
+                                                Duplicate
+                                            </LemonButton>
+                                            <LemonDivider />
+                                            <LemonButton status="danger" fullWidth onClick={() => deleteWorkflow()}>
+                                                Delete
+                                            </LemonButton>
+                                        </>
+                                    }
+                                />
                             </>
                         )}
                         {workflowChanged && (
@@ -100,7 +117,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                       : 'No changes to save'
                             }
                         >
-                            {props.id === 'new' ? 'Create' : 'Save'}
+                            {props.id === 'new' ? 'Create as draft' : 'Save'}
                         </LemonButton>
                     </>
                 }

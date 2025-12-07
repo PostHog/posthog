@@ -5,7 +5,7 @@ import { ConversionRateInputType, Experiment } from '~/types'
 import { DEFAULT_MDE, experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import {
-    MetricMathType,
+    ManualCalculatorMetricType,
     calculateBaselineValue,
     calculateCurrentExposures,
     calculateDaysElapsed,
@@ -23,7 +23,7 @@ export interface RunningTimeLogicProps {
 export interface RunningTimeConfig {
     mode: 'automatic' | 'manual'
     mde: number
-    metricType: MetricMathType
+    metricType: ManualCalculatorMetricType
     baselineValue: number
     exposureRate: number
 }
@@ -84,7 +84,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 mode: isManualMode ? 'manual' : 'automatic',
                 mde: experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE,
                 metricType:
-                    (experiment?.parameters?.exposure_estimate_config?.manualMetricType as MetricMathType) ?? 'funnel',
+                    (experiment?.parameters?.exposure_estimate_config
+                        ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
                 baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 0,
                 exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 0,
             }),
@@ -109,7 +110,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                     if (baseline <= 0) {
                         return null
                     }
-                    const metricType = (saved?.manualMetricType as MetricMathType) ?? 'funnel'
+                    const metricType = (saved?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel'
                     const adjustedBaseline = metricType === 'funnel' ? baseline / 100 : baseline
                     const mde = experiment?.parameters?.minimum_detectable_effect ?? DEFAULT_MDE
                     return calculateSampleSize(metricType, adjustedBaseline, mde, numberOfVariants)
