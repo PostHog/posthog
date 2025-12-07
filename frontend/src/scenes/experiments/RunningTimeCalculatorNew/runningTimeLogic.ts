@@ -86,8 +86,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 metricType:
                     (experiment?.parameters?.exposure_estimate_config
                         ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
-                baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 0,
-                exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 0,
+                baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 5,
+                exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 100,
             }),
         ],
 
@@ -175,14 +175,15 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         manualFormPreview: [
             (s) => [s.config, s.numberOfVariants],
             (config, numberOfVariants): { sampleSize: number | null; runningTime: number | null } => {
-                if (config.mode !== 'manual' || config.baselineValue <= 0) {
+                // Use !(x > 0) to catch NaN, 0, negative, and undefined
+                if (config.mode !== 'manual' || !(config.baselineValue > 0)) {
                     return { sampleSize: null, runningTime: null }
                 }
 
                 const baselineValue = config.metricType === 'funnel' ? config.baselineValue / 100 : config.baselineValue
                 const sampleSize = calculateSampleSize(config.metricType, baselineValue, config.mde, numberOfVariants)
 
-                if (!sampleSize || config.exposureRate <= 0) {
+                if (!sampleSize || !(config.exposureRate > 0)) {
                     return { sampleSize, runningTime: null }
                 }
 
@@ -197,10 +198,14 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             const { config, numberOfVariants, experiment } = values
 
             if (config.mode === 'manual') {
-                const baselineValue = config.metricType === 'funnel' ? config.baselineValue / 100 : config.baselineValue
+                // Convert NaN (from empty input) to 0
+                const manualBaselineValue = Number.isNaN(config.baselineValue) ? 0 : config.baselineValue
+                const manualExposureRate = Number.isNaN(config.exposureRate) ? 0 : config.exposureRate
+
+                const baselineValue = config.metricType === 'funnel' ? manualBaselineValue / 100 : manualBaselineValue
                 const sampleSize = calculateSampleSize(config.metricType, baselineValue, config.mde, numberOfVariants)
                 const runningTime =
-                    sampleSize && config.exposureRate > 0 ? Math.ceil(sampleSize / config.exposureRate) : null
+                    sampleSize && manualExposureRate > 0 ? Math.ceil(sampleSize / manualExposureRate) : null
 
                 actions.updateExperiment({
                     parameters: {
@@ -211,8 +216,8 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                         exposure_estimate_config: {
                             conversionRateInputType: ConversionRateInputType.MANUAL,
                             manualMetricType: config.metricType,
-                            manualBaselineValue: config.baselineValue,
-                            manualExposureRate: config.exposureRate,
+                            manualBaselineValue,
+                            manualExposureRate,
                         },
                     },
                 })

@@ -116,7 +116,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 <LemonInput
                                     type="number"
                                     value={config.baselineValue}
-                                    onChange={(value) => setConfig({ baselineValue: Number(value) || 0 })}
+                                    onChange={(value) => setConfig({ baselineValue: value as number })}
                                     min={0}
                                     max={config.metricType === 'funnel' ? 100 : undefined}
                                     step={config.metricType === 'funnel' ? 0.1 : 1}
@@ -162,7 +162,7 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                             <LemonInput
                                 type="number"
                                 value={config.exposureRate}
-                                onChange={(value) => setConfig({ exposureRate: Number(value) || 0 })}
+                                onChange={(value) => setConfig({ exposureRate: value as number })}
                                 min={0}
                                 step={100}
                                 className="w-32 mt-1"
