@@ -40,7 +40,7 @@ from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature
 from posthog.helpers.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
     encrypt_flag_payloads,
-    get_decrypted_flag_payloads,
+    get_decrypted_flag_payloads_protected,
 )
 from posthog.metrics import TOMBSTONE_COUNTER
 from posthog.models import FeatureFlag, Tag
@@ -965,7 +965,9 @@ class FeatureFlagSerializer(
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         # if the request was made with a personal API key
         if instance.has_encrypted_payloads:
-            instance.filters["payloads"] = get_decrypted_flag_payloads(request, instance.filters.get("payloads", {}))
+            instance.filters["payloads"] = get_decrypted_flag_payloads_protected(
+                request, instance.filters.get("payloads", {})
+            )
 
         return instance
 
@@ -1518,7 +1520,7 @@ class FeatureFlagViewSet(
 
             # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
             if feature_flag.get("has_encrypted_payloads", False):
-                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads(
+                feature_flag["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
                     request, feature_flag["filters"]["payloads"]
                 )
 
@@ -1537,7 +1539,7 @@ class FeatureFlagViewSet(
 
         # If flag is using encrypted payloads, replace them with redacted string or unencrypted value
         if feature_flag_data.get("has_encrypted_payloads", False):
-            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads(
+            feature_flag_data["filters"]["payloads"] = get_decrypted_flag_payloads_protected(
                 request, feature_flag_data["filters"]["payloads"]
             )
 
@@ -1805,7 +1807,7 @@ class FeatureFlagViewSet(
             # Return 304 Not Modified if client's ETag matches
             if not modified and etag:
                 response = Response(status=status.HTTP_304_NOT_MODIFIED)
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
                 return response
 
@@ -1822,7 +1824,7 @@ class FeatureFlagViewSet(
 
             response = Response(response_data)
             if etag:
-                response["ETag"] = f'"{etag}"'
+                response["ETag"] = f'W/"{etag}"'
                 response["Cache-Control"] = "private, must-revalidate"
             return response
 
@@ -2048,9 +2050,11 @@ class FeatureFlagViewSet(
             return Response(payloads.get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
-        # user has access to the flag. However get_decrypted_flag_payloads will also check the authentication
+        # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
         # method used to make the request as it is used in non-protected endpoints.
-        decrypted_flag_payloads = get_decrypted_flag_payloads(request, feature_flag.filters.get("payloads", {}))
+        decrypted_flag_payloads = get_decrypted_flag_payloads_protected(
+            request, feature_flag.filters.get("payloads", {})
+        )
 
         count = int(1 / settings.DECIDE_BILLING_SAMPLING_RATE)
         increment_request_count(self.team.pk, count, FlagRequestType.REMOTE_CONFIG)
