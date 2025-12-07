@@ -67,7 +67,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -131,7 +130,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -200,7 +198,6 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
                 numberOfVariants
             )
 
@@ -281,8 +278,8 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
-                numberOfVariants
+                numberOfVariants,
+                baseline
             )
 
             expect(recommendedSampleSize).not.toBeNull()
@@ -507,8 +504,8 @@ describe('calculations', () => {
                 metric,
                 minimumDetectableEffect,
                 baselineValue!,
-                variance,
-                numberOfVariants
+                numberOfVariants,
+                baseline
             )
 
             expect(recommendedSampleSize).not.toBeNull()
