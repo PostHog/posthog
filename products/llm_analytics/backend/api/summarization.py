@@ -156,15 +156,25 @@ class LLMAnalyticsSummarizationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
 
         # Include person properties for cohort-based targeting and
         # groups/group_properties for organization-level targeting (including Early Access Features)
-        flag_kwargs = {
-            "person_properties": {"email": user.email},
-            "groups": {"organization": organization_id},
-            "group_properties": {"organization": {"id": organization_id}},
-        }
+        person_properties = {"email": user.email}
+        groups = {"organization": organization_id}
+        group_properties = {"organization": {"id": organization_id}}
 
         if not (
-            posthoganalytics.feature_enabled(SUMMARIZATION_FEATURE_FLAG, distinct_id, **flag_kwargs)
-            or posthoganalytics.feature_enabled(EARLY_ADOPTERS_FEATURE_FLAG, distinct_id, **flag_kwargs)
+            posthoganalytics.feature_enabled(
+                SUMMARIZATION_FEATURE_FLAG,
+                distinct_id,
+                person_properties=person_properties,
+                groups=groups,
+                group_properties=group_properties,
+            )
+            or posthoganalytics.feature_enabled(
+                EARLY_ADOPTERS_FEATURE_FLAG,
+                distinct_id,
+                person_properties=person_properties,
+                groups=groups,
+                group_properties=group_properties,
+            )
         ):
             raise exceptions.PermissionDenied("LLM trace summarization is not enabled for this user")
 
