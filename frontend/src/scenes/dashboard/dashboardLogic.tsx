@@ -870,7 +870,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         shouldUseStreaming: [
             (s) => [s.featureFlags],
             (featureFlags): boolean => {
-                const hasFeatureFlag = !!featureFlags[FEATURE_FLAGS.SSE_DASHBOARDS]
+                const hasFeatureFlag = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_SSE_DASHBOARDS]
                 const hasSSESupport = typeof EventSource !== 'undefined'
                 return hasFeatureFlag && hasSSESupport
             },
