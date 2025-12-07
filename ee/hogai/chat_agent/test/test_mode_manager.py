@@ -63,7 +63,13 @@ def _create_agent_node(
     if node_path is None:
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
     node = mode_manager.node
     # Set the node's config and context_manager to use the one with the config
     node._config = config or RunnableConfig(configurable={})
@@ -82,7 +88,13 @@ def _create_agent_tools_node(
         node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
 
     context_manager = AssistantContextManager(team=team, user=user, config=config or RunnableConfig(configurable={}))
-    mode_manager = ChatAgentModeManager(team=team, user=user, node_path=node_path, context_manager=context_manager)
+    mode_manager = ChatAgentModeManager(
+        team=team,
+        user=user,
+        node_path=node_path,
+        context_manager=context_manager,
+        state=AssistantState(messages=[HumanMessage(content="Test")]),
+    )
     node = mode_manager.tools_node
     # Set the node's config and context_manager to use the one with the config
     node._config = config or RunnableConfig(configurable={})

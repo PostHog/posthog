@@ -286,6 +286,10 @@ class BaseStateWithMessages(BaseState):
     """
     The mode of the agent.
     """
+    research_mode: AgentMode | None = Field(default=None)
+    """
+    The research agent mode.
+    """
 
     @field_validator("messages", mode="after")
     @classmethod

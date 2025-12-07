@@ -476,7 +476,12 @@ class ArtifactManager(AssistantContextMixin):
             artifact_type = cast(AgentArtifact.Type, artifact.type)
             content_class = DB_TYPE_TO_CONTENT_CLASS.get(artifact_type)
             if content_class:
-                result[artifact.short_id] = content_class.model_validate(artifact.data)
+                try:
+                    result[artifact.short_id] = content_class.model_validate(artifact.data)
+                except ValidationError as e:
+                    # Old unsupported artifact data schemas
+                    capture_exception(e)
+                    continue
         return result
 
     async def _afetch_insight_contents(self, insight_ids: list[str]) -> dict[str, VisualizationArtifactContent]:

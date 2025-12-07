@@ -363,7 +363,7 @@
             ]
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay"],
+            "enum": ["product_analytics", "sql", "session_replay", "plan", "research"],
             "type": "string"
         },
         "AggregationAxisFormat": {
