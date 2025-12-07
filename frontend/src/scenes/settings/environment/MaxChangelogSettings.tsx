@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { getTagProps } from 'scenes/max/components/MaxChangelog'
 import { ChangelogEntry, maxChangelogLogic } from 'scenes/max/maxChangelogLogic'
@@ -49,6 +49,13 @@ export function MaxChangelogSettings(): JSX.Element {
                         </div>
                     ))}
                 </div>
+                <p className="text-muted text-sm mt-3">
+                    See the{' '}
+                    <Link to="https://posthog.com/changelog?team=PostHog+AI" target="_blank">
+                        complete changelog
+                    </Link>{' '}
+                    for all PostHog AI updates.
+                </p>
             </div>
         </div>
     )
