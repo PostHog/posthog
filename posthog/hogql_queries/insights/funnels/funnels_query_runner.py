@@ -22,7 +22,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_udf import FunnelTimeToConvertUDF
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
 from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, use_udf
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -113,7 +113,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     @cached_property
     def _use_udf(self):
-        return use_udf(self.context.funnelsFilter, self.team)
+        return True
 
     @cached_property
     def funnel_order_class(self):

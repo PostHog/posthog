@@ -27,21 +27,6 @@ class SourceTableKind(Enum):
     DATA_WAREHOUSE = auto()
 
 
-def use_udf(funnelsFilter: FunnelsFilter, team: Team):
-    if funnelsFilter.useUdf:
-        return True
-
-    funnelVizType = funnelsFilter.funnelVizType
-    if funnelVizType == FunnelVizType.TRENDS:
-        return True
-    if funnelVizType == FunnelVizType.STEPS:
-        return True
-    if funnelVizType == FunnelVizType.TIME_TO_CONVERT:
-        return True
-
-    return False
-
-
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 
