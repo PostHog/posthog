@@ -42,12 +42,6 @@ def use_udf(funnelsFilter: FunnelsFilter, team: Team):
     return False
 
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
-    from posthog.hogql_queries.insights.funnels import FunnelUDF
-
-    return FunnelUDF
-
-
 def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
     from posthog.hogql_queries.insights.funnels import FunnelTrendsUDF, FunnelUDF
 

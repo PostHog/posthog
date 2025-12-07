@@ -21,7 +21,8 @@ from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, 
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.funnel_time_to_convert_udf import FunnelTimeToConvertUDF
 from posthog.hogql_queries.insights.funnels.funnel_trends_udf import FunnelTrendsUDF
-from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, get_funnel_order_class, use_udf
+from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDF
+from posthog.hogql_queries.insights.funnels.utils import get_funnel_actor_class, use_udf
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
@@ -116,7 +117,7 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
 
     @cached_property
     def funnel_order_class(self):
-        return get_funnel_order_class(self.context.funnelsFilter, use_udf=self._use_udf)(context=self.context)
+        return FunnelUDF(context=self.context)
 
     @cached_property
     def funnel_class(self):
