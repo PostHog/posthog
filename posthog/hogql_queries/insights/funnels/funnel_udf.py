@@ -28,9 +28,6 @@ HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
 
 
 class FunnelUDFMixin:
-    def _add_breakdown_attribution_subquery(self: FunnelProtocol, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        raise Exception("UDF doesn't use this")
-
     def _prop_vals(self: FunnelProtocol):
         breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
         if not breakdown:

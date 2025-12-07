@@ -373,50 +373,6 @@ class FunnelBase(ABC):
             ),
         )
 
-    def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        breakdown, breakdownAttributionType = (
-            self.context.breakdown,
-            self.context.breakdownAttributionType,
-        )
-
-        if breakdownAttributionType in [
-            BreakdownAttributionType.FIRST_TOUCH,
-            BreakdownAttributionType.LAST_TOUCH,
-        ]:
-            # When breaking down by first/last touch, each person can only have one prop value
-            # so just select that. Except for the empty case, where we select the default.
-
-            if self._query_has_array_breakdown():
-                assert isinstance(breakdown, list)
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
-                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                breakdown_selector = parse_expr(
-                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
-                )
-            else:
-                breakdown_selector = ast.Field(chain=["prop_vals"])
-
-            return ast.SelectQuery(
-                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
-                select_from=ast.JoinExpr(table=inner_query),
-            )
-
-        # When breaking down by specific step, each person can have multiple prop values
-        # so array join those to each event
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"]), ast.Field(chain=["prop"])],
-            select_from=ast.JoinExpr(table=inner_query),
-            array_join_op="ARRAY JOIN",
-            array_join_list=[ast.Alias(alias="prop", expr=ast.Field(chain=["prop_vals"]))],
-        )
-
-        if self._query_has_array_breakdown():
-            query.where = ast.CompareOperation(
-                left=ast.Field(chain=["prop"]), right=ast.Array(exprs=[]), op=ast.CompareOperationOp.NotEq
-            )
-
-        return query
-
     def get_breakdown_limit(self):
         return self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(
             self.context.limit_context
