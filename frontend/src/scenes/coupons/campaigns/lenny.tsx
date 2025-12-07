@@ -35,7 +35,7 @@ export const lennyCampaign: CampaignConfig = {
             description: (
                 <>
                     Double the free allowance on all products, e.g.:
-                    <ul className="mt-1 ml-4 list-disc text-muted text-sm">
+                    <ul className="mt-1 ml-4 list-disc text-muted-foreground text-sm">
                         <li>2M events (product analytics)</li>
                         <li>10K recordings (session replay)</li>
                         <li>2M flag requests (feature flags)</li>

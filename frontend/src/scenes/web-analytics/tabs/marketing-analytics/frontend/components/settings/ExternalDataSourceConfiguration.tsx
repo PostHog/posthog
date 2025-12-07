@@ -256,9 +256,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                             </div>
                                         )}
                                         {item.syncingTables.length === 0 && item.tablesToSync.length === 0 && (
-                                            <span className="text-muted-foreground-foreground text-xs">
-                                                No tables required
-                                            </span>
+                                            <span className="text-muted-foreground text-xs">No tables required</span>
                                         )}
                                     </div>
                                 )
@@ -277,7 +275,7 @@ export function ExternalDataSourceConfiguration(): JSX.Element {
                                     </span>
                                 )
                             }
-                            return <span className="text-muted-foreground-foreground text-xs">-</span>
+                            return <span className="text-muted-foreground text-xs">-</span>
                         },
                     },
                     {

@@ -110,18 +110,18 @@ export const PlanCard: React.FC<PlanCardProps> = ({ planData, product, highlight
                 )}
                 <header className="mb-0">
                     <h3 className="text-2xl font-bold mb-0 text-gray-800 dark:text-gray-100">{planData.title}</h3>
-                    <p className="text-muted-foreground-foreground dark:text-gray-400">{planData.subtitle}</p>
+                    <p className="text-muted-foreground dark:text-gray-400">{planData.subtitle}</p>
                 </header>
                 <section className="mb-3">
                     <div className="flex items-baseline gap-1">
                         {planData.pricePreface && (
-                            <span className="text-base text-muted-foreground-foreground dark:text-gray-300">
+                            <span className="text-base text-muted-foreground dark:text-gray-300">
                                 {planData.pricePreface}
                             </span>
                         )}
                         <span className="text-xl font-extrabold text-gray-900 dark:text-white">{planData.price}</span>
                         {planData.priceSuffix && (
-                            <span className="text-base text-muted-foreground-foreground dark:text-gray-300">
+                            <span className="text-base text-muted-foreground dark:text-gray-300">
                                 {planData.priceSuffix}
                             </span>
                         )}

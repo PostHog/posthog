@@ -73,7 +73,7 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
             )}
 
             <div className="border rounded p-4 bg-bg-3000">
-                <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
+                <div className="text-xs font-semibold uppercase text-muted-foreground mb-2">Preview</div>
                 <LemonSelect
                     value={null}
                     options={[

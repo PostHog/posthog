@@ -24,12 +24,12 @@ export const OnboardingProjectData = ({ stepKey }: { stepKey: OnboardingStepKey 
             <div className="flex flex-col gap-8">
                 <div className="flex flex-col-reverse sm:flex-row gap-2">
                     <div>
-                        <p className="text-muted mb-2">
+                        <p className="text-muted-foreground mb-2">
                             You're done! You can <Link onClick={() => completeOnboarding()}>access PostHog</Link> now if
                             you want, but we'd love to learn more about your product to help you get the most out of the
                             product.
                         </p>
-                        <p className="text-muted text-sm mb-2">
+                        <p className="text-muted-foreground text-sm mb-2">
                             All fields are optional, but sharing a bit more about your project helps us provide better
                             insights and recommendations.
                         </p>

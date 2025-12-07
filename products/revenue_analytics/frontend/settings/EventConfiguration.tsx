@@ -101,7 +101,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                 {item.revenueProperty ? (
                                     <code className="bg-carder py-1 rounded text-xs">{item.revenueProperty}</code>
                                 ) : (
-                                    <span className="text-muted-foreground-foreground">Not set</span>
+                                    <span className="text-muted-foreground">Not set</span>
                                 )}
                             </div>
                         ),
@@ -113,7 +113,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                             <div className="text-sm space-y-1">
                                 {item.revenueCurrencyProperty.property && (
                                     <div>
-                                        <span className="text-muted-foreground-foreground">Property: </span>
+                                        <span className="text-muted-foreground">Property: </span>
                                         <code className="bg-carder px-1 rounded text-xs">
                                             {item.revenueCurrencyProperty.property}
                                         </code>
@@ -121,7 +121,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                 )}
                                 {item.revenueCurrencyProperty.static && (
                                     <div>
-                                        <span className="text-muted-foreground-foreground">Static: </span>
+                                        <span className="text-muted-foreground">Static: </span>
                                         <span className="font-medium">
                                             {CURRENCY_SYMBOL_TO_EMOJI_MAP[item.revenueCurrencyProperty.static]}
                                             &nbsp;{item.revenueCurrencyProperty.static}&nbsp;(
@@ -130,10 +130,10 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                     </div>
                                 )}
                                 {item.currencyAwareDecimal && (
-                                    <div className="text-xs text-muted-foreground-foreground">In cents</div>
+                                    <div className="text-xs text-muted-foreground">In cents</div>
                                 )}
                                 {!item.revenueCurrencyProperty.property && !item.revenueCurrencyProperty.static && (
-                                    <span className="text-muted-foreground-foreground">Not configured</span>
+                                    <span className="text-muted-foreground">Not configured</span>
                                 )}
                             </div>
                         ),
@@ -145,26 +145,26 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                             <div className="text-sm space-y-1">
                                 {item.productProperty && (
                                     <div>
-                                        <span className="text-muted-foreground-foreground">Product: </span>
+                                        <span className="text-muted-foreground">Product: </span>
                                         <code className="bg-carder px-1 rounded text-xs">{item.productProperty}</code>
                                     </div>
                                 )}
                                 {item.couponProperty && (
                                     <div>
-                                        <span className="text-muted-foreground-foreground">Coupon: </span>
+                                        <span className="text-muted-foreground">Coupon: </span>
                                         <code className="bg-carder px-1 rounded text-xs">{item.couponProperty}</code>
                                     </div>
                                 )}
                                 {item.subscriptionProperty && (
                                     <div>
-                                        <span className="text-muted-foreground-foreground">Subscription: </span>
+                                        <span className="text-muted-foreground">Subscription: </span>
                                         <code className="bg-carder px-1 rounded text-xs">
                                             {item.subscriptionProperty}
                                         </code>
-                                        <div className="text-xs text-muted-foreground-foreground">
+                                        <div className="text-xs text-muted-foreground">
                                             Drop subscription after {item.subscriptionDropoffDays} days
                                         </div>
-                                        <div className="text-xs text-muted-foreground-foreground">
+                                        <div className="text-xs text-muted-foreground">
                                             Subscription ends on the day{' '}
                                             {item.subscriptionDropoffMode === 'last_event'
                                                 ? 'of the last event'
@@ -173,7 +173,7 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
                                     </div>
                                 )}
                                 {!item.productProperty && !item.couponProperty && !item.subscriptionProperty && (
-                                    <span className="text-muted-foreground-foreground">None configured</span>
+                                    <span className="text-muted-foreground">None configured</span>
                                 )}
                             </div>
                         ),

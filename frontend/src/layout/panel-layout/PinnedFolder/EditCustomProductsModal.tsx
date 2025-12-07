@@ -167,7 +167,7 @@ export function EditCustomProductsModal(): JSX.Element {
                             disabledReason={shortcutPositionLoading ? 'Saving...' : undefined}
                             fullWidth
                         />
-                        <span className="text-sm text-muted">
+                        <span className="text-sm text-muted-foreground">
                             Choose where shortcuts appear in your sidebar when using custom products.
                         </span>
                     </div>

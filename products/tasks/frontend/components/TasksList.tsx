@@ -41,7 +41,9 @@ export function TasksList(): JSX.Element {
                         </span>
                         <span className="text-default">{task.title}</span>
                     </div>
-                    {task.description && <div className="text-muted text-xs line-clamp-1">{task.description}</div>}
+                    {task.description && (
+                        <div className="text-muted-foreground text-xs line-clamp-1">{task.description}</div>
+                    )}
                 </div>
             ),
         },
@@ -63,7 +65,7 @@ export function TasksList(): JSX.Element {
             width: '15%',
             render: (_: any, task: Task) => {
                 if (!task.created_by) {
-                    return <span className="text-sm text-muted">-</span>
+                    return <span className="text-sm text-muted-foreground">-</span>
                 }
                 return (
                     <div className="flex items-center gap-2">
@@ -161,7 +163,7 @@ export function TasksList(): JSX.Element {
                     })}
                     emptyState={
                         <div className="text-center py-8">
-                            <p className="text-muted mb-2">No tasks found</p>
+                            <p className="text-muted-foreground mb-2">No tasks found</p>
                         </div>
                     }
                 />

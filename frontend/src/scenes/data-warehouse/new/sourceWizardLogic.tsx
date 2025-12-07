@@ -586,7 +586,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         {/* Incremental - Good */}
                         <div className="font-bold text-success-foreground">Incremental</div>
                         <div>
-                            <span className="text-muted">
+                            <span className="text-muted-foreground">
                                 {tableCountFormatter(incrementalTables.length)}
                                 {incrementalTables.length === 69 ? ' (nice)' : ''}
                                 {incrementalTables.length === 67 ? ' (nice but only for genz)' : ''}

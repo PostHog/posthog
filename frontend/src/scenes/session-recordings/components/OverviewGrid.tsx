@@ -96,7 +96,7 @@ export function OverviewGridItem({
                                 className={clsx(
                                     'transition-colors',
                                     filterDisabledReason
-                                        ? 'text-muted-foreground-foreground cursor-not-allowed'
+                                        ? 'text-muted-foreground cursor-not-allowed'
                                         : filterState === 'active'
                                           ? 'cursor-pointer text-link'
                                           : 'cursor-pointer text-secondary hover:text-foreground'

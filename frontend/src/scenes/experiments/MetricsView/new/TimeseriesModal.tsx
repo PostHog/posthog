@@ -151,7 +151,7 @@ export function TimeseriesModal({
                                 <div className="text-xs text-muted-foreground">{progressMessage || ''}</div>
                                 {progressMessage && (
                                     <Tooltip title="The chart displays data starting from the first day with meaningful results. Earlier days without sufficient data are excluded from the visualization.">
-                                        <IconInfo className="text-muted-foreground-foreground text-base" />
+                                        <IconInfo className="text-muted-foreground text-base" />
                                     </Tooltip>
                                 )}
                             </div>
@@ -175,7 +175,7 @@ export function TimeseriesModal({
                                 </div>
                             )
                         ) : (
-                            <div className="p-10 text-center text-muted-foreground-foreground -translate-y-6">
+                            <div className="p-10 text-center text-muted-foreground -translate-y-6">
                                 No timeseries data available
                             </div>
                         )}

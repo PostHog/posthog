@@ -32,7 +32,7 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
                 <div className="flex flex-col flex-1">
                     <span className="font-semibold">{suggestion.title}</span>
                     {suggestion.description && (
-                        <span className="text-muted text-xs mt-0.5">{suggestion.description}</span>
+                        <span className="text-muted-foreground text-xs mt-0.5">{suggestion.description}</span>
                     )}
                 </div>
             </div>
@@ -67,7 +67,7 @@ export function InsightDiveDeeperSection({ query }: InsightDiveDeeperSectionProp
     return (
         <div className="mt-4">
             <h2 className="font-semibold text-lg m-0 mb-2">Dive deeper</h2>
-            <p className="text-muted mb-4">Explore related insights to understand your data better</p>
+            <p className="text-muted-foreground mb-4">Explore related insights to understand your data better</p>
 
             <div className="space-y-2">
                 {suggestions.map((suggestion, index) => (

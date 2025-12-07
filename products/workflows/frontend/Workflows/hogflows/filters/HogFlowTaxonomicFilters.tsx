@@ -18,7 +18,7 @@ export const HogFlowTaxonomicFilters = ({
     const variables = workflow?.variables || []
 
     if (!variables.length) {
-        return <div className="p-2 text-muted">No workflow variables defined.</div>
+        return <div className="p-2 text-muted-foreground">No workflow variables defined.</div>
     }
 
     return (

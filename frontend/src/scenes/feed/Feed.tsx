@@ -182,7 +182,7 @@ export function Feed(): JSX.Element {
                 </div>
             ) : !hasAnyItems ? (
                 <div className="border rounded p-6 bg-surface-primary text-center">
-                    <p className="text-muted">No recent updates found</p>
+                    <p className="text-muted-foreground">No recent updates found</p>
                     <p className="text-muted-alt text-sm mb-0 mt-1">
                         Try selecting a different time period using the filter above
                     </p>

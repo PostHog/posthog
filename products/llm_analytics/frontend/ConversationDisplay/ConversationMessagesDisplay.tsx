@@ -298,7 +298,7 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
 
     if (isOpenAIFileMessage(item)) {
         if (!item.file.file_data.startsWith('data:')) {
-            return <span className="text-muted">{item.file.filename}</span>
+            return <span className="text-muted-foreground">{item.file.filename}</span>
         }
         return (
             // eslint-disable-next-line react/forbid-elements
@@ -352,7 +352,7 @@ function renderContentItem(item: MultiModalContentItem, searchQuery?: string): J
                     src={mimeType ? `data:${mimeType};base64,${item.data}` : `data:audio/wav;base64,${item.data}`}
                 />
                 {transcript && typeof transcript === 'string' && (
-                    <div className="text-xs text-muted p-2 bg-bg-light rounded border">
+                    <div className="text-xs text-muted-foreground p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>
                         <div className="whitespace-pre-wrap">{transcript}</div>
                     </div>

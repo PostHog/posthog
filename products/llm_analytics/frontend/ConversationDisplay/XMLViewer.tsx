@@ -48,10 +48,7 @@ function XMLNodeDisplay({
         }
 
         return (
-            <div
-                className="text-muted-foreground-foreground whitespace-pre-wrap"
-                style={{ marginLeft: `${depth * 16}px` }}
-            >
+            <div className="text-muted-foreground whitespace-pre-wrap" style={{ marginLeft: `${depth * 16}px` }}>
                 {node.value}
             </div>
         )
@@ -86,7 +83,7 @@ function XMLNodeDisplay({
                         {!hasChildren ? ' />' : isCollapsed ? '>' : '>'}
                         {hasChildren && isCollapsed && (
                             <span
-                                className="text-muted-foreground-foreground hover:text-foreground cursor-pointer ml-1"
+                                className="text-muted-foreground hover:text-foreground cursor-pointer ml-1"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     setIsCollapsed(false)

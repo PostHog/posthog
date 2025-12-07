@@ -74,7 +74,7 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                 <div className="space-y-3">
                     <div>
                         <h4 className="text-sm font-semibold mb-2">Default Evaluation Tags</h4>
-                        <p className="text-xs text-muted-foreground-foreground mb-3">
+                        <p className="text-xs text-muted-foreground mb-3">
                             These tags will be automatically added as evaluation constraints to all new feature flags.
                             Users can still modify or remove them from individual flags during creation.
                         </p>
@@ -135,7 +135,7 @@ export function DefaultEvaluationEnvironments(): JSX.Element | null {
                     </div>
 
                     {tags.length === 0 && !isAdding && (
-                        <div className="text-sm text-muted-foreground-foreground italic">
+                        <div className="text-sm text-muted-foreground italic">
                             No default evaluation tags configured. Add tags to automatically apply them to new flags.
                         </div>
                     )}

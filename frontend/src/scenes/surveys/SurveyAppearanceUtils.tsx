@@ -73,7 +73,7 @@ function HighlightedTextArea({
         >
             {showPlaceholder ? (
                 <div
-                    className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none"
+                    className="absolute inset-0 p-[10px_12px] text-muted-foreground pointer-events-none"
                     style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: '1.5' }}
                 >
                     {placeholder}

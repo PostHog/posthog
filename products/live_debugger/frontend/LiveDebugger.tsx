@@ -39,7 +39,7 @@ function BreakpointInstanceCard({
             )}
             onClick={onClick}
         >
-            <div className="text-muted-foreground-foreground text-xs mb-0.5">{dayjs(instance.timestamp).fromNow()}</div>
+            <div className="text-muted-foreground text-xs mb-0.5">{dayjs(instance.timestamp).fromNow()}</div>
             <div
                 className="font-mono font-semibold text-xs truncate"
                 title={`${instance.functionName || 'captureEvent'}:${instance.lineNumber}`}
@@ -83,7 +83,7 @@ export function LiveDebugger(): JSX.Element {
                             {selectedLineForHits && (
                                 <button
                                     onClick={() => showHitsForLine(null)}
-                                    className="text-xs text-muted-foreground-foreground hover:text-default"
+                                    className="text-xs text-muted-foreground hover:text-default"
                                 >
                                     Clear
                                 </button>
@@ -105,12 +105,12 @@ export function LiveDebugger(): JSX.Element {
                                         ))}
                                     </div>
                                 ) : (
-                                    <div className="flex-1 flex items-center justify-center text-muted-foreground-foreground p-2 text-center">
+                                    <div className="flex-1 flex items-center justify-center text-muted-foreground p-2 text-center">
                                         <p className="text-xs">No hits</p>
                                     </div>
                                 )
                             ) : (
-                                <div className="flex-1 flex items-center justify-center text-muted-foreground-foreground p-2 text-center">
+                                <div className="flex-1 flex items-center justify-center text-muted-foreground p-2 text-center">
                                     <div className="text-xs">
                                         <p>Click hit count badges</p>
                                         <p className="mt-1">to view hits</p>

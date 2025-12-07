@@ -121,7 +121,7 @@ export function LLMAnalyticsDatasetsScene(): JSX.Element {
                     className="max-w-md"
                     data-testid="search-datasets-input"
                 />
-                <div className="text-muted-foreground-foreground">{datasetCountLabel}</div>
+                <div className="text-muted-foreground">{datasetCountLabel}</div>
             </div>
 
             <LemonTable

@@ -16,13 +16,13 @@ export function QuickFiltersModalContent({ context }: QuickFiltersLogicProps): J
 
     return (
         <div className="space-y-4">
-            <p className="text-muted">
+            <p className="text-muted-foreground">
                 Quick filters let you create reusable filter components for specific event properties.
             </p>
 
             {quickFilters.length === 0 ? (
                 <>
-                    <div className="text-center py-8 text-muted">
+                    <div className="text-center py-8 text-muted-foreground">
                         <p>No quick filters yet.</p>
                         <p className="text-sm mt-2">
                             Create your first quick filter to quickly filter by specific properties.

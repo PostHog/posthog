@@ -101,7 +101,7 @@ export function HogFunctionList({
                 width: 0,
                 render: (_, hogFunction) => {
                     if (!hogFunction.created_by) {
-                        return <span className="text-muted">Unknown</span>
+                        return <span className="text-muted-foreground">Unknown</span>
                     }
                     return (
                         <div className="flex items-center gap-2">

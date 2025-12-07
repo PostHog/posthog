@@ -31,9 +31,7 @@ export function EmailMFAVerify(): JSX.Element {
                         >
                             Login to PostHog
                         </LemonButton>
-                        <p className="text-muted-foreground-foreground text-sm mt-6">
-                            This device will be remembered for 30 days
-                        </p>
+                        <p className="text-muted-foreground text-sm mt-6">This device will be remembered for 30 days</p>
                     </>
                 ) : view === 'invalid' ? (
                     <>

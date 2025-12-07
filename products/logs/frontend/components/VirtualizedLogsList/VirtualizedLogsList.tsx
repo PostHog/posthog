@@ -154,7 +154,7 @@ export function VirtualizedLogsList({
     )
 
     if (dataSource.length === 0 && !loading) {
-        return <div className="p-4 text-muted text-center">No logs to display</div>
+        return <div className="p-4 text-muted-foreground text-center">No logs to display</div>
     }
 
     // Fixed height mode for pinned logs

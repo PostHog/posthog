@@ -23,10 +23,10 @@ export function TaskRunItem({ run, isSelected, onClick }: TaskRunItemProps): JSX
         >
             <div className="flex items-center justify-between gap-2 mb-1">
                 <TaskStatusBadge task={{ latest_run: run } as any} />
-                <span className="text-xs text-muted">{timeAgo}</span>
+                <span className="text-xs text-muted-foreground">{timeAgo}</span>
             </div>
-            <div className="text-xs text-muted">{date.format('MMM D, YYYY HH:mm')}</div>
-            {run.branch && <div className="text-xs text-muted mt-1 font-mono truncate">{run.branch}</div>}
+            <div className="text-xs text-muted-foreground">{date.format('MMM D, YYYY HH:mm')}</div>
+            {run.branch && <div className="text-xs text-muted-foreground mt-1 font-mono truncate">{run.branch}</div>}
         </button>
     )
 }

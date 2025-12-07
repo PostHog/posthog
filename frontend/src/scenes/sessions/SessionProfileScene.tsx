@@ -89,13 +89,13 @@ export function SessionProfileScene(): JSX.Element {
                     {sessionData && (
                         <div className="flex flex-wrap gap-x-6 gap-y-2">
                             <div>
-                                <div className="text-xs text-muted-foreground-foreground">Session ID</div>
+                                <div className="text-xs text-muted-foreground">Session ID</div>
                                 <div className="font-mono text-sm">
                                     <CopyToClipboardInline description="session ID">{sessionId}</CopyToClipboardInline>
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-muted-foreground-foreground">Person</div>
+                                <div className="text-xs text-muted-foreground">Person</div>
                                 <div className="text-sm">
                                     <PersonDisplay
                                         person={{
@@ -107,13 +107,13 @@ export function SessionProfileScene(): JSX.Element {
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-muted-foreground-foreground">Start time</div>
+                                <div className="text-xs text-muted-foreground">Start time</div>
                                 <div className="text-sm">
                                     <TZLabel time={sessionData.start_timestamp} />
                                 </div>
                             </div>
                             <div>
-                                <div className="text-xs text-muted-foreground-foreground">End time</div>
+                                <div className="text-xs text-muted-foreground">End time</div>
                                 <div className="text-sm">
                                     <TZLabel time={sessionData.end_timestamp} />
                                 </div>

@@ -106,7 +106,7 @@ export function OptOutCategories(): JSX.Element {
                 content: (
                     <div>
                         <div className="mb-3">
-                            <div className="text-sm text-muted-foreground-foreground mb-1">Key: {category.key}</div>
+                            <div className="text-sm text-muted-foreground mb-1">Key: {category.key}</div>
                             {category.public_description && (
                                 <div className="text-sm text-muted-foreground">
                                     Public description: {category.public_description}
@@ -118,7 +118,7 @@ export function OptOutCategories(): JSX.Element {
                             {category.category_type === 'marketing' ? (
                                 <OptOutList category={category} />
                             ) : (
-                                <div className="text-sm text-muted-foreground-foreground mb-1">
+                                <div className="text-sm text-muted-foreground mb-1">
                                     Transactional messages are not eligible for opt-outs
                                 </div>
                             )}

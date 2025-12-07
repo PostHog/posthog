@@ -25,7 +25,7 @@ export function CodeVariablesInlineBanner(): JSX.Element | null {
     }
 
     return (
-        <div className="border-t border-border bg-fill-secondary px-3 py-2 text-xs text-muted-foreground-foreground">
+        <div className="border-t border-border bg-fill-secondary px-3 py-2 text-xs text-muted-foreground">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex-1">
                     <span className="italic">Code variables would appear here. </span>
@@ -42,7 +42,7 @@ export function CodeVariablesInlineBanner(): JSX.Element | null {
                     icon={<IconX />}
                     onClick={dismiss}
                     tooltip="Dismiss"
-                    className="text-muted-foreground-foreground hover:text-default"
+                    className="text-muted-foreground hover:text-default"
                 />
             </div>
         </div>

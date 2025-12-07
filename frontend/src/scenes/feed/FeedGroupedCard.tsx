@@ -58,10 +58,10 @@ export function FeedGroupedCard({ items, config }: FeedGroupedCardProps): JSX.El
                         <span className="font-semibold flex-shrink-0" style={{ color: config.color }}>
                             {items.length} {config.title}
                         </span>
-                        <span className="text-muted text-sm truncate">{getSummaryText(items)}</span>
+                        <span className="text-muted-foreground text-sm truncate">{getSummaryText(items)}</span>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                        <span className="text-xs text-muted group-hover:text-default transition-colors">
+                        <span className="text-xs text-muted-foreground group-hover:text-default transition-colors">
                             {isExpanded ? 'Collapse' : 'Expand'}
                         </span>
                         <IconChevronDown className={`text-lg transition-transform ${isExpanded ? 'rotate-180' : ''}`} />

@@ -40,7 +40,7 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Importing from Customer.io...</div>
-                        <div className="text-sm text-muted-foreground-foreground">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment. Processing categories and unsubscribed users.
                         </div>
                     </div>
@@ -95,7 +95,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </span>
                     </LemonBanner>
                     <div>
-                        <p className="text-sm text-muted-foreground-foreground mb-4">
+                        <p className="text-sm text-muted-foreground mb-4">
                             Step 1: Import categories and globally unsubscribed users from Customer.io API.
                         </p>
                     </div>
@@ -115,7 +115,7 @@ export function CustomerIOImportModal(): JSX.Element {
                         </LemonBanner>
                     )}
 
-                    <div className="text-xs text-muted-foreground-foreground">
+                    <div className="text-xs text-muted-foreground">
                         You can generate an App API key in Customer.io under Settings → Account Settings → API
                         Credentials.
                     </div>
@@ -145,7 +145,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                         </div>
                                     ))}
                                     {failed.length > 100 && (
-                                        <div className="text-muted-foreground-foreground mt-2">
+                                        <div className="text-muted-foreground mt-2">
                                             ... and {failed.length - 100} more
                                         </div>
                                     )}
@@ -166,10 +166,10 @@ export function CustomerIOImportModal(): JSX.Element {
                     <div className="text-center py-8">
                         <Spinner className="text-3xl mb-4" />
                         <div className="text-lg font-semibold mb-2">Processing CSV...</div>
-                        <div className="text-sm text-muted-foreground-foreground">
+                        <div className="text-sm text-muted-foreground">
                             This may take a moment for large files. Please don't close this window.
                         </div>
-                        <div className="text-xs text-muted-foreground-foreground mt-2">
+                        <div className="text-xs text-muted-foreground mt-2">
                             Processing thousands of rows and updating the database...
                         </div>
                     </div>
@@ -228,7 +228,7 @@ export function CustomerIOImportModal(): JSX.Element {
                 <LemonDivider />
                 <div>
                     <h3 className="font-semibold mb-2">Step 2: Import User Preferences (Optional)</h3>
-                    <p className="text-sm text-muted-foreground-foreground mb-3">
+                    <p className="text-sm text-muted-foreground mb-3">
                         Export a CSV from Customer.io with users who have subscription preferences set.{' '}
                         <Link
                             to="https://posthog.com/docs/workflows/import-customerio-optouts"
@@ -252,7 +252,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                         <div className="text-sm text-muted-foreground">
                                             Drop your CSV file here or click to browse
                                         </div>
-                                        <div className="text-xs text-muted-foreground-foreground mt-1">
+                                        <div className="text-xs text-muted-foreground mt-1">
                                             Accepts .csv files only
                                         </div>
                                     </div>
@@ -263,7 +263,7 @@ export function CustomerIOImportModal(): JSX.Element {
                                 <div className="flex items-center justify-between">
                                     <div>
                                         <div className="font-medium text-sm">{csvFile.name}</div>
-                                        <div className="text-xs text-muted-foreground-foreground mt-1">
+                                        <div className="text-xs text-muted-foreground mt-1">
                                             Size: {(csvFile.size / (1024 * 1024)).toFixed(2)}MB
                                         </div>
                                     </div>

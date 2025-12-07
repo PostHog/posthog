@@ -379,6 +379,10 @@
     --color-accent: color-mix(in oklab, var(--color-black) 5%, transparent);
     --color-accent-strong: color-mix(in oklab, var(--color-black) 8%, transparent);
 
+    /* Success color for successful actions */
+    --color-success: var(--color-green-50);
+    --color-success-foreground: var(--color-green-700);
+
     /* Info color for informative messages */
     --color-info: var(--color-blue-50);
     --color-info-foreground: var(--color-blue-950);
@@ -477,6 +481,24 @@
 
     /* Animations */
     --animate-input-focus-pulse: inputFocusPulse 1s ease-in-out forwards;
+    --animate-pulse-glow: pulseGlow 2s ease-in-out infinite;
+    --animate-pulse-5: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) 5;
+
+    @keyframes pulse {
+        0% {
+            opacity: 1;
+        }
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    @keyframes pulseGlow {
+        0%,
+        100% {
+            box-shadow: 0 0 2px 1px var(--color-accent);
+        }
+    }
 
     @keyframes inputFocusPulse {
         0% {

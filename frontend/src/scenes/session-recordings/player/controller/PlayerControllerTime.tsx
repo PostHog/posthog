@@ -35,10 +35,10 @@ function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Ele
     )
     return size === 'small' ? (
         <Tooltip title={fullDisplay}>
-            <span className="text-muted-foreground-foreground text-xs">{current}</span>
+            <span className="text-muted-foreground text-xs">{current}</span>
         </Tooltip>
     ) : (
-        <span className="text-muted-foreground-foreground text-xs">{fullDisplay}</span>
+        <span className="text-muted-foreground text-xs">{fullDisplay}</span>
     )
 }
 

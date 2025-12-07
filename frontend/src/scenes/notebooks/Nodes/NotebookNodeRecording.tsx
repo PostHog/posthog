@@ -131,7 +131,7 @@ export const Settings = ({
                 fullWidth={true}
             />
             <div className="mt-3">
-                <label className="block text-muted-foreground-foreground mb-1">Start at timestamp</label>
+                <label className="block text-muted-foreground mb-1">Start at timestamp</label>
                 <LemonInput
                     type="text"
                     fullWidth

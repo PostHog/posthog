@@ -259,7 +259,7 @@ function StepTriggerConfigurationWebhook({
                         content: (
                             <>
                                 {!webhookUrl ? (
-                                    <div className="text-xs text-muted-foreground-foreground italic border rounded p-1 bg-card">
+                                    <div className="text-xs text-muted-foreground italic border rounded p-1 bg-card">
                                         The webhook URL will be shown here once you save the workflow
                                     </div>
                                 ) : (
@@ -390,7 +390,7 @@ function StepTriggerConfigurationTrackingPixel({
                         content: (
                             <>
                                 {!trackingPixelUrl ? (
-                                    <div className="text-xs text-muted-foreground-foreground italic border rounded p-1 bg-card">
+                                    <div className="text-xs text-muted-foreground italic border rounded p-1 bg-card">
                                         The tracking pixel URL will be shown here once you save the workflow
                                     </div>
                                 ) : (

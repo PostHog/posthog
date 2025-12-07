@@ -90,7 +90,7 @@ export function TemplateLinkSection({
                 ))}
             {contentVisible && (
                 <>
-                    {piiWarning && <p className="text-muted-foreground-foreground mb-1">{piiWarning}</p>}
+                    {piiWarning && <p className="text-muted-foreground mb-1">{piiWarning}</p>}
                     <div className="flex items-start gap-2">
                         <div className="flex-1">
                             {isMultiline ? (

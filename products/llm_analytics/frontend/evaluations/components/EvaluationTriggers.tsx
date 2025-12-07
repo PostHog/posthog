@@ -140,7 +140,7 @@ export function EvaluationTriggers(): JSX.Element {
                         {/* Property Filters */}
                         <div className="space-y-2">
                             <label className="block text-sm font-medium">Generation properties</label>
-                            <div className="text-sm text-muted-foreground-foreground mb-2">
+                            <div className="text-sm text-muted-foreground mb-2">
                                 Define which generation events should trigger this evaluation. Leave empty to match all
                                 generations.
                             </div>
@@ -172,7 +172,7 @@ export function EvaluationTriggers(): JSX.Element {
             {/* Help Section */}
             <div className="bg-card border rounded p-3 text-sm">
                 <h4 className="font-semibold mb-2">Examples:</h4>
-                <ul className="space-y-1 text-muted-foreground-foreground list-disc list-inside">
+                <ul className="space-y-1 text-muted-foreground list-disc list-inside">
                     <li>
                         <strong>10% of all generations:</strong> Set 10% sampling with no property conditions
                     </li>

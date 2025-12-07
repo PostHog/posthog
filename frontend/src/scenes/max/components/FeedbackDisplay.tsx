@@ -43,16 +43,16 @@ export function FeedbackDisplay({ conversationId }: FeedbackDisplayProps): JSX.E
     return (
         <div className="flex items-center gap-1">
             <LemonButton size="xsmall" type="secondary" onClick={() => submitRating('good')}>
-                Good <span className="text-muted ml-0.5">1</span>
+                Good <span className="text-muted-foreground ml-0.5">1</span>
             </LemonButton>
             <LemonButton size="xsmall" type="secondary" onClick={() => submitRating('okay')}>
-                Okay <span className="text-muted ml-0.5">2</span>
+                Okay <span className="text-muted-foreground ml-0.5">2</span>
             </LemonButton>
             <LemonButton size="xsmall" type="secondary" onClick={() => submitRating('bad')}>
-                Bad <span className="text-muted ml-0.5">3</span>
+                Bad <span className="text-muted-foreground ml-0.5">3</span>
             </LemonButton>
             <LemonButton size="xsmall" type="secondary" onClick={() => submitRating('dismissed')}>
-                Dismiss <span className="text-muted ml-0.5">x</span>
+                Dismiss <span className="text-muted-foreground ml-0.5">x</span>
             </LemonButton>
         </div>
     )

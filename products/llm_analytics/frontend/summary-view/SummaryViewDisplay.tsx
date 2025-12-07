@@ -82,7 +82,7 @@ export function SummaryViewDisplay({ trace, event, tree, autoGenerate }: Summary
         <div className="p-4 flex flex-col gap-4 h-full overflow-hidden">
             {!summaryData && !summaryDataLoading && !errorMessage && (
                 <div className="flex flex-col items-center gap-4 py-8">
-                    <div className="text-muted-foreground-foreground text-center">
+                    <div className="text-muted-foreground text-center">
                         <p>Generate an AI-powered summary of this {eventTypeName}.</p>
                     </div>
                     <div className="flex items-center gap-3">

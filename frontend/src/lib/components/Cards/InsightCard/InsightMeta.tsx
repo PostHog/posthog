@@ -401,7 +401,7 @@ export function InsightMeta({
                                 {insight.last_refresh ? (
                                     <div className="block my-1">
                                         Refresh data
-                                        <p className="text-xs text-muted-foreground-foreground mt-0.5">
+                                        <p className="text-xs text-muted-foreground mt-0.5">
                                             Last computed{' '}
                                             <TZLabel
                                                 time={insight.last_refresh}

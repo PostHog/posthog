@@ -19,7 +19,7 @@ export const RequiredOrganizationAccessSelector = ({
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Select organization</LemonLabel>
-            <p className="text-sm text-muted-foreground-foreground mb-2">
+            <p className="text-sm text-muted-foreground mb-2">
                 This application requires access to a specific organization.
             </p>
             <LemonField name="scoped_organizations">

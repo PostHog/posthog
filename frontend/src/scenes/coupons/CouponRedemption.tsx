@@ -241,7 +241,7 @@ export function CouponRedemption({
                                     <IconCheck className="shrink-0" />
                                     <span>You've already claimed this offer!</span>
                                 </div>
-                                <p className="text-muted">
+                                <p className="text-muted-foreground">
                                     Your organization has already claimed {config.name} coupon.
                                     {alreadyClaimed.expires_at &&
                                         ` Valid until ${dayjs(alreadyClaimed.expires_at).format('LL')}.`}

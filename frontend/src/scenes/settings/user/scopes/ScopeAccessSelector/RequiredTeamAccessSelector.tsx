@@ -21,7 +21,7 @@ export const RequiredTeamAccessSelector = ({
     return (
         <div className="flex flex-col gap-2">
             <LemonLabel>Select project</LemonLabel>
-            <p className="text-sm text-muted-foreground-foreground mb-2">
+            <p className="text-sm text-muted-foreground mb-2">
                 This application requires access to a specific project.
             </p>
             <LemonField name="scoped_teams">

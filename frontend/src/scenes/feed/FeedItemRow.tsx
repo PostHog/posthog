@@ -73,16 +73,16 @@ export function FeedItemRow({ item, config }: FeedItemRowProps): JSX.Element {
                     </div>
                     {item.created_by ? (
                         <>
-                            <span className="text-muted">Created by</span>
+                            <span className="text-muted-foreground">Created by</span>
                             <span className="font-medium">{item.created_by}</span>
                         </>
                     ) : (
                         <span className="font-medium">PostHog</span>
                     )}
-                    <span className="text-muted">•</span>
-                    <span className="text-muted">{getActivityTypeLabel(item.type)}</span>
-                    <span className="text-muted">•</span>
-                    <TZLabel time={item.created_at} className="text-muted" />
+                    <span className="text-muted-foreground">•</span>
+                    <span className="text-muted-foreground">{getActivityTypeLabel(item.type)}</span>
+                    <span className="text-muted-foreground">•</span>
+                    <TZLabel time={item.created_at} className="text-muted-foreground" />
                 </div>
             </div>
 
@@ -91,13 +91,13 @@ export function FeedItemRow({ item, config }: FeedItemRowProps): JSX.Element {
                 <Link to={url} className="block px-4 pb-3" data-attr={`feed-item-click-${item.type}`}>
                     <div>
                         <h3 className="font-semibold text-base mb-1">{item.name}</h3>
-                        {item.description && <p className="text-sm text-muted mb-0">{item.description}</p>}
+                        {item.description && <p className="text-sm text-muted-foreground mb-0">{item.description}</p>}
                     </div>
                 </Link>
             ) : (
                 <div className="px-4 pb-3">
                     <h3 className="font-semibold text-base mb-1">{item.name}</h3>
-                    {item.description && <p className="text-sm text-muted mb-0">{item.description}</p>}
+                    {item.description && <p className="text-sm text-muted-foreground mb-0">{item.description}</p>}
                 </div>
             )}
         </div>

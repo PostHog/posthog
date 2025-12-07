@@ -498,7 +498,7 @@ export function BatchExportsEditFields({
 
                         {batchExportConfigForm.mode === 'COPY' && (
                             <>
-                                <p className="text-xs text-muted-foreground-foreground mt-1">
+                                <p className="text-xs text-muted-foreground mt-1">
                                     In order to execute a COPY SQL command, the batch export will first export files to
                                     an S3 bucket, which requires credentials to access it. After the files are available
                                     in the bucket, we will instruct Redshift to copy them into the configured table. As

@@ -65,7 +65,7 @@ export const VariantsPanelHeader = ({
                 <IconCheckCircle className="text-success w-4 h-4 shrink-0" />
             )}
             <span className="font-semibold shrink-0">Feature flag & variants</span>
-            <span className="text-muted-foreground-foreground shrink-0">•</span>
+            <span className="text-muted-foreground shrink-0">•</span>
             <span
                 className={clsx(
                     'text-sm truncate',
@@ -78,7 +78,7 @@ export const VariantsPanelHeader = ({
             >
                 {summaryParts.map((part, i) => (
                     <Fragment key={i}>
-                        {i > 0 && <span className="text-muted-foreground-foreground shrink-0"> • </span>}
+                        {i > 0 && <span className="text-muted-foreground shrink-0"> • </span>}
                         {typeof part === 'string' ? part : part}
                     </Fragment>
                 ))}

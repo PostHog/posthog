@@ -42,9 +42,7 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            experiment.description
-                                                ? 'text-muted-foreground-foreground line-through'
-                                                : ''
+                                            experiment.description ? 'text-muted-foreground line-through' : ''
                                         }`}
                                     >
                                         Add hypothesis
@@ -52,7 +50,7 @@ export function PreLaunchChecklist(): JSX.Element {
                                     <div
                                         className={`text-sm ${
                                             experiment.description
-                                                ? 'text-muted-foreground-foreground line-through'
+                                                ? 'text-muted-foreground line-through'
                                                 : 'text-muted-foreground'
                                         }`}
                                     >
@@ -89,7 +87,7 @@ export function PreLaunchChecklist(): JSX.Element {
                                 <div>
                                     <div
                                         className={`font-semibold ${
-                                            hasPrimaryMetrics ? 'text-muted-foreground-foreground line-through' : ''
+                                            hasPrimaryMetrics ? 'text-muted-foreground line-through' : ''
                                         }`}
                                     >
                                         Add first metric
@@ -97,7 +95,7 @@ export function PreLaunchChecklist(): JSX.Element {
                                     <div
                                         className={`text-sm ${
                                             hasPrimaryMetrics
-                                                ? 'text-muted-foreground-foreground line-through'
+                                                ? 'text-muted-foreground line-through'
                                                 : 'text-muted-foreground'
                                         }`}
                                     >

@@ -203,7 +203,7 @@ export function Billing(): JSX.Element {
                                         <li key={coupon.code} className="text-sm">
                                             <span>{coupon.campaign_name}</span>
                                             {coupon.expires_at && (
-                                                <span className="text-muted ml-1">
+                                                <span className="text-muted-foreground ml-1">
                                                     · until {dayjs(coupon.expires_at).format('LL')}
                                                 </span>
                                             )}

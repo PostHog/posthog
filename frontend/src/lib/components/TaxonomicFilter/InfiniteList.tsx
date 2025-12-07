@@ -286,7 +286,7 @@ export function InfiniteList({ popupAnchorElement }: InfiniteListProps): JSX.Ele
                     }}
                     onClick={selectNonCapturedEvent}
                     onMouseEnter={() => mouseInteractionsEnabled && setIndex(rowIndex)}
-                    icon={<IconPlus className="text-muted-foreground-foreground size-4" />}
+                    icon={<IconPlus className="text-muted-foreground size-4" />}
                     data-attr="prop-filter-event-option-custom"
                 >
                     <div className="flex items-center gap-2">

@@ -56,9 +56,9 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
                 <SceneTitleSection name={null} resourceType={{ type: 'chat' }} />
                 <div className="flex flex-col items-center justify-center w-full grow">
-                    <IconSidePanel className="text-3xl text-muted-foreground-foreground mb-2" />
+                    <IconSidePanel className="text-3xl text-muted-foreground mb-2" />
                     <h3 className="text-xl font-bold mb-1">The chat is currently in the sidebar</h3>
-                    <p className="text-sm text-muted-foreground-foreground mb-2">
+                    <p className="text-sm text-muted-foreground mb-2">
                         You can navigate freely around the app with it, or…
                     </p>
                     <LemonButton

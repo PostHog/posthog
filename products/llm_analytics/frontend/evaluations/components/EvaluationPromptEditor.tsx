@@ -42,7 +42,7 @@ Example: Is this response helpful and accurate? Return true if yes, false if no.
             {prompt.length > 0 && (
                 <div className="bg-card border rounded p-3">
                     <h4 className="text-sm font-semibold mb-2">Prompt guidelines:</h4>
-                    <ul className="text-sm text-muted-foreground-foreground space-y-1 list-disc list-inside">
+                    <ul className="text-sm text-muted-foreground space-y-1 list-disc list-inside">
                         <li>Be specific about what you want to evaluate</li>
                         <li>
                             Clearly instruct to return <code>true</code> or <code>false</code>

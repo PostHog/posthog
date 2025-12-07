@@ -65,7 +65,7 @@ export function PathNodeCardButton({
                 <span className="text-xxs text-secondary mr-1">{`0${name[0]}`}</span>
                 <Tooltip title={tooltipContent} placement="right">
                     <span className="text-xs break-words">{displayName}</span>
-                    {isTruncated && <IconInfo className="ml-1 text-muted-foreground-foreground align-text-bottom" />}
+                    {isTruncated && <IconInfo className="ml-1 text-muted-foreground align-text-bottom" />}
                 </Tooltip>
             </div>
             {/* TRICKY: We don't want the popover to affect the buttons */}

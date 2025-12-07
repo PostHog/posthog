@@ -46,7 +46,7 @@ export const UserSelect = ({
 
 export const UserDisplay = ({ user }: { user: UserAssignee | null }): JSX.Element => {
     if (!user) {
-        return <span className="text-muted">Any user</span>
+        return <span className="text-muted-foreground">Any user</span>
     }
 
     return (

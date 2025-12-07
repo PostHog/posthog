@@ -138,7 +138,7 @@ export function AttributionSettings(): JSX.Element {
                     Attribution Settings
                     {currentTeamLoading && <Spinner className="text-muted-foreground" />}
                 </h3>
-                <p className="text-muted-foreground-foreground text-sm mb-4">
+                <p className="text-muted-foreground text-sm mb-4">
                     Configure how conversions are attributed to marketing campaigns.
                 </p>
             </div>
@@ -148,7 +148,7 @@ export function AttributionSettings(): JSX.Element {
                     <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Window
                         <Tooltip title="The attribution window determines how far back in time to look for marketing touchpoints when attributing conversions. Example: With a 30-day window, if someone converts today, we'll look back 30 days for any UTM campaigns they interacted with. Recommendation: Use 30-60 days for short sales cycles, 90+ days for longer consideration periods.">
-                            <IconInfo className="text-muted-foreground-foreground hover:text-default cursor-help" />
+                            <IconInfo className="text-muted-foreground hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
                     <div className="max-w-md flex items-center gap-2">
@@ -188,7 +188,7 @@ export function AttributionSettings(): JSX.Element {
                         </LemonButton>
                     </div>
                     <p
-                        className={`text-xs text-muted-foreground-foreground mt-1 ${hasError ? 'text-destructive-foreground' : ''}`}
+                        className={`text-xs text-muted-foreground mt-1 ${hasError ? 'text-destructive-foreground' : ''}`}
                     >
                         {hasError
                             ? `Please enter a value between ${MIN_ATTRIBUTION_WINDOW_DAYS} and ${MAX_ATTRIBUTION_WINDOW_DAYS} days`
@@ -200,7 +200,7 @@ export function AttributionSettings(): JSX.Element {
                     <label className="block text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Mode
                         <Tooltip title="Attribution mode determines which marketing touchpoint gets credit for a conversion when multiple touchpoints exist. First Touch: Credits the first marketing touchpoint in the customer journey. Best for measuring brand awareness and top-of-funnel campaigns. Last Touch: Credits the last marketing touchpoint before conversion. Best for measuring bottom-of-funnel effectiveness and direct conversion drivers.">
-                            <IconInfo className="text-muted-foreground-foreground hover:text-default cursor-help" />
+                            <IconInfo className="text-muted-foreground hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
                     <div className="max-w-md">
@@ -219,7 +219,7 @@ export function AttributionSettings(): JSX.Element {
                             ))}
                         </div>
                     </div>
-                    <p className="text-xs text-muted-foreground-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                         {localAttributionMode === AttributionMode.FirstTouch
                             ? 'Credit the first marketing touchpoint in the customer journey'
                             : 'Credit the last marketing touchpoint before conversion'}

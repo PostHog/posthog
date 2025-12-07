@@ -920,7 +920,7 @@ function DraggableValueSnack<T = string>({
                     className="shrink-0 flex items-center pl-1 pr-0.5 cursor-grab active:cursor-grabbing"
                     {...listeners}
                 >
-                    <SortableDragIcon className="text-muted-foreground-foreground w-3.5" />
+                    <SortableDragIcon className="text-muted-foreground w-3.5" />
                 </span>
                 <span
                     className="overflow-hidden text-ellipsis px-1 cursor-text"

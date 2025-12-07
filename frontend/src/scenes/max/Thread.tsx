@@ -150,7 +150,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     {conversationId && isPromptVisible && !streamingActive && (
                         <MessageTemplate type="ai">
                             <div className="flex flex-col gap-2">
-                                <span className="text-xs text-muted">How is PostHog AI doing? (optional)</span>
+                                <span className="text-xs text-muted-foreground">
+                                    How is PostHog AI doing? (optional)
+                                </span>
                                 <FeedbackDisplay conversationId={conversationId} />
                             </div>
                         </MessageTemplate>
@@ -608,7 +610,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     </div>
 
                     <div className="space-y-2">
-                        <p className="text-xs text-muted-foreground-foreground mb-3">
+                        <p className="text-xs text-muted-foreground mb-3">
                             Your research has been completed. Each notebook contains detailed analysis:
                         </p>
 
@@ -731,14 +733,12 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
                                 <span
                                     className={clsx(
                                         'leading-relaxed',
-                                        isCompleted && 'text-muted-foreground-foreground line-through',
+                                        isCompleted && 'text-muted-foreground line-through',
                                         isInProgress && 'font-medium'
                                     )}
                                 >
                                     {step.description}
-                                    {isInProgress && (
-                                        <span className="text-muted-foreground-foreground ml-1">(in progress)</span>
-                                    )}
+                                    {isInProgress && <span className="text-muted-foreground ml-1">(in progress)</span>}
                                 </span>
                             </div>
                         )
@@ -1207,7 +1207,7 @@ function MultiVisualizationModal({ insights: messages }: MultiVisualizationModal
         <div className="flex">
             {/* Sidebar with visualization list */}
             <div className="w-64 border-r pr-4 overflow-y-auto">
-                <h5 className="text-xs font-semibold text-muted-foreground-foreground mb-3">VISUALIZATIONS</h5>
+                <h5 className="text-xs font-semibold text-muted-foreground mb-3">VISUALIZATIONS</h5>
                 <div className="space-y-1">
                     {messages.map((item, index) => (
                         <button

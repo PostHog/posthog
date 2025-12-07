@@ -51,12 +51,12 @@ export function DataWarehousePricingCard({ product }: { product: BillingProductV
                 <h2 className="text-lg font-medium mb-3">Cost breakdown</h2>
                 <div className="flex items-center justify-between py-3 px-4 bg-bg-3000 rounded border">
                     <div className="text-center flex-1">
-                        <div className="text-xs text-muted-foreground-foreground mb-1">Current period</div>
+                        <div className="text-xs text-muted-foreground mb-1">Current period</div>
                         <div className="text-2xl font-bold">${currentTotal.toFixed(2)}</div>
                     </div>
                     {hasProjected && (
                         <div className="text-center flex-1">
-                            <div className="text-xs text-muted-foreground-foreground mb-1">Projected total</div>
+                            <div className="text-xs text-muted-foreground mb-1">Projected total</div>
                             <div className="text-2xl font-bold text-muted-foreground-3000">
                                 ${projectedTotal.toFixed(2)}
                             </div>

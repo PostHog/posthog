@@ -80,7 +80,7 @@ export function MultiQuestionFormComponent({
             <form className="flex flex-col gap-3" aria-label="Multi-question form">
                 {/* Progress indicator */}
                 {questions.length > 1 && (
-                    <div className="flex items-center gap-2 text-xs text-muted">
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <span>
                             Question {currentQuestionIndex + 1} of {questions.length}
                         </span>
@@ -106,7 +106,7 @@ export function MultiQuestionFormComponent({
 
                 {/* Loading state */}
                 {isAnswersSubmitting ? (
-                    <div className="flex items-center gap-2 text-muted">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                         <Spinner className="size-4" />
                         <span>Submitting answers...</span>
                     </div>
@@ -116,7 +116,7 @@ export function MultiQuestionFormComponent({
                         {currentQuestion.options &&
                             currentQuestion.options.map((option, index) => (
                                 <div key={option.value} className="flex items-center gap-2">
-                                    <div className="text-muted size-4 shrink-0 flex items-center justify-center">
+                                    <div className="text-muted-foreground size-4 shrink-0 flex items-center justify-center">
                                         {index + 1}.
                                     </div>
                                     <LemonButton
@@ -133,14 +133,14 @@ export function MultiQuestionFormComponent({
                         {/* Custom answer option */}
                         {allowCustomAnswer && !showCustomInput && (
                             <div className="flex items-center gap-2">
-                                <span className="text-muted size-4 pt-0.5 shrink-0 flex items-center justify-center">
+                                <span className="text-muted-foreground size-4 pt-0.5 shrink-0 flex items-center justify-center">
                                     {currentQuestion.options.length + 1}.
                                 </span>
                                 <LemonButton
                                     onClick={() => setShowCustomInput(true)}
                                     type="tertiary"
                                     size="small"
-                                    className="justify-start text-muted w-[calc(100%-2rem)]"
+                                    className="justify-start text-muted-foreground w-[calc(100%-2rem)]"
                                     sideIcon={<IconChevronRight />}
                                 >
                                     Type your answer
@@ -187,14 +187,14 @@ function FormRecap({ questions, answers }: FormRecapProps): JSX.Element {
     return (
         <MessageTemplate type="ai">
             <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-1.5 text-xs text-muted">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <IconCheck className="text-success" />
                     <span>Form submitted</span>
                 </div>
                 <div className="flex flex-col gap-1.5">
                     {questions.map((question) => (
                         <div key={question.id} className="text-sm">
-                            <span className="text-muted">{question.question}</span>
+                            <span className="text-muted-foreground">{question.question}</span>
                             <br />
                             <span className="font-medium">{answers[question.id] || '—'}</span>
                         </div>

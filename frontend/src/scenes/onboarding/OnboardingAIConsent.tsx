@@ -56,7 +56,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                             <IconSparkles className="text-2xl text-warning-foreground" />
                             <span className="font-semibold text-lg">Your AI-powered product analyst</span>
                         </div>
-                        <p className="text-muted-foreground-foreground mb-4">
+                        <p className="text-muted-foreground mb-4">
                             <Link to="https://posthog.com/docs/posthog-ai" target="_blank" disableDocsPanel>
                                 PostHog AI
                             </Link>{' '}
@@ -64,7 +64,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                             "what's a funnel?" for the third time.
                         </p>
                         <div>
-                            <p className="text-muted-foreground-foreground text-sm mb-2">
+                            <p className="text-muted-foreground text-sm mb-2">
                                 Ask it things you'd be too embarrassed to ask a coworker:
                             </p>
                             <div className="flex flex-wrap gap-2">
@@ -85,7 +85,7 @@ export const OnboardingAIConsent = ({ stepKey }: { stepKey: OnboardingStepKey })
                     <div className="flex items-center justify-between gap-4">
                         <div>
                             <h4 className="font-semibold mb-1">Enable PostHog AI</h4>
-                            <p className="text-muted-foreground-foreground text-sm mb-0">
+                            <p className="text-muted-foreground text-sm mb-0">
                                 PostHog AI uses third-party LLM providers (OpenAI and Anthropic) for data analysis. Your
                                 data will not be used for training models.{' '}
                                 <Link to="https://posthog.com/docs/posthog-ai/faq" target="_blank" disableDocsPanel>

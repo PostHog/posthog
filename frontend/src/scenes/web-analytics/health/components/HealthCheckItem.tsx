@@ -21,7 +21,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                         <span className="font-medium">{check.title}</span>
                     )}
                     {check.docsUrl && (
-                        <Link to={check.docsUrl} className="text-xs text-muted">
+                        <Link to={check.docsUrl} className="text-xs text-muted-foreground">
                             Docs
                         </Link>
                     )}

@@ -118,7 +118,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 }}
                 emptyState={
                     <div className="text-center py-8">
-                        <div className="text-muted-foreground-foreground mb-2">No evaluation runs yet</div>
+                        <div className="text-muted-foreground mb-2">No evaluation runs yet</div>
                         <div className="text-sm text-muted-foreground">
                             Runs will appear here once this evaluation starts executing based on your triggers.
                         </div>

@@ -32,14 +32,14 @@ export function SettingsSnapshot({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [at, scopeKey])
 
-    const header = showHeader ? <div className="font-semibold text-muted mb-1">{title}</div> : null
+    const header = showHeader ? <div className="font-semibold text-muted-foreground mb-1">{title}</div> : null
 
     // If no timestamp is provided, we don't fetch – show empty state/header if requested
     if (!at) {
         return showHeader ? (
             <div className={className}>
                 {header}
-                <div className="text-muted text-xs">No timestamp provided.</div>
+                <div className="text-muted-foreground text-xs">No timestamp provided.</div>
             </div>
         ) : null
     }
@@ -59,7 +59,7 @@ export function SettingsSnapshot({
         return showHeader ? (
             <div className={className}>
                 {header}
-                <div className="text-muted text-xs">No settings to display.</div>
+                <div className="text-muted-foreground text-xs">No settings to display.</div>
             </div>
         ) : null
     }
@@ -71,7 +71,7 @@ export function SettingsSnapshot({
             {header}
             {keysToRender.length === 0 ? (
                 showHeader ? (
-                    <div className="text-muted text-xs">No settings to display.</div>
+                    <div className="text-muted-foreground text-xs">No settings to display.</div>
                 ) : null
             ) : (
                 <div className="flex flex-col gap-2">
@@ -85,7 +85,7 @@ export function SettingsSnapshot({
                             value !== null && typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value)
                         return (
                             <div key={key} className="rounded border p-2">
-                                <div className="text-muted text-xs mb-1">{label}</div>
+                                <div className="text-muted-foreground text-xs mb-1">{label}</div>
                                 <pre className="text-xs whitespace-pre-wrap break-words m-0">{display}</pre>
                             </div>
                         )

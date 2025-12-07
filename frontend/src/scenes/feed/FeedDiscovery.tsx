@@ -69,7 +69,7 @@ export function FeedDiscovery(): JSX.Element {
                             <div className="flex-shrink-0 text-2xl">{item.icon}</div>
                             <div className="flex-1">
                                 <h3 className="font-semibold text-base mb-1">{item.title}</h3>
-                                <p className="text-xs text-muted mb-0">{item.subtitle}</p>
+                                <p className="text-xs text-muted-foreground mb-0">{item.subtitle}</p>
                             </div>
                         </div>
                         <div className="mt-auto">

@@ -188,7 +188,7 @@ export function PropertyGroupModal({ logicKey, onAfterSave }: PropertyGroupModal
                             )}
                         </>
                     ) : (
-                        <div className="text-center text-muted-foreground-foreground py-6">
+                        <div className="text-center text-muted-foreground py-6">
                             No properties yet. Click "Add property" to get started.
                         </div>
                     )}

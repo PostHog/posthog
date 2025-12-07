@@ -88,7 +88,7 @@ export function FeatureFlagEvaluationTags({
 
                 {showEvaluationOptions && selectedTags.length > 0 && (
                     <div className="bg-border-light rounded p-2">
-                        <div className="text-xs text-muted-foreground-foreground mb-2">
+                        <div className="text-xs text-muted-foreground mb-2">
                             Select which tags should also act as evaluation constraints. Flags with evaluation tags will
                             only evaluate when the SDK provides matching environment tags.
                         </div>

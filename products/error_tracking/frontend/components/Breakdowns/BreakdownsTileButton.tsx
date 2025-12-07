@@ -58,9 +58,7 @@ function BreakdownPreview({ title, property }: { title: string; property: string
                         <LemonSkeleton />
                     </div>
                 ) : properties.length === 0 || hasOnlyNullBreakdown ? (
-                    <div className="text-muted-foreground-foreground text-xs h-4 flex items-center justify-center">
-                        No data
-                    </div>
+                    <div className="text-muted-foreground text-xs h-4 flex items-center justify-center">No data</div>
                 ) : (
                     <BreakdownsStackedBar properties={properties} totalCount={totalCount} propertyName={property} />
                 )}

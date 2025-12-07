@@ -101,7 +101,7 @@ export default function SchemaForm(): JSX.Element {
                                 render: function RenderSyncType(_, schema) {
                                     if (!schema.incremental_available && !schema.append_available) {
                                         return (
-                                            <span className="text-xs text-muted-foreground-foreground">
+                                            <span className="text-xs text-muted-foreground">
                                                 Incremental sync not supported
                                             </span>
                                         )
@@ -129,11 +129,7 @@ export default function SchemaForm(): JSX.Element {
                                         }
                                     }
 
-                                    return (
-                                        <span className="text-xs text-muted-foreground-foreground">
-                                            No sync field selected
-                                        </span>
-                                    )
+                                    return <span className="text-xs text-muted-foreground">No sync field selected</span>
                                 },
                             },
                             {

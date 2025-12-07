@@ -107,7 +107,7 @@ export function ViewsTab(): JSX.Element {
             {filteredMaterializedViews.length > 0 && (
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Materialized views</h3>
-                    <p className="text-muted-foreground-foreground mb-2">
+                    <p className="text-muted-foreground mb-2">
                         Materialized views are refreshed on a schedule and stored as tables for faster query
                         performance.
                     </p>
@@ -136,7 +136,7 @@ export function ViewsTab(): JSX.Element {
                                                 <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
-                                            <span className="text-muted-foreground-foreground text-xs">
+                                            <span className="text-muted-foreground text-xs">
                                                 Created by the{' '}
                                                 <Link
                                                     to={urls.dataWarehouseManagedViewsets()}
@@ -258,7 +258,7 @@ export function ViewsTab(): JSX.Element {
             {filteredViews.length > 0 && (
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Views</h3>
-                    <p className="text-muted-foreground-foreground mb-2">
+                    <p className="text-muted-foreground mb-2">
                         Views are virtual tables created from SQL queries. They are computed on-the-fly when queried.
                     </p>
                     <LemonTable
@@ -286,7 +286,7 @@ export function ViewsTab(): JSX.Element {
                                                 <span className="font-bold text-foreground">{view.name}</span>
                                             </Tooltip>
                                             <br />
-                                            <span className="text-muted-foreground-foreground text-xs">
+                                            <span className="text-muted-foreground text-xs">
                                                 Created by the{' '}
                                                 <Link
                                                     to={urls.dataWarehouseManagedViewsets()}

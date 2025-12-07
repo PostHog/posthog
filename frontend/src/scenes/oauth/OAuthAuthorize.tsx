@@ -13,7 +13,7 @@ import { oauthAuthorizeLogic } from './oauthAuthorizeLogic'
 export const OAuthAuthorizeError = ({ title, description }: { title: string; description: string }): JSX.Element => {
     return (
         <div className="flex flex-col items-center justify-center h-full gap-4 py-12">
-            <IconWarning className="text-muted-foreground-foreground text-4xl" />
+            <IconWarning className="text-muted-foreground text-4xl" />
             <div className="text-xl font-semibold">{title}</div>
             <div className="text-sm text-muted-foreground">{description}</div>
         </div>
@@ -59,7 +59,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                     <h2 className="text-2xl font-semibold">
                         Authorize <strong>{oauthApplication.name}</strong>
                     </h2>
-                    <p className="text-muted-foreground-foreground mt-2">
+                    <p className="text-muted-foreground mt-2">
                         {oauthApplication.name} is requesting access to your data.
                     </p>
                 </div>
@@ -74,7 +74,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             autoSelectFirst={true}
                         />
                         <div>
-                            <div className="text-sm font-semibold uppercase text-muted-foreground-foreground mb-2">
+                            <div className="text-sm font-semibold uppercase text-muted-foreground mb-2">
                                 Requested Permissions
                             </div>
                             <ul className="space-y-2">

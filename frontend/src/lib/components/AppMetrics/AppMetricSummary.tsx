@@ -54,9 +54,7 @@ export function AppMetricSummary({
                 {loading ? (
                     <LemonSkeleton className="w-20 h-6 mb-2" />
                 ) : (
-                    <div className="text-right text-2xl text-muted-foreground-foreground">
-                        {humanFriendlyNumber(total)}
-                    </div>
+                    <div className="text-right text-2xl text-muted-foreground">{humanFriendlyNumber(total)}</div>
                 )}
             </div>
             <div className="flex flex-row justify-end items-center gap-2 text-xs text-muted-foreground">

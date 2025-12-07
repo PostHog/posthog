@@ -154,9 +154,7 @@ export function LogsViewer({
                             {entries.length > 1 && (
                                 <>
                                     <br />
-                                    <span className="text-xs text-muted-foreground-foreground">
-                                        + {entries.length - 1} more
-                                    </span>
+                                    <span className="text-xs text-muted-foreground">+ {entries.length - 1} more</span>
                                 </>
                             )}
                         </Link>

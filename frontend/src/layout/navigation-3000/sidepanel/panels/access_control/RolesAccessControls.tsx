@@ -135,7 +135,7 @@ export function RolesAccessControls(): JSX.Element {
                 </div>
 
                 <h4 className="mb-2">Default role for new members</h4>
-                <p className="text-muted-foreground-foreground mb-2">
+                <p className="text-muted-foreground mb-2">
                     Automatically assign a role to new members when they join the organization.
                     <Tooltip title="When a new user joins your organization (via invite or signup), they will automatically be added to this role, inheriting all its permissions. This helps ensure consistent access control for new team members.">
                         <IconInfo className="ml-1" />

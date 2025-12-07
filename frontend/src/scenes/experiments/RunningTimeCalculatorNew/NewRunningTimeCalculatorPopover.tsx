@@ -96,7 +96,7 @@ export function NewRunningTimeCalculatorPopover({
                     tooltip="Configure settings"
                 />
             </div>
-            <div className="text-xs text-muted-foreground-foreground space-y-1">
+            <div className="text-xs text-muted-foreground space-y-1">
                 <div>
                     Progress: {exposures?.toLocaleString()} / {recommendedSampleSize?.toLocaleString()} exposures
                 </div>

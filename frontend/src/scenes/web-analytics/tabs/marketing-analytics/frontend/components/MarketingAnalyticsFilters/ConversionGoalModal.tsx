@@ -84,7 +84,7 @@ export function ConversionGoalModal(): JSX.Element {
             }
         >
             <div className="space-y-4">
-                <p className="text-muted">
+                <p className="text-muted-foreground">
                     {conversionGoalDescription}
                     <Link to={urls.settings('environment-marketing-analytics')}>
                         Manage saved conversion goals in settings
@@ -137,7 +137,9 @@ export function ConversionGoalModal(): JSX.Element {
                                     >
                                         <div className="flex flex-col">
                                             <span className="font-medium">{goal.conversion_goal_name}</span>
-                                            <span className="text-xs text-muted">{goal.custom_name || goal.name}</span>
+                                            <span className="text-xs text-muted-foreground">
+                                                {goal.custom_name || goal.name}
+                                            </span>
                                         </div>
                                     </div>
                                 ))}

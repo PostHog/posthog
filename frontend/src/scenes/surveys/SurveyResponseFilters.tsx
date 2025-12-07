@@ -159,7 +159,7 @@ export const SurveyResponseFilters = React.memo(function SurveyResponseFilters()
                                     <div className="grid grid-cols-6 gap-2 p-2 items-center hover:bg-card transition-all">
                                         <div className="col-span-3">
                                             <span className="font-medium">{question.question}</span>
-                                            <div className="text-muted-foreground-foreground text-xs flex gap-4">
+                                            <div className="text-muted-foreground text-xs flex gap-4">
                                                 <span className="flex items-center gap-1">
                                                     {QUESTION_TYPE_ICON_MAP[question.type]}
                                                     {SurveyQuestionLabel[question.type]}

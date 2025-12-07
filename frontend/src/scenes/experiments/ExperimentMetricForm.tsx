@@ -318,7 +318,7 @@ export function ExperimentMetricForm({
                                 </div>
                             }
                         >
-                            <IconInfo className="text-muted-foreground-foreground text-base" />
+                            <IconInfo className="text-muted-foreground text-base" />
                         </Tooltip>
                     </span>
                 </LemonBanner>
@@ -341,7 +341,7 @@ export function ExperimentMetricForm({
                             {...commonActionFilterProps}
                         />
                         {metric.source.math === ExperimentMetricMathType.HogQL && (
-                            <div className="text-muted-foreground-foreground text-sm mt-2">
+                            <div className="text-muted-foreground text-sm mt-2">
                                 SQL expressions allow you to write custom computations and aggregations. The expression
                                 should return a numeric value and will be evaluated for each user in the experiment.{' '}
                                 <Link
@@ -449,7 +449,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">
                                 Start event
                                 <Tooltip title="The event that triggers retention tracking. Retention is measured from when users perform this event.">
-                                    <IconInfo className="ml-1 text-muted" />
+                                    <IconInfo className="ml-1 text-muted-foreground" />
                                 </Tooltip>
                             </LemonLabel>
                             <ActionFilter
@@ -482,7 +482,7 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">
                                 Completion event
                                 <Tooltip title="The event that indicates a user was 'retained'. We check if users who performed the start event also perform this event within the retention window.">
-                                    <IconInfo className="ml-1 text-muted" />
+                                    <IconInfo className="ml-1 text-muted-foreground" />
                                 </Tooltip>
                             </LemonLabel>
                             <ActionFilter
@@ -515,11 +515,11 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">
                                 Retention window
                                 <Tooltip title="The time period after the start event during which we check for the completion event. For example, [7, 7] checks if users returned exactly on day 7, while [7, 14] checks if they returned between day 7 and 14.">
-                                    <IconInfo className="ml-1 text-muted" />
+                                    <IconInfo className="ml-1 text-muted-foreground" />
                                 </Tooltip>
                             </LemonLabel>
                             <div className="flex items-center gap-2">
-                                <span className="text-muted">From</span>
+                                <span className="text-muted-foreground">From</span>
                                 <LemonInput
                                     type="number"
                                     min={0}
@@ -532,7 +532,7 @@ export function ExperimentMetricForm({
                                     }}
                                     className="w-20"
                                 />
-                                <span className="text-muted">to</span>
+                                <span className="text-muted-foreground">to</span>
                                 <LemonInput
                                     type="number"
                                     min={metric.retention_window_start || 0}
@@ -559,14 +559,14 @@ export function ExperimentMetricForm({
                                     ]}
                                 />
                             </div>
-                            <span className="text-muted text-xs">After the start event</span>
+                            <span className="text-muted-foreground text-xs">After the start event</span>
                         </div>
 
                         <div>
                             <LemonLabel className="mb-1">
                                 When users have multiple start events
                                 <Tooltip title="Choose how to handle users who perform the start event multiple times during the experiment.">
-                                    <IconInfo className="ml-1 text-muted" />
+                                    <IconInfo className="ml-1 text-muted-foreground" />
                                 </Tooltip>
                             </LemonLabel>
                             <LemonSelect
@@ -603,7 +603,7 @@ export function ExperimentMetricForm({
                             { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
                         ]}
                     />
-                    <div className="text-muted-foreground-foreground text-sm">
+                    <div className="text-muted-foreground text-sm">
                         For example, conversion rates should increase, while bounce rates should decrease.
                     </div>
                 </div>

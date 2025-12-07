@@ -46,14 +46,14 @@ export function HealthCheckSection({ category, checks, defaultOpen = true }: Hea
                                 <div className="text-secondary">{config.icon}</div>
                                 <div>
                                     <div className="font-medium">{config.title}</div>
-                                    <div className="text-xs text-muted">{config.description}</div>
+                                    <div className="text-xs text-muted-foreground">{config.description}</div>
                                 </div>
                             </div>
                             <div className="flex items-center gap-2">
                                 <LemonTag type={hasIssues ? 'warning' : 'success'} size="small">
                                     {passedCount}/{totalCount} passed
                                 </LemonTag>
-                                <IconChevronDown className="w-4 h-4 text-muted transition-transform ui-open:rotate-180" />
+                                <IconChevronDown className="w-4 h-4 text-muted-foreground transition-transform ui-open:rotate-180" />
                             </div>
                         </div>
                     ),

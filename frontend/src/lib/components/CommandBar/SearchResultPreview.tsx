@@ -41,9 +41,9 @@ export const SearchResultPreview = (): JSX.Element | null => {
                     <div className="text-foreground font-bold text-lg">
                         <ResultName result={result} />
                     </div>
-                    <span className="text-muted-foreground-foreground text-xs break-all">
+                    <span className="text-muted-foreground text-xs break-all">
                         {location.host}
-                        <span className="text-muted-foreground-foreground">{urlForResult(result)}</span>
+                        <span className="text-muted-foreground">{urlForResult(result)}</span>
                     </span>
                     <div className="mt-2 text-secondary">
                         <ResultDescription result={result} />

@@ -431,7 +431,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         {evaluation.name}
                     </Link>
                     {evaluation.description && (
-                        <div className="text-muted-foreground-foreground text-sm">{evaluation.description}</div>
+                        <div className="text-muted-foreground text-sm">{evaluation.description}</div>
                     )}
                 </div>
             ),
@@ -479,7 +479,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                         </LemonTag>
                     ))}
                     {evaluation.conditions.length === 0 && (
-                        <span className="text-muted-foreground-foreground text-sm">No triggers</span>
+                        <span className="text-muted-foreground text-sm">No triggers</span>
                     )}
                 </div>
             ),
@@ -490,7 +490,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
             render: (_, evaluation: EvaluationConfig & { stats?: EvaluationStats }) => {
                 const stats = evaluation.stats
                 if (!stats || stats.runs_count === 0) {
-                    return <span className="text-muted-foreground-foreground text-sm">No runs</span>
+                    return <span className="text-muted-foreground text-sm">No runs</span>
                 }
 
                 const passRateColor =
@@ -517,7 +517,7 @@ function LLMAnalyticsEvaluationsContent(): JSX.Element {
                 <div className="flex flex-col items-center">
                     <div className="font-semibold">{evaluation.total_runs}</div>
                     {evaluation.last_run_at && (
-                        <div className="text-muted-foreground-foreground text-xs">
+                        <div className="text-muted-foreground text-xs">
                             Last: {humanFriendlyDuration(evaluation.last_run_at)}
                         </div>
                     )}

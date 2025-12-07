@@ -29,7 +29,7 @@ export function PaginationControls({
     return (
         <div className={cn('mb-4 flex justify-between items-center mb-0')}>
             {hasMoreItems && (
-                <span className="text-muted-foreground-foreground text-sm">
+                <span className="text-muted-foreground text-sm">
                     {`Showing ${
                         showAll ? totalCount : Math.min(maxItemsToShow, totalCount)
                     } of ${totalCount} ${itemName}`}

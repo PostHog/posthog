@@ -39,7 +39,7 @@ export function CampaignFieldPreferencesConfiguration({
         <div className="space-y-4">
             <div>
                 <h3 className="text-lg font-semibold mb-1">Campaign field preferences</h3>
-                <p className="text-muted mb-4">
+                <p className="text-muted-foreground mb-4">
                     Choose whether to match <code className="text-xs">utm_campaign</code> values against campaign names
                     or campaign IDs. Defaults to campaign name if not configured.
                 </p>
@@ -50,9 +50,13 @@ export function CampaignFieldPreferencesConfiguration({
                     <thead>
                         <tr className="bg-bg-light border-b">
                             {!sourceFilter && (
-                                <th className="text-left text-xs font-semibold p-2 text-muted w-32">Integration</th>
+                                <th className="text-left text-xs font-semibold p-2 text-muted-foreground w-32">
+                                    Integration
+                                </th>
                             )}
-                            <th className="text-left text-xs font-semibold p-2 text-muted">Match utm_campaign by</th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted-foreground">
+                                Match utm_campaign by
+                            </th>
                         </tr>
                     </thead>
                     <tbody>

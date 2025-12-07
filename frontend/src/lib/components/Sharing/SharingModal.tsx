@@ -232,7 +232,7 @@ export function SharingModalContent({
                                                         Password protect
                                                         {!advancedPermissionsAvailable && (
                                                             <Tooltip title="This is a premium feature, click to learn more.">
-                                                                <IconLock className="ml-1.5 text-muted-foreground-foreground text-lg" />
+                                                                <IconLock className="ml-1.5 text-muted-foreground text-lg" />
                                                             </Tooltip>
                                                         )}
                                                     </div>

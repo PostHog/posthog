@@ -59,7 +59,7 @@ export function DataWarehouseManagedViewsetCard({
                         {icon}
                         <h3 className="font-semibold text-lg mb-0">{title}</h3>
                     </div>
-                    <p className="text-muted-foreground-foreground mb-2">{description}</p>
+                    <p className="text-muted-foreground mb-2">{description}</p>
                     <div className="flex items-center gap-2">
                         {displayConfigLink && (
                             <Link to={configUrl} className="text-sm">

@@ -82,12 +82,10 @@ function SortableRow({ filter, index, onEdit, onRemove }: SortableRowProps): JSX
                         {...attributes}
                         {...listeners}
                     >
-                        <SortableDragIcon className="text-muted-foreground-foreground h-3 w-3" />
+                        <SortableDragIcon className="text-muted-foreground h-3 w-3" />
                     </div>
                 </td>
-                <td className="py-1 px-2 w-12 text-center text-muted-foreground-foreground font-medium text-sm">
-                    {index + 1}
-                </td>
+                <td className="py-1 px-2 w-12 text-center text-muted-foreground font-medium text-sm">{index + 1}</td>
                 <td className="py-1 px-2 min-w-0">
                     <Tooltip title={isInvalidRegex ? 'Invalid regex pattern' : regex}>
                         <code
@@ -207,16 +205,16 @@ export function PathCleanFiltersTable({ filters = [], setFilters }: PathCleanFil
                     <thead className="bg-bg-3000">
                         <tr>
                             <th className="py-2 px-2 w-8" />
-                            <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-foreground-foreground uppercase tracking-wider">
+                            <th className="py-2 px-2 w-12 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 Order
                             </th>
-                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-foreground-foreground uppercase tracking-wider min-w-0">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-0">
                                 Regex Pattern
                             </th>
-                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-foreground-foreground uppercase tracking-wider min-w-0">
+                            <th className="py-2 px-2 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-0">
                                 Alias
                             </th>
-                            <th className="py-2 px-2 w-20 text-left text-xs font-semibold text-muted-foreground-foreground uppercase tracking-wider">
+                            <th className="py-2 px-2 w-20 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                                 Actions
                             </th>
                         </tr>

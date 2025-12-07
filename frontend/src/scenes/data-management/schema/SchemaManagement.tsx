@@ -180,7 +180,7 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted-foreground-foreground py-4">
+                                            <div className="text-center text-muted-foreground py-4">
                                                 No events using this property group
                                             </div>
                                         )}
@@ -204,7 +204,7 @@ export function SchemaManagement(): JSX.Element {
                                                 ))}
                                             </>
                                         ) : (
-                                            <div className="text-center text-muted-foreground-foreground py-4">
+                                            <div className="text-center text-muted-foreground py-4">
                                                 No properties defined
                                             </div>
                                         )}

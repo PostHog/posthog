@@ -110,7 +110,7 @@ export function EndpointModal({
 
                     {!isUpdateMode && endpointsFromThisInsight.length > 0 && (
                         <div>
-                            <div className="text-muted-foreground-foreground mb-2">
+                            <div className="text-muted-foreground mb-2">
                                 Endpoints already created from this insight:
                             </div>
                             <LemonTable

@@ -64,7 +64,7 @@ export function EndpointOverview({ tabId }: EndpointOverviewProps): JSX.Element 
                             {Object.entries(endpoint.parameters).map(([key, value]) => (
                                 <div key={key} className="flex items-start gap-2">
                                     <code className="text-xs bg-card px-2 py-1 rounded">{key}</code>
-                                    <span className="text-muted-foreground-foreground">:</span>
+                                    <span className="text-muted-foreground">:</span>
                                     <code className="text-xs text-muted-foreground">{JSON.stringify(value)}</code>
                                 </div>
                             ))}

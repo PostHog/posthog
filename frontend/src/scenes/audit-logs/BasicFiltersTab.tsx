@@ -113,7 +113,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             icon={showMoreFilters ? <IconCollapse /> : <IconExpand />}
                             onClick={() => setShowMoreFilters(!showMoreFilters)}
                             data-attr="audit-logs-more-filters-toggle"
-                            className="text-muted-foreground-foreground hover:text-default"
+                            className="text-muted-foreground hover:text-default"
                         >
                             More filters
                         </LemonButton>
@@ -135,7 +135,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             <div className="flex items-center gap-1 mb-1">
                                 <label className="block text-sm font-medium">Was impersonated?</label>
                                 <Tooltip title="During support, PostHog team members may act as a specific user to help troubleshoot issues. These impersonated actions are logged and can be filtered here.">
-                                    <IconInfo className="w-4 h-4 text-muted-foreground-foreground cursor-help" />
+                                    <IconInfo className="w-4 h-4 text-muted-foreground cursor-help" />
                                 </Tooltip>
                             </div>
                             <LemonSelect
@@ -161,7 +161,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             <div className="flex items-center gap-1 mb-1">
                                 <label className="block text-sm font-medium">Is system activity?</label>
                                 <Tooltip title="Activities performed automatically by PostHog's system, such as scheduled tasks, background processes, or automated workflows.">
-                                    <IconInfo className="w-4 h-4 text-muted-foreground-foreground cursor-help" />
+                                    <IconInfo className="w-4 h-4 text-muted-foreground cursor-help" />
                                 </Tooltip>
                             </div>
                             <LemonSelect
@@ -185,7 +185,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                             <div className="flex items-center gap-1 mb-1">
                                 <label className="block text-sm font-medium">Item IDs</label>
                                 <Tooltip title="Filter by specific IDs of the items being tracked. Each activity log entry is associated with the ID of the object that was modified (e.g., dashboard ID, feature flag ID, etc.).">
-                                    <IconInfo className="w-4 h-4 text-muted-foreground-foreground cursor-help" />
+                                    <IconInfo className="w-4 h-4 text-muted-foreground cursor-help" />
                                 </Tooltip>
                             </div>
                             <LemonInputSelect

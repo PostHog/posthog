@@ -131,7 +131,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, onNext }: Exposure
                     placeholder="Select handling method"
                     fullWidth
                 />
-                <div className="text-xs text-muted-foreground-foreground mt-1">
+                <div className="text-xs text-muted-foreground mt-1">
                     {experiment.exposure_criteria?.multiple_variant_handling === 'first_seen' &&
                         'Users exposed to multiple variants will be analyzed using their first seen variant.'}
                     {(!experiment.exposure_criteria?.multiple_variant_handling ||

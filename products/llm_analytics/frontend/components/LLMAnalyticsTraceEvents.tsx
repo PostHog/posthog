@@ -22,7 +22,7 @@ export function LLMAnalyticsTraceEvents({
     }
 
     if (!trace) {
-        return <div className="text-muted-foreground-foreground text-sm">Failed to load trace details</div>
+        return <div className="text-muted-foreground text-sm">Failed to load trace details</div>
     }
 
     const allEvents =
@@ -32,7 +32,7 @@ export function LLMAnalyticsTraceEvents({
 
     if (allEvents.length === 0) {
         return (
-            <div className="text-muted-foreground-foreground text-sm">
+            <div className="text-muted-foreground text-sm">
                 No generation, span, or embedding events found in this trace.
                 {trace.events ? ` (Trace has ${trace.events.length} total events)` : ' (No events loaded)'}
             </div>

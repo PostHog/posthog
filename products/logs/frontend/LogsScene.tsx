@@ -527,7 +527,7 @@ const DisplayOptions = (): JSX.Element => {
             </div>
             <div className="flex items-center gap-4">
                 {!sparklineLoading && totalLogsMatchingFilters > 0 && (
-                    <span className="text-muted text-xs">
+                    <span className="text-muted-foreground text-xs">
                         Showing {humanFriendlyNumber(parsedLogs.length)} of{' '}
                         {humanFriendlyNumber(totalLogsMatchingFilters)} logs
                     </span>
@@ -546,7 +546,7 @@ const DisplayOptions = (): JSX.Element => {
                         ]}
                     />
                 </LemonField.Pure>
-                <span className="text-muted text-xs flex items-center gap-1">
+                <span className="text-muted-foreground text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />
                     <KeyboardShortcut arrowdown />
                     or
