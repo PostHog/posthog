@@ -86,7 +86,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             """
         return ""
 
-    def udf_event_array_filter(self):
+    def event_array_filter(self):
         return self.event_array_filter(1, 3, 4)
 
     # This is the function that calls the UDF
@@ -158,7 +158,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_arg},
                     [{optional_steps}],
-                    {self.udf_event_array_filter()}
+                    {self.event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
                 af_tuple.1 + 1 as steps, -- Backward compatibility
