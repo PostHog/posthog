@@ -8,6 +8,7 @@ interface HealthCheckSectionProps {
     category: HealthCheckCategory
     checks: HealthCheck[]
     defaultOpen?: boolean
+    onToggle?: (category: HealthCheckCategory, isExpanded: boolean) => void
 }
 
 const CATEGORY_CONFIG: Record<HealthCheckCategory, { title: string; description: string; icon: JSX.Element }> = {
@@ -28,15 +29,25 @@ const CATEGORY_CONFIG: Record<HealthCheckCategory, { title: string; description:
     },
 }
 
-export function HealthCheckSection({ category, checks, defaultOpen = true }: HealthCheckSectionProps): JSX.Element {
+export function HealthCheckSection({
+    category,
+    checks,
+    defaultOpen = true,
+    onToggle,
+}: HealthCheckSectionProps): JSX.Element {
     const config = CATEGORY_CONFIG[category]
     const passedCount = checks.filter((c) => c.status === 'success').length
     const totalCount = checks.length
     const hasIssues = checks.some((c) => c.status === 'warning' || c.status === 'error')
 
+    const handleChange = (activeKey: HealthCheckCategory | null): void => {
+        onToggle?.(category, activeKey === category)
+    }
+
     return (
         <LemonCollapse
             defaultActiveKey={defaultOpen ? category : undefined}
+            onChange={handleChange}
             panels={[
                 {
                     key: category,
