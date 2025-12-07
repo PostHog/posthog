@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconInfo, IconTrending } from '@posthog/icons'
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 
@@ -11,11 +11,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const { experimentsStats, experimentsStatsLoading } = useValues(experimentsLogic)
 
     if (experimentsStatsLoading) {
-        return (
-            <div className="p-4 border rounded bg-card flex items-center justify-center" style={{ minHeight: 100 }}>
-                <Spinner />
-            </div>
-        )
+        return null
     }
 
     const { launched_last_30d, percent_change, active_experiments, completed_last_30d } = experimentsStats
@@ -34,7 +30,7 @@ export function ExperimentVelocityStats(): JSX.Element | null {
             <div className="metric-cell-header font-semibold flex items-center gap-1">
                 Velocity (last 30d)
                 <Tooltip title="Shows your team's experimentation velocity: how many experiments you're launching, running, and completing. Launched count is compared to the previous 30 days to track growth.">
-                    <IconInfo className="text-muted-foreground-foreground" fontSize="16" />
+                    <IconInfo className="text-muted-foreground" fontSize="16" />
                 </Tooltip>
             </div>
             <div className="h-4 w-px bg-border" />

@@ -1,6 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { objectClean } from 'lib/utils'
 
+import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/defaults'
 import {
     ActionsNode,
     BreakdownFilter,
@@ -8,7 +9,6 @@ import {
     DataWarehouseNode,
     EventsNode,
     FunnelsFilterLegacy,
-    InsightNodeKind,
     InsightQueryNode,
     LifecycleFilterLegacy,
     NodeKind,
@@ -27,6 +27,7 @@ import {
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
+    isWebAnalyticsInsightQuery,
 } from '~/queries/utils'
 import { ActionFilter, EntityTypes, FilterType, InsightType } from '~/types'
 
@@ -111,7 +112,7 @@ export const hiddenLegendItemsToKeys = (
         {} as Record<string, boolean | undefined>
     )
 
-export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
+export const nodeKindToInsightType: Record<ProductAnalyticsInsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -120,7 +121,7 @@ export const nodeKindToInsightType: Record<InsightNodeKind, InsightType> = {
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
 
-const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
+const nodeKindToFilterKey: Record<ProductAnalyticsInsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -130,6 +131,13 @@ const nodeKindToFilterKey: Record<InsightNodeKind, string> = {
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
+    // Web Analytics queries don't have a legacy filter format
+    if (isWebAnalyticsInsightQuery(query)) {
+        return {
+            insight: InsightType.WEB_ANALYTICS,
+        }
+    }
+
     const filters: Partial<FilterType> = objectClean({
         insight: nodeKindToInsightType[query.kind],
         properties: query.properties,
@@ -142,7 +150,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         sampling_factor: query.samplingFactor,
     })
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query) && 'series' in query) {
         const { actions, events, data_warehouse, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions

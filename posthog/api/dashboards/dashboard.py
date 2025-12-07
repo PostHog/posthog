@@ -429,10 +429,10 @@ class DashboardSerializer(DashboardMetadataSerializer):
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
             group_type_mapping = GroupTypeMapping.objects.filter(
-                team=instance.team, project_id=instance.team.project_id, detail_dashboard=instance
+                team=instance.team, project_id=instance.team.project_id, detail_dashboard_id=instance.id
             ).first()
             if group_type_mapping:
-                group_type_mapping.detail_dashboard = None
+                group_type_mapping.detail_dashboard_id = None
                 group_type_mapping.save()
 
         request_filters = initial_data.get("filters")
@@ -697,10 +697,13 @@ class DashboardsViewSet(
         if self.action == "list" and self.request.query_params.get("exclude_generated") == "true":
             queryset = queryset.exclude(name__startswith=GENERATED_DASHBOARD_PREFIX)
 
-        # Filter unlisted dashboards from general list, but allow access via:
-        # - Direct ID lookup (detail action)
-        # - Tag-based queries (e.g. ?tags=llm-analytics for product dashboards)
-        if self.action == "list" and not self.request.query_params.get("tags"):
+        # Allow filtering by creation_mode query param
+        creation_mode = self.request.query_params.get("creation_mode")
+        if creation_mode:
+            queryset = queryset.filter(creation_mode=creation_mode)
+        # Filter unlisted dashboards from general list unless explicitly requested
+        # Direct ID lookups (detail action) are allowed through retrieve()
+        elif self.action == "list":
             queryset = queryset.exclude(creation_mode="unlisted")
 
         return queryset

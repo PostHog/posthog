@@ -241,6 +241,7 @@ export function HogFunctionFilters({
                                         }}
                                         buttonCopy="Add event matcher"
                                         excludedProperties={excludedProperties}
+                                        allowNonCapturedEvents
                                     />
                                 </>
                             ) : null}

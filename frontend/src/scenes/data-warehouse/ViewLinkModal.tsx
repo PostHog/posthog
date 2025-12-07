@@ -757,7 +757,14 @@ export function ViewLinkButton({ tableName, ...props }: ViewLinkButtonProps): JS
 
     return (
         <>
-            <LemonButton children="Join data" icon={<IconLink />} onClick={handleClick} type="primary" {...props} />
+            <LemonButton
+                children="Join data"
+                icon={<IconLink />}
+                onClick={handleClick}
+                type="primary"
+                size="small"
+                {...props}
+            />
             <ViewLinkModal />
         </>
     )

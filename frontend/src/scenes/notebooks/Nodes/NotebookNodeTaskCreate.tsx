@@ -7,7 +7,7 @@ import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { NotebookNodeProps, NotebookNodeType } from 'scenes/notebooks/types'
 
-import { tasksLogic } from 'products/tasks/frontend/tasksLogic'
+import { tasksLogic } from 'products/tasks/frontend/logics/tasksLogic'
 import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
 
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -30,7 +30,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeTaskCreateAttri
             description: description,
             origin_product: OriginProduct.SESSION_SUMMARIES,
         }
-        createTask(payload)
+        createTask({ data: payload })
     }
 
     const parsedSeverity =

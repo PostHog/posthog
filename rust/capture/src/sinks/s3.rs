@@ -320,6 +320,7 @@ mod tests {
             event: CapturedEvent {
                 uuid: uuid_v7(),
                 distinct_id: "test_id".to_string(),
+                session_id: None,
                 ip: "127.0.0.1".to_string(),
                 data: "test data".to_string(),
                 now: "2024-01-01T00:00:00Z".to_string(),

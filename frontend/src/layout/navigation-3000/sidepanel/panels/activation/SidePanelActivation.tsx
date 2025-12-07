@@ -47,7 +47,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                             strokeColor="var(--success)"
                             className="w-full stroke-opacity-80 h-2"
                         />
-                        <span className="font-medium text-muted-foreground-foreground">{completionPercent}%</span>
+                        <span className="font-medium text-muted-foreground">{completionPercent}%</span>
                     </div>
                 </div>
                 <div className="divide-y">
@@ -67,7 +67,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                             role="button"
                             aria-expanded={showHiddenSections}
                         >
-                            <h4 className="font-semibold text-[16px]">All products</h4>
+                            <h4 className="font-semibold text-[16px]">Onboard to more products?</h4>
                             {showHiddenSections ? (
                                 <IconCollapse className="h-5 w-5" />
                             ) : (
@@ -105,7 +105,7 @@ export const SidePanelActivationIcon = ({
             progress={completionPercent / 100}
             strokePercentage={0.15}
             size={size}
-            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-foreground-foreground', className)}
+            className={clsx(activeTasks.length > 0 ? 'text-accent' : 'text-muted-foreground', className)}
         >
             <span className="text-xs font-semibold">{activeTasks.length}</span>
         </LemonProgressCircle>
@@ -163,7 +163,7 @@ const ActivationSectionComponent = ({
                 </div>
                 <div className="flex items-center gap-2">
                     {section.visible && (
-                        <span className="text-sm text-muted-foreground-foreground font-medium">
+                        <span className="text-sm text-muted-foreground font-medium">
                             {itemsCompleted} of {totalItems} complete
                         </span>
                     )}
@@ -176,7 +176,7 @@ const ActivationSectionComponent = ({
                             size="xsmall"
                             type="secondary"
                         >
-                            Add
+                            Add to list
                         </LemonButton>
                     )}
                 </div>
@@ -202,10 +202,11 @@ const ActivationTask = ({
     url,
     buttonText,
 }: ActivationTaskType): JSX.Element => {
-    const { runTask, markTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } = useActions(activationLogic)
+    const { runTask, markTaskAsSkipped, unmarkTaskAsSkipped, setExpandedTaskId, setTaskContentHeight } =
+        useActions(activationLogic)
     const { reportActivationSideBarTaskClicked } = useActions(eventUsageLogic)
     const { expandedTaskId, taskContentHeights } = useValues(activationLogic)
-    const isActive = !completed && !skipped && !lockedReason
+    const isActive = !completed && !lockedReason
     const hasContent = Boolean(activationTaskContentMap[id])
     const expanded = expandedTaskId === id
     const ContentComponent = hasContent ? activationTaskContentMap[id] : undefined
@@ -223,9 +224,10 @@ const ActivationTask = ({
     }
 
     const handleRowClick = (): void => {
-        if (!isActive) {
+        if (completed || lockedReason) {
             return
         }
+
         if (hasContent) {
             setExpandedTaskId(expanded ? null : id)
         } else {
@@ -243,6 +245,11 @@ const ActivationTask = ({
         markTaskAsSkipped(id)
     }
 
+    const handleUnskip = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        unmarkTaskAsSkipped(id)
+    }
+
     const handleGetStarted = (e: React.MouseEvent): void => {
         e.stopPropagation()
         reportActivationSideBarTaskClicked(id)
@@ -256,8 +263,8 @@ const ActivationTask = ({
     return (
         <li
             className={clsx(
-                'p-2 border bg-card-alt-highlight flex flex-col',
-                completed || skipped ? 'line-through opacity-70' : '',
+                'p-2 border bg-primary-alt-highlight flex flex-col',
+
                 lockedReason && 'opacity-70'
             )}
         >
@@ -268,28 +275,39 @@ const ActivationTask = ({
                 )}
                 onClick={handleRowClick}
             >
-                <div className="flex items-center gap-2">
+                <div className={clsx('flex items-center gap-2', completed || skipped ? 'line-through opacity-70' : '')}>
                     {completed ? (
                         <IconCheckCircle className="h-6 w-6 text-success" />
                     ) : lockedReason ? (
                         <Tooltip title={lockedReason}>
-                            <IconLock className="h-6 w-6 text-muted-foreground-foreground" />
+                            <IconLock className="h-6 w-6 text-muted-foreground" />
                         </Tooltip>
                     ) : (
                         <div className="rounded-full border-2 w-5 h-5 border-muted-alt" />
                     )}
                     <p className="m-0 font-semibold">{title}</p>
                 </div>
-                {isActive && canSkip && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        className="h-6 font-semibold text-muted-foreground-foreground activation-task-skip"
-                        onClick={handleSkip}
-                    >
-                        Skip
-                    </LemonButton>
-                )}
+                {isActive &&
+                    canSkip &&
+                    (skipped ? (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="h-6 font-semibold text-muted-foreground activation-task-skip"
+                            onClick={handleUnskip}
+                        >
+                            Unskip
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            className="h-6 font-semibold text-muted-foreground activation-task-skip"
+                            onClick={handleSkip}
+                        >
+                            Skip
+                        </LemonButton>
+                    ))}
             </div>
             {isActive && hasContent && (
                 <div

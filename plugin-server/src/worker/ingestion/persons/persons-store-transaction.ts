@@ -5,16 +5,16 @@ import { Properties } from '@posthog/plugin-scaffold'
 import { TopicMessage } from '../../../kafka/producer'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../utils/db/db'
-import { PersonsStoreForBatch } from './persons-store-for-batch'
+import { PersonsStore } from './persons-store'
 import { PersonRepositoryTransaction } from './repositories/person-repository-transaction'
 
 /**
  * PersonsStoreTransaction that delegates to a store with a transaction.
- * This can be used by any store that implements PersonsStoreForBatch.
+ * This can be used by any store that implements PersonsStore.
  */
 export class PersonsStoreTransaction {
     constructor(
-        private store: PersonsStoreForBatch,
+        private store: PersonsStore,
         private tx: PersonRepositoryTransaction
     ) {}
 
@@ -56,7 +56,8 @@ export class PersonsStoreTransaction {
         propertiesToSet: Properties,
         propertiesToUnset: string[],
         otherUpdates: Partial<InternalPerson>,
-        distinctId: string
+        distinctId: string,
+        forceUpdate?: boolean
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         return await this.store.updatePersonWithPropertiesDiffForUpdate(
             person,
@@ -64,6 +65,7 @@ export class PersonsStoreTransaction {
             propertiesToUnset,
             otherUpdates,
             distinctId,
+            forceUpdate,
             this.tx
         )
     }

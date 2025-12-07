@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 
 import requests
@@ -86,6 +87,7 @@ from posthog.storage.session_recording_v2_object_storage import BlockFetchError
 
 from ee.hogai.session_summaries.llm.call import get_openai_client
 from ee.hogai.session_summaries.session.stream import stream_recording_summary
+from ee.hogai.session_summaries.tracking import capture_session_summary_started, generate_tracking_id
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -258,7 +260,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -283,7 +284,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -758,10 +758,13 @@ class SessionRecordingViewSet(
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
+        # Use retention period to ensure we find recordings even if they're older than the default 7 day lookback
+        retention_period = self.team.session_recording_retention_period or "90d"
+
         # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
-            "date_from": None,
+            "date_from": f"-{retention_period}",
             "date_to": None,
             "kind": "RecordingsQuery",
         }
@@ -777,7 +780,6 @@ class SessionRecordingViewSet(
 
         # Filter out recordings that are already deleted
         non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
-
         # First, bulk create any missing records
         session_recordings_to_create = [
             SessionRecording(
@@ -911,21 +913,6 @@ class SessionRecordingViewSet(
         return Response(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = self.get_object()
-
-        if not settings.EE_AVAILABLE:
-            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
-
-        # Indicates it is not yet persisted
-        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
-        if recording.storage == "object_storage":
-            recording.save()
-
-        return Response({"success": True})
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
@@ -1240,12 +1227,23 @@ class SessionRecordingViewSet(
             raise exceptions.ValidationError("session summary is only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("session summary is not enabled for this user")
-
+        session_id = str(recording.session_id)
+        # Track streaming summary start (no completion tracking for streaming)
+        tracking_id = generate_tracking_id()
+        capture_session_summary_started(
+            user=user,
+            team=self.team,
+            tracking_id=tracking_id,
+            summary_source="api",
+            summary_type="single",
+            is_streaming=True,
+            session_ids=[session_id],
+            video_validation_enabled=None,  # Not checked for streaming endpoint
+        )
         # If you want to test sessions locally - override `session_id` and `self.team.pk`
         # with session/team ids of your choice and set `local_reads_prod` to True
-        session_id = recording.session_id
         return StreamingHttpResponse(
-            stream_recording_summary(session_id=session_id, user_id=user.pk, team=self.team),
+            stream_recording_summary(session_id=session_id, user=user, team=self.team),
             content_type=ServerSentEventRenderer.media_type,
         )
 
@@ -1578,7 +1576,7 @@ def list_recordings_from_query(
             with timer("load_prepend_recording"), tracer.start_as_current_span("load_prepend_recording"):
                 s3_persisted_recording = (
                     SessionRecording.objects.filter(team=team, session_id=session_recording_id_to_prepend)
-                    .exclude(object_storage_path=None)
+                    .exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
                     .first()
                 )
 
@@ -1613,7 +1611,7 @@ def list_recordings_from_query(
 
             persisted_recordings_queryset = SessionRecording.objects.filter(
                 team=team, session_id__in=sorted_session_ids
-            ).exclude(object_storage_path=None)
+            ).exclude(Q(object_storage_path=None) & Q(full_recording_v2_path=None))
 
             persisted_recordings = persisted_recordings_queryset.all()
 
@@ -1639,6 +1637,7 @@ def list_recordings_from_query(
                 query_updates["session_ids"] = remaining_session_ids
 
             query_for_list = query.model_copy(update=query_updates)
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
@@ -1646,6 +1645,7 @@ def list_recordings_from_query(
                 allow_event_property_expansion=allow_event_property_expansion,
             ).run()
             ch_session_recordings = query_result.results
+
             more_recordings_available = query_result.has_more_recording
             hogql_timings = query_result.timings
             next_cursor = query_result.next_cursor

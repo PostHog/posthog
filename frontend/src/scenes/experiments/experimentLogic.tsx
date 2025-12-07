@@ -338,6 +338,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
+                'reportExperimentAiSummaryRequested',
             ],
             teamLogic,
             ['addProductIntent'],

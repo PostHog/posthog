@@ -48,7 +48,10 @@ from posthog.storage.cache_expiry_manager import (
     track_cache_expiry,
 )
 from posthog.storage.hypercache import HyperCache
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    get_cache_stats as get_cache_stats_generic,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -279,7 +282,7 @@ def refresh_expiring_flags_caches(ttl_threshold_hours: int = 24, limit: int = 50
     Processes teams in batches (default 5000). If more teams are expiring than the limit,
     subsequent runs will process the next batch.
 
-    Note: Metrics are tracked by refresh_expiring_caches() using consolidated HYPERCACHE_TEAMS_PROCESSED_COUNTER
+    Note: Metrics are pushed to Pushgateway by refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
     Args:
         ttl_threshold_hours: Refresh caches expiring within this many hours
@@ -316,14 +319,14 @@ def cleanup_stale_expiry_tracking() -> int:
     return removed
 
 
-def get_flags_cache_stats() -> dict[str, Any]:
+def get_cache_stats() -> dict[str, Any]:
     """
     Get statistics about the flags cache.
 
     Returns:
         Dictionary with cache statistics including size information
     """
-    return get_cache_stats(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
+    return get_cache_stats_generic(FLAGS_HYPERCACHE_MANAGEMENT_CONFIG)
 
 
 # Signal handlers for automatic cache invalidation
