@@ -8,7 +8,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
-    BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
@@ -140,7 +139,7 @@ class FunnelBase(ABC):
     # arrayRotateRight turns [1,2,3] into [3,1,2]
     # arrayRotateLeft turns [1,2,3] into [2,3,1]
     # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+    def event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
         return f"""arrayFilter(
                     (x, x_before, x_after) -> not (
                         length(x.{steps_index}) <= 1
@@ -313,7 +312,7 @@ class FunnelBase(ABC):
 
     # This version of the inner event query modifies how exclusions are returned to
     # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
-    def _get_inner_event_query_for_udf(
+    def _get_inner_event_query(
         self,
         skip_entity_filter=False,
         skip_step_filter=False,
