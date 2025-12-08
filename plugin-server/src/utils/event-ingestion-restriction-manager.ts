@@ -24,6 +24,14 @@ export enum Restriction {
 
 export type IngestionPipeline = 'analytics' | 'session_recordings'
 
+type LookupKeys = {
+    tokenDistinctIdKey?: string
+    tokenSessionIdKey?: string
+    tokenEventNameKey?: string
+    tokenEventUuidKey?: string
+    tokenDistinctIdKeyLegacy?: string
+}
+
 export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 /*
@@ -180,6 +188,17 @@ export class EventIngestionRestrictionManager {
         eventName?: string,
         eventUuid?: string
     ): Restriction[] {
+        if (!token) {
+            return []
+        }
+
+        if (this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
+            void this.dynamicConfigRefresher.get().catch((error) => {
+                logger.warn('Error triggering background refresh for dynamic config', { error })
+            })
+        }
+
+        const keys = this.buildLookupKeys(token, distinctId, sessionId, eventName, eventUuid)
         const restrictions: Restriction[] = []
 
         for (const restriction of [
@@ -188,7 +207,7 @@ export class EventIngestionRestrictionManager {
             Restriction.FORCE_OVERFLOW,
             Restriction.REDIRECT_TO_DLQ,
         ]) {
-            if (this.checkRestriction(token, distinctId, sessionId, eventName, eventUuid, restriction)) {
+            if (this.checkRestriction(token, keys, restriction)) {
                 restrictions.push(restriction)
             }
         }
@@ -196,20 +215,7 @@ export class EventIngestionRestrictionManager {
         return restrictions
     }
 
-    private checkRestriction(
-        token: string | undefined,
-        distinctId: string | undefined,
-        sessionId: string | undefined,
-        eventName: string | undefined,
-        eventUuid: string | undefined,
-        restriction: Restriction
-    ): boolean {
-        if (!token) {
-            return false
-        }
-
-        const keys = this.buildLookupKeys(token, distinctId, sessionId, eventName, eventUuid)
-
+    private checkRestriction(token: string, keys: LookupKeys, restriction: Restriction): boolean {
         if (this.matchesStaticConfig(token, keys, restriction)) {
             return true
         }
@@ -223,13 +229,7 @@ export class EventIngestionRestrictionManager {
         sessionId?: string,
         eventName?: string,
         eventUuid?: string
-    ): {
-        tokenDistinctIdKey?: string
-        tokenSessionIdKey?: string
-        tokenEventNameKey?: string
-        tokenEventUuidKey?: string
-        tokenDistinctIdKeyLegacy?: string
-    } {
+    ): LookupKeys {
         return {
             tokenDistinctIdKey: distinctId ? `${token}:distinct_id:${distinctId}` : undefined,
             tokenSessionIdKey: sessionId ? `${token}:session_id:${sessionId}` : undefined,
@@ -239,17 +239,7 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    private matchesStaticConfig(
-        token: string,
-        keys: {
-            tokenDistinctIdKey?: string
-            tokenSessionIdKey?: string
-            tokenEventNameKey?: string
-            tokenEventUuidKey?: string
-            tokenDistinctIdKeyLegacy?: string
-        },
-        restriction: Restriction
-    ): boolean {
+    private matchesStaticConfig(token: string, keys: LookupKeys, restriction: Restriction): boolean {
         const staticList = this.staticConfig[restriction]
         // Static config only supports distinct_id, both old format token:distinct_id and new format token:distinct_id:distinct_id
         return (
@@ -259,23 +249,10 @@ export class EventIngestionRestrictionManager {
         )
     }
 
-    private matchesDynamicConfig(
-        token: string,
-        keys: {
-            tokenDistinctIdKey?: string
-            tokenSessionIdKey?: string
-            tokenEventNameKey?: string
-            tokenEventUuidKey?: string
-        },
-        restriction: Restriction
-    ): boolean {
+    private matchesDynamicConfig(token: string, keys: LookupKeys, restriction: Restriction): boolean {
         if (!this.hub.USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG) {
             return false
         }
-
-        void this.dynamicConfigRefresher.get().catch((error) => {
-            logger.warn('Error triggering background refresh for dynamic config', { error })
-        })
 
         const configSet = this.latestDynamicConfig[restriction]
         if (!configSet) {
