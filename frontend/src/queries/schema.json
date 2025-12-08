@@ -9946,6 +9946,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showSecondEventFilter": {
+                    "description": "Include a second event filter above the table (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showSourceQueryOptions": {
                     "description": "Show actors query options and back to source",
                     "type": "boolean"
@@ -12627,6 +12631,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/EventsQueryResponse"
+                },
+                "secondEvent": {
+                    "description": "Second event filter - shows events matching either this or the primary event",
+                    "type": ["string", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
@@ -26990,6 +26998,10 @@
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
                 },
+                "showSecondEventFilter": {
+                    "description": "Include a second event filter above the table (EventsQuery only)",
+                    "type": "boolean"
+                },
                 "showSourceQueryOptions": {
                     "description": "Show actors query options and back to source",
                     "type": "boolean"
@@ -27210,6 +27222,10 @@
                 },
                 "response": {
                     "$ref": "#/definitions/SessionBatchEventsQueryResponse"
+                },
+                "secondEvent": {
+                    "description": "Second event filter - shows events matching either this or the primary event",
+                    "type": ["string", "null"]
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
