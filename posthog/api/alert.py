@@ -17,7 +17,7 @@ from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import User
+from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import (
     AlertCheck,
@@ -114,6 +114,10 @@ class AlertSerializer(serializers.ModelSerializer):
     threshold = ThresholdSerializer()
     condition = AlertConditionField(required=False, allow_null=True)
     config = TrendsAlertConfigField(required=False, allow_null=True)
+    insight = serializers.PrimaryKeyRelatedField(
+        queryset=Insight.objects.all(),
+        help_text="Insight ID. Note: Response returns full InsightBasicSerializer object.",
+    )
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,
