@@ -819,8 +819,8 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
                     return 'I need some input first'
                 }
 
-                // Prevent submission if there are too many active streaming threads
-                if (activeStreamingThreads >= 10) {
+                // Prevent submission if there are active streaming threads
+                if (activeStreamingThreads > 0) {
                     return 'Please wait for one of the chats to finish'
                 }
 
