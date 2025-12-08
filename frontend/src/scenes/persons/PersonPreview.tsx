@@ -47,15 +47,21 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
 
     // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: 'distinct_id',
-                value: props.distinctId,
-                operator: PropertyOperator.Exact,
-            },
-        ])
-        const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+        const identifier = props.distinctId || props.personId
+        const identifierKey = props.distinctId ? 'distinct_id' : 'person_id'
+        const eventsQuery = identifier
+            ? getDefaultEventsSceneQuery([
+                  {
+                      type: PropertyFilterType.EventMetadata,
+                      key: identifierKey,
+                      value: identifier,
+                      operator: PropertyOperator.Exact,
+                  },
+              ])
+            : null
+        const eventsUrl = eventsQuery
+            ? combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+            : null
         return (
             <div className="p-2 max-w-160">
                 <h4>No profile associated with this ID</h4>
@@ -64,16 +70,18 @@ export function PersonPreview(props: PersonPreviewProps): JSX.Element | null {
                     devices, and more. To create person profiles, see{' '}
                     <Link to="https://posthog.com/docs/data/persons#capturing-person-profiles">here.</Link>
                 </p>
-                <div className="flex justify-center mt-2 w-fit">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={eventsUrl}
-                        tooltip={`View events matching distinct_id=${props.distinctId}`}
-                    >
-                        View events
-                    </LemonButton>
-                </div>
+                {eventsUrl && (
+                    <div className="flex justify-center mt-2 w-fit">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            to={eventsUrl}
+                            tooltip={`View events matching ${identifierKey}=${identifier}`}
+                        >
+                            View events
+                        </LemonButton>
+                    </div>
+                )}
             </div>
         )
     }

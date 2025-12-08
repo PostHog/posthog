@@ -7,6 +7,7 @@ import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
@@ -37,11 +38,6 @@ const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } 
         return {
             text: session.session_id,
             url: getEventsUrl('$session_id', session.session_id),
-        }
-    } else if (session.person_id) {
-        return {
-            text: session.person_id,
-            url: urls.personByUUID(session.person_id, true, PersonsTabType.EVENTS),
         }
     }
     return {
@@ -79,6 +75,17 @@ export function SampledSessionsModal(): JSX.Element {
             title: 'Person',
             key: 'personId',
             render: (_, session) => {
+                if (session.person_id) {
+                    return (
+                        <PersonDisplay
+                            person={{ id: session.person_id }}
+                            displayName={session.person_id}
+                            withIcon={true}
+                            href={urls.personByUUID(session.person_id, true, PersonsTabType.EVENTS)}
+                        />
+                    )
+                }
+
                 const { text, url } = getLinkTextAndUrl(session)
                 return (
                     <div className="flex items-center gap-1">
