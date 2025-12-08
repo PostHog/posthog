@@ -15,6 +15,8 @@ from openai import OpenAI
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
+TEST_POSTHOG_API_KEY = "phx_fake_personal_api_key"
+
 
 def get_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -76,7 +78,7 @@ def gateway_url():
 @pytest.fixture
 def openai_client(gateway_url):
     return OpenAI(
-        api_key=OPENAI_API_KEY,
+        api_key=TEST_POSTHOG_API_KEY,
         base_url=f"{gateway_url}/v1",
     )
 
@@ -84,6 +86,6 @@ def openai_client(gateway_url):
 @pytest.fixture
 def anthropic_client(gateway_url):
     return Anthropic(
-        api_key=ANTHROPIC_API_KEY,
+        api_key=TEST_POSTHOG_API_KEY,
         base_url=gateway_url,
     )
