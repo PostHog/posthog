@@ -1,12 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonInput, LemonTable, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
+import { IconList } from '@posthog/icons'
+import { LemonInput, LemonSegmentedButton, LemonTable, LemonTag, LemonTagType, Spinner } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { IconDirectedGraph } from '~/IconDirectedGraph'
 import { DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { PAGE_SIZE, dataModelingNodesLogic } from './dataModelingNodesLogic'
+import { DataModelingEditor } from './modeling/DataModelingEditor'
 
 const NODE_TYPE_TAG_SETTINGS: Record<DataModelingNodeType, { label: string; type: LemonTagType }> = {
     table: { label: 'Table', type: 'default' },
@@ -38,23 +42,64 @@ function NodeProperty({ value }: { value: unknown }): JSX.Element {
     return <span className="text-default">{String(value)}</span>
 }
 
+type ViewMode = 'graph' | 'list'
+
 export function DataModelingTab(): JSX.Element {
     const { materializedViewNodes, visibleNodes, nodesLoading, searchTerm, currentPage } =
         useValues(dataModelingNodesLogic)
     const { setSearchTerm, setCurrentPage } = useActions(dataModelingNodesLogic)
+    const [viewMode, setViewMode] = useState<ViewMode>('graph')
+
+    if (viewMode === 'graph') {
+        return (
+            <div className="space-y-4 h-full">
+                <div className="flex gap-2 justify-between items-center">
+                    {(materializedViewNodes.length > 0 || searchTerm) && (
+                        <LemonInput
+                            type="search"
+                            placeholder="Search models..."
+                            onChange={setSearchTerm}
+                            value={searchTerm}
+                        />
+                    )}
+                    <LemonSegmentedButton
+                        value={viewMode}
+                        onChange={(value) => setViewMode(value)}
+                        options={[
+                            { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
+                            { value: 'list', icon: <IconList />, tooltip: 'List view' },
+                        ]}
+                        size="small"
+                    />
+                </div>
+                <div className="h-[550px] border rounded-lg overflow-hidden">
+                    <DataModelingEditor />
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-4">
-            {(materializedViewNodes.length > 0 || searchTerm) && (
-                <div className="flex gap-2 justify-between items-center">
+            <div className="flex gap-2 justify-between items-center">
+                {(materializedViewNodes.length > 0 || searchTerm) && (
                     <LemonInput
                         type="search"
                         placeholder="Search models..."
                         onChange={setSearchTerm}
                         value={searchTerm}
                     />
-                </div>
-            )}
+                )}
+                <LemonSegmentedButton
+                    value={viewMode}
+                    onChange={(value) => setViewMode(value)}
+                    options={[
+                        { value: 'graph', icon: <IconDirectedGraph />, tooltip: 'Graph view' },
+                        { value: 'list', icon: <IconList />, tooltip: 'List view' },
+                    ]}
+                    size="small"
+                />
+            </div>
 
             {materializedViewNodes.length > 0 && (
                 <div>
