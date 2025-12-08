@@ -78,6 +78,7 @@ export enum ProductTab {
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
+    HEALTH = 'health',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -257,8 +258,6 @@ export enum GraphsTab {
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
-    REVENUE_EVENTS = 'REVENUE_EVENTS',
-    CONVERSION_REVENUE = 'CONVERSION_REVENUE',
 }
 
 export enum SourceTab {
@@ -519,4 +518,36 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
 
     // Return base column name if no mapping found
     return baseColumn
+}
+
+export interface ParsedURL {
+    host: string | null
+    pathname: string | null
+    isValid: boolean
+}
+
+export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
+    try {
+        const trimmed = urlString.trim()
+        if (!trimmed) {
+            return { host: null, pathname: null, isValid: false }
+        }
+
+        // If no protocol, add https://
+        const urlWithProtocol = trimmed.match(/^https?:\/\//i) ? trimmed : `https://${trimmed}`
+
+        const url = new URL(urlWithProtocol)
+
+        return {
+            host: url.hostname,
+            pathname: url.pathname,
+            isValid: true,
+        }
+    } catch {
+        return {
+            host: null,
+            pathname: null,
+            isValid: false,
+        }
+    }
 }

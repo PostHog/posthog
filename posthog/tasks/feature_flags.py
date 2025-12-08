@@ -7,18 +7,13 @@ from celery import shared_task
 
 from posthog.models.feature_flag.flags_cache import (
     cleanup_stale_expiry_tracking,
-    get_flags_cache_stats,
+    get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
 )
 from posthog.models.feature_flag.local_evaluation import update_flag_caches
 from posthog.models.team import Team
-from posthog.storage.hypercache_manager import (
-    HYPERCACHE_BATCH_REFRESH_COUNTER,
-    HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM,
-    HYPERCACHE_COVERAGE_GAUGE,
-    HYPERCACHE_SIGNAL_UPDATE_COUNTER,
-)
+from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
@@ -96,18 +91,13 @@ def refresh_expiring_flags_cache_entries() -> None:
             limit=settings.FLAGS_CACHE_REFRESH_LIMIT,
         )
 
-        # Note: HYPERCACHE_TEAMS_PROCESSED_COUNTER is already incremented by the generic
-        # cache_expiry_manager.refresh_expiring_caches() function, so we don't increment it again here
+        # Note: Teams processed metrics are pushed to Pushgateway by
+        # cache_expiry_manager.refresh_expiring_caches() via push_hypercache_teams_processed_metrics()
 
-        # Only scan once after refresh for metrics
-        stats_after = get_flags_cache_stats()
-
-        coverage_percent = stats_after.get("cache_coverage_percent", 0)
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace="feature_flags").set(coverage_percent)
+        # Scan after refresh for metrics (pushes to Pushgateway via get_cache_stats)
+        stats_after = get_cache_stats()
 
         duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="feature_flags").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="feature_flags", result="success").inc()
 
         logger.info(
             "Completed flags cache refresh",
@@ -122,8 +112,6 @@ def refresh_expiring_flags_cache_entries() -> None:
 
     except Exception as e:
         duration = time.time() - start_time
-        HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM.labels(namespace="feature_flags").observe(duration)
-        HYPERCACHE_BATCH_REFRESH_COUNTER.labels(namespace="feature_flags", result="failure").inc()
         logger.exception(
             "Failed to complete flags cache batch refresh",
             error=str(e),

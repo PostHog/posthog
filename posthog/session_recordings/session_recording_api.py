@@ -260,7 +260,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_error_count",
             "start_url",
             "person",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -285,7 +284,6 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
             "console_warn_count",
             "console_error_count",
             "start_url",
-            "storage",
             "retention_period_days",
             "expiry_time",
             "recording_ttl",
@@ -760,10 +758,13 @@ class SessionRecordingViewSet(
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
+        # Use retention period to ensure we find recordings even if they're older than the default 7 day lookback
+        retention_period = self.team.session_recording_retention_period or "90d"
+
         # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
-            "date_from": None,
+            "date_from": f"-{retention_period}",
             "date_to": None,
             "kind": "RecordingsQuery",
         }
@@ -779,7 +780,6 @@ class SessionRecordingViewSet(
 
         # Filter out recordings that are already deleted
         non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
-
         # First, bulk create any missing records
         session_recordings_to_create = [
             SessionRecording(
@@ -913,21 +913,6 @@ class SessionRecordingViewSet(
         return Response(
             {"success": True, "not_viewed_count": deleted_count, "total_requested": len(session_recording_ids)}
         )
-
-    @extend_schema(exclude=True)
-    @action(methods=["POST"], detail=True)
-    def persist(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        recording = self.get_object()
-
-        if not settings.EE_AVAILABLE:
-            raise exceptions.ValidationError("LTS persistence is only available in the full version of PostHog")
-
-        # Indicates it is not yet persisted
-        # "Persistence" is simply saving a record in the DB currently - the actual save to S3 is done on a worker
-        if recording.storage == "object_storage":
-            recording.save()
-
-        return Response({"success": True})
 
     @tracer.start_as_current_span("replay_snapshots_api")
     @extend_schema(exclude=True)
@@ -1652,6 +1637,7 @@ def list_recordings_from_query(
                 query_updates["session_ids"] = remaining_session_ids
 
             query_for_list = query.model_copy(update=query_updates)
+
             query_result = SessionRecordingListFromQuery(
                 query=query_for_list,
                 team=team,
@@ -1659,6 +1645,7 @@ def list_recordings_from_query(
                 allow_event_property_expansion=allow_event_property_expansion,
             ).run()
             ch_session_recordings = query_result.results
+
             more_recordings_available = query_result.has_more_recording
             hogql_timings = query_result.timings
             next_cursor = query_result.next_cursor

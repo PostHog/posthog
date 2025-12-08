@@ -88,6 +88,7 @@ export interface ErrorTrackingSymbolSet {
     created_at: string
     storage_ptr: string | null
     failure_reason: string | null
+    release: ErrorTrackingRelease | null
 }
 
 interface FingerprintFrame {

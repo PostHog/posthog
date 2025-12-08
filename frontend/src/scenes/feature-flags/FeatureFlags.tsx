@@ -30,6 +30,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { projectLogic } from 'scenes/projectLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
+import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -241,9 +242,10 @@ function FeatureFlagRowActions({ featureFlag }: { featureFlag: FeatureFlagType }
                 }
             />
             <QuickSurveyModal
-                flag={featureFlag}
+                context={{ type: QuickSurveyType.FEATURE_FLAG, flag: featureFlag }}
+                info="This survey will display to all users in this feature flag, filtered by any conditions you specify below."
                 isOpen={isQuickSurveyModalOpen}
-                onClose={() => setIsQuickSurveyModalOpen(false)}
+                onCancel={() => setIsQuickSurveyModalOpen(false)}
             />
         </>
     )

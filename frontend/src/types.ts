@@ -33,10 +33,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
-import {
-    ConversionRateInputType,
-    EventConfig,
-} from 'scenes/experiments/RunningTimeCalculator/runningTimeCalculatorLogic'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -48,6 +44,7 @@ import type {
     CustomerAnalyticsConfig,
     DashboardFilter,
     DataWarehouseManagedViewsetKind,
+    DataWarehouseSavedQueryOrigin,
     DatabaseSchemaField,
     ExperimentExposureCriteria,
     ExperimentFunnelsQuery,
@@ -74,11 +71,17 @@ import type {
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
+    UserProductListItem,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
+
+export enum ConversionRateInputType {
+    MANUAL = 'manual',
+    AUTOMATIC = 'automatic',
+}
 
 // Type alias for number to be reflected as integer in json-schema.
 /** @asType integer */
@@ -308,6 +311,7 @@ export interface SceneDashboardChoice {
 }
 
 export type UserTheme = 'light' | 'dark' | 'system'
+export type UserShortcutPosition = 'above' | 'below' | 'hidden'
 
 /** Full User model. */
 export interface UserType extends UserBaseType {
@@ -337,6 +341,7 @@ export interface UserType extends UserBaseType {
     is_2fa_enabled: boolean
     has_social_auth: boolean
     has_sso_enforcement: boolean
+    shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     scene_personalisation?: SceneDashboardChoice[]
     theme_mode?: UserTheme | null
@@ -526,6 +531,7 @@ export interface PropertyUsageType {
 }
 
 export interface ProjectBasicType {
+    [key: string]: any
     id: number
     organization_id: string
     name: string
@@ -651,6 +657,7 @@ export interface TeamType extends TeamBasicType {
     feature_flag_confirmation_enabled: boolean
     feature_flag_confirmation_message: string
     default_evaluation_environments_enabled: boolean
+    require_evaluation_environment_tags: boolean
     marketing_analytics_config: MarketingAnalyticsConfig
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
@@ -856,6 +863,7 @@ export enum PropertyFilterType {
     /** Feature flag dependency */
     Flag = 'flag',
     Log = 'log',
+    WorkflowVariable = 'workflow_variable',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -1023,7 +1031,7 @@ export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinTy
 
 export type RecordingConsoleLogV2 = {
     timestamp: number
-    windowId: string | undefined
+    windowId: number | undefined
     windowNumber?: number | '?' | undefined
     level: LogLevel
     content: string
@@ -1040,13 +1048,13 @@ export interface RecordingSegment {
     startTimestamp: number // Epoch time that the segment starts
     endTimestamp: number // Epoch time that the segment ends
     durationMs: number
-    windowId?: string
+    windowId?: number
     isActive: boolean
     isLoading?: boolean
 }
 
 export type EncodedRecordingSnapshot = {
-    windowId: string
+    windowId: number
     data: eventWithTime[]
 }
 
@@ -1084,7 +1092,7 @@ export type SessionRecordingSnapshotParams = (
           end_blob_key?: string
       }
 ) & {
-    decompress?: boolean
+    decompress?: false
 }
 
 export interface SessionRecordingSnapshotSourceResponse {
@@ -1108,7 +1116,7 @@ export interface SessionRecordingSnapshotResponse {
 }
 
 export type RecordingSnapshot = eventWithTime & {
-    windowId: string
+    windowId: number
 }
 
 export interface SessionPlayerSnapshotData {
@@ -1121,7 +1129,7 @@ export interface SessionPlayerData {
     person: PersonType | null
     segments: RecordingSegment[]
     bufferedToTime: number | null
-    snapshotsByWindowId: Record<string, eventWithTime[]>
+    snapshotsByWindowId: Record<number, eventWithTime[]>
     durationMs: number
     start: Dayjs | null
     end: Dayjs | null
@@ -1447,6 +1455,7 @@ export interface CohortType {
     is_calculating?: boolean
     errors_calculating?: number
     last_calculation?: string
+    last_error_message?: string | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -1653,8 +1662,6 @@ export interface SessionRecordingType {
     console_log_count?: number
     console_warn_count?: number
     console_error_count?: number
-    /** Where this recording information was loaded from  */
-    storage?: 'object_storage_lts' | 'object_storage'
     summary?: string
     snapshot_source: 'web' | 'mobile' | 'unknown'
     /** whether we have received data for this recording in the last 5 minutes
@@ -1975,6 +1982,19 @@ export interface BillingType {
         email?: string
         name?: string
     }
+}
+
+export interface ClaimedCouponInfo {
+    code: string
+    campaign_name: string
+    campaign_slug: string | null
+    claimed_at: string
+    expires_at: string | null
+    status: 'claimed' | 'expired'
+}
+
+export interface CouponsOverview {
+    claimed_coupons: ClaimedCouponInfo[]
 }
 
 export interface BillingPeriod {
@@ -3097,8 +3117,13 @@ export interface SurveyDisplayConditions {
             name: string
         }[]
     } | null
+    /** events that trigger surveys */
     events: {
         repeatedActivation?: boolean
+        values: SurveyEventsWithProperties[]
+    } | null
+    /** events that cancel "pending" (time-delayed) surveys */
+    cancelEvents?: {
         values: SurveyEventsWithProperties[]
     } | null
 }
@@ -3238,6 +3263,8 @@ export interface Survey extends WithAccessControl {
     response_sampling_daily_limits?: string[] | null
     enable_partial_responses?: boolean | null
     _create_in_folder?: string | null
+    headline_summary?: string | null
+    headline_response_count?: number | null
 }
 
 export enum SurveyMatchType {
@@ -3317,6 +3344,7 @@ export interface SurveyAppearance {
     maxWidth?: string
     textSubtleColor?: string
     inputBackground?: string
+    inputTextColor?: string
     boxPadding?: string
     boxShadow?: string
     borderRadius?: string
@@ -3784,6 +3812,7 @@ export enum PropertyDefinitionType {
     Resource = 'resource',
     Log = 'log',
     FlagValue = 'flag_value',
+    WorkflowVariable = 'workflow_variable',
 }
 
 export interface PropertyDefinition {
@@ -3894,17 +3923,11 @@ export interface Experiment {
     saved_metrics_ids: { id: number; metadata: { type: 'primary' | 'secondary' } }[]
     saved_metrics: any[]
     parameters: {
-        /**
-         * This is the state of the Running Time Calculator modal, while
-         * minimum_detectable_effect, recommended_running_time, and recommended_sample_size
-         * are the results of the Running Time Calculator.
-         */
         exposure_estimate_config?: {
-            eventFilter: EventConfig | null
-            metric: ExperimentMetric | null
             conversionRateInputType: ConversionRateInputType
-            manualConversionRate: number | null
-            uniqueUsers: number | null
+            manualMetricType?: 'funnel' | 'mean_count' | 'mean_sum_or_avg'
+            manualBaselineValue?: number
+            manualExposureRate?: number
         } | null
         minimum_detectable_effect?: number
         recommended_running_time?: number
@@ -4035,6 +4058,7 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
+    custom_products: UserProductListItem[]
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -4574,6 +4598,7 @@ export type APIScopeObject =
     | 'action'
     | 'access_control'
     | 'activity_log'
+    | 'alert'
     | 'annotation'
     | 'batch_export'
     | 'cohort'
@@ -4811,6 +4836,7 @@ export interface DataWarehouseSavedQuery {
     downstream_dependency_count?: number
     created_at?: string
     run_history?: DataWarehouseSavedQueryRunHistory[]
+    origin?: DataWarehouseSavedQueryOrigin
 }
 
 export interface DataWarehouseSavedQueryDraft {
@@ -5583,6 +5609,8 @@ export type HogFunctionTemplateType = Pick<
     code_language: 'javascript' | 'hog'
     /** Whether the template should be conditionally rendered based on a feature flag */
     flag?: string
+    /** Whether this is a featured/recommended source */
+    featured?: boolean
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -5793,6 +5821,7 @@ export interface Conversation {
     updated_at: string | null
     type: ConversationType
     has_unsupported_content?: boolean
+    agent_mode?: string | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -5937,6 +5966,7 @@ export interface DataWarehouseActivityRecord {
     finished_at: string | null
     latest_error: string | null
     workflow_run_id?: string
+    origin?: DataWarehouseSavedQueryOrigin | null
 }
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'

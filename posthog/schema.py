@@ -23,6 +23,7 @@ class AIEventType(StrEnum):
     FIELD_AI_METRIC = "$ai_metric"
     FIELD_AI_FEEDBACK = "$ai_feedback"
     FIELD_AI_EVALUATION = "$ai_evaluation"
+    FIELD_AI_TRACE_SUMMARY = "$ai_trace_summary"
 
 
 class MathGroupTypeIndex(float, Enum):
@@ -66,6 +67,17 @@ class AlertState(StrEnum):
     NOT_FIRING = "Not firing"
     ERRORED = "Errored"
     SNOOZED = "Snoozed"
+
+
+class ArtifactContentType(StrEnum):
+    VISUALIZATION = "visualization"
+    NOTEBOOK = "notebook"
+
+
+class ArtifactSource(StrEnum):
+    ARTIFACT = "artifact"
+    INSIGHT = "insight"
+    STATE = "state"
 
 
 class AssistantArrayPropertyFilterOperator(StrEnum):
@@ -193,6 +205,7 @@ class AssistantMessageType(StrEnum):
     AI_REASONING = "ai/reasoning"
     AI_VIZ = "ai/viz"
     AI_MULTI_VIZ = "ai/multi_viz"
+    AI_ARTIFACT = "ai/artifact"
     AI_FAILURE = "ai/failure"
     AI_NOTEBOOK = "ai/notebook"
     AI_PLANNING = "ai/planning"
@@ -234,6 +247,7 @@ class AssistantNavigateUrl(StrEnum):
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
     PERSONS = "persons"
 
 
@@ -298,7 +312,9 @@ class AssistantTool(StrEnum):
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
+    FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
+    CREATE_FORM = "create_form"
 
 
 class AssistantToolCall(BaseModel):
@@ -680,16 +696,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ContextMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["context"] = "context"
-
-
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -919,6 +925,12 @@ class DataWarehouseEventsModifier(BaseModel):
 
 class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
+class DataWarehouseSavedQueryOrigin(StrEnum):
+    DATA_WAREHOUSE = "data_warehouse"
+    ENDPOINT = "endpoint"
+    MANAGED_VIEWSET = "managed_viewset"
 
 
 class DataWarehouseSyncInterval(StrEnum):
@@ -1444,6 +1456,7 @@ class ExperimentVariantTrendsBaseStats(BaseModel):
 
 
 class ExternalDataSourceType(StrEnum):
+    ASHBY = "Ashby"
     SUPABASE = "Supabase"
     CUSTOMER_IO = "CustomerIO"
     GITHUB = "Github"
@@ -1531,6 +1544,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MARKETING_ANALYTICS = "marketing_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
@@ -1773,6 +1787,11 @@ class MaterializationMode(StrEnum):
     DISABLED = "disabled"
 
 
+class MaterializedColumnsOptimizationMode(StrEnum):
+    DISABLED = "disabled"
+    OPTIMIZED = "optimized"
+
+
 class PersonsArgMaxVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
@@ -1988,6 +2007,8 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CPC = "CPC"
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
+    REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -2000,6 +2021,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     IMPRESSIONS = "impressions"
     SOURCE = "source"
     REPORTED_CONVERSION = "reported_conversion"
+    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2310,6 +2332,21 @@ class MinimalHedgehogConfig(BaseModel):
     use_as_profile: bool
 
 
+class ModeContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AgentMode
+    type: Literal["mode"] = "mode"
+
+
+class MultiQuestionFormQuestionOption(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    value: str = Field(..., description="The value to use when this option is selected")
+
+
 class MultipleBreakdownType(StrEnum):
     COHORT = "cohort"
     PERSON = "person"
@@ -2407,11 +2444,17 @@ class NodeKind(StrEnum):
     USAGE_METRICS_QUERY = "UsageMetricsQuery"
 
 
+class NotebookArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["notebook"] = Field(default="notebook", description="Notebook")
+
+
 class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: float
     url: str
 
 
@@ -2627,6 +2670,7 @@ class PropertyFilterType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     FLAG = "flag"
     LOG = "log"
+    WORKFLOW_VARIABLE = "workflow_variable"
 
 
 class PropertyMathType(StrEnum):
@@ -3014,11 +3058,6 @@ class SnapshotSource(StrEnum):
     UNKNOWN = "unknown"
 
 
-class Storage(StrEnum):
-    OBJECT_STORAGE_LTS = "object_storage_lts"
-    OBJECT_STORAGE = "object_storage"
-
-
 class SessionReplayBlock(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3057,6 +3096,13 @@ class SimilarIssue(BaseModel):
 class SimpleIntervalType(StrEnum):
     DAY = "day"
     MONTH = "month"
+
+
+class SlashCommandName(StrEnum):
+    FIELD_INIT = "/init"
+    FIELD_REMEMBER = "/remember"
+    FIELD_USAGE = "/usage"
+    FIELD_FEEDBACK = "/feedback"
 
 
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
@@ -3116,6 +3162,7 @@ class SourceMap(BaseModel):
     id: str | None = None
     impressions: str | None = None
     reported_conversion: str | None = None
+    reported_conversion_value: str | None = None
     source: str | None = None
 
 
@@ -3318,6 +3365,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
+    WORKFLOW_VARIABLES = "workflow_variables"
 
 
 class TestSetupRequest(BaseModel):
@@ -3498,6 +3546,7 @@ class WebAnalyticsOrderByDirection(StrEnum):
 class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
+    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
@@ -4617,6 +4666,12 @@ class FileSystemImport(BaseModel):
     meta: dict[str, Any] | None = Field(default=None, description="Metadata")
     path: str = Field(..., description="Object's name and folder")
     protocol: str | None = Field(default=None, description='Protocol of the item, defaults to "project://"')
+    reason: UserProductListReason | None = Field(
+        default=None, description="Reason for custom product suggestion (from UserProductList)"
+    )
+    reasonText: str | None = Field(
+        default=None, description="Custom reason text for custom product suggestion (from UserProductList)"
+    )
     ref: str | None = Field(default=None, description="Object's ID or other unique reference")
     sceneKey: str | None = Field(default=None, description="Match this with the a base scene key or a specific one")
     sceneKeys: list[str] | None = Field(default=None, description="List of all scenes exported by the app")
@@ -4718,6 +4773,7 @@ class HogQLQueryModifiers(BaseModel):
     formatCsvAllowDoubleQuotes: bool | None = None
     inCohortVia: InCohortVia | None = None
     materializationMode: MaterializationMode | None = None
+    materializedColumnsOptimizationMode: MaterializedColumnsOptimizationMode | None = None
     optimizeJoinedFilters: bool | None = None
     optimizeProjections: bool | None = None
     personsArgMaxVersion: PersonsArgMaxVersion | None = None
@@ -4922,6 +4978,41 @@ class MaxExperimentSummaryContext(BaseModel):
     secondary_metrics_results: list[MaxExperimentMetricResult]
     stats_method: ExperimentStatsMethod
     variants: list[str]
+
+
+class MaxRecordingEventFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Name of the event.")
+    properties: (
+        list[
+            AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+        ]
+        | None
+    ) = Field(default=None, description="Optional property filters for this event only.")
+    type: Literal["events"] = "events"
+
+
+class MultiQuestionFormQuestion(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    allow_custom_answer: bool | None = Field(
+        default=None, description='Whether to show a "Type your answer" option (default: true)'
+    )
+    id: str = Field(..., description="Unique identifier for this question")
+    options: list[MultiQuestionFormQuestionOption] = Field(..., description="Available answer options")
+    question: str = Field(..., description="The question text to display")
 
 
 class NotebookInfo(RootModel[DeepResearchNotebook]):
@@ -5517,7 +5608,6 @@ class SessionRecordingType(BaseModel):
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: str | None = None
-    storage: Storage | None = Field(default=None, description="Where this recording information was loaded from")
     summary: str | None = None
     viewed: bool = Field(..., description="Whether this recording has been viewed by you already.")
     viewers: list[str] = Field(..., description="user ids of other users who have viewed this recording")
@@ -5676,6 +5766,7 @@ class SurveyAppearanceSchema(BaseModel):
     buttonColor: str | None = None
     buttonTextColor: str | None = None
     inputBackground: str | None = None
+    inputTextColor: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -8159,6 +8250,17 @@ class CalendarHeatmapResponse(BaseModel):
     )
 
 
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    meta: ModeContext | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["context"] = "context"
+
+
 class ConversionGoalFilter1(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10098,6 +10200,13 @@ class MaxBillingContext(BaseModel):
     total_current_amount_usd: str | None = None
     trial: MaxBillingContextTrial | None = None
     usage_history: list[UsageHistoryItem] | None = None
+
+
+class MultiQuestionForm(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questions: list[MultiQuestionFormQuestion] = Field(..., description="The questions to ask")
 
 
 class MultipleBreakdownOptions(BaseModel):
@@ -12071,6 +12180,12 @@ class TracesQuery(BaseModel):
         ]
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
+    randomOrder: bool | None = Field(
+        default=None,
+        description=(
+            "Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias."
+        ),
+    )
     response: TracesQueryResponse | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
@@ -12117,15 +12232,6 @@ class VectorSearchQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
-
-
-class VisualizationArtifactContent(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: str | None = None
-    name: str | None = None
-    query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
 
 
 class WebAnalyticsAssistantFilters(BaseModel):
@@ -12315,6 +12421,7 @@ class WebStatsTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
@@ -12513,10 +12620,6 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     response: ActorsPropertyTaxonomyQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class AgentArtifactContent(RootModel[DocumentArtifactContent | VisualizationArtifactContent]):
-    root: DocumentArtifactContent | VisualizationArtifactContent
 
 
 class AnyResponseType(
@@ -13309,7 +13412,18 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         | SessionPropertyFilter
         | RecordingPropertyFilter
         | GroupPropertyFilter
-    ]
+        | MaxRecordingEventFilter
+    ] = Field(
+        ...,
+        description=(
+            "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties"
+            " of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties"
+            " (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g."
+            " `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`,"
+            " `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n-"
+            " 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present)."
+        ),
+    )
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
@@ -15236,6 +15350,31 @@ class QueryResponseAlternative(
     )
 
 
+class VisualizationArtifactContent(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content_type: Literal["visualization"] = Field(
+        default="visualization", description="Visualization artifact (chart, graph, etc.)"
+    )
+    description: str | None = None
+    name: str | None = None
+    query: (
+        AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+        | TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+    )
+
+
 class VisualizationItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15284,6 +15423,22 @@ class VisualizationMessage(BaseModel):
     query: str | None = ""
     short_id: str | None = None
     type: Literal["ai/viz"] = "ai/viz"
+
+
+class AgentArtifactContent(RootModel[DocumentArtifactContent | VisualizationArtifactContent]):
+    root: DocumentArtifactContent | VisualizationArtifactContent
+
+
+class ArtifactMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    artifact_id: str = Field(..., description="The ID of the artifact (short_id for both drafts and saved insights)")
+    content: VisualizationArtifactContent | NotebookArtifactContent = Field(..., description="Content of artifact")
+    id: str | None = None
+    parent_tool_call_id: str | None = None
+    source: ArtifactSource = Field(..., description="Source of artifact - determines which model to fetch from")
+    type: Literal["ai/artifact"] = "ai/artifact"
 
 
 class DatabaseSchemaQueryResponse(BaseModel):
@@ -16115,6 +16270,7 @@ class MaxUIContext(BaseModel):
     actions: list[MaxActionContext] | None = None
     dashboards: list[MaxDashboardContext] | None = None
     events: list[MaxEventContext] | None = None
+    form_answers: dict[str, str] | None = None
     insights: list[MaxInsightContext] | None = None
 
 
@@ -16509,6 +16665,7 @@ class RootAssistantMessage(
     RootModel[
         VisualizationMessage
         | MultiVisualizationMessage
+        | ArtifactMessage
         | ReasoningMessage
         | AssistantMessage
         | HumanMessage
@@ -16522,6 +16679,7 @@ class RootAssistantMessage(
     root: (
         VisualizationMessage
         | MultiVisualizationMessage
+        | ArtifactMessage
         | ReasoningMessage
         | AssistantMessage
         | HumanMessage
@@ -16543,6 +16701,9 @@ class SourceConfig(BaseModel):
     docsUrl: str | None = None
     existingSource: bool | None = None
     featureFlag: str | None = None
+    featured: bool | None = Field(
+        default=False, description="Whether this source should be prominently displayed in onboarding flows"
+    )
     fields: list[
         SourceFieldInputConfig
         | SourceFieldSwitchGroupConfig

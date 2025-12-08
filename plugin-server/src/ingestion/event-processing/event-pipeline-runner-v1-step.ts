@@ -1,14 +1,14 @@
 import { HogTransformerService } from '../../cdp/hog-transformations/hog-transformer.service'
-import { Hub, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, Hub, IncomingEventWithTeam } from '../../types'
 import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
-import { PipelineResult } from '../pipelines/results'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
+import { PipelineResult, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
-    personsStoreForBatch: PersonsStoreForBatch
+    headers: EventHeaders
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
     forceDisablePersonProcessing: boolean
@@ -16,7 +16,8 @@ export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
 
 export function createEventPipelineRunnerV1Step(
     hub: Hub,
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformerService,
+    personsStore: PersonsStore
 ): ProcessingStep<EventPipelineRunnerInput, EventPipelineResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
@@ -24,8 +25,8 @@ export function createEventPipelineRunnerV1Step(
         const {
             event,
             team,
-            headers,
-            personsStoreForBatch,
+            headers: inputHeaders,
+            message: inputMessage,
             groupStoreForBatch,
             processPerson,
             forceDisablePersonProcessing,
@@ -35,11 +36,18 @@ export function createEventPipelineRunnerV1Step(
             hub,
             event,
             hogTransformer,
-            personsStoreForBatch,
+            personsStore,
             groupStoreForBatch,
-            headers
+            inputHeaders
         )
         const result = await runner.runEventPipeline(event, team, processPerson, forceDisablePersonProcessing)
+
+        // Pass through message and headers for downstream metric recording
+        if (isOkResult(result)) {
+            result.value.inputHeaders = inputHeaders
+            result.value.inputMessage = inputMessage
+        }
+
         return result
     }
 }

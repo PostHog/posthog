@@ -41,6 +41,7 @@ rust-analyzer.pkg-group = "rust-analyzer"
 go = { pkg-path = "go", version = "1.22", pkg-group = "go" }
 # CLI tools
 mprocs = { pkg-path = "mprocs" }
+util-linux = { pkg-path = "util-linux" } # flock
 cmake = { pkg-path = "cmake", version = "3.31.5", pkg-group = "cmake" }
 sqlx-cli = { pkg-path = "sqlx-cli", version = "0.8.3" } # sqlx
 postgresql = { pkg-path = "postgresql_14" } # psql
@@ -53,6 +54,7 @@ ffmpeg.pkg-path = "ffmpeg"
 [vars]
 DEBUG = "1"
 POSTHOG_SKIP_MIGRATION_CHECKS = "1"
+FLAGS_REDIS_URL = "redis://localhost:6379/1"
 DIRENV_LOG_FORMAT = "" # Disable direnv activation logging (in case direnv is present)
 RUST_LOG = "flox=error,flox_rust_sdk=error,flox_watchdog=error" # Suppress Flox logs only (also set in .envrc for early activation)
 OPENSSL_ROOT_DIR = "$FLOX_ENV"
@@ -130,14 +132,6 @@ echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv4...\033[0m"
 if ! grep -q "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
   echo "127.0.0.1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
   echo -e "    \033[32m✅ /etc/hosts amended for IPv4\033[0m"
-else
-  echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
-fi
-
-echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv6...\033[0m"
-if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
-  echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-  echo -e "    \033[32m✅ /etc/hosts amended for IPv6\033[0m"
 else
   echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
 fi

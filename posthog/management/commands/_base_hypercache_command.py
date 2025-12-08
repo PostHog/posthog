@@ -12,7 +12,7 @@ from django.db import connection
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, warm_caches
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig, get_cache_stats, warm_caches
 
 
 class BaseHyperCacheCommand(BaseCommand):
@@ -53,8 +53,8 @@ class BaseHyperCacheCommand(BaseCommand):
         parser.add_argument(
             "--batch-size",
             type=int,
-            default=100,
-            help="Number of teams to process at a time (default: 100)",
+            default=1000,
+            help="Number of teams to process at a time (default: 1000)",
         )
         parser.add_argument(
             "--invalidate-first",
@@ -283,6 +283,7 @@ class BaseHyperCacheCommand(BaseCommand):
                 "cache_miss": 0,
                 "cache_match": 0,
                 "cache_mismatch": 0,
+                "error": 0,
                 "fixed": 0,
                 "fix_failed": 0,
             }
@@ -317,6 +318,9 @@ class BaseHyperCacheCommand(BaseCommand):
 
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
+            # Update cache metrics after verification completes (even on failure)
+            self._update_cache_stats_safe()
+
             if not settings.TEST:
                 connection.close()
 
@@ -347,7 +351,12 @@ class BaseHyperCacheCommand(BaseCommand):
             stats["total"] += 1
 
             # Delegate to subclass for actual verification
-            result = self.verify_team(team, verbose, batch_data)
+            try:
+                result = self.verify_team(team, verbose, batch_data)
+            except Exception as e:
+                stats["error"] += 1
+                self.stdout.write(self.style.ERROR(f"Error verifying team {team.id}: {e}"))
+                continue
 
             # Handle result
             if result["status"] == "match":
@@ -422,6 +431,12 @@ class BaseHyperCacheCommand(BaseCommand):
         self.stdout.write(
             f"Cache misses:         {stats['cache_miss']} ({self.format_percentage(stats['cache_miss'], stats['total'])})"
         )
+        if stats["error"] > 0:
+            self.stdout.write(
+                self.style.ERROR(
+                    f"Errors:               {stats['error']} ({self.format_percentage(stats['error'], stats['total'])})"
+                )
+            )
 
         if fix:
             self.stdout.write(
@@ -476,7 +491,15 @@ class BaseHyperCacheCommand(BaseCommand):
                         )
                     )
             else:
-                self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
+                if stats["error"] > 0:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"\n✗ Verification incomplete: {stats['error']} error(s) occurred, "
+                            f"{len(mismatches)} issue(s) found\n"
+                        )
+                    )
+                else:
+                    self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
 
     # Methods that subclasses must implement
 
@@ -608,15 +631,19 @@ class BaseHyperCacheCommand(BaseCommand):
             actual_batch_size = len(teams)
             actual_invalidate_first = False  # Never invalidate for specific teams
         else:
-            # Handle all teams - show configuration and get confirmation if needed
+            # Get current cache stats for upfront reporting
+            total_teams = Team.objects.count()
+            cache_stats = get_cache_stats(config)
+
+            # Handle all teams - show configuration and current state
             self.stdout.write(
-                self.style.WARNING(
-                    f"\nStarting {cache_name} cache warm:\n"
-                    f"  Batch size: {batch_size}\n"
-                    f"  Invalidate first: {invalidate_first}\n"
-                    f"  Stagger TTL: {stagger_ttl}\n"
-                    f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
-                )
+                f"\nStarting {cache_name} cache warm:\n"
+                f"  Total teams: {total_teams:,}\n"
+                f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
+                f"  Batch size: {batch_size}\n"
+                f"  Invalidate first: {invalidate_first}\n"
+                f"  Stagger TTL: {stagger_ttl}\n"
+                f"  TTL range: {min_ttl_days}-{max_ttl_days} days\n"
             )
 
             if invalidate_first and not self._confirm_invalidate(cache_name):
@@ -624,6 +651,24 @@ class BaseHyperCacheCommand(BaseCommand):
 
             actual_batch_size = batch_size
             actual_invalidate_first = invalidate_first
+
+        # Callbacks to write progress to stdout
+        last_percent_reported = [0]  # Use list to allow mutation in closure
+
+        def batch_start_callback(batch_num: int, batch_len: int):
+            self.stdout.write(f"  Processing batch {batch_num} ({batch_len:,} teams)…")
+
+        def progress_callback(processed: int, total: int, successful: int, failed: int):
+            if total == 0:
+                return
+            percent = int(100 * processed / total)
+            # Report every 5% to avoid too much output
+            if percent >= last_percent_reported[0] + 5 or processed == total:
+                self.stdout.write(
+                    f"  Progress: {processed:,}/{total:,} teams ({percent}%) "
+                    f"- {successful:,} successful, {failed:,} failed"
+                )
+                last_percent_reported[0] = percent
 
         # Warm the caches
         successful, failed = warm_caches(
@@ -634,6 +679,8 @@ class BaseHyperCacheCommand(BaseCommand):
             min_ttl_days=min_ttl_days,
             max_ttl_days=max_ttl_days,
             team_ids=team_ids,
+            progress_callback=progress_callback,
+            batch_start_callback=batch_start_callback,
         )
 
         # Display results
@@ -642,6 +689,9 @@ class BaseHyperCacheCommand(BaseCommand):
         # Warn about failures (only for all teams workflow)
         if not team_ids and failed > 0:
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
+
+        # Update cache metrics after warming completes
+        self._update_cache_stats_safe(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 
@@ -662,6 +712,23 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(f"    Cache: {diff.get('cached_value')}")
 
     # Configuration and validation helpers
+
+    def _update_cache_stats_safe(self, config: HyperCacheManagementConfig | None = None) -> None:
+        """
+        Update cache metrics, logging a warning on failure.
+
+        This wraps get_cache_stats() in a try/except to handle Redis timeouts
+        gracefully without crashing the command. Metric updates are non-critical
+        operations that shouldn't abort the main workflow.
+
+        Args:
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
+        try:
+            config = config or self.get_hypercache_config()
+            get_cache_stats(config)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
 
     def check_dedicated_cache_configured(self) -> bool:
         """

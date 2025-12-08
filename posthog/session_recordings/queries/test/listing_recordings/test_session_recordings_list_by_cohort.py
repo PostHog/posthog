@@ -507,3 +507,115 @@ class TestSessionRecordingsListByCohort(ClickhouseTestMixin, APIBaseTest):
                     },
                     [session_id_one],
                 )
+
+    @snapshot_clickhouse_queries
+    def test_filter_with_cohort_when_distinct_id_has_multiple_person_ids(self) -> None:
+        """
+        Test that cohort filtering works correctly when a distinct_id has multiple person_id associations
+        in ClickHouse (e.g., from person merges). The filter should only check cohort membership
+        for the CURRENT person_id, not historical ones.
+
+        Regression test for bug where if:
+        - distinct_id had old person_id A (in cohort, but deleted/old version)
+        - distinct_id has current person_id B (not in cohort, active)
+        The filter would incorrectly match because it checked ALL person_ids before applying argMax.
+        """
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            with freeze_time("2021-08-21T20:00:00.000Z"):
+                distinct_id = "user-with-multiple-person-ids"
+                session_id = "session-should-not-be-filtered"
+
+                # Create person A (will be in cohort, then merged away)
+                person_a = Person.objects.create(
+                    team=self.team,
+                    distinct_ids=[distinct_id],
+                    properties={"$some_prop": "some_val"},
+                )
+
+                # Create cohort that person A is in
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name="test_cohort",
+                    groups=[
+                        {
+                            "properties": [
+                                {
+                                    "key": "$some_prop",
+                                    "value": "some_val",
+                                    "type": "person",
+                                }
+                            ]
+                        }
+                    ],
+                )
+                cohort.calculate_people_ch(pending_version=0)
+
+                # Create person B (not in cohort)
+                person_b = Person.objects.create(
+                    team=self.team,
+                    distinct_ids=["another-distinct-id"],
+                    properties={"other_prop": "other_val"},
+                )
+
+                # Simulate person merge: move distinct_id from person A to person B
+                # This creates a situation where distinct_id has multiple person_id entries in ClickHouse
+                from posthog.models.person.util import create_person_distinct_id
+
+                # Add new version pointing to person B
+                create_person_distinct_id(
+                    team_id=self.team.id,
+                    distinct_id=distinct_id,
+                    person_id=str(person_b.uuid),
+                    is_deleted=False,
+                    version=2,  # Higher version than the original
+                )
+
+                # Mark old association as deleted
+                create_person_distinct_id(
+                    team_id=self.team.id,
+                    distinct_id=distinct_id,
+                    person_id=str(person_a.uuid),
+                    is_deleted=True,
+                    version=1,
+                )
+
+                # Create recording with the distinct_id
+                produce_replay_summary(
+                    distinct_id=distinct_id,
+                    session_id=session_id,
+                    first_timestamp=self.an_hour_ago,
+                    team_id=self.team.id,
+                )
+
+                # Test NOT IN cohort filter
+                # Should return the session because current person_id (person B) is NOT in the cohort
+                # even though old person_id (person A) was in the cohort
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort.pk,
+                                "operator": "not_in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    [session_id],
+                )
+
+                # Test IN cohort filter
+                # Should return empty because current person_id (person B) is NOT in the cohort
+                self._assert_query_matches_session_ids(
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "value": cohort.pk,
+                                "operator": "in",
+                                "type": "cohort",
+                            }
+                        ]
+                    },
+                    [],
+                )
