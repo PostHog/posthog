@@ -276,7 +276,7 @@ async def load_recordings_with_team_id(input: RecordingsWithTeamInput) -> list[s
     return session_ids
 
 
-RECORDING_METADATA_DELETION_REDIS_KEY = "recording_metadata_deletion_queue"
+METADATA_DELETION_KEY = "metadata-deletion-queue"
 
 
 @activity.defn(name="schedule-recording-metadata-deletion")
@@ -286,7 +286,7 @@ async def schedule_recording_metadata_deletion(input: Recording) -> None:
     logger.info("Scheduling recording metadata deletion")
 
     async with redis.from_url(settings.SESSION_RECORDING_REDIS_URL) as r:
-        await r.sadd(RECORDING_METADATA_DELETION_REDIS_KEY, input.session_id)
+        await r.sadd(METADATA_DELETION_KEY, input.session_id)
 
     logger.info("Scheduled recording metadata deletion")
 
@@ -297,7 +297,7 @@ async def perform_recording_metadata_deletion(input: DeleteRecordingMetadataInpu
     logger.info("Performing recording metadata deletion")
 
     async with redis.from_url(settings.SESSION_RECORDING_REDIS_URL) as r:
-        session_ids: set[bytes] = await r.smembers(RECORDING_METADATA_DELETION_REDIS_KEY)
+        session_ids: set[bytes] = await r.smembers(METADATA_DELETION_KEY)
 
     if not session_ids:
         logger.info("No session IDs to delete")
@@ -340,7 +340,7 @@ async def perform_recording_metadata_deletion(input: DeleteRecordingMetadataInpu
         logger.info(f"Deleted {viewed_deleted_count} SessionRecordingViewed rows from Postgres")
 
         async with redis.from_url(settings.SESSION_RECORDING_REDIS_URL) as r:
-            await r.srem(RECORDING_METADATA_DELETION_REDIS_KEY, *session_ids)
+            await r.srem(METADATA_DELETION_KEY, *session_ids)
 
     logger.info(f"Successfully deleted metadata for {len(session_id_list)} sessions")
 

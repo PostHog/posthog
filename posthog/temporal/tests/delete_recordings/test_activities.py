@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.delete_recordings.activities import (
-    RECORDING_METADATA_DELETION_REDIS_KEY,
+    METADATA_DELETION_KEY,
     _parse_block_listing_response,
     _parse_session_recording_list_response,
     delete_recording_blocks,
@@ -475,7 +475,7 @@ async def test_schedule_recording_metadata_deletion():
     with patch("posthog.temporal.delete_recordings.activities.redis.from_url", return_value=mock_redis):
         await schedule_recording_metadata_deletion(Recording(session_id="session-123", team_id=12345))
 
-    assert mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] == {b"session-123"}
+    assert mock_redis.sets[METADATA_DELETION_KEY] == {b"session-123"}
 
 
 @pytest.mark.asyncio
@@ -487,7 +487,7 @@ async def test_schedule_recording_metadata_deletion_multiple_sessions():
         await schedule_recording_metadata_deletion(Recording(session_id="session-2", team_id=222))
         await schedule_recording_metadata_deletion(Recording(session_id="session-3", team_id=333))
 
-    assert mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] == {b"session-1", b"session-2", b"session-3"}
+    assert mock_redis.sets[METADATA_DELETION_KEY] == {b"session-1", b"session-2", b"session-3"}
 
 
 @pytest.mark.asyncio
@@ -501,7 +501,7 @@ async def test_perform_recording_metadata_deletion_no_sessions():
 @pytest.mark.asyncio
 async def test_perform_recording_metadata_deletion_with_sessions():
     mock_redis = MockRedis()
-    mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] = {b"session-1", b"session-2", b"session-3"}
+    mock_redis.sets[METADATA_DELETION_KEY] = {b"session-1", b"session-2", b"session-3"}
 
     mock_client = MagicMock()
     mock_client.execute_query = AsyncMock()
@@ -541,13 +541,13 @@ async def test_perform_recording_metadata_deletion_with_sessions():
     viewed_filter_call = mock_session_recording_viewed_qs.filter.call_args
     assert set(viewed_filter_call.kwargs["session_id__in"]) == {"session-1", "session-2", "session-3"}
 
-    assert mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] == set()
+    assert mock_redis.sets[METADATA_DELETION_KEY] == set()
 
 
 @pytest.mark.asyncio
 async def test_perform_recording_metadata_deletion_clears_redis_after_success():
     mock_redis = MockRedis()
-    mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] = {b"session-a", b"session-b"}
+    mock_redis.sets[METADATA_DELETION_KEY] = {b"session-a", b"session-b"}
 
     mock_client = MagicMock()
     mock_client.execute_query = AsyncMock()
@@ -571,13 +571,13 @@ async def test_perform_recording_metadata_deletion_clears_redis_after_success():
     ):
         await perform_recording_metadata_deletion(DeleteRecordingMetadataInput(dry_run=False))
 
-    assert mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] == set()
+    assert mock_redis.sets[METADATA_DELETION_KEY] == set()
 
 
 @pytest.mark.asyncio
 async def test_perform_recording_metadata_deletion_dry_run():
     mock_redis = MockRedis()
-    mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] = {b"session-1", b"session-2"}
+    mock_redis.sets[METADATA_DELETION_KEY] = {b"session-1", b"session-2"}
 
     mock_client = MagicMock()
     mock_client.execute_query = AsyncMock()
@@ -609,4 +609,4 @@ async def test_perform_recording_metadata_deletion_dry_run():
     mock_session_recording_viewed_qs.filter.return_value.acount.assert_called_once()
 
     # Redis should not be cleared in dry_run mode
-    assert mock_redis.sets[RECORDING_METADATA_DELETION_REDIS_KEY] == {b"session-1", b"session-2"}
+    assert mock_redis.sets[METADATA_DELETION_KEY] == {b"session-1", b"session-2"}
