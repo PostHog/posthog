@@ -1,9 +1,10 @@
 import json
-import pkgutil
-import importlib
+from abc import ABC, abstractmethod
 from collections.abc import Sequence
+from string import Formatter
 from typing import Any, Literal, Self
 
+import structlog
 from asgiref.sync import async_to_sync
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
@@ -13,36 +14,13 @@ from posthog.schema import AssistantTool
 
 from posthog.models import Team, User
 
-import products
-
 from ee.hogai.context.context import AssistantContextManager
-from ee.hogai.graph.mixins import AssistantContextMixin
-from ee.hogai.utils.types import AssistantState
-from ee.hogai.utils.types.base import AssistantMessageUnion
+from ee.hogai.core.context import get_node_path, set_node_path
+from ee.hogai.core.mixins import AssistantContextMixin, AssistantDispatcherMixin
+from ee.hogai.registry import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
-CONTEXTUAL_TOOL_NAME_TO_TOOL: dict[AssistantTool, type["MaxTool"]] = {}
-
-
-def _import_max_tools() -> None:
-    """TRICKY: Dynamically import max_tools from all products"""
-    for module_info in pkgutil.iter_modules(products.__path__):
-        if module_info.name in ("conftest", "test"):
-            continue  # We mustn't import test modules in prod
-        try:
-            importlib.import_module(f"products.{module_info.name}.backend.max_tools")
-        except ModuleNotFoundError:
-            pass  # Skip if backend or max_tools doesn't exist - note that the product's dir needs a top-level __init__.py
-
-
-def get_contextual_tool_class(tool_name: str) -> type["MaxTool"] | None:
-    """Get the tool class for a given tool name, handling circular import."""
-    _import_max_tools()  # Ensure max_tools are imported
-    from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-
-    try:
-        return CONTEXTUAL_TOOL_NAME_TO_TOOL[AssistantTool(tool_name)]
-    except KeyError:
-        return None
+logger = structlog.get_logger(__name__)
 
 
 class ToolMessagesArtifact(BaseModel):
@@ -51,12 +29,15 @@ class ToolMessagesArtifact(BaseModel):
     messages: Sequence[AssistantMessageUnion]
 
 
-class MaxTool(AssistantContextMixin, BaseTool):
+class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     # LangChain's default is just "content", but we always want to return the tool call artifact too
     # - it becomes the `ui_payload`
     response_format: Literal["content_and_artifact"] = "content_and_artifact"
 
-    context_prompt_template: str = "No context provided for this tool."
+    billable: bool = False
+    """Whether LLM generations triggered by this tool should count toward billing."""
+
+    context_prompt_template: str | None = None
     """The template for context associated with this tool, that will be injected into the root node's context messages.
     Use this if you need to strongly steer the root node in deciding _when_ and _whether_ to use the tool.
     It will be formatted like an f-string, with the tool context as the variables.
@@ -66,7 +47,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
     _config: RunnableConfig
     _state: AssistantState
     _context_manager: AssistantContextManager
-    _tool_call_id: str
+    _node_path: tuple[NodePath, ...]
 
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
@@ -82,7 +63,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         name: str | None = None,
@@ -102,7 +83,10 @@ class MaxTool(AssistantContextMixin, BaseTool):
         super().__init__(**tool_kwargs, **kwargs)
         self._team = team
         self._user = user
-        self._tool_call_id = tool_call_id
+        if node_path is None:
+            self._node_path = get_node_path() or ()
+        else:
+            self._node_path = node_path
         self._state = state if state else AssistantState(messages=[])
         self._config = config if config else RunnableConfig(configurable={})
         self._context_manager = context_manager or AssistantContextManager(team, user, self._config)
@@ -120,28 +104,65 @@ class MaxTool(AssistantContextMixin, BaseTool):
         CONTEXTUAL_TOOL_NAME_TO_TOOL[accepted_name] = cls
 
     def _run(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return self._run_impl(*args, **kwargs)
+            return self._run_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
-        return async_to_sync(self._arun_impl)(*args, **kwargs)
+        return async_to_sync(self._arun_with_context)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
+        """LangChain default runner."""
         try:
-            return await self._arun_impl(*args, **kwargs)
+            return await self._arun_with_context(*args, **kwargs)
         except NotImplementedError:
             pass
         return await super()._arun(*args, config=config, **kwargs)
+
+    def _run_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return self._run_impl(*args, **kwargs)
+
+    async def _arun_with_context(self, *args, **kwargs):
+        """Sets the context for the tool."""
+        with set_node_path(self.node_path):
+            return await self._arun_impl(*args, **kwargs)
+
+    @property
+    def node_name(self) -> str:
+        return f"max_tool.{self.get_name()}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return (*self._node_path, NodePath(name=self.node_name))
 
     @property
     def context(self) -> dict:
         return self._context_manager.get_contextual_tools().get(self.get_name(), {})
 
-    def format_context_prompt_injection(self, context: dict[str, Any]) -> str:
+    def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
+        if not self.context_prompt_template:
+            return None
+        # Build initial context
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
+        # Extract expected keys from template
+        expected_keys = {
+            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
+        }
+        # If they expect key is not present in the context (for example, cached FE) - use None as a default
+        for key in expected_keys:
+            if key not in formatted_context:
+                formatted_context[key] = None
+                logger.warning(
+                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
+                )
         return self.context_prompt_template.format(**formatted_context)
+
+    def set_node_path(self, node_path: tuple[NodePath, ...]):
+        self._node_path = node_path
 
     @classmethod
     async def create_tool_class(
@@ -149,7 +170,7 @@ class MaxTool(AssistantContextMixin, BaseTool):
         *,
         team: Team,
         user: User,
-        tool_call_id: str,
+        node_path: tuple[NodePath, ...] | None = None,
         state: AssistantState | None = None,
         config: RunnableConfig | None = None,
         context_manager: AssistantContextManager | None = None,
@@ -160,5 +181,37 @@ class MaxTool(AssistantContextMixin, BaseTool):
         Override this factory to dynamically modify the tool name, description, args schema, etc.
         """
         return cls(
-            team=team, user=user, tool_call_id=tool_call_id, state=state, config=config, context_manager=context_manager
+            team=team, user=user, node_path=node_path, state=state, config=config, context_manager=context_manager
         )
+
+
+class MaxSubtool(AssistantDispatcherMixin, ABC):
+    _config: RunnableConfig
+
+    def __init__(
+        self,
+        *,
+        team: Team,
+        user: User,
+        state: AssistantState,
+        config: RunnableConfig,
+        context_manager: AssistantContextManager,
+        node_path: tuple[NodePath, ...] | None = None,
+    ):
+        self._team = team
+        self._user = user
+        self._state = state
+        self._context_manager = context_manager
+        self._node_path = node_path or get_node_path() or ()
+
+    @abstractmethod
+    async def execute(self, *args, **kwargs) -> Any:
+        pass
+
+    @property
+    def node_name(self) -> str:
+        return f"max_subtool.{self.__class__.__name__}"
+
+    @property
+    def node_path(self) -> tuple[NodePath, ...]:
+        return self._node_path

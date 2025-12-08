@@ -79,12 +79,12 @@ export function JobStatsChart({ jobStats }: JobStatsChartProps): JSX.Element {
     }, [jobStats])
 
     if (!jobStats?.breakdown) {
-        return <div className="relative h-64 flex items-center justify-center">No data available</div>
+        return <div className="relative h-full min-h-48 flex items-center justify-center">No data available</div>
     }
 
     return (
         <LineGraph
-            className="h-64"
+            className="h-full min-h-80"
             xData={xData}
             yData={yData}
             visualizationType={ChartDisplayType.ActionsStackedBar}

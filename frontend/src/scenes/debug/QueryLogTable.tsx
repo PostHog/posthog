@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -10,6 +11,38 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from '~/lib/utils'
 
 import { queryLogTableLogic } from './queryLogTableLogic'
+
+const removeQueryIndentation = (text: string): string => {
+    const lines = text.split('\n')
+
+    while (lines.length && lines[0].trim() === '') {
+        lines.shift()
+    }
+
+    while (lines.length && lines[lines.length - 1].trim() === '') {
+        lines.pop()
+    }
+
+    const nonEmptyLines = lines.filter((line) => line.trim() !== '')
+    const minIndent = nonEmptyLines.length
+        ? Math.min(
+              ...nonEmptyLines.map((line) => {
+                  const match = line.match(/^[ \t]*/)
+                  return match ? match[0].length : 0
+              })
+          )
+        : 0
+
+    const trimmedLines =
+        minIndent > 0
+            ? lines.map((line) => {
+                  const indentRegex = new RegExp(`^[ \\t]{0,${minIndent}}`)
+                  return line.replace(indentRegex, '')
+              })
+            : lines
+
+    return trimmedLines.join('\n')
+}
 
 interface QueryLogTableProps {
     queryKey: string
@@ -60,11 +93,20 @@ export function QueryLogTable({ queryKey, onLoadQuery }: QueryLogTableProps): JS
                         key: 'query_id',
                         dataIndex: 'query_id',
                         width: 200,
-                        render: (value) => (
-                            <div className="font-mono text-xs truncate" title={String(value)}>
-                                {value}
-                            </div>
-                        ),
+                        render: (value) => {
+                            const text = value !== null && value !== undefined ? String(value) : ''
+                            return text ? (
+                                <CopyToClipboardInline
+                                    explicitValue={text}
+                                    description="query ID"
+                                    tooltipMessage="Copy query ID"
+                                    iconSize="xsmall"
+                                    className="font-mono text-xs truncate"
+                                >
+                                    {text}
+                                </CopyToClipboardInline>
+                            ) : null
+                        },
                     },
                     {
                         title: 'Time',
@@ -118,7 +160,21 @@ export function QueryLogTable({ queryKey, onLoadQuery }: QueryLogTableProps): JS
                         title: 'Query',
                         key: 'query',
                         dataIndex: 'query',
-                        render: (value) => <div className="max-w-xl truncate font-mono text-xs">{value}</div>,
+                        render: (value) => {
+                            const text = value !== null && value !== undefined ? String(value) : ''
+                            const normalizedText = text ? removeQueryIndentation(text) : ''
+                            return normalizedText ? (
+                                <CopyToClipboardInline
+                                    explicitValue={normalizedText}
+                                    description="query"
+                                    tooltipMessage="Copy query"
+                                    iconSize="xsmall"
+                                    className="font-mono text-xs whitespace-pre max-w-300"
+                                >
+                                    {normalizedText}
+                                </CopyToClipboardInline>
+                            ) : null
+                        },
                     },
                 ]}
             />

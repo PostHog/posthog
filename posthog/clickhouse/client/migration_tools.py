@@ -1,5 +1,6 @@
 import logging
 from functools import cache
+from typing import Optional
 
 from infi.clickhouse_orm import migrations
 
@@ -19,8 +20,8 @@ def get_migrations_cluster():
 def run_sql_with_exceptions(
     sql: str,
     node_roles: list[NodeRole] | NodeRole | None = None,
-    sharded: bool = False,
-    is_alter_on_replicated_table: bool = False,
+    sharded: Optional[bool] = None,
+    is_alter_on_replicated_table: Optional[bool] = None,
 ):
     """
     Executes a SQL query on each node separately with specific options, handling distributed execution and node roles.
@@ -58,21 +59,21 @@ def run_sql_with_exceptions(
 
     node_roles = node_roles or [NodeRole.DATA]
 
-    if settings.E2E_TESTING or settings.DEBUG:
-        # In E2E tests and debug mode, we run migrations on ALL nodes
+    # Store original node_roles for validation purposes before debug override
+    original_node_roles = node_roles
+
+    if settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT:
+        # In E2E tests, debug mode and hobby deployments, we run migrations on ALL nodes
         # because we don't have different ClickHouse topologies yet in Docker
         node_roles = [NodeRole.ALL]
 
     def run_migration():
-        if "ON CLUSTER" in sql:
-            logger.error("ON CLUSTER is not supposed to used in migration, query: %s", sql)
-
         cluster = get_migrations_cluster()
 
         query = Query(sql)
-        if sharded:
+        if sharded and is_alter_on_replicated_table:
             assert (NodeRole.DATA in node_roles and len(node_roles) == 1) or (
-                settings.E2E_TESTING or settings.DEBUG
+                settings.E2E_TESTING or settings.DEBUG or not settings.CLOUD_DEPLOYMENT
             ), "When running migrations on sharded tables, the node_role must be NodeRole.DATA"
             return cluster.map_one_host_per_shard(query).result()
         elif is_alter_on_replicated_table:
@@ -81,4 +82,13 @@ def run_sql_with_exceptions(
         else:
             return cluster.map_hosts_by_roles(query, node_roles=node_roles).result()
 
-    return migrations.RunPython(lambda _: run_migration())
+    operation = migrations.RunPython(lambda _: run_migration())
+
+    # Attach metadata for validation tools
+    # Use original_node_roles (before debug override) for validation purposes
+    operation._sql = sql
+    operation._node_roles = original_node_roles
+    operation._sharded = sharded
+    operation._is_alter_on_replicated_table = is_alter_on_replicated_table
+
+    return operation

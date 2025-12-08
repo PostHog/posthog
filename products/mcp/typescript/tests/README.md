@@ -6,11 +6,11 @@ These tests should verify that the API works as intended.
 
 1. **Configure environment:**
 
-    ```bash
-    cp .env.test.example .env.test
-    ```
+   ```bash
+   cp .env.test.example .env.test
+   ```
 
-    Edit `.env.test` and set an api token and base url for your local PostHog instance
+   Edit `.env.test` and set an api token and base url for your local PostHog instance
 
 ## Running Tests
 

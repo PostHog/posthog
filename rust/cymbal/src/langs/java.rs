@@ -126,6 +126,22 @@ impl RawJavaFrame {
             .map(|id| OrChunkId::chunk_id(id.clone()))
             .ok_or(ProguardError::NoMapId)
     }
+
+    pub async fn remap_class<C>(
+        &self,
+        team_id: i32,
+        class: &str,
+        catalog: &C,
+    ) -> Result<Option<String>, ResolveError>
+    where
+        C: SymbolCatalog<OrChunkId<ProguardRef>, FetchedMapping>,
+    {
+        let r = self.get_ref()?;
+        let map: Arc<FetchedMapping> = catalog.lookup(team_id, r.clone()).await?;
+        let mapper = map.get_mapper();
+        let result = mapper.remap_class(class).map(|s| s.to_string());
+        Ok(result)
+    }
 }
 
 impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
@@ -142,6 +158,7 @@ impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
             resolved: true,
             resolve_failure: None,
             junk_drawer: None,
+            code_variables: None,
             release: None,
             synthetic: raw.meta.synthetic,
             context: None,
@@ -169,6 +186,7 @@ impl From<(&RawJavaFrame, ProguardError)> for Frame {
             resolved: false,
             resolve_failure: Some(error.to_string()),
             junk_drawer: None,
+            code_variables: None,
             release: None,
             synthetic: raw.meta.synthetic,
             context: None,

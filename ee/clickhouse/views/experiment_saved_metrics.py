@@ -12,6 +12,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentMetricType,
     ExperimentRatioMetric,
+    ExperimentRetentionMetric,
     ExperimentTrendsQuery,
 )
 
@@ -20,7 +21,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.models.signals import model_activity_signal
+from posthog.models.signals import model_activity_signal, mutable_receiver
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -88,8 +89,12 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
                     ExperimentFunnelMetric(**metric_query)
                 elif metric_query["metric_type"] == ExperimentMetricType.RATIO:
                     ExperimentRatioMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.RETENTION:
+                    ExperimentRetentionMetric(**metric_query)
                 else:
-                    raise ValidationError("ExperimentMetric metric_type must be 'mean', 'funnel', or 'ratio'")
+                    raise ValidationError(
+                        "ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+                    )
             elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
             elif metric_query["kind"] == "ExperimentFunnelsQuery":
@@ -112,7 +117,7 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     serializer_class = ExperimentSavedMetricSerializer
 
 
-@receiver(model_activity_signal, sender=ExperimentSavedMetric)
+@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
     sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):

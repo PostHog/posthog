@@ -215,7 +215,7 @@ def meta_ads_source(
 
     return SourceResponse(
         name=name,
-        items=get_rows(),
+        items=get_rows,
         primary_keys=schema.primary_keys,
         partition_mode=schema.partition_mode,
         partition_format=schema.partition_format,

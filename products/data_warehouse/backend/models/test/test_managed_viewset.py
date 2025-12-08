@@ -5,6 +5,7 @@ from django.db import IntegrityError
 from posthog.schema import RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.data_warehouse.backend.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 
 
 class TestDataWarehouseManagedViewSetModel(BaseTest):
@@ -33,7 +34,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test that enabling managed viewset creates the expected views"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Call sync_views to create the views
@@ -42,13 +43,12 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # Check that views were created
         views = DataWarehouseSavedQuery.objects.filter(
             team=self.team,
-            managed_viewset__kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            managed_viewset__kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         ).exclude(deleted=True)
 
         # Should have views for each event (purchase, subscription_charge) and each view type
         # Each event should generate 5 view types: customer, charge, subscription, revenue_item, product
-        # Plus "all" views for each type
-        expected_view_count = 2 * 5 + 5  # 2 events * 5 types + 5 "all" views
+        expected_view_count = 2 * 5  # 2 events * 5 types
         self.assertGreaterEqual(views.count(), expected_view_count)
 
         # Check that views have the expected structure
@@ -61,11 +61,6 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
 
         expected_view_names = sorted(
             [
-                "revenue_analytics.all.revenue_analytics_charge",
-                "revenue_analytics.all.revenue_analytics_customer",
-                "revenue_analytics.all.revenue_analytics_product",
-                "revenue_analytics.all.revenue_analytics_revenue_item",
-                "revenue_analytics.all.revenue_analytics_subscription",
                 "revenue_analytics.events.purchase.charge_events_revenue_view",
                 "revenue_analytics.events.purchase.customer_events_revenue_view",
                 "revenue_analytics.events.purchase.revenue_item_events_revenue_view",
@@ -86,7 +81,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # First, create a managed viewset and some views
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create a view with old query/columns
@@ -116,7 +111,7 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test that delete_with_views properly deletes the managed viewset and marks views as deleted"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Create some views associated with the managed viewset
@@ -153,11 +148,11 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         """Test basic managed viewset creation"""
         managed_viewset = DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         self.assertEqual(managed_viewset.team, self.team)
-        self.assertEqual(managed_viewset.kind, DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS)
+        self.assertEqual(managed_viewset.kind, DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS)
         self.assertIsNotNone(managed_viewset.id)
         self.assertIsNotNone(managed_viewset.created_at)
 
@@ -166,12 +161,12 @@ class TestDataWarehouseManagedViewSetModel(BaseTest):
         # Create first managed viewset
         DataWarehouseManagedViewSet.objects.create(
             team=self.team,
-            kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+            kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
         )
 
         # Try to create another with same team and kind - should raise IntegrityError
         with self.assertRaises(IntegrityError):
             DataWarehouseManagedViewSet.objects.create(
                 team=self.team,
-                kind=DataWarehouseManagedViewSet.Kind.REVENUE_ANALYTICS,
+                kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS,
             )

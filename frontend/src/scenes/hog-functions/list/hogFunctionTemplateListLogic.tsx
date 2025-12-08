@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
+    CyclotronJobFiltersType,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -39,7 +40,7 @@ export type HogFunctionTemplateListLogicProps = {
     /** If provided, only those templates will be shown */
     subTemplateIds?: HogFunctionSubTemplateIdType[] | null
     /** Overrides to be used when creating a new hog function */
-    configurationOverrides?: Pick<HogFunctionTemplateType, 'filters'>
+    getConfigurationOverrides?: (subTemplateId?: HogFunctionSubTemplateIdType) => CyclotronJobFiltersType | undefined
     syncFiltersWithUrl?: boolean
     manualTemplates?: HogFunctionTemplateType[] | null
     manualTemplatesLoading?: boolean
@@ -218,7 +219,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
+            ({ getConfigurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
                         // "Coming soon" sources don't have docs yet
@@ -245,9 +246,21 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                         ? getSubTemplate(template, template.sub_template_id)
                         : null
 
+                    const configurationOverrides = getConfigurationOverrides
+                        ? getConfigurationOverrides(subTemplate?.sub_template_id)
+                        : null
+
+                    const filters =
+                        configurationOverrides || subTemplate?.filters
+                            ? {
+                                  ...subTemplate?.filters,
+                                  ...configurationOverrides,
+                              }
+                            : undefined
+
                     const configuration: Record<string, any> = {
                         ...subTemplate,
-                        ...configurationOverrides,
+                        ...(filters ? { filters } : {}),
                     }
 
                     return combineUrl(

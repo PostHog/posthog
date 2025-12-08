@@ -3,6 +3,7 @@ from typing import Any, cast
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+import structlog
 from rest_framework import exceptions, pagination, serializers, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -13,6 +14,8 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.models.comment import Comment
 from posthog.tasks.email import send_discussions_mentioned
+
+logger = structlog.get_logger(__name__)
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -26,6 +29,14 @@ class CommentSerializer(serializers.ModelSerializer):
         exclude = ["team"]
         read_only_fields = ["id", "created_by", "version"]
 
+    def has_empty_paragraph(self, doc):
+        for node in doc.get("content", []):
+            if node.get("type") == "paragraph":
+                content = node.get("content", [])
+                if len(content) == 1 and content[0].get("type") == "text" and content[0].get("text", "") == "":
+                    return True
+        return False
+
     def validate(self, data):
         request = self.context["request"]
         instance = cast(Comment, self.instance)
@@ -33,6 +44,12 @@ class CommentSerializer(serializers.ModelSerializer):
         if instance:
             if instance.created_by != request.user:
                 raise exceptions.PermissionDenied("You can only modify your own comments")
+
+        content = data.get("content", "")
+        rich_content = data.get("rich_content")
+
+        if not content.strip() and (not rich_content or self.has_empty_paragraph(rich_content)):
+            raise exceptions.ValidationError("A comment must have content")
 
         data["created_by"] = request.user
 
@@ -46,7 +63,8 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
-            send_discussions_mentioned(comment, mentions, slug)
+            logger.info(f"Sending discussions mentioned email for comment {comment.id} to {mentions}")
+            send_discussions_mentioned.delay(comment.id, mentions, slug)
 
         return comment
 
@@ -69,7 +87,7 @@ class CommentSerializer(serializers.ModelSerializer):
                 updated_instance = super().update(locked_instance, validated_data)
 
         if mentions:
-            send_discussions_mentioned(updated_instance, mentions, slug)
+            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
 
         return updated_instance
 

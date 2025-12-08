@@ -11,5 +11,5 @@ export interface PersonsManagementSceneTabsProps {
 export function PersonsManagementSceneTabs({ tabKey }: PersonsManagementSceneTabsProps): JSX.Element {
     const { lemonTabs } = useValues(personsManagementSceneLogic)
 
-    return <LemonTabs activeKey={tabKey} tabs={lemonTabs} sceneInset className="[&>ul]:mb-0" />
+    return <LemonTabs activeKey={tabKey} tabs={lemonTabs} sceneInset className="[&>ul]:mb-2" />
 }

@@ -7,6 +7,7 @@ import posthoganalytics
 from openai import AsyncStream
 from openai.types.chat.chat_completion import ChatCompletion
 from openai.types.chat.chat_completion_chunk import ChatCompletionChunk
+from openai.types.responses import Response as OpenAIResponse
 from posthoganalytics.ai.openai import AsyncOpenAI, OpenAI
 from posthoganalytics.client import Client
 from rest_framework import exceptions
@@ -54,7 +55,7 @@ def get_async_openai_client() -> AsyncOpenAI:
 
 def _prepare_messages(
     input_prompt: str, session_id: str, assistant_start_text: str | None = None, system_prompt: str | None = None
-):
+) -> list[dict[str, str]]:
     """Compose message list for the OpenAI chat API."""
     messages = []
     if system_prompt:
@@ -70,7 +71,9 @@ def _prepare_messages(
         # Force LLM to start with the assistant text
         messages.append({"role": "assistant", "content": assistant_start_text})
     if not messages:
-        raise ValueError(f"No messages to send to LLM for sessions: {session_id}")
+        msg = f"No messages to send to LLM for sessions: {session_id}"
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return messages
 
 
@@ -97,10 +100,12 @@ async def stream_llm(
     user_param = _prepare_user_param(user_key)
     client = get_async_openai_client()
     if model not in SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     stream: AsyncStream = await client.chat.completions.create(  # type: ignore[call-overload]
         messages=messages,
         model=model,
@@ -120,7 +125,7 @@ async def call_llm(
     assistant_start_text: str | None = None,
     system_prompt: str | None = None,
     trace_id: str | None = None,
-) -> ChatCompletion:
+) -> ChatCompletion | OpenAIResponse:
     """
     LLM non-streaming call.
     """
@@ -136,16 +141,18 @@ async def call_llm(
             posthog_trace_id=trace_id,
         )
     elif model in SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS:
-        result = await client.chat.completions.create(  # type: ignore[call-overload]
-            messages=messages,
+        result = await client.responses.create(  # type: ignore[call-overload]
+            input=messages,
             model=model,
-            reasoning_effort=SESSION_SUMMARIES_REASONING_EFFORT,
+            reasoning={"effort": SESSION_SUMMARIES_REASONING_EFFORT},
             user=user_param,
             posthog_trace_id=trace_id,
         )
     else:
-        raise ValueError(
+        msg = (
             f"Unsupported model for session summaries: {model} when calling for session id {session_id}. Supported models: "
             f"{SESSION_SUMMARIES_SUPPORTED_STREAMING_MODELS | SESSION_SUMMARIES_SUPPORTED_REASONING_MODELS}"
         )
+        logger.error(msg, session_id=session_id, signals_type="session-summaries")
+        raise ValueError(msg)
     return result

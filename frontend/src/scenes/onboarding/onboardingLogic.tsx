@@ -1,11 +1,8 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +10,8 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { Breadcrumb, OnboardingProduct, OnboardingStepKey, ProductKey, SidePanelTab } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { Breadcrumb, OnboardingProduct, OnboardingStepKey, SidePanelTab } from '~/types'
 
 import type { onboardingLogicType } from './onboardingLogicType'
 import { availableOnboardingProducts } from './utils'
@@ -24,14 +22,22 @@ export interface OnboardingLogicProps {
 
 export const breadcrumbExcludeSteps = [OnboardingStepKey.DASHBOARD_TEMPLATE_CONFIGURE]
 
+const STEP_KEY_TITLE_OVERRIDES: Partial<Record<OnboardingStepKey, string>> = {
+    [OnboardingStepKey.AI_CONSENT]: 'Activate PostHog AI',
+    [OnboardingStepKey.LINK_DATA]: 'Connect your data',
+}
+
 export const stepKeyToTitle = (stepKey?: OnboardingStepKey): undefined | string => {
-    return (
-        stepKey &&
-        stepKey
-            .split('_')
-            .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
-            .join(' ')
-    )
+    if (!stepKey) {
+        return undefined
+    }
+    if (STEP_KEY_TITLE_OVERRIDES[stepKey]) {
+        return STEP_KEY_TITLE_OVERRIDES[stepKey]
+    }
+    return stepKey
+        .split('_')
+        .map((part, i) => (i == 0 ? part[0].toUpperCase() + part.substring(1) : part))
+        .join(' ')
 }
 
 // These types have to be set like this, so that kea typegen is happy
@@ -75,8 +81,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             ['isCloudOrDev'],
             sidePanelStateLogic,
             ['modalMode'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
             billingLogic,
@@ -86,7 +90,6 @@ export const onboardingLogic = kea<onboardingLogicType>([
             sidePanelStateLogic,
             ['openSidePanel'],
         ],
-        logic: [liveEventsTableLogic({ tabId: 'onboarding', showLiveStreamErrorToast: false })],
     })),
     actions({
         setProduct: (product: OnboardingProduct | null) => ({ product }),
@@ -229,15 +232,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
             },
         ],
         shouldShowDataWarehouseStep: [
-            (s) => [s.productKey, s.featureFlags],
-            (productKey, featureFlags) => {
-                const dataWarehouseStepEnabled =
-                    featureFlags[FEATURE_FLAGS.ONBOARDING_DATA_WAREHOUSE_FOR_PRODUCT_ANALYTICS] === 'test'
-
-                if (!dataWarehouseStepEnabled) {
-                    return false
-                }
-
+            (s) => [s.productKey],
+            (productKey) => {
                 return productKey === ProductKey.PRODUCT_ANALYTICS
             },
         ],
@@ -311,6 +307,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
             if (values.productKey) {
                 const productKey = values.productKey
+                eventUsageLogic.actions.reportOnboardingCompleted(productKey)
                 props.onCompleteOnboarding?.(productKey)
                 actions.recordProductIntentOnboardingComplete({ product_type: productKey as ProductKey })
                 teamLogic.actions.updateCurrentTeam({

@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-export function hash(data: string) {
+export function hash(data: string): string {
     // Use PBKDF2 with sufficient computational effort for security
     // 100,000 iterations provides good security while maintaining reasonable performance
     const salt = crypto.createHash('sha256').update('posthog_mcp_salt').digest()

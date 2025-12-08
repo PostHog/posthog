@@ -25,7 +25,6 @@ import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import {
     ActivityScope,
@@ -248,14 +247,12 @@ function HogFunctionHeader(): JSX.Element {
                 resourceType={{
                     type: 'data_pipeline',
                     forceIcon: (
-                        <span className="ml-2 flex">
-                            <HogFunctionIconEditable
-                                logicKey={logicProps.id ?? 'new'}
-                                src={configuration.icon_url}
-                                onChange={(val) => setConfigurationValue('icon_url', val)}
-                                size="small"
-                            />
-                        </span>
+                        <HogFunctionIconEditable
+                            logicKey={logicProps.id ?? 'new'}
+                            src={configuration.icon_url}
+                            onChange={(val) => setConfigurationValue('icon_url', val)}
+                            size="small"
+                        />
                     ),
                 }}
                 isLoading={loading}
@@ -375,7 +372,6 @@ export function HogFunctionScene(): JSX.Element {
                         to use inline expressions instead of cohorts.
                     </LemonBanner>
                 )}
-                <SceneDivider />
                 {templateId ? (
                     <HogFunctionConfiguration templateId={templateId} />
                 ) : (

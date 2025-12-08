@@ -64,7 +64,6 @@ export function Editor(): JSX.Element {
     const { shortId, mode } = useValues(notebookLogic)
     const { setEditor, onEditorUpdate, onEditorSelectionUpdate, setTableOfContents, insertComment } =
         useActions(notebookLogic)
-    const hasDiscussions = useFeatureFlag('DISCUSSIONS')
     const hasCollapsibleSections = useFeatureFlag('NOTEBOOKS_COLLAPSIBLE_SECTIONS')
 
     const { resetSuggestions, setPreviousNode } = useActions(insertionSuggestionsLogic)
@@ -172,7 +171,7 @@ export function Editor(): JSX.Element {
             <FloatingSuggestions />
             <InlineMenu
                 extra={(editor) =>
-                    hasDiscussions && !editor.isActive('comment') ? (
+                    !editor.isActive('comment') ? (
                         <>
                             <LemonDivider vertical />
                             <LemonButton

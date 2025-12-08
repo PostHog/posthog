@@ -3,7 +3,14 @@ import { DateTime } from 'luxon'
 import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '../../../../kafka/producer'
-import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team, TeamId } from '../../../../types'
+import {
+    InternalPerson,
+    PersonUpdateFields,
+    PropertiesLastOperation,
+    PropertiesLastUpdatedAt,
+    Team,
+    TeamId,
+} from '../../../../types'
 import { CreatePersonResult, MoveDistinctIdsResult } from '../../../../utils/db/db'
 import { PostgresRouter, PostgresUse } from '../../../../utils/db/postgres'
 import { TwoPhaseCommitCoordinator } from '../../../../utils/db/two-phase'
@@ -52,9 +59,10 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     // a read, just use the primary as the source of truth
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
-        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons)
+        return await this.primaryRepo.fetchPersonsByDistinctIds(teamPersons, useReadReplica)
     }
 
     /*
@@ -132,7 +140,7 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         // Enforce version parity across primary/secondary: run primary first, then set secondary to primary's new version
@@ -142,11 +150,12 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
             primaryOut = p
 
             const primaryUpdated = p[0]
-            const secondaryUpdate: Partial<InternalPerson> = {
+            const secondaryUpdate: PersonUpdateFields = {
                 properties: primaryUpdated.properties,
                 properties_last_updated_at: primaryUpdated.properties_last_updated_at,
                 properties_last_operation: primaryUpdated.properties_last_operation,
                 is_identified: primaryUpdated.is_identified,
+                created_at: primaryUpdated.created_at,
                 version: primaryUpdated.version,
             }
 
@@ -342,8 +351,8 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return isMerged
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
-        return await this.primaryRepo.personPropertiesSize(personId)
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
+        return await this.primaryRepo.personPropertiesSize(personId, teamId)
     }
 
     async updateCohortsAndFeatureFlagsForMerge(

@@ -10,6 +10,7 @@ import {
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
+    isSessionsQuery,
     isTracesQuery,
     isWebExternalClicksQuery,
     isWebGoalsQuery,
@@ -25,6 +26,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    sessionPropertyFilters,
     linkDataButton,
     personsSearch,
     groupsSearch,
@@ -36,6 +38,8 @@ export enum QueryFeature {
     hideLoadNextButton,
     testAccountFilters,
     highlightExceptionEventRows,
+    rowActions,
+    cellActions,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
@@ -53,6 +57,19 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isSessionsQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.sessionPropertyFilters)
+        features.add(QueryFeature.eventNameFilter)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.selectAndOrderByColumns)
     }
 
     if (isRevenueExampleDataWarehouseTablesQuery(query)) {

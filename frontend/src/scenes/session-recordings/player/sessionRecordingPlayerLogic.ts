@@ -12,7 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -45,7 +45,6 @@ import { AvailableFeature, ExporterFormat, RecordingSegment, SessionPlayerData, 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import type { sessionRecordingsPlaylistLogicType } from '../playlist/sessionRecordingsPlaylistLogicType'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
-import { getTestWorkerManager, terminateTestWorker } from './TestWorkerManager'
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -73,6 +72,7 @@ export interface PlayerTimeTracking {
     lastTimestamp: number | null
     watchTime: number
     bufferTime: number
+    firstPlayTime: number | undefined
 }
 
 export interface RecordingViewedSummaryAnalytics {
@@ -82,6 +82,7 @@ export interface RecordingViewedSummaryAnalytics {
     // (this could be longer than the duration, since someone could seek around multiple times)
     play_time_ms?: number
     buffer_time_ms?: number
+    time_to_first_play_ms?: number
     recording_duration_ms?: number
     recording_age_ms?: number
     recording_retention_period_days?: number
@@ -96,7 +97,7 @@ export interface RecordingViewedSummaryAnalytics {
 
 export interface Player {
     replayer: Replayer
-    windowId: string
+    windowId: number
 }
 
 export enum SessionRecordingPlayerMode {
@@ -114,7 +115,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
+    /** @deprecated Use onRecordingDeleted callback instead */
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
+    onRecordingDeleted?: () => void
     autoPlay?: boolean
     noInspector?: boolean
     mode?: SessionRecordingPlayerMode
@@ -137,6 +140,17 @@ const smoothingWeights = [
     0.08,
     0.07,
 ]
+
+const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> = {
+    [SessionPlayerState.PLAY]: 'playing',
+    [SessionPlayerState.PAUSE]: 'paused',
+    [SessionPlayerState.BUFFER]: 'buffering',
+    [SessionPlayerState.ERROR]: 'errored',
+    [SessionPlayerState.READY]: 'paused',
+    [SessionPlayerState.SKIP]: 'playing',
+    [SessionPlayerState.SKIP_TO_MATCHING_EVENT]: 'playing',
+    [SessionPlayerState.SCRUB]: 'playing',
+}
 
 const isMediaElementPlaying = (element: HTMLMediaElement): boolean =>
     !!(element.currentTime > 0 && !element.paused && !element.ended && element.readyState > 2)
@@ -183,39 +197,35 @@ function isUserActivity(snapshot: eventWithTime): boolean {
 
 const updatePlayerTimeTracking = (
     current: PlayerTimeTracking,
-    newState: PlayerTimeTracking['state']
+    newState: PlayerTimeTracking['state'],
+    openTime?: number
 ): PlayerTimeTracking => {
+    const now = performance.now()
+
     // if we were just playing then update watch time
     const newWatchTime =
         current.lastTimestamp !== null && current.state === 'playing'
-            ? current.watchTime + (performance.now() - current.lastTimestamp)
+            ? current.watchTime + (now - current.lastTimestamp)
             : current.watchTime
 
     // if we were just buffering then update buffer time
     const newBufferTime =
         current.lastTimestamp !== null && current.state === 'buffering'
-            ? current.bufferTime + (performance.now() - current.lastTimestamp)
+            ? current.bufferTime + (now - current.lastTimestamp)
             : current.bufferTime
 
-    const newLastTimestamp = ['paused', 'ended', 'errored'].includes(newState) ? null : performance.now()
+    const newLastTimestamp = ['paused', 'ended', 'errored'].includes(newState) ? null : now
+
+    const canRecordTimeToFirstPlay =
+        current.firstPlayTime === undefined && openTime !== undefined && newState === 'playing'
 
     return {
         state: newState,
         lastTimestamp: newLastTimestamp,
         watchTime: newWatchTime,
         bufferTime: newBufferTime,
+        firstPlayTime: canRecordTimeToFirstPlay ? now - openTime : current.firstPlayTime,
     }
-}
-
-const updatePlayerTimeTrackingIfChanged = (
-    current: PlayerTimeTracking,
-    newState: PlayerTimeTracking['state']
-): PlayerTimeTracking => {
-    if (current.state === newState) {
-        return current
-    }
-
-    return updatePlayerTimeTracking(current, newState)
 }
 
 function wrapFetchAndReport({
@@ -366,7 +376,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadNextSnapshotSource'],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -439,6 +449,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         schedulePlayerTimeTracking: true,
         setQuickEmojiIsOpen: (quickEmojiIsOpen: boolean) => ({ quickEmojiIsOpen }),
         updatePlayerTimeTracking: true,
+        setPlayerTimeTrackingState: (tracking: PlayerTimeTracking) => ({ tracking }),
         exportRecordingToVideoFile: true,
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
@@ -448,7 +459,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMuted: (muted: boolean) => ({ muted }),
         setSkipToFirstMatchingEvent: (skipToFirstMatchingEvent: boolean) => ({ skipToFirstMatchingEvent }),
     }),
-    reducers(({ props }) => ({
+    reducers(() => ({
         skipToFirstMatchingEvent: [
             false,
             {
@@ -586,67 +597,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 lastTimestamp: null,
                 watchTime: 0,
                 bufferTime: 0,
+                firstPlayTime: undefined,
             } as PlayerTimeTracking,
             {
-                updatePlayerTimeTracking: (state) => {
-                    // called on a timer to avoid inactive watching from not capturing a clear time
-                    return ['playing', 'buffering'].includes(state.state)
-                        ? updatePlayerTimeTracking(state, state.state)
-                        : state
-                },
-                startBuffer: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-                    return updatePlayerTimeTrackingIfChanged(state, 'buffering')
-                },
-                endBuffer: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    // endBuffer is often called later than start playing, we only need to act on it, if we were just buffering
-                    if (state.state !== 'buffering') {
-                        return state
-                    }
-
-                    // don't change the state
-                    return updatePlayerTimeTracking(state, state.state)
-                },
-                setPlay: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'playing')
-                },
-                setPause: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'paused')
-                },
-                setEndReached: (state, { reached }) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    if (!reached) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'ended')
-                },
-                setPlayerError: (state) => {
-                    if (props.mode === SessionRecordingPlayerMode.Preview) {
-                        return state
-                    }
-
-                    return updatePlayerTimeTrackingIfChanged(state, 'errored')
-                },
-                seekToTime: (state) => {
-                    return state
+                setPlayerTimeTrackingState: (state, { tracking }) => {
+                    return objectsEqual(state, tracking) ? state : tracking
                 },
             },
         ],
@@ -719,13 +674,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         ],
     })),
     selectors({
-        useProgressiveLoading: [
-            (s) => [s.featureFlags],
-            (featureFlags) => {
-                return !!featureFlags[FEATURE_FLAGS.REPLAY_PROGRESSIVE_LOADING]
-            },
-        ],
-
         // Prop references for use by other logics
         sessionRecordingId: [(_, p) => [p.sessionRecordingId], (sessionRecordingId) => sessionRecordingId],
         logicProps: [() => [(_, props) => props], (props): SessionRecordingPlayerLogicProps => props],
@@ -874,32 +822,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
 
-        dataBufferedUntilPlayerTime: [
-            (s) => [s.dataBufferedUntilTimestamp, s.sessionPlayerData],
-            (dataBufferedUntilTimestamp, sessionPlayerData) => {
-                return Math.max(0, (dataBufferedUntilTimestamp ?? 0) - (sessionPlayerData?.start?.valueOf() ?? 0))
-            },
-        ],
-
-        /**
-         * we want a signal we can use to check if we should try to load more data when progressive loading
-         * if this is negative then it means the player time is past the current buffer -> we should load
-         * if it is within some tolerance -> we should load
-         */
-        percentPlayedOfBuffered: [
-            (s) => [s.dataBufferedUntilPlayerTime, s.currentPlayerTime],
-            (dataBufferedUntilPlayerTime, currentPlayerTime) => {
-                if (dataBufferedUntilPlayerTime <= 0) {
-                    return 0
-                }
-                if (currentPlayerTime <= 0) {
-                    return 0
-                }
-
-                return (currentPlayerTime / dataBufferedUntilPlayerTime) * 100
-            },
-        ],
-
         currentPlayerTimeSeconds: [
             (s) => [s.currentPlayerTime],
             (currentPlayerTime) => Math.floor(currentPlayerTime / 1000),
@@ -1014,7 +936,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!currentTimestamp) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
+                const windowId = currentSegment?.windowId
+                const snapshots = windowId !== undefined ? (sessionPlayerData.snapshotsByWindowId[windowId] ?? []) : []
 
                 const currIndex = findLastIndex(
                     snapshots,
@@ -1335,14 +1258,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const eventsToAdd = []
 
             if (values.currentSegment?.windowId !== undefined) {
-                // TODO: Probably need to check for de-dupes here....
-                // TODO: We do some sorting and rearranging in the data logic... We may need to handle that here, replacing the
-                // whole events stream....
-                eventsToAdd.push(
-                    ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
-                        currentEvents.length
-                    )
-                )
+                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
+                const newSnapshots = allSnapshots.slice(currentEvents.length)
+
+                // Check if we have a full snapshot before adding incremental mutations
+                // This prevents the white screen bug where incremental mutations arrive before the full snapshot
+                // flag to test this in prod on select teams/recordings without affecting everyone
+                if (
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK] &&
+                    newSnapshots.length > 0
+                ) {
+                    const hasFullSnapshot = allSnapshots.some((e) => e.type === EventType.FullSnapshot)
+
+                    if (!hasFullSnapshot) {
+                        // We have new snapshots but no full snapshot anywhere yet - wait for it
+                        return
+                    }
+                }
+
+                eventsToAdd.push(...newSnapshots)
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
@@ -1425,6 +1359,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (nextTimestamp !== undefined) {
                 actions.seekToTimestamp(nextTimestamp, true)
             }
+
+            cache.disposables.dispose('playerTimeTracking')
+            actions.schedulePlayerTimeTracking()
         },
         markViewed: async ({ delay }, breakpoint) => {
             breakpoint()
@@ -1502,10 +1439,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.pause()
                     actions.startBuffer()
                     actions.clearPlayerError()
-                    if (values.useProgressiveLoading) {
-                        // if we're buffering, then be careful to ensure we're loading data
-                        actions.loadNextSnapshotSource()
-                    }
+                    // if we're buffering, then be careful to ensure we're loading data
+                    actions.loadNextSnapshotSource()
                 }
             }
 
@@ -1574,15 +1509,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (values.currentSegment?.kind === 'gap') {
                     newTimestamp = values.currentTimestamp + values.roughAnimationFPS
                 }
-            }
-
-            // if we're playing at e.g. 16x speed
-            // then we want to preload earlier
-            const thresholdPercent = values.playerSpeed >= 4 ? 33 : 67
-            if (values.useProgressiveLoading && values.percentPlayedOfBuffered >= thresholdPercent) {
-                // if we get within a minute of playing time of the end of the data
-                // then we want to preload the next section
-                actions.loadNextSnapshotSource()
             }
 
             // If we're beyond buffered position, set to buffering
@@ -1728,15 +1654,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            if (props.playlistLogic) {
+            if (props.onRecordingDeleted) {
+                props.onRecordingDeleted()
+            } else if (props.playlistLogic) {
                 props.playlistLogic.actions.loadAllRecordings()
-                // Reset selected recording to first one in the list
                 props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
-                // On a page that displays a single recording `replay/:id` that doesn't contain a list
                 router.actions.push(urls.replay())
-            } else {
-                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }
         },
         openExplorer: () => {
@@ -1827,15 +1751,30 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 await document.exitFullscreen()
             }
         },
+        updatePlayerTimeTracking: () => {
+            if (props.mode === SessionRecordingPlayerMode.Preview) {
+                return
+            }
+
+            // Map actual player state to tracking state
+            // we might be buffering data, while a user is watching already loaded data
+            // so we need to track the state of the player, not the state of this logic
+            const actualPlayerState = values.currentPlayerState
+            const desiredState = trackingStateMap[actualPlayerState]
+            const newState = updatePlayerTimeTracking(values.playingTimeTracking, desiredState, cache.openTime)
+            actions.setPlayerTimeTrackingState(newState)
+        },
         schedulePlayerTimeTracking: () => {
-            const currentState = values.playingTimeTracking.state
-            const interval = currentState === 'playing' ? 5000 : 30000
+            const hasCompletedFirstPlay = values.playingTimeTracking.firstPlayTime !== undefined
 
             cache.disposables.add(() => {
-                const timerId = setTimeout(() => {
-                    actions.updatePlayerTimeTracking()
-                    actions.schedulePlayerTimeTracking()
-                }, interval)
+                const timerId = setTimeout(
+                    () => {
+                        actions.updatePlayerTimeTracking()
+                        actions.schedulePlayerTimeTracking()
+                    },
+                    hasCompletedFirstPlay ? 500 : 1000
+                )
                 return () => clearTimeout(timerId)
             }, 'playerTimeTracking')
         },
@@ -1884,6 +1823,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (value === SessionPlayerState.PLAY && !values.wasMarkedViewed) {
                 actions.markViewed(0)
             }
+            // Update tracking state whenever player state changes
+            actions.updatePlayerTimeTracking()
         },
     })),
 
@@ -1900,17 +1841,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         values.player?.replayer?.destroy()
         actions.setPlayer(null)
 
-        try {
-            terminateTestWorker()
-        } catch (error) {
-            console.warn('[SessionRecordingPlayerLogic] Failed to terminate test worker:', error)
-        }
-
         const playTimeMs = values.playingTimeTracking.watchTime || 0
         const summaryAnalytics: RecordingViewedSummaryAnalytics = {
             viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
             play_time_ms: playTimeMs,
             buffer_time_ms: values.playingTimeTracking.bufferTime || 0,
+            time_to_first_play_ms: values.playingTimeTracking.firstPlayTime,
             recording_duration_ms: values.sessionPlayerData ? values.sessionPlayerData.durationMs : undefined,
             recording_age_ms:
                 values.sessionPlayerData && values.sessionPlayerData.segments.length > 0
@@ -1919,9 +1855,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             recording_retention_period_days: values.sessionPlayerData.sessionRetentionPeriodDays ?? undefined,
             rrweb_warning_count: values.warningCount,
             error_count_during_recording_playback: values.errorCount,
-            // as a starting and very loose measure of engagement, we count clicks
             engagement_score: values.clickCount,
         }
+
         posthog.capture(
             playTimeMs === 0 ? 'recording viewed with no playtime summary' : 'recording viewed summary',
             summaryAnalytics
@@ -1942,22 +1878,40 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             return () => document.removeEventListener('fullscreenchange', fullScreenListener)
         }, 'fullscreenListener')
 
-        try {
-            const testWorker = getTestWorkerManager()
-            void testWorker.initialize()
-        } catch (error) {
-            console.warn('[SessionRecordingPlayerLogic] Failed to initialize test worker:', error)
-        }
-
         if (props.sessionRecordingId) {
             actions.loadRecordingData()
         }
 
         cache.openTime = performance.now()
-        // we rely on actions hitting a reducer to update the timer
-        // let's ping it once in a while so that if the user
-        // is autoplaying and doesn't interact we get a more recent value
+        // Update tracking state immediately to capture initial state
+        actions.updatePlayerTimeTracking()
+        // Schedule periodic updates
         actions.schedulePlayerTimeTracking()
+    }),
+
+    urlToAction(({ actions, props }) => {
+        const handleTimestampParams = (searchParams: Record<string, string>): void => {
+            if (searchParams.timestamp) {
+                const desiredStartTime = Number(searchParams.timestamp)
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTimestamp(desiredStartTime, true)
+                }
+            } else if (searchParams.t) {
+                const desiredStartTime = Number(searchParams.t) * 1000
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTime(desiredStartTime)
+                }
+            }
+        }
+
+        return {
+            '/replay/:id': (_, searchParams) => handleTimestampParams(searchParams),
+            '/replay': (_, searchParams) => {
+                if (searchParams.sessionRecordingId === props.sessionRecordingId) {
+                    handleTimestampParams(searchParams)
+                }
+            },
+        }
     }),
 ])
 

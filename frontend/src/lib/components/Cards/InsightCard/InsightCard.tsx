@@ -9,9 +9,8 @@ import { useInView } from 'react-intersection-observer'
 
 import { ApiError } from 'lib/api'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
@@ -94,6 +93,8 @@ export interface InsightCardProps extends Resizeable {
     style?: React.CSSProperties
     children?: React.ReactNode
     tile?: DashboardTile<QueryBasedInsightModel>
+    /** survey opportunity for this insight */
+    surveyOpportunity?: boolean
 }
 
 function InsightCardInternal(
@@ -131,19 +132,20 @@ function InsightCardInternal(
         children,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
+        surveyOpportunity,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
 ): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-
     const { ref: inViewRef, inView } = useInView()
     const { isVisible: isPageVisible } = usePageVisibility()
+
     /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
      * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
+     *
+     * We add an extra check to make sure all insights are visible in Storybook.
      */
-    const isVisible =
-        featureFlags[FEATURE_FLAGS.EXPERIMENTAL_DASHBOARD_ITEM_RENDERING] === true ? inView && isPageVisible : true
+    const isVisible = (inView && isPageVisible) || inStorybook() || inStorybookTestRunner()
 
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
@@ -251,6 +253,7 @@ function InsightCardInternal(
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
                             placement={placement}
+                            surveyOpportunity={surveyOpportunity}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (

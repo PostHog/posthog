@@ -1,4 +1,5 @@
 import { z } from 'zod'
+
 import {
     AddInsightToDashboardSchema,
     CreateDashboardInputSchema,
@@ -50,7 +51,14 @@ export const ErrorTrackingDetailsSchema = ErrorDetailsSchema
 
 export const ErrorTrackingListSchema = ListErrorsSchema
 
-export const ExperimentGetAllSchema = z.object({})
+export const ExperimentGetAllSchema = z.object({
+    data: z
+        .object({
+            limit: z.number().int().positive().optional(),
+            offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+})
 
 export const ExperimentGetSchema = z.object({
     experimentId: z.number().describe('The ID of the experiment to retrieve'),
@@ -84,9 +92,7 @@ export const ExperimentUpdateInputSchema = z.object({
                     .describe(
                         "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                     ),
-                event_name: z
-                    .string()
-                    .describe("PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"),
+                event_name: z.string().describe("PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')"),
                 funnel_steps: z
                     .array(z.string())
                     .optional()
@@ -104,10 +110,7 @@ export const ExperimentUpdateInputSchema = z.object({
                 name: z.string().optional().describe('Human-readable metric name'),
                 metric_type: z.enum(['mean', 'funnel', 'ratio']).describe('Metric type'),
                 event_name: z.string().describe('PostHog event name'),
-                funnel_steps: z
-                    .array(z.string())
-                    .optional()
-                    .describe('For funnel metrics only: Array of event names'),
+                funnel_steps: z.array(z.string()).optional().describe('For funnel metrics only: Array of event names'),
                 properties: z.record(z.any()).optional().describe('Event properties to filter on'),
                 description: z.string().optional().describe('What this metric measures'),
             })
@@ -115,10 +118,7 @@ export const ExperimentUpdateInputSchema = z.object({
         .optional()
         .describe('Update secondary metrics'),
 
-    minimum_detectable_effect: z
-        .number()
-        .optional()
-        .describe('Update minimum detectable effect in percentage'),
+    minimum_detectable_effect: z.number().optional().describe('Update minimum detectable effect in percentage'),
 
     // Experiment state management
     launch: z.boolean().optional().describe('Launch experiment (set start_date) or keep as draft'),
@@ -130,26 +130,18 @@ export const ExperimentUpdateInputSchema = z.object({
 
     conclusion_comment: z.string().optional().describe('Comment about experiment conclusion'),
 
-    restart: z
-        .boolean()
-        .optional()
-        .describe('Restart concluded experiment (clears end_date and conclusion)'),
+    restart: z.boolean().optional().describe('Restart concluded experiment (clears end_date and conclusion)'),
 
     archive: z.boolean().optional().describe('Archive or unarchive experiment'),
 })
 
 export const ExperimentUpdateSchema = z.object({
     experimentId: z.number().describe('The ID of the experiment to update'),
-    data: ExperimentUpdateInputSchema.describe(
-        'The experiment data to update using user-friendly format'
-    ),
+    data: ExperimentUpdateInputSchema.describe('The experiment data to update using user-friendly format'),
 })
 
 export const ExperimentCreateSchema = z.object({
-    name: z
-        .string()
-        .min(1)
-        .describe('Experiment name - should clearly describe what is being tested'),
+    name: z.string().min(1).describe('Experiment name - should clearly describe what is being tested'),
 
     description: z
         .string()
@@ -167,9 +159,7 @@ export const ExperimentCreateSchema = z.object({
     type: z
         .enum(['product', 'web'])
         .default('product')
-        .describe(
-            "Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"
-        ),
+        .describe("Experiment type: 'product' for backend/API changes, 'web' for frontend UI changes"),
 
     // Primary metrics with guidance
     primary_metrics: z
@@ -196,9 +186,7 @@ export const ExperimentCreateSchema = z.object({
                 description: z
                     .string()
                     .optional()
-                    .describe(
-                        "What this metric measures and why it's important for the experiment"
-                    ),
+                    .describe("What this metric measures and why it's important for the experiment"),
             })
         )
         .optional()
@@ -216,9 +204,7 @@ export const ExperimentCreateSchema = z.object({
                     .describe(
                         "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics"
                     ),
-                event_name: z
-                    .string()
-                    .describe("REQUIRED: PostHog event name. Use '$pageview' if unsure."),
+                event_name: z.string().describe("REQUIRED: PostHog event name. Use '$pageview' if unsure."),
                 funnel_steps: z
                     .array(z.string())
                     .optional()
@@ -236,15 +222,9 @@ export const ExperimentCreateSchema = z.object({
     variants: z
         .array(
             z.object({
-                key: z
-                    .string()
-                    .describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
+                key: z.string().describe("Variant key (e.g., 'control', 'variant_a', 'new_design')"),
                 name: z.string().optional().describe('Human-readable variant name'),
-                rollout_percentage: z
-                    .number()
-                    .min(0)
-                    .max(100)
-                    .describe('Percentage of users to show this variant'),
+                rollout_percentage: z.number().min(0).max(100).describe('Percentage of users to show this variant'),
             })
         )
         .optional()
@@ -261,10 +241,7 @@ export const ExperimentCreateSchema = z.object({
         ),
 
     // Exposure and targeting
-    filter_test_accounts: z
-        .boolean()
-        .default(true)
-        .describe('Whether to filter out internal test accounts'),
+    filter_test_accounts: z.boolean().default(true).describe('Whether to filter out internal test accounts'),
 
     target_properties: z
         .record(z.any())
@@ -275,16 +252,12 @@ export const ExperimentCreateSchema = z.object({
     draft: z
         .boolean()
         .default(true)
-        .describe(
-            'Create as draft (true) or launch immediately (false). Recommend draft for review first'
-        ),
+        .describe('Create as draft (true) or launch immediately (false). Recommend draft for review first'),
 
     holdout_id: z
         .number()
         .optional()
-        .describe(
-            'Holdout group ID if this experiment should exclude users from other experiments'
-        ),
+        .describe('Holdout group ID if this experiment should exclude users from other experiments'),
 })
 
 export const FeatureFlagCreateSchema = z.object({
@@ -300,7 +273,14 @@ export const FeatureFlagDeleteSchema = z.object({
     flagKey: z.string(),
 })
 
-export const FeatureFlagGetAllSchema = z.object({})
+export const FeatureFlagGetAllSchema = z.object({
+    data: z
+        .object({
+            limit: z.number().int().positive().optional(),
+            offset: z.number().int().min(0).optional(),
+        })
+        .optional(),
+})
 
 export const FeatureFlagGetDefinitionSchema = z.object({
     flagId: z.number().int().positive().optional(),
@@ -360,22 +340,17 @@ export const OrganizationSetActiveSchema = z.object({
 export const ProjectGetAllSchema = z.object({})
 
 export const ProjectEventDefinitionsSchema = z.object({
-    q: z
-        .string()
-        .optional()
-        .describe('Search query to filter event names. Only use if there are lots of events.'),
+    q: z.string().optional().describe('Search query to filter event names. Only use if there are lots of events.'),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
 })
 
 export const ProjectPropertyDefinitionsInputSchema = z.object({
     type: z.enum(['event', 'person']).describe('Type of properties to get'),
-    eventName: z
-        .string()
-        .describe('Event name to filter properties by, required for event type')
-        .optional(),
-    includePredefinedProperties: z
-        .boolean()
-        .optional()
-        .describe('Whether to include predefined properties'),
+    eventName: z.string().describe('Event name to filter properties by, required for event type').optional(),
+    includePredefinedProperties: z.boolean().optional().describe('Whether to include predefined properties'),
+    limit: z.number().int().positive().optional(),
+    offset: z.number().int().min(0).optional(),
 })
 
 export const ProjectSetActiveSchema = z.object({

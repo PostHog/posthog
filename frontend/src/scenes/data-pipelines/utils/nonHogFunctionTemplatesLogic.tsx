@@ -2,7 +2,7 @@ import { connect, kea, path, props, selectors } from 'kea'
 
 import { Link } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS, FeatureFlagLookupKey } from 'lib/constants'
+import { FEATURE_FLAGS, type FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanizeBatchExportName } from 'scenes/data-pipelines/batch-exports/utils'
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
@@ -10,13 +10,51 @@ import { DATA_WAREHOUSE_SOURCE_ICON_MAP } from 'scenes/data-warehouse/settings/D
 import { userLogic } from 'scenes/userLogic'
 
 import { SourceConfig } from '~/queries/schema/schema-general'
-import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateType } from '~/types'
+import { BATCH_EXPORT_SERVICE_NAMES, HogFunctionTemplateStatus, HogFunctionTemplateType } from '~/types'
 
 import { BATCH_EXPORT_ICON_MAP } from '../batch-exports/BatchExportIcon'
 import type { nonHogFunctionTemplatesLogicType } from './nonHogFunctionTemplatesLogicType'
 
 export interface NonHogFunctionTemplatesLogicProps {
     availableSources: Record<string, SourceConfig>
+}
+
+type SourceDisplayStatus = {
+    status: HogFunctionTemplateStatus
+    descriptionEl: string | JSX.Element
+}
+
+function getSourceDisplayStatus(
+    connector: SourceConfig,
+    unreleased: boolean,
+    featureFlag: boolean | undefined
+): SourceDisplayStatus {
+    const unreleasedDescriptionEl = 'Get notified when this source is available to connect'
+    const releasedDescriptionEl = (
+        <>
+            Data will be synced to PostHog and regularly refreshed.{' '}
+            <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
+        </>
+    )
+    // regardless of release status, those passing the feature flag should see a released source
+    if (featureFlag === true) {
+        return {
+            status: connector.betaSource ? 'beta' : 'stable',
+            descriptionEl: releasedDescriptionEl,
+        }
+    }
+    // regardless of release status, those failing the feature flag should see an unreleased source
+    if (featureFlag === false) {
+        return {
+            status: 'coming_soon',
+            descriptionEl: unreleasedDescriptionEl,
+        }
+    }
+    // undefined feature flag should see whatever the release status is
+    return {
+        status: unreleased ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
+        descriptionEl: unreleased ? unreleasedDescriptionEl : releasedDescriptionEl,
+    }
 }
 
 export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType>([
@@ -39,41 +77,34 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
             (s) => [s.connectors, s.manualConnectors, s.featureFlags],
             (connectors, manualConnectors, featureFlags): HogFunctionTemplateType[] => {
                 const managed = connectors.map((connector: SourceConfig): HogFunctionTemplateType => {
-                    const featureFlagKey = Object.keys(FEATURE_FLAGS).find(
-                        (k) => FEATURE_FLAGS[k as FeatureFlagLookupKey] === connector.featureFlag
+                    const featureFlagDefined = connector.featureFlag !== undefined
+                    const featureFlagRaw = featureFlags[connector.featureFlag as FeatureFlagKey]
+                    let featureFlagValue: boolean | undefined = undefined
+                    if (featureFlagDefined && featureFlagRaw !== undefined) {
+                        featureFlagValue = !!featureFlagRaw
+                    }
+                    const unreleasedValue = !!connector.unreleasedSource
+                    const { status, descriptionEl } = getSourceDisplayStatus(
+                        connector,
+                        unreleasedValue,
+                        featureFlagValue
                     )
-                    const featureFlagEnabledForUser =
-                        featureFlagKey && featureFlags[FEATURE_FLAGS[featureFlagKey as FeatureFlagLookupKey]]
-                    // explicitly checks for no provided or no matching feature flag
-                    const isUnreleasedAndShouldntAccess =
-                        (connector.unreleasedSource && !featureFlagKey) ||
-                        (connector.unreleasedSource && !featureFlagEnabledForUser)
+
                     return {
                         id: `managed-${connector.name}`,
                         type: 'source',
                         name: connector.label ?? connector.name,
                         icon_url: connector.iconPath,
                         icon_class_name: connector.iconClassName,
-                        status: isUnreleasedAndShouldntAccess
-                            ? 'coming_soon'
-                            : connector.betaSource
-                              ? 'beta'
-                              : 'stable',
-                        description: isUnreleasedAndShouldntAccess ? (
-                            'Get notified when this source is available to connect'
-                        ) : (
-                            <>
-                                Data will be synced to PostHog and regularly refreshed.{' '}
-                                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-                            </>
-                        ),
+                        status: status,
+                        description: descriptionEl,
                         code: '',
                         code_language: 'hog',
                         inputs_schema: [],
                         filters: null,
                         masking: null,
                         free: true,
-                        flag: connector.featureFlag,
+                        featured: connector.featured ?? false,
                     }
                 })
                 const selfManaged = manualConnectors.map(

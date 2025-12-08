@@ -259,6 +259,23 @@ class IsStaffUser(IsAdminUser):
     message = "You are not a staff user, contact your instance admin."
 
 
+class IsStaffUserOrImpersonating(BasePermission):
+    """
+    Allows access to staff users or staff users impersonating other users.
+    """
+
+    message = "You are not a staff user, contact your instance admin."
+
+    def has_permission(self, request: Request, view: APIView) -> bool:
+        from loginas.utils import is_impersonated_session
+
+        return bool(
+            request.user
+            and request.user.is_authenticated
+            and (request.user.is_staff or is_impersonated_session(request))
+        )
+
+
 class PremiumFeaturePermission(BasePermission):
     """
     Requires the user to have proper permission for the feature.
@@ -326,6 +343,16 @@ class TimeSensitiveActionPermission(BasePermission):
             return True
 
         allow_safe_methods = getattr(view, "time_sensitive_allow_safe_methods", True)
+
+        allow_if_only_fields = getattr(view, "time_sensitive_allow_if_only_fields", None)
+        if allow_if_only_fields and request.method not in SAFE_METHODS:
+            data = getattr(request, "data", None)
+            data_keys: set[str] = set()
+            if data is not None and hasattr(data, "keys"):
+                data_keys = {str(key) for key in data.keys()}
+
+            if data_keys and data_keys.issubset(set(allow_if_only_fields)):
+                return True
 
         if allow_safe_methods and request.method in SAFE_METHODS:
             return True

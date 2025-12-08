@@ -63,7 +63,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                           id: dbPerson.id,
                           properties: dbPerson.properties,
                           name: personDisplayName,
-                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/persons/${encodeURIComponent(
+                          url: `${this.hub.SITE_URL}/project/${hogFlow.team_id}/person/${encodeURIComponent(
                               hogFlowInvocationState.event.distinct_id
                           )}`,
                       }
@@ -74,6 +74,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     person,
                     // TODO: Load groups as well
                     groups: {},
+                    variables: hogFlowInvocationState.variables || {},
                 })
 
                 loadedInvocations.push({

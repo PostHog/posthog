@@ -1,3 +1,6 @@
+import { v4 as uuidv4 } from 'uuid'
+import { afterEach, beforeAll, describe, expect, it } from 'vitest'
+
 import {
     type CreatedResources,
     TEST_ORG_ID,
@@ -14,8 +17,6 @@ import getProjectsTool from '@/tools/projects/getProjects'
 import propertyDefinitionsTool from '@/tools/projects/propertyDefinitions'
 import setActiveProjectTool from '@/tools/projects/setActive'
 import type { Context } from '@/tools/types'
-import { v4 as uuidv4 } from 'uuid'
-import { afterEach, beforeAll, describe, expect, it } from 'vitest'
 
 describe('Projects', { concurrent: false }, () => {
     let context: Context
@@ -57,7 +58,7 @@ describe('Projects', { concurrent: false }, () => {
             const projects = parseToolResponse(result)
 
             const testProject = projects.find((proj: any) => proj.id === Number(TEST_PROJECT_ID))
-            expect(testProject).toBeDefined()
+            expect(testProject).toBeTruthy()
             expect(testProject.id).toBe(Number(TEST_PROJECT_ID))
         })
     })
@@ -99,9 +100,7 @@ describe('Projects', { concurrent: false }, () => {
                 expect(prop).toHaveProperty('property_type')
                 expect(typeof prop.name).toBe('string')
                 // property_type can be a string or null
-                expect(['string', 'object', 'undefined'].includes(typeof prop.property_type)).toBe(
-                    true
-                )
+                expect(['string', 'object', 'undefined'].includes(typeof prop.property_type)).toBe(true)
             }
         })
 
@@ -125,6 +124,43 @@ describe('Projects', { concurrent: false }, () => {
             const propertyDefs = parseToolResponse(result)
             expect(Array.isArray(propertyDefs)).toBe(true)
             expect(propertyDefs.length).toBeGreaterThan(0)
+        })
+
+        it('should respect limit parameter', async () => {
+            const result = await propertyDefsTool.handler(context, {
+                type: 'event',
+                eventName: '$pageview',
+                limit: 5,
+            })
+            const propertyDefs = parseToolResponse(result)
+            expect(propertyDefs.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await propertyDefsTool.handler(context, {
+                type: 'person',
+                limit: 10,
+            })
+            const allProps = parseToolResponse(allResult)
+
+            if (allProps.length > 1) {
+                const offsetResult = await propertyDefsTool.handler(context, {
+                    type: 'person',
+                    limit: 10,
+                    offset: 1,
+                })
+                const offsetProps = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetProps[0].name).not.toBe(allProps[0].name)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await propertyDefsTool.handler(context, {
+                type: 'person',
+            })
+            const propertyDefs = parseToolResponse(result)
+            expect(propertyDefs.length).toBeLessThanOrEqual(50)
         })
     })
 
@@ -156,7 +192,7 @@ describe('Projects', { concurrent: false }, () => {
 
             const pageviewEvent = eventDefs.find((event: any) => event.name === '$pageview')
             if (eventDefs.length > 0) {
-                expect(pageviewEvent).toBeDefined()
+                expect(pageviewEvent).toBeTruthy()
             }
         })
 
@@ -195,6 +231,30 @@ describe('Projects', { concurrent: false }, () => {
                 expect(filteredEventDefs.length).toBeLessThanOrEqual(allEventDefs.length)
             }
         })
+
+        it('should respect limit parameter', async () => {
+            const result = await eventDefsTool.handler(context, { limit: 5 })
+            const eventDefs = parseToolResponse(result)
+            expect(eventDefs.length).toBeLessThanOrEqual(5)
+        })
+
+        it('should respect offset parameter', async () => {
+            const allResult = await eventDefsTool.handler(context, { limit: 10 })
+            const allEvents = parseToolResponse(allResult)
+
+            if (allEvents.length > 1) {
+                const offsetResult = await eventDefsTool.handler(context, { limit: 10, offset: 1 })
+                const offsetEvents = parseToolResponse(offsetResult)
+                // Verify offset is working by checking first result is different from original first result
+                expect(offsetEvents[0].name).not.toBe(allEvents[0].name)
+            }
+        })
+
+        it('should use default limit when not specified', async () => {
+            const result = await eventDefsTool.handler(context, {})
+            const eventDefs = parseToolResponse(result)
+            expect(eventDefs.length).toBeLessThanOrEqual(50)
+        })
     })
 
     describe('Projects workflow', () => {
@@ -206,8 +266,7 @@ describe('Projects', { concurrent: false }, () => {
             const projects = parseToolResponse(projectsResult)
             expect(projects.length).toBeGreaterThan(0)
 
-            const targetProject =
-                projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
+            const targetProject = projects.find((p: any) => p.id === Number(TEST_PROJECT_ID)) || projects[0]
 
             const setResult = await setTool.handler(context, { projectId: targetProject.id })
             expect(setResult.content[0].text).toBe(`Switched to project ${targetProject.id}`)

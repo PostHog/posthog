@@ -32,7 +32,8 @@ export function MetricsTable({
     showDetailsModal = true,
 }: MetricsTableProps): JSX.Element {
     const { experiment, hasMinimumExposureForResults, exposuresLoading } = useValues(experimentLogic)
-    const { duplicateMetric, updateExperimentMetrics, setExperiment } = useActions(experimentLogic)
+    const { duplicateMetric, updateExperimentMetrics, setExperiment, updateMetricBreakdown, removeMetricBreakdown } =
+        useActions(experimentLogic)
 
     // Calculate shared axisRange across all metrics
     const maxAbsValue = Math.max(
@@ -109,6 +110,20 @@ export function MetricsTable({
                                     })
 
                                     updateExperimentMetrics()
+                                }}
+                                onBreakdownChange={(breakdown) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    updateMetricBreakdown(metric.uuid, breakdown)
+                                }}
+                                onRemoveBreakdown={(index) => {
+                                    if (!metric.uuid) {
+                                        return
+                                    }
+
+                                    removeMetricBreakdown(metric.uuid, index)
                                 }}
                                 error={error}
                                 isLoading={isLoading}

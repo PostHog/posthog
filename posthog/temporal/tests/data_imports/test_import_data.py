@@ -352,7 +352,7 @@ def test_report_heartbeat_timeout_no_heartbeat_details(team):
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
         logger.debug.assert_any_call(
-            f"No heartbeat details found to analyze for timeout: {mock_info.heartbeat_details}"
+            f"No heartbeat details found to analyze for timeout: {mock_info.heartbeat_details}. Class: NoneType"
         )
 
 
@@ -380,7 +380,7 @@ def test_report_heartbeat_timeout_heartbeat_details_are_not_a_tuple(team):
         mock_activity_info.assert_called_once()
         logger.debug.assert_any_call("Checking for heartbeat timeout reporting...")
         logger.debug.assert_any_call(
-            f"No heartbeat details found to analyze for timeout: {mock_info.heartbeat_details}"
+            f"No heartbeat details found to analyze for timeout: {mock_info.heartbeat_details}. Class: int"
         )
 
 

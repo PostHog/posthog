@@ -12,6 +12,7 @@ use crate::{
         utils::{add_raw_to_junk, get_token_context},
         CommonFrameMetadata,
     },
+    metric_consts::FRAME_NOT_RESOLVED,
     sanitize_string,
     symbol_store::{chunk_id::OrChunkId, hermesmap::ParsedHermesMap, SymbolCatalog},
 };
@@ -19,12 +20,16 @@ use crate::{
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RawHermesFrame {
     #[serde(rename = "colno")]
-    pub column: u32, // Hermes frames don't have a line number
+    pub column: Option<u32>, // Hermes frames don't have a line number
     #[serde(rename = "filename")]
     pub source: String, // This will /usually/ be meaningless
     #[serde(rename = "function")]
     pub fn_name: String, // Mangled function name - sometimes, but not always, the same as the demangled function name
-    #[serde(rename = "chunkId", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "chunkId",
+        skip_serializing_if = "Option::is_none",
+        alias = "chunk_id"
+    )]
     pub chunk_id: Option<String>, // Hermes frames are required to provide a chunk ID, or they cannot be resolved
     #[serde(flatten)]
     pub meta: CommonFrameMetadata,
@@ -66,12 +71,17 @@ impl RawHermesFrame {
         let sourcemap: Arc<ParsedHermesMap> = catalog.lookup(team_id, r.clone()).await?;
         let sourcemap = &sourcemap.map;
 
-        let Some(token) = sourcemap.lookup_token(0, self.column) else {
-            return Err(HermesError::NoTokenForColumn(self.column, r.to_string()).into());
+        if self.column.is_none() {
+            return Ok(self.into());
+        }
+
+        let column = self.column.unwrap();
+        let Some(token) = sourcemap.lookup_token(0, column) else {
+            return Err(HermesError::NoTokenForColumn(column, r.to_string()).into());
         };
 
         let resolved_name = sourcemap
-            .get_original_function_name(self.column)
+            .get_original_function_name(column)
             .map(|s| s.to_string());
 
         Ok((self, token, resolved_name).into())
@@ -81,7 +91,9 @@ impl RawHermesFrame {
         let mut hasher = Sha512::new();
         hasher.update(self.fn_name.as_bytes());
         hasher.update(self.source.as_bytes());
-        hasher.update(self.column.to_string().as_bytes());
+        if let Some(column) = self.column {
+            hasher.update(column.to_string().as_bytes());
+        }
         if let Some(chunk_id) = &self.chunk_id {
             hasher.update(chunk_id.as_bytes());
         }
@@ -116,15 +128,16 @@ impl From<(&RawHermesFrame, HermesError)> for Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: frame.fn_name.clone(),
             line: Some(1), // Hermes frames are 1-indexed and always 1
-            column: Some(frame.column),
+            column: frame.column,
             source: Some(frame.source.clone()),
             in_app: frame.meta.in_app,
             resolved_name: None,
-            lang: "hermes-js".to_string(),
+            lang: "javascript".to_string(),
             resolved: false,
             resolve_failure: Some(err.to_string()),
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
+            code_variables: None,
             context: None,
             release: None,
             suspicious: false,
@@ -153,11 +166,12 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
             source,
             in_app,
             resolved_name,
-            lang: "hermes-js".to_string(),
+            lang: "javascript".to_string(),
             resolved: true,
             resolve_failure: None,
             synthetic: frame.meta.synthetic,
             junk_drawer: None,
+            code_variables: None,
             context: get_token_context(&token, token.get_src_line() as usize),
             release: None,
             suspicious: false,
@@ -165,6 +179,43 @@ impl From<(&RawHermesFrame, Token<'_>, Option<String>)> for Frame {
         };
 
         add_raw_to_junk(&mut res, frame);
+
+        res
+    }
+}
+
+// Finally, if we have a frame that has NO column information, we treat it as not minified, since it's
+// probably a native function or something else weird
+impl From<&RawHermesFrame> for Frame {
+    fn from(raw_frame: &RawHermesFrame) -> Self {
+        metrics::counter!(FRAME_NOT_RESOLVED, "lang" => "hermes").increment(1);
+
+        // If this is a source_url: <anonymous> frame, we always assume it's not in_app
+        let is_anon = raw_frame.source.eq("<anonymous>");
+
+        let in_app = raw_frame.meta.in_app && !is_anon;
+
+        let mut res = Self {
+            frame_id: FrameId::placeholder(),
+            mangled_name: raw_frame.fn_name.clone(),
+            line: None,
+            column: None,
+            source: Some(raw_frame.source.clone()),
+            in_app,
+            resolved_name: Some(raw_frame.fn_name.clone()),
+            lang: "javascript".to_string(),
+            resolved: true, // Without location information, we're assuming this is not minified
+            resolve_failure: None,
+            junk_drawer: None,
+            code_variables: None,
+            context: None,
+            release: None,
+            synthetic: raw_frame.meta.synthetic,
+            suspicious: false,
+            module: None,
+        };
+
+        add_raw_to_junk(&mut res, raw_frame);
 
         res
     }
@@ -223,7 +274,7 @@ mod test {
                 predicate::eq(config.object_storage_bucket.clone()),
                 predicate::eq(chunk_id.clone()), // We set the chunk id as the storage ptr above, in production it will be a different value with a prefix
             )
-            .returning(|_, _| Ok(get_symbol_data_bytes()));
+            .returning(|_, _| Ok(Some(get_symbol_data_bytes())));
 
         let client = Arc::new(client);
 
@@ -283,7 +334,7 @@ mod test {
             let col: u32 = captures[3].parse().unwrap();
 
             let frame = RawHermesFrame {
-                column: col,
+                column: Some(col),
                 source: String::new(),
                 fn_name: name.to_string(),
                 chunk_id: Some(chunk_id.clone()),

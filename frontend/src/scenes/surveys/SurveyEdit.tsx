@@ -37,7 +37,7 @@ import { formatDate } from 'lib/utils'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { ANY_VARIANT, variantOptions } from 'scenes/settings/environment/ReplayTriggers'
-import { SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
+import { SurveyCancelEventTrigger, SurveyEventTrigger } from 'scenes/surveys/SurveyEventTrigger'
 import { SurveyRepeatSchedule } from 'scenes/surveys/SurveyRepeatSchedule'
 import { SurveyResponsesCollection } from 'scenes/surveys/SurveyResponsesCollection'
 import { SurveyWidgetCustomization } from 'scenes/surveys/SurveyWidgetCustomization'
@@ -46,7 +46,6 @@ import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surve
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { actionsModel } from '~/models/actionsModel'
 import { getPropertyKey } from '~/taxonomy/helpers'
@@ -329,7 +328,6 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                         </>
                     }
                 />
-                <SceneDivider />
             </div>
             <div className="flex flex-col xl:grid xl:grid-cols-[1fr_400px] gap-x-4 h-full">
                 <div className="flex flex-col gap-2 flex-1 SurveyForm">
@@ -761,6 +759,16 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                           survey.type
                                                                       )
                                                                   )
+                                                              }
+                                                              if (
+                                                                  'surveyPopupDelaySeconds' in appearance &&
+                                                                  !appearance.surveyPopupDelaySeconds &&
+                                                                  survey.conditions?.cancelEvents?.values?.length
+                                                              ) {
+                                                                  setSurveyValue('conditions', {
+                                                                      ...survey.conditions,
+                                                                      cancelEvents: undefined,
+                                                                  })
                                                               }
                                                           }}
                                                           validationErrors={surveyErrors?.appearance}
@@ -1206,6 +1214,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               </BindLogic>
                                                           </LemonField.Pure>
                                                           <SurveyEventTrigger />
+                                                          {!!survey.appearance?.surveyPopupDelaySeconds && (
+                                                              <SurveyCancelEventTrigger />
+                                                          )}
                                                           {featureFlags[FEATURE_FLAGS.SURVEYS_ACTIONS] && (
                                                               <LemonField.Pure
                                                                   label="User performs actions"

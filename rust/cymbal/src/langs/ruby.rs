@@ -92,6 +92,7 @@ impl From<&RawRubyFrame> for Frame {
             synthetic: raw.meta.synthetic,
             suspicious: false,
             module: None,
+            code_variables: None,
         }
     }
 }

@@ -48,9 +48,9 @@ DUMMY_CURRENT_FILTERS = MaxRecordingUniversalFilters(
 
 @pytest.fixture
 def call_search_session_recordings(demo_org_team_user):
-    graph = SessionReplayFilterOptionsGraph(
-        demo_org_team_user[1], demo_org_team_user[2], tool_call_id="test-tool-call-id"
-    ).compile_full_graph(checkpointer=DjangoCheckpointer())
+    graph = SessionReplayFilterOptionsGraph(demo_org_team_user[1], demo_org_team_user[2]).compile_full_graph(
+        checkpointer=DjangoCheckpointer()
+    )
 
     async def callable(change: str) -> dict:
         conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
@@ -578,6 +578,38 @@ async def eval_tool_search_session_recordings(call_search_session_recordings, py
                     filter_test_accounts=True,
                     order=RecordingOrder.DURATION,
                     order_direction=RecordingOrderDirection.ASC,
+                ),
+            ),
+            # Test limit field with numeric requests
+            EvalCase(
+                input="Show me 100 recordings of users who signed up on mobile",
+                expected=MaxRecordingUniversalFilters(
+                    date_from="-7d",
+                    date_to=None,
+                    duration=[
+                        RecordingDurationFilter(
+                            key=DurationType.DURATION, operator=PropertyOperator.GT, type="recording", value=60.0
+                        )
+                    ],
+                    filter_group=MaxOuterUniversalFiltersGroup(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            MaxInnerUniversalFiltersGroup(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    EventPropertyFilter(
+                                        key="$device_type",
+                                        type="event",
+                                        value=["Mobile"],
+                                        operator=PropertyOperator.EXACT,
+                                    )
+                                ],
+                            )
+                        ],
+                    ),
+                    filter_test_accounts=True,
+                    order=RecordingOrder.START_TIME,
+                    limit=100,
                 ),
             ),
         ],

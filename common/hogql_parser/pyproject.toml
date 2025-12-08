@@ -12,27 +12,25 @@ build = [ # Build CPython wheels on Linux and macOS, for x86 as well as ARM
 build-frontend = "build" # This is the successor to building with pip
 
 [tool.cibuildwheel.macos]
-archs = [ # We could also build a universal wheel, but separate ones are lighter individually
-    "x86_64",
-    "arm64",
-]
-before-build = [ # We need to install the libraries for each architecture separately
-    "brew uninstall --ignore-dependencies --force boost antlr4-cpp-runtime",
-    "brew fetch --force --bottle-tag=${ARCHFLAGS##'-arch '}_ventura boost antlr4-cpp-runtime",
-    "brew install $(brew --cache --bottle-tag=${ARCHFLAGS##'-arch '}_ventura boost antlr4-cpp-runtime)",
+before-build = [
+    "brew install boost antlr4-cpp-runtime",
 ]
 
 [tool.cibuildwheel.linux]
 before-all = [
     # manylinux_2_28 is based on AlmaLinux 8, which uses Fedora's dnf as its package manager
     "dnf install -y boost-devel unzip cmake curl uuid pkg-config",
+    # update cmake for antlr
+    "dnf install -y epel-release",
+    "dnf install -y cmake3",
+    "cmake3 --version",
     "curl https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip",
     # Check that the downloaded archive is the expected runtime - a security measure
     "antlr_known_md5sum=\"c875c148991aacd043f733827644a76f\"",
     "antlr_found_ms5sum=\"$(md5sum antlr4-source.zip | cut -d' ' -f1)\"",
     'if [[ "$antlr_known_md5sum" != "$antlr_found_ms5sum" ]]; then exit 64; fi',
     "unzip antlr4-source.zip -d antlr4-source && cd antlr4-source",
-    "cmake .",
+    "cmake3 . -DBUILD_TESTING=OFF -DANTLR4_BUILD_TESTS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5",
     "DESTDIR=out make install",
     "cp -r out/usr/local/include/antlr4-runtime /usr/include/",
     "cp out/usr/local/lib64/libantlr4-runtime.so* /usr/lib64/",

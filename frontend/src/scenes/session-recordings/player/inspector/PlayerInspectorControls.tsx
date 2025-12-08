@@ -1,21 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 
 import {
     BaseIcon,
     IconCheck,
+    IconChevronDown,
+    IconChevronRight,
     IconComment,
     IconDashboard,
     IconGear,
     IconInfo,
-    IconSearch,
     IconStethoscope,
     IconTerminal,
 } from '@posthog/icons'
 import { LemonButton, LemonInput, SideAction, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { IconChevronRight, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
+import { IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SettingsBar, SettingsButton, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
@@ -155,7 +156,7 @@ function NetworkFilterSettingsButton(): JSX.Element {
             upsellSideAction={
                 !hasNetworkItems && !currentTeam?.capture_performance_opt_in
                     ? {
-                          icon: <IconChevronRight className="rotate-90" />,
+                          icon: <IconChevronDown />,
 
                           dropdown: {
                               closeOnClickInside: false,
@@ -243,7 +244,6 @@ function EventsFilterSettingsButton(): JSX.Element {
             icon={<IconUnverifiedEvent />}
             // we disable the filter toggle-all when there are no items
             disabledReason={!hasEventItems ? 'There are no events in this recording' : undefined}
-            // there is no event upsell currently
             upsellSideAction={undefined}
         />
     )
@@ -261,7 +261,6 @@ function CommentsFilterSettingsButton(): JSX.Element {
             type="comment"
             icon={<IconComment />}
             disabledReason={!hasCommentItems ? 'There are no comments in this recording' : undefined}
-            // there is no event upsell currently
             upsellSideAction={undefined}
             label="Comments"
         />
@@ -276,8 +275,6 @@ export function PlayerInspectorControls(): JSX.Element {
     const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
 
     const { featureFlags } = useValues(featureFlagLogic)
-
-    const [showSearch, setShowSearch] = useState(false)
 
     useEffect(() => {
         if (!window.IMPERSONATED_SESSION && !featureFlags[FEATURE_FLAGS.SESSION_REPLAY_DOCTOR]) {
@@ -304,43 +301,25 @@ export function PlayerInspectorControls(): JSX.Element {
                             onClick={() => setMiniFilter('doctor', !miniFiltersByKey['doctor']?.enabled)}
                         />
                     )}
-                <LemonButton
-                    data-attr="player-inspector-search-toggle"
-                    icon={<IconSearch />}
-                    size="xsmall"
-                    onClick={() => {
-                        const newState = !showSearch
-                        setShowSearch(newState)
-                        if (!newState) {
-                            // clear the search when we're hiding the search bar
-                            setSearchQuery('')
-                        }
-                    }}
-                    status={showSearch ? 'danger' : 'default'}
-                    title="Search"
-                    className="rounded-[0px]"
-                />
             </SettingsBar>
-            {showSearch && (
-                <div className="flex px-2 py-1">
-                    <LemonInput
-                        data-attr="player-inspector-search-input"
-                        size="xsmall"
-                        autoFocus={true}
-                        onChange={(e) => setSearchQuery(e)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                        fullWidth
-                        className="min-w-60"
-                        suffix={
-                            <Tooltip title={<InspectorSearchInfo />}>
-                                <IconInfo />
-                            </Tooltip>
-                        }
-                    />
-                </div>
-            )}
+
+            <div className="flex px-2 py-1">
+                <LemonInput
+                    data-attr="player-inspector-search-input"
+                    size="xsmall"
+                    onChange={(e) => setSearchQuery(e)}
+                    placeholder="Search..."
+                    type="search"
+                    value={searchQuery}
+                    fullWidth
+                    className="min-w-60"
+                    suffix={
+                        <Tooltip title={<InspectorSearchInfo />}>
+                            <IconInfo />
+                        </Tooltip>
+                    }
+                />
+            </div>
         </div>
     )
 }

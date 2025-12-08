@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+set -e
+
+# Wrapper script for syncing object storage between MinIO and SeaweedFS
+# This makes it easier to sync different services with sensible defaults
+
+# All available services (for explicit selection)
+ALL_SERVICES=(
+    "query-cache"
+    "session-recordings"
+    "session-recordings-lts"
+    "media-uploads"
+    "exports"
+    "source-maps"
+)
+
+# Default set when no service is specified (partial rollout):
+# Only session recordings V2 and legacy LTS
+DEFAULT_SERVICES=(
+    "session-recordings"
+    "session-recordings-lts"
+)
+
+MODE="sync"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_SERVER_DIR="$SCRIPT_DIR/../plugin-server"
+
+# Ensure DEBUG is set for local dev
+export DEBUG=1
+
+cd "$PLUGIN_SERVER_DIR"
+
+# Parse arguments - handle both orders
+SERVICE=""
+DRY_RUN_FLAG=""
+
+for arg in "$@"; do
+    if [ "$arg" = "--dry-run" ] || [ "$arg" = "-n" ]; then
+        DRY_RUN_FLAG="--dry-run"
+    else
+        SERVICE="$arg"
+    fi
+done
+
+# Function to sync a single service
+sync_service() {
+    local service="$1"
+    local dry_run_flag="$2"
+    
+    echo "🔄 Syncing $service between MinIO and SeaweedFS..."
+    echo ""
+    
+    # Build the command
+    local cmd="node bin/migrate-minio-to-seaweedfs.js --service $service --mode $MODE"
+    
+    if [ -n "$dry_run_flag" ]; then
+        cmd="$cmd --dry-run"
+    fi
+    
+    # Execute
+    $cmd
+    echo ""
+}
+
+# Show dry-run notice if applicable
+if [ -n "$DRY_RUN_FLAG" ]; then
+    echo "📋 DRY RUN MODE - No changes will be made"
+    echo ""
+fi
+
+# If no service specified, sync default subset (SR V2 + LTS)
+if [ -z "$SERVICE" ]; then
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "🔄 Syncing DEFAULT services between MinIO and SeaweedFS"
+    echo "   (session-recordings, session-recordings-lts)"
+    echo "═══════════════════════════════════════════════════════════════"
+    echo ""
+    for service in "${DEFAULT_SERVICES[@]}"; do
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        sync_service "$service" "$DRY_RUN_FLAG"
+    done
+    
+    echo "═══════════════════════════════════════════════════════════════"
+    echo "✨ Default services synced!"
+    echo "═══════════════════════════════════════════════════════════════"
+else
+    # Sync single service
+    sync_service "$SERVICE" "$DRY_RUN_FLAG"
+    echo "✨ Done!"
+fi
+
+echo ""
+echo "Available services:"
+echo "  - query-cache            (ephemeral, safe to test)"
+echo "  - session-recordings     (current V2 recordings)"  
+echo "  - session-recordings-lts (long-term storage)"
+echo "  - media-uploads          (user uploaded media)"
+echo "  - exports                (CSV, PNG, PDF, videos)"
+echo "  - source-maps            (error tracking source maps)"
+echo ""
+echo "Usage:"
+echo "  $0                       # Sync DEFAULT services (SR V2 + LTS)"
+echo "  $0 [--dry-run]           # Preview syncing DEFAULT services"
+echo "  $0 <service>             # Sync specific service"
+echo "  $0 <service> [--dry-run] # Preview syncing specific service"
+echo ""
+echo "Examples:"
+echo "  $0                       # Sync default services (SR V2 + LTS)"
+echo "  $0 --dry-run             # Dry run for default services"
+echo "  $0 query-cache           # Sync query cache only"
+echo "  $0 media-uploads -n      # Dry run for media uploads only"
+

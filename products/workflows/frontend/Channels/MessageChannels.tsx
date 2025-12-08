@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -44,8 +45,9 @@ export function MessageChannels(): JSX.Element {
                         productName="Workflows channel"
                         thingName="channel integration"
                         description="Configure channels to send messages from."
-                        docsURL="https://posthog.com/docs/workflows"
+                        docsURL="https://posthog.com/docs/workflows/configure-channels"
                         action={() => openSetupModal(undefined, 'email')}
+                        customHog={MicrophoneHog}
                         isEmpty
                     />
                 )}

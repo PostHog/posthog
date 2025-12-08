@@ -8,6 +8,7 @@ import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
     PersonDistinctId,
+    PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     RawPerson,
@@ -24,7 +25,11 @@ import { PostgresRouter, PostgresUse, TransactionClient } from '../../../../util
 import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '../../../../utils/db/utils'
 import { logger } from '../../../../utils/logger'
 import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '../../../../utils/utils'
-import { oversizedPersonPropertiesTrimmedCounter, personPropertiesSizeViolationCounter } from '../metrics'
+import {
+    oversizedPersonPropertiesTrimmedCounter,
+    personJsonFieldSizeHistogram,
+    personPropertiesSizeViolationCounter,
+} from '../metrics'
 import { canTrimProperty } from '../person-property-utils'
 import { PersonUpdate } from '../person-update-batch'
 import { InternalPersonWithDistinctId, PersonPropertiesSizeViolationError, PersonRepository } from './person-repository'
@@ -63,10 +68,10 @@ export class PostgresPersonRepository
 
     private async handleOversizedPersonProperties(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
-        const currentSize = await this.personPropertiesSize(person.id)
+        const currentSize = await this.personPropertiesSize(person.id, person.team_id)
 
         if (currentSize >= this.options.personPropertiesDbConstraintLimitBytes) {
             try {
@@ -109,7 +114,7 @@ export class PostgresPersonRepository
 
     private async handleExistingOversizedRecord(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
         try {
@@ -121,7 +126,7 @@ export class PostgresPersonRepository
                 { teamId: person.team_id, personId: person.id }
             )
 
-            const trimmedUpdate: Partial<InternalPerson> = {
+            const trimmedUpdate: PersonUpdateFields = {
                 ...update,
                 properties: trimmedProperties,
             }
@@ -229,7 +234,10 @@ export class PostgresPersonRepository
                 posthog_person.version,
                 posthog_person.is_identified
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
             WHERE
                 posthog_person.team_id = $1
                 AND posthog_persondistinctid.team_id = $1
@@ -253,7 +261,8 @@ export class PostgresPersonRepository
     }
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
@@ -281,14 +290,17 @@ export class PostgresPersonRepository
                 posthog_person.is_identified,
                 posthog_persondistinctid.distinct_id
             FROM posthog_person
-            JOIN posthog_persondistinctid ON (posthog_persondistinctid.person_id = posthog_person.id)
+            JOIN posthog_persondistinctid ON (
+                posthog_persondistinctid.person_id = posthog_person.id
+                AND posthog_persondistinctid.team_id = posthog_person.team_id
+            )
             WHERE ${conditions}`
 
         // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
         const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
-            PostgresUse.PERSONS_READ,
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             params,
             'fetchPersonsByDistinctIds'
@@ -336,14 +348,35 @@ export class PostgresPersonRepository
                 'version',
             ]
             const columns = forcedId ? ['id', ...baseColumns] : baseColumns
-
             const valuePlaceholders = columns.map((_, i) => `$${i + 1}`).join(', ')
+
+            // Sanitize and measure JSON field sizes
+            const sanitizedProperties = sanitizeJsonbValue(properties)
+            const sanitizedPropertiesLastUpdatedAt = sanitizeJsonbValue(propertiesLastUpdatedAt)
+            const sanitizedPropertiesLastOperation = sanitizeJsonbValue(propertiesLastOperation)
+
+            // Record JSON field sizes (using string length as approximation)
+            if (typeof sanitizedProperties === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties' })
+                    .observe(sanitizedProperties.length)
+            }
+            if (typeof sanitizedPropertiesLastUpdatedAt === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_updated_at' })
+                    .observe(sanitizedPropertiesLastUpdatedAt.length)
+            }
+            if (typeof sanitizedPropertiesLastOperation === 'string') {
+                personJsonFieldSizeHistogram
+                    .labels({ operation: 'createPerson', field: 'properties_last_operation' })
+                    .observe(sanitizedPropertiesLastOperation.length)
+            }
 
             const baseParams = [
                 createdAt.toISO(),
-                sanitizeJsonbValue(properties),
-                sanitizeJsonbValue(propertiesLastUpdatedAt),
-                sanitizeJsonbValue(propertiesLastOperation),
+                sanitizedProperties,
+                sanitizedPropertiesLastUpdatedAt,
+                sanitizedPropertiesLastOperation,
                 teamId,
                 isUserId,
                 isIdentified,
@@ -720,16 +753,16 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
-    async personPropertiesSize(personId: string): Promise<number> {
+    async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes
             FROM posthog_person
-            WHERE id = $1`
+            WHERE id = $1 AND team_id = $2`
 
         const { rows } = await this.postgres.query<PersonPropertiesSize>(
             PostgresUse.PERSONS_READ,
             queryString,
-            [personId],
+            [personId, teamId],
             'personPropertiesSize'
         )
 
@@ -743,7 +776,7 @@ export class PostgresPersonRepository
 
     async updatePerson(
         person: InternalPerson,
-        update: Partial<InternalPerson>,
+        update: PersonUpdateFields,
         tag?: string,
         tx?: TransactionClient
     ): Promise<[InternalPerson, TopicMessage[], boolean]> {
@@ -753,14 +786,29 @@ export class PostgresPersonRepository
             delete update['version']
         }
 
-        const updateValues = Object.values(unparsePersonPartial(update))
+        const unparsedUpdate = unparsePersonPartial(update)
+        const updateValues = Object.values(unparsedUpdate)
 
         // short circuit if there are no updates to be made
         if (updateValues.length === 0) {
             return [person, [], false]
         }
 
-        const values = [...updateValues, person.id].map(sanitizeJsonbValue)
+        const values = [...updateValues, person.id, person.team_id].map(sanitizeJsonbValue)
+
+        // Measure JSON field sizes after sanitization (using already sanitized values)
+        const updateKeys = Object.keys(unparsedUpdate)
+        for (let i = 0; i < updateKeys.length; i++) {
+            const key = updateKeys[i]
+            if (key === 'properties' || key === 'properties_last_updated_at' || key === 'properties_last_operation') {
+                const sanitizedValue = values[i] // Already sanitized in the map above
+                if (typeof sanitizedValue === 'string') {
+                    personJsonFieldSizeHistogram
+                        .labels({ operation: 'updatePerson', field: key })
+                        .observe(sanitizedValue.length)
+                }
+            }
+        }
 
         const calculatePropertiesSize = this.options.calculatePropertiesSize
 
@@ -770,18 +818,20 @@ export class PostgresPersonRepository
          * but we can't add that constraint check until we know the impact of adding that constraint check for every update/insert on Persons.
          * Added benefit, we can get more observability into the sizes of properties field, if we can turn this up to 100%
          */
+        const idParamIndex = Object.values(update).length + 1
+        const teamIdParamIndex = Object.values(update).length + 2
         const queryStringWithPropertiesSize = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(
             update
-        ).map((field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`)} WHERE id = $${
-            Object.values(update).length + 1
-        }
+        ).map(
+            (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *, COALESCE(pg_column_size(properties)::bigint, 0::bigint) as properties_size_bytes
         /* operation='updatePersonWithPropertiesSize',purpose='${tag || 'update'}' */`
 
         // Potentially overriding values badly if there was an update to the person after computing updateValues above
         const queryString = `UPDATE posthog_person SET version = ${versionString}, ${Object.keys(update).map(
             (field, index) => `"${sanitizeSqlIdentifier(field)}" = $${index + 1}`
-        )} WHERE id = $${Object.values(update).length + 1}
+        )} WHERE id = $${idParamIndex} AND team_id = $${teamIdParamIndex}
         RETURNING *
         /* operation='updatePerson',purpose='${tag || 'update'}' */`
 

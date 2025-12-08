@@ -122,6 +122,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
         [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
+        [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
     }
 
 export function formatPropertyLabel(
@@ -289,10 +290,12 @@ export function isPropertyFilterWithOperator(
     | SessionPropertyFilter
     | RecordingPropertyFilter
     | LogEntryPropertyFilter
+    | LogPropertyFilter
     | FeaturePropertyFilter
     | GroupPropertyFilter
     | DataWarehousePropertyFilter
-    | DataWarehousePersonPropertyFilter {
+    | DataWarehousePersonPropertyFilter
+    | LogPropertyFilter {
     return (
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
@@ -309,7 +312,8 @@ export function isPropertyFilterWithOperator(
             isCohortPropertyFilter(filter) ||
             isDataWarehousePropertyFilter(filter) ||
             isDataWarehousePersonPropertyFilter(filter) ||
-            isErrorTrackingIssuePropertyFilter(filter))
+            isErrorTrackingIssuePropertyFilter(filter) ||
+            isLogPropertyFilter(filter))
     )
 }
 
@@ -339,6 +343,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
     [PropertyFilterType.Flag]: TaxonomicFilterGroupType.FeatureFlags,
+    [PropertyFilterType.WorkflowVariable]: TaxonomicFilterGroupType.WorkflowVariables,
 }
 
 export const filterToTaxonomicFilterType = (
@@ -387,6 +392,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.RevenueAnalytics]: PropertyDefinitionType.RevenueAnalytics,
         [PropertyFilterType.Flag]: PropertyDefinitionType.FlagValue,
+        [PropertyFilterType.WorkflowVariable]: PropertyDefinitionType.WorkflowVariable,
     }
 
     return mapping[filterType as PropertyFilterType] ?? PropertyDefinitionType.Event
@@ -436,6 +442,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.RevenueAnalyticsProperties) {
         return PropertyFilterType.RevenueAnalytics
+    }
+
+    if (filterType == TaxonomicFilterGroupType.WorkflowVariables) {
+        return PropertyFilterType.WorkflowVariable
     }
 
     return Object.entries(propertyFilterMapping).find(([, v]) => v === filterType)?.[0] as

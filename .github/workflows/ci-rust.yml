@@ -4,6 +4,7 @@ on:
     push:
         branches: [master, main]
     pull_request:
+    merge_group:
 
 env:
     CARGO_TERM_COLOR: always
@@ -18,13 +19,16 @@ jobs:
         name: Determine need to run Rust checks
         # Set job outputs to values from filter step
         outputs:
-            rust: ${{ steps.filter.outputs.rust }}
+            rust: ${{ steps.filter.outputs.rust || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@v4
+              with:
+                  clean: false
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       rust:
@@ -39,6 +43,9 @@ jobs:
                         - 'docker-compose.dev.yml'
 
     build:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Build Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -56,6 +63,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -76,12 +84,16 @@ jobs:
               run: cargo build --all --locked --release && find target/release/ -maxdepth 1 -executable -type f | xargs strip
 
     test:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Test Rust services
         strategy:
             matrix:
                 package:
                     - batch-import-worker
                     - capture
+                    - capture-logs
                     - common-alloc
                     - common-cookieless
                     - common-compression
@@ -107,7 +119,6 @@ jobs:
                     - hook-worker
                     - kafka-deduplicator
                     - limiters
-                    - log-capture
                     - posthog-symbol-data
                     - property-defs-rs
                     - serve-metrics
@@ -122,6 +133,15 @@ jobs:
         steps:
             - uses: actions/checkout@v4
               if: needs.changes.outputs.rust == 'true'
+              with:
+                  clean: false
+            - name: Clean up data directories with container permissions
+              if: needs.changes.outputs.rust == 'true'
+              working-directory: .
+              run: |
+                  # Use docker to clean up files created by containers (from repo root, not rust/)
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
 
             - name: Setup main repo and dependencies
               if: needs.changes.outputs.rust == 'true'
@@ -164,7 +184,7 @@ jobs:
               uses: astral-sh/setup-uv@3259c6206f993105e3a61b142c2d97bf4b9ef83d # v7.1.0
               with:
                   enable-cache: true
-                  version: 0.8.19
+                  version: 0.9.9
 
             - name: Install SAML (python3-saml) dependencies
               if: needs.changes.outputs.rust == 'true' && steps.setup-uv.outputs.cache-hit != 'true'
@@ -176,10 +196,6 @@ jobs:
               if: needs.changes.outputs.rust == 'true'
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev --directory ..
-
-            - name: Cache Rust dependencies
-              if: needs.changes.outputs.rust == 'true'
-              uses: Swatinem/rust-cache@f13886b937689c021905a6b90929199931d60db1 # v2.8.1
 
             - name: Install sqlx-cli
               if: needs.changes.outputs.rust == 'true'
@@ -220,6 +236,9 @@ jobs:
                   echo "Cargo test completed"
 
     linting:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Lint Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -237,6 +256,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install rust
               if: needs.changes.outputs.rust == 'true'
@@ -267,6 +287,9 @@ jobs:
               run: cargo check --all-features
 
     shear:
+        # TODO: Once "Rust Tests Pass" is the only required check, add:
+        #   if: needs.changes.outputs.rust == 'true'
+        # and remove the per-step `if` conditions to skip the entire job when no Rust changes.
         name: Shear Rust services
         needs: changes
         runs-on: depot-ubuntu-22.04-4
@@ -284,6 +307,7 @@ jobs:
               with:
                   sparse-checkout: 'rust/'
                   sparse-checkout-cone-mode: false
+                  clean: false
 
             - name: Install cargo-binstall
               if: needs.changes.outputs.rust == 'true'
@@ -295,3 +319,54 @@ jobs:
 
             - run: cargo shear
               if: needs.changes.outputs.rust == 'true'
+
+    # Collate job to require a single passing status for branch protection.
+    # After merging, update the repository ruleset (Settings > Rules > Rulesets):
+    #   1. Add "Rust Tests Pass" to required status checks
+    #   2. Remove these 34 individual checks:
+    #      - "Build Rust services"
+    #      - "Lint Rust services"
+    #      - "Shear Rust services"
+    #      - "Test Rust services (*)" (all 31 matrix jobs)
+    #   3. Then apply the TODO comments above to skip jobs entirely when no Rust changes
+    rust_tests:
+        needs: [changes, build, test, linting, shear]
+        name: Rust Tests Pass
+        runs-on: ubuntu-latest
+        if: always()
+        steps:
+            - name: Check all Rust jobs
+              run: |
+                  # Fail if change detection itself failed
+                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
+                    echo "Change detection job failed."
+                    exit 1
+                  fi
+
+                  # Pass if no Rust changes detected (jobs were skipped)
+                  if [[ "${{ needs.changes.outputs.rust }}" != "true" ]]; then
+                    echo "Rust checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
+                    echo "Rust build failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.test.result }}" != "success" && "${{ needs.test.result }}" != "skipped" ]]; then
+                    echo "Rust tests failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
+                    echo "Rust linting failed."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
+                    echo "Rust shear failed."
+                    exit 1
+                  fi
+
+                  echo "All Rust checks passed."

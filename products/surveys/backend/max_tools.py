@@ -17,11 +17,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import FeatureFlag, Survey, Team, User
 from posthog.sync import database_sync_to_async
 
-from ee.hogai.graph.taxonomy.agent import TaxonomyAgent
-from ee.hogai.graph.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
-from ee.hogai.graph.taxonomy.toolkit import TaxonomyAgentToolkit
-from ee.hogai.graph.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
-from ee.hogai.graph.taxonomy.types import TaxonomyAgentState
+from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
+from ee.hogai.chat_agent.taxonomy.nodes import TaxonomyAgentNode, TaxonomyAgentToolsNode
+from ee.hogai.chat_agent.taxonomy.toolkit import TaxonomyAgentToolkit
+from ee.hogai.chat_agent.taxonomy.tools import TaxonomyTool, ask_user_for_help, base_final_answer
+from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import MaxTool
 
@@ -52,12 +52,13 @@ class CreateSurveyTool(MaxTool):
         Create a survey from natural language instructions.
         """
 
-        graph = FeatureFlagLookupGraph(team=self._team, user=self._user, tool_call_id=self._tool_call_id)
+        graph = FeatureFlagLookupGraph(team=self._team, user=self._user)
 
         graph_context = {
             "change": f"Create a survey based on these instructions: {instructions}",
             "output": None,
             "tool_progress_messages": [],
+            "billable": True,
             **self.context,
         }
 
@@ -98,6 +99,10 @@ class CreateSurveyTool(MaxTool):
                 # Set launch date if requested
                 if result.should_launch:
                     survey_data["start_date"] = django.utils.timezone.now()
+
+                # Link to insight if provided in context (e.g., from funnel cross-sell)
+                if self.context.get("insight_id"):
+                    survey_data["linked_insight_id"] = self.context["insight_id"]
 
                 # Create the survey directly using Django ORM
                 survey = await Survey.objects.acreate(team=team, created_by=user, **survey_data)
@@ -286,11 +291,10 @@ class SurveyLookupToolsNode(TaxonomyAgentToolsNode[TaxonomyAgentState, TaxonomyA
 class FeatureFlagLookupGraph(TaxonomyAgent[TaxonomyAgentState, TaxonomyAgentState[SurveyCreationSchema]]):
     """Graph for feature flag lookup operations."""
 
-    def __init__(self, team: Team, user: User, tool_call_id: str):
+    def __init__(self, team: Team, user: User):
         super().__init__(
             team,
             user,
-            tool_call_id,
             loop_node_class=SurveyLoopNode,
             tools_node_class=SurveyLookupToolsNode,
             toolkit_class=SurveyToolkit,
@@ -345,7 +349,6 @@ class SurveyAnalysisTool(MaxTool):
         "When users ask about analyzing survey responses, summarizing feedback, finding patterns in responses, or extracting insights from survey data, "
         "use the analyze_survey_responses tool. Survey data includes: {formatted_responses}"
     )
-
     args_schema: type[BaseModel] = SurveyAnalysisArgs
 
     def _extract_open_ended_responses(self) -> list[SurveyAnalysisQuestionGroup]:
@@ -418,6 +421,7 @@ class SurveyAnalysisTool(MaxTool):
                 team=self._team,
                 model="gpt-4.1",
                 temperature=0.1,  # Lower temperature for consistent analysis
+                billable=True,
             ).with_structured_output(SurveyAnalysisOutput)
 
             # Create the analysis prompt by directly substituting the data

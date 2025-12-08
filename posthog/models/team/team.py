@@ -23,11 +23,12 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import (
     UUIDTClassicModel,
@@ -41,6 +42,8 @@ from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+
+from products.customer_analytics.backend.constants import DEFAULT_ACTIVITY_EVENT
 
 from ...hogql.modifiers import set_default_modifier_values
 from ...schema import CurrencyCode, HogQLQueryModifiers, PathCleaningFilter, PersonsOnEventsMode
@@ -115,9 +118,13 @@ class TeamManager(models.Manager):
             team.kick_off_demo_data_generation(initiating_user)
             return team  # Return quickly, as the demo data and setup will be created asynchronously
 
-        team.test_account_filters = self.set_test_account_filters(
-            kwargs.get("organization_id") or kwargs["organization"].id
-        )
+        # Get organization to apply defaults
+        organization = kwargs.get("organization") or Organization.objects.get(id=kwargs.get("organization_id"))
+
+        # Apply organization-level IP anonymization default
+        team.anonymize_ips = organization.default_anonymize_ips
+
+        team.test_account_filters = self.set_test_account_filters(organization.id)
 
         # Create default dashboards
         dashboard = Dashboard.objects.db_manager(self.db).create(name="My App Dashboard", pinned=True, team=team)
@@ -134,7 +141,16 @@ class TeamManager(models.Manager):
                 type="filters",
             )
         team.save()
+
+        # Add UserProductList for all users who have access to this new team
+        self._sync_user_product_lists_for_new_team(team)
+
         return team
+
+    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
+        """Sync UserProductList for all users who have access to this new team."""
+        for user in team.all_users_with_access():
+            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project
@@ -220,6 +236,12 @@ class CookielessServerHashMode(models.IntegerChoices):
     DISABLED = 0, "Disabled"
     STATELESS = 1, "Stateless"
     STATEFUL = 2, "Stateful"
+
+
+class BusinessModel(models.TextChoices):
+    B2B = "b2b", "B2B"
+    B2C = "b2c", "B2C"
+    OTHER = "other", "Other"
 
 
 class SessionRecordingRetentionPeriod(models.TextChoices):
@@ -372,6 +394,9 @@ class Team(UUIDTClassicModel):
     # Heatmaps
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
 
+    # Activity logs
+    receive_org_level_activity_logs = models.BooleanField(null=True, blank=True, default=False)
+
     # Web analytics
     web_analytics_pre_aggregated_tables_enabled = field_access_control(
         models.BooleanField(default=False, null=True), "web_analytics", "editor"
@@ -389,6 +414,12 @@ class Team(UUIDTClassicModel):
         blank=True,
         default=False,
         help_text="Whether to automatically apply default evaluation environments to new feature flags",
+    )
+    require_evaluation_environment_tags = models.BooleanField(
+        null=True,
+        blank=True,
+        default=False,
+        help_text="Whether to require at least one evaluation environment tag when creating new feature flags",
     )
     session_recording_version = models.CharField(null=True, blank=True, max_length=24)
     signup_token = models.CharField(max_length=200, null=True, blank=True)
@@ -427,8 +458,8 @@ class Team(UUIDTClassicModel):
 
     default_data_theme = models.IntegerField(null=True, blank=True)
 
-    # Generic field for storing any team-specific context that is more temporary in nature and thus
-    # likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
+    # Generic field for storing any team-specific context
+    # that likely doesn't deserve a dedicated column. Can be used for things like settings and overrides
     # during feature releases.
     extra_settings = models.JSONField(null=True, blank=True)
 
@@ -498,6 +529,14 @@ class Team(UUIDTClassicModel):
         help_text="Time of day (UTC) when experiment metrics should be recalculated. If not set, uses the default recalculation time.",
     )
 
+    business_model = models.CharField(
+        max_length=10,
+        choices=BusinessModel.choices,
+        null=True,
+        blank=True,
+        help_text="Whether this project serves B2B or B2C customers, used to optimize the UI layout.",
+    )
+
     @cached_property
     def revenue_analytics_config(self):
         from .team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -510,6 +549,17 @@ class Team(UUIDTClassicModel):
         from .team_marketing_analytics_config import TeamMarketingAnalyticsConfig
 
         config, _ = TeamMarketingAnalyticsConfig.objects.get_or_create(team=self)
+        return config
+
+    @cached_property
+    def customer_analytics_config(self):
+        from products.customer_analytics.backend.models.team_customer_analytics_config import (
+            TeamCustomerAnalyticsConfig,
+        )
+
+        config, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(
+            team=self, defaults={"activity_event": DEFAULT_ACTIVITY_EVENT}
+        )
         return config
 
     @property

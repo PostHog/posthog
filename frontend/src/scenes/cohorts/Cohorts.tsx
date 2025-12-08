@@ -23,9 +23,9 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { CohortType, ProductKey } from '~/types'
+import { ProductKey } from '~/queries/schema/schema-general'
+import { CohortType } from '~/types'
 
 export const scene: SceneExport = {
     component: Cohorts,
@@ -246,7 +246,6 @@ export function Cohorts(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <SceneDivider />
 
             <ProductIntroduction
                 productName="Cohorts"

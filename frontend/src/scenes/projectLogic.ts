@@ -3,15 +3,16 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { ProjectType } from '~/types'
 
+import { getOnboardingEntryUrl } from './onboarding/utils'
 import { organizationLogic } from './organizationLogic'
 import type { projectLogicType } from './projectLogicType'
-import { urls } from './urls'
 import { userLogic } from './userLogic'
 
 export const projectLogic = kea<projectLogicType>([
@@ -29,6 +30,7 @@ export const projectLogic = kea<projectLogicType>([
             organizationLogic,
             ['loadCurrentOrganization'],
         ],
+        values: [featureFlagLogic, ['featureFlags'], userLogic, ['otherOrganizations']],
     })),
     reducers({
         projectBeingDeleted: [
@@ -113,8 +115,15 @@ export const projectLogic = kea<projectLogicType>([
     })),
     selectors({
         currentProjectId: [(s) => [s.currentProject], (currentProject) => currentProject?.id || null],
+        moveProjectDisabledReason: [
+            (s) => [s.otherOrganizations],
+            (otherOrganizations) =>
+                otherOrganizations.length === 0
+                    ? "You can't move the project because you aren't a member of another organization"
+                    : null,
+        ],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadCurrentProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
                 ApiConfig.setCurrentProjectId(currentProject.id)
@@ -134,7 +143,7 @@ export const projectLogic = kea<projectLogicType>([
         },
         createProjectSuccess: ({ currentProject }) => {
             if (currentProject) {
-                actions.switchTeam(currentProject.id, urls.products())
+                actions.switchTeam(currentProject.id, getOnboardingEntryUrl(values.featureFlags))
             }
         },
 

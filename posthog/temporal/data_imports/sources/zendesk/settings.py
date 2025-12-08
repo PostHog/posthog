@@ -25,6 +25,19 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ],
 }
 
+# CLUDGE: refactor this to EndpointConfig like in tiktok_ads/settings.py
+PARTITION_FIELDS: dict[str, str] = {
+    "brands": "created_at",
+    "groups": "created_at",
+    "organizations": "created_at",
+    "sla_policies": "created_at",
+    "ticket_events": "created_at",
+    "ticket_fields": "created_at",
+    "ticket_metric_events": "time",
+    "tickets": "created_at",
+    "users": "created_at",
+}
+
 # Tuples of (Resource name, endpoint URL, data_key, supports pagination)
 # data_key is the key which data list is nested under in responses
 # if the data key is None it is assumed to be the same as the resource name

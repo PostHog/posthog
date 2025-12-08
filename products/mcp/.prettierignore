@@ -1,5 +1,0 @@
-schema/tool-inputs.json
-python/**
-**/generated.ts
-node_modules/
-.mypy_cache/

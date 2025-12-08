@@ -108,6 +108,14 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
+    z.object({
+        type: z.literal('schedule'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
 ])
 
 export const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -125,6 +133,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: ActionFiltersSchema,
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -137,6 +146,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -156,6 +166,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: ActionFiltersSchema.optional().nullable(),
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),
@@ -236,12 +247,15 @@ export const isFunctionAction = (
 
 export const isTriggerFunction = (
     action: HogFlowAction
-): action is Extract<HogFlowAction, { type: 'trigger'; config: { type: 'webhook' | 'manual' | 'tracking_pixel' } }> => {
+): action is Extract<
+    HogFlowAction,
+    { type: 'trigger'; config: { type: 'webhook' | 'tracking_pixel' | 'manual' | 'schedule' } }
+> => {
     if (action.type !== 'trigger') {
         return false
     }
     const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
-    return ['webhook', 'tracking_pixel'].includes(trigger.config.type)
+    return ['webhook', 'tracking_pixel', 'manual', 'schedule'].includes(trigger.config.type)
 }
 
 export interface HogflowTestResult {

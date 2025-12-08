@@ -2,6 +2,7 @@ import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs, inStorybookTestRunner, sampleOne, uuid } from 'lib/utils'
 import { deterministicRandom } from 'lib/utils/random'
@@ -117,14 +118,16 @@ const EXAMPLES: Record<
 
 const generateLogs = (): LogMessage[] => {
     const results: LogMessage[] = []
-    const startTime = dayjs().utc().subtract(48, 'hours')
+    const startTime = inStorybookTestRunner()
+        ? dayjs().utc().subtract(15, 'minutes')
+        : dayjs().utc().subtract(1, 'hours')
     const endTime = dayjs().utc()
     // Iterate each minute adding N logs to the results
     let currentTime = startTime
 
     while (currentTime.isBefore(endTime)) {
         Object.values(EXAMPLES).forEach((example) => {
-            const logsToAdd = Math.floor(deterministicRandom() * 10)
+            const logsToAdd = Math.floor(deterministicRandom() * 3)
             for (let i = 0; i < logsToAdd; i++) {
                 const log = sampleOne<(typeof example.logs)[0]>(example.logs)
                 results.push({
@@ -320,6 +323,10 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2023-02-18',
+        featureFlags: [FEATURE_FLAGS.LOGS_VIRTUALIZED_LIST],
+        testOptions: {
+            waitForSelector: 'text=/Welcome to Logs!/i',
+        },
     }, // scene mode
 } as Meta
 

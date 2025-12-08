@@ -77,11 +77,52 @@ const iframeSaved = {
 export const IframeExample: Story = {
     parameters: {
         pageUrl: urls.heatmap('hm_iframe'),
+        testOptions: {
+            waitForSelector: '#heatmap-iframe',
+        },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/saved/hm_iframe/': iframeSaved,
+                'https://example.com': (_req, res, ctx) =>
+                    res(
+                        ctx.status(200),
+                        ctx.set('Content-Type', 'text/html'),
+                        ctx.body(`
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <title>Example Domain</title>
+                                <style>
+                                    body { 
+                                        font-family: sans-serif; 
+                                        max-width: 800px; 
+                                        margin: 50px auto; 
+                                        padding: 20px;
+                                    }
+                                    h1 { color: #333; }
+                                    button { 
+                                        padding: 10px 20px; 
+                                        margin: 10px 5px; 
+                                        cursor: pointer;
+                                        background: #007bff;
+                                        color: white;
+                                        border: none;
+                                        border-radius: 4px;
+                                    }
+                                </style>
+                            </head>
+                            <body>
+                                <h1>Example Domain</h1>
+                                <p>This domain is for use in illustrative examples in documents.</p>
+                                <button id="cta-button">Click me</button>
+                                <button id="secondary-button">Learn more</button>
+                                <p>You may use this domain in literature without prior coordination or asking for permission.</p>
+                            </body>
+                            </html>
+                        `)
+                    ),
             },
         }),
     ],

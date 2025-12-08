@@ -46,6 +46,14 @@ const HogFlowTriggerSchema = z.discriminatedUnion('type', [
         template_id: z.string(),
         inputs: z.record(CyclotronInputSchema),
     }),
+    z.object({
+        type: z.literal('schedule'),
+        template_uuid: z.string().uuid().optional(), // May be used later to specify a specific template version
+        template_id: z.string(),
+        inputs: z.record(CyclotronInputSchema),
+        scheduled_at: z.string().optional(), // ISO 8601 datetime string for one-time scheduling
+        // Future: recurring schedule fields can be added here
+    }),
 ])
 
 const HogFlowActionSchema = z.discriminatedUnion('type', [
@@ -64,6 +72,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             conditions: z.array(
                 z.object({
                     filters: z.any(), // type this stronger
+                    name: z.string().optional(), // Custom name for the condition
                 })
             ),
             delay_duration: z.string().optional(),
@@ -76,6 +85,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
             cohorts: z.array(
                 z.object({
                     percentage: z.number(),
+                    name: z.string().optional(), // Custom name for the cohort
                 })
             ),
         }),
@@ -95,6 +105,7 @@ const HogFlowActionSchema = z.discriminatedUnion('type', [
         config: z.object({
             condition: z.object({
                 filters: z.any(), // type this stronger
+                name: z.string().optional(), // Custom name for the condition
             }),
             max_wait_duration: z.string(),
         }),

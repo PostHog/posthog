@@ -51,12 +51,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'annotation',
     },
     [Scene.BillingAuthorizationStatus]: {
-        hideProjectNotice: true,
         organizationBased: true,
         defaultDocsPath: '/pricing',
     },
-    [Scene.BillingSection]: { name: 'Billing', hideProjectNotice: true, organizationBased: true },
-    [Scene.Billing]: { hideProjectNotice: true, organizationBased: true, defaultDocsPath: '/pricing' },
+    [Scene.BillingSection]: { name: 'Billing', organizationBased: true },
+    [Scene.Billing]: { organizationBased: true, defaultDocsPath: '/pricing' },
     [Scene.Canvas]: {
         projectBased: true,
         name: 'Canvas',
@@ -204,12 +203,26 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or if they are likely just a chance occurrence.',
         iconType: 'experiment',
     },
+    [Scene.Activity]: {
+        projectBased: true,
+        name: 'Activity',
+        defaultDocsPath: '/docs/data/events',
+        description: 'Explore your events or see real-time events from your app or website.',
+        iconType: 'event',
+    },
     [Scene.ExploreEvents]: {
         projectBased: true,
         name: 'Explore events',
         defaultDocsPath: '/docs/data/events',
         description: 'A catalog of all user interactions with your app or website.',
         iconType: 'event',
+    },
+    [Scene.ExploreSessions]: {
+        projectBased: true,
+        name: 'Explore sessions',
+        defaultDocsPath: '/docs/data/sessions',
+        description: 'A catalog of all user sessions with your app or website.',
+        iconType: 'session_replay',
     },
     [Scene.FeatureFlag]: {
         projectBased: true,
@@ -223,6 +236,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
             'Use feature flags to safely deploy and roll back new features in an easy-to-manage way. Roll variants out to certain groups, a percentage of users, or everyone all at once.',
         defaultDocsPath: '/docs/feature-flags',
         activityScope: ActivityScope.FEATURE_FLAG,
+    },
+    [Scene.Feed]: {
+        projectBased: true,
+        name: 'Feed',
+        description: 'Stay updated with recent activities and changes in your project.',
+        iconType: 'feed',
     },
     [Scene.Game368]: { name: '368 Hedgehogs', projectBased: true },
     [Scene.Group]: {
@@ -270,6 +289,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.InviteSignup]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.LegacyPlugin]: { projectBased: true, name: 'Legacy plugin' },
+    [Scene.Coupons]: { name: 'Coupons', organizationBased: true, layout: 'app-container' },
     [Scene.Link]: { projectBased: true },
     [Scene.Links]: { projectBased: true, name: 'Links' },
     [Scene.LiveEvents]: {
@@ -285,7 +305,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Login]: { onlyUnauthenticated: true },
     [Scene.Max]: { projectBased: true, name: 'Max', layout: 'app-raw', hideProjectNotice: true },
     [Scene.MoveToPostHogCloud]: { name: 'Move to PostHog Cloud', hideProjectNotice: true },
-    [Scene.NewTab]: { projectBased: true, name: 'New tab', hideProjectNotice: true, layout: 'app-raw' },
+    [Scene.NewTab]: {
+        projectBased: true,
+        name: 'Search',
+        iconType: 'search',
+        hideProjectNotice: true,
+        layout: 'app-raw-no-header',
+    },
     [Scene.Notebook]: {
         projectBased: true,
         name: 'Notebook',
@@ -308,6 +334,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         allowUnauthenticated: true,
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
+    [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
         defaultDocsPath: '/docs/data/organizations-and-projects',
@@ -336,6 +363,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.PreflightCheck]: { onlyUnauthenticated: true },
     [Scene.Products]: { projectBased: true, name: 'Products', layout: 'plain' },
+    [Scene.UseCaseSelection]: { projectBased: true, name: 'Use case selection', layout: 'plain' },
     [Scene.ProjectCreateFirst]: {
         name: 'Project creation',
         organizationBased: true,
@@ -344,7 +372,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
-        layout: 'app-raw',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -405,13 +432,14 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/revenue-analytics',
     },
-    [Scene.SQLEditor]: {
+    [Scene.MarketingAnalytics]: {
         projectBased: true,
-        name: 'SQL editor',
-        defaultDocsPath: '/docs/cdp/sources',
-        layout: 'app-raw-no-header',
-        hideProjectNotice: true,
-        description: 'Write and execute SQL queries against your data warehouse',
+        name: 'Marketing analytics',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/marketing-analytics',
+        description:
+            'Analyze your marketing performance across integrations: spend, impressions, conversions, ROAS, and more metrics.',
+        iconType: 'marketing_analytics',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -422,6 +450,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'product_analytics',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
+    [Scene.SessionProfile]: { projectBased: true, name: 'Session profile' },
     [Scene.Settings]: { projectBased: true, name: 'Settings' },
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
@@ -469,6 +498,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         layout: 'app-container',
         defaultDocsPath: '/docs/web-analytics/web-vitals',
     },
+    [Scene.WebAnalyticsHealth]: {
+        projectBased: true,
+        name: 'Health',
+        layout: 'app-container',
+        defaultDocsPath: '/docs/web-analytics/health',
+    },
     [Scene.WebAnalytics]: {
         projectBased: true,
         name: 'Web analytics',
@@ -512,6 +547,11 @@ export const redirects: Record<
     '/data-pipelines': urls.dataPipelines('overview'),
     '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
+    // TODO: Temporary redirect because of moving marketing Analytics out of web analytics. I will remove this after a month.
+    '/web/marketing': (_, searchParams) => {
+        const params = new URLSearchParams(searchParams as Record<string, string>).toString()
+        return urls.marketingAnalyticsApp() + (params ? `?${params}` : '')
+    },
 
     '/events': urls.activity(),
     '/events/:id/*': ({ id, _ }) => {
@@ -538,7 +578,6 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/home': urls.projectHomepage(),
     '/i/:shortId': ({ shortId }) => urls.insightView(shortId),
     '/instance': urls.instanceStatus(),
     '/me/settings': urls.settings('user'),
@@ -575,6 +614,10 @@ export const redirects: Record<
     '/saved_insights': urls.savedInsights(),
     '/settings': urls.settings(),
     '/settings/organization-rbac': urls.settings('organization-roles'),
+
+    '/max': (_params, searchParams, hashParams) => combineUrl(urls.ai(), searchParams, hashParams).url,
+    '/max/history': (_params, searchParams, hashParams) => combineUrl(urls.aiHistory(), searchParams, hashParams).url,
+
     ...productRedirects,
 }
 
@@ -599,9 +642,10 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.savedInsights()]: [Scene.SavedInsights, 'savedInsights'],
     [urls.webAnalytics()]: [Scene.WebAnalytics, 'webAnalytics'],
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
-    [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
+    [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
+    [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
     [urls.dataWarehouseManagedViewsets()]: [Scene.DataManagement, 'dataWarehouseManagedViewsets'],
@@ -615,6 +659,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dataManagementHistory()]: [Scene.DataManagement, 'dataManagementHistory'],
     [urls.database()]: [Scene.DataManagement, 'database'],
     [urls.activity(ActivityTab.ExploreEvents)]: [Scene.ExploreEvents, 'exploreEvents'],
+    [urls.activity(ActivityTab.ExploreSessions)]: [Scene.ExploreSessions, 'exploreSessions'],
     [urls.activity(ActivityTab.LiveEvents)]: [Scene.LiveEvents, 'liveEvents'],
     [urls.replay()]: [Scene.Replay, 'replay'],
     // One entry for every available tab
@@ -629,6 +674,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.replaySingle(':id')]: [Scene.ReplaySingle, 'replaySingle'],
     [urls.replayPlaylist(':id')]: [Scene.ReplayPlaylist, 'replayPlaylist'],
     [urls.replaySettings()]: [Scene.ReplaySettings, 'replaySettings'],
+    [urls.sessionProfile(':id')]: [Scene.SessionProfile, 'sessionProfile'],
     [urls.personByDistinctId('*', false)]: [Scene.Person, 'personByDistinctId'],
     [urls.personByUUID('*', false)]: [Scene.Person, 'personByUUID'],
     [urls.persons()]: [Scene.Persons, 'persons'],
@@ -656,8 +702,9 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
     [urls.comments()]: [Scene.DataManagement, 'comments'],
     [urls.projectHomepage()]: [Scene.ProjectHomepage, 'projectHomepage'],
-    [urls.maxHistory()]: [Scene.Max, 'maxHistory'],
-    [urls.max()]: [Scene.Max, 'max'],
+    [urls.feed()]: [Scene.Feed, 'feed'],
+    [urls.aiHistory()]: [Scene.Max, 'maxHistory'],
+    [urls.ai()]: [Scene.Max, 'max'],
     [urls.projectCreateFirst()]: [Scene.ProjectCreateFirst, 'projectCreateFirst'],
     [urls.organizationBilling()]: [Scene.Billing, 'organizationBilling'],
     [urls.organizationBillingSection(':section' as BillingSectionId)]: [
@@ -688,6 +735,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.passwordReset()]: [Scene.PasswordReset, 'passwordReset'],
     [urls.passwordResetComplete(':uuid', ':token')]: [Scene.PasswordResetComplete, 'passwordResetComplete'],
     [urls.products()]: [Scene.Products, 'products'],
+    [urls.useCaseSelection()]: [Scene.UseCaseSelection, 'useCaseSelection'],
+    [urls.onboardingCoupon(':campaign')]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding(':productKey')]: [Scene.Onboarding, 'onboarding'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
@@ -711,6 +760,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.link(':id')]: [Scene.Link, 'link'],
     [urls.sessionAttributionExplorer()]: [Scene.SessionAttributionExplorer, 'sessionAttributionExplorer'],
     [urls.wizard()]: [Scene.Wizard, 'wizard'],
+    [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],

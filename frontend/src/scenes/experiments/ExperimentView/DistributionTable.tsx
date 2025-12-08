@@ -16,7 +16,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { IconOpenInApp } from 'lib/lemon-ui/icons'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
-import { Experiment, MultivariateFlagVariant } from '~/types'
+import { MultivariateFlagVariant } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -24,9 +24,9 @@ import { HoldoutSelector } from './HoldoutSelector'
 import { VariantScreenshot } from './VariantScreenshot'
 import { VariantTag } from './components'
 
-export function DistributionModal({ experimentId }: { experimentId: Experiment['id'] }): JSX.Element {
-    const { experiment, experimentLoading } = useValues(experimentLogic({ experimentId }))
-    const { updateDistribution } = useActions(experimentLogic({ experimentId }))
+export function DistributionModal(): JSX.Element {
+    const { experiment, experimentLoading } = useValues(experimentLogic)
+    const { updateDistribution } = useActions(experimentLogic)
     const { closeDistributionModal } = useActions(modalsLogic)
     const { isDistributionModalOpen } = useValues(modalsLogic)
 
@@ -137,7 +137,7 @@ export function DistributionModal({ experimentId }: { experimentId: Experiment['
 
 export function DistributionTable(): JSX.Element {
     const { openDistributionModal } = useActions(modalsLogic)
-    const { experimentId, experiment } = useValues(experimentLogic)
+    const { experiment } = useValues(experimentLogic)
     const { reportExperimentReleaseConditionsViewed } = useActions(experimentLogic)
 
     const onSelectElement = (variant: string): void => {
@@ -166,7 +166,7 @@ export function DistributionTable(): JSX.Element {
             key: 'key',
             title: 'Variant',
             render: function Key(_, item): JSX.Element {
-                return <VariantTag experimentId={experimentId} variantKey={item.key} />
+                return <VariantTag variantKey={item.key} />
             },
         },
         {

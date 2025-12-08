@@ -71,6 +71,7 @@ export class HogFunctionHandler implements ActionHandler {
             {
                 event: invocation.state.event,
                 person: invocation.person,
+                variables: invocation.state.variables,
             }
         )
 

@@ -12,7 +12,7 @@ from products.llm_analytics.backend.providers.formatters.anthropic_typeguards im
 
 
 def convert_anthropic_messages_to_gemini(messages: list[MessageParam]) -> ContentListUnion:
-    contents: ContentListUnion = []
+    contents: list[Content] = []  # Sticking to Content, as we don't support other formats yet
     for message in messages:
         parts: list[Part] = []
         if isinstance(message["content"], str):

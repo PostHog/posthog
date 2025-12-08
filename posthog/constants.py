@@ -43,6 +43,7 @@ class AvailableFeature(StrEnum):
     DATA_COLOR_THEMES = "data_color_themes"
     API_QUERIES_CONCURRENCY = "api_queries_concurrency"
     ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
+    TWO_FACTOR_ENFORCEMENT = "2fa_enforcement"
     ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
     ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
     SESSION_REPLAY_DATA_RETENTION = "session_replay_data_retention"
@@ -332,6 +333,7 @@ DEFAULT_SURVEY_APPEARANCE = {
     "displayThankYouMessage": True,
     "thankYouMessageHeader": "Thank you for your feedback!",
     "position": "bottom-right",
+    "tabPosition": "right",
     "widgetType": "tab",
     "widgetLabel": "Feedback",
     "widgetColor": "black",
@@ -347,10 +349,35 @@ DEFAULT_SURVEY_APPEARANCE = {
     "surveyPopupDelaySeconds": None,
 }
 
-# Mapping of social_django backend names
-SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
-    "google-oauth2": "Google OAuth",
-    "github": "GitHub",
-    "gitlab": "GitLab",
-    "saml": "SAML",
-}
+LOGIN_METHODS = [
+    {
+        "key": "password",
+        "display": "Email/password",
+        "backends": ["django.contrib.auth.backends.ModelBackend"],
+    },
+    {
+        "key": "google-oauth2",
+        "display": "Google OAuth",
+        "backends": ["google-oauth2", "ee.api.authentication.CustomGoogleOAuth2"],
+    },
+    {
+        "key": "github",
+        "display": "GitHub",
+        "backends": ["github"],
+    },
+    {
+        "key": "gitlab",
+        "display": "GitLab",
+        "backends": ["gitlab"],
+    },
+    {
+        "key": "saml",
+        "display": "SAML",
+        "backends": ["saml", "ee.api.authentication.MultitenantSAMLAuth"],
+    },
+]
+
+# Mapping of auth backend names to login method display names
+AUTH_BACKEND_DISPLAY_NAMES = {backend: m["display"] for m in LOGIN_METHODS for backend in m["backends"]}
+
+AUTH_BACKEND_KEYS = {backend: m["key"] for m in LOGIN_METHODS for backend in m["backends"]}

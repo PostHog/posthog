@@ -42,8 +42,8 @@ pub struct RequestPropertyOverrides {
 /// Represents all context required for evaluating a set of feature flags.
 pub struct FeatureFlagEvaluationContext {
     pub team_id: i32,
-    pub project_id: i64,
     pub distinct_id: String,
+    pub device_id: Option<String>,
     pub feature_flags: FeatureFlagList,
     pub persons_reader: Arc<dyn common_database::Client + Send + Sync>,
     pub persons_writer: Arc<dyn common_database::Client + Send + Sync>,

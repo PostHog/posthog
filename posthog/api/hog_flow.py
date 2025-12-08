@@ -64,7 +64,7 @@ class HogFlowActionSerializer(serializers.Serializer):
     def validate(self, data):
         trigger_is_function = False
         if data.get("type") == "trigger":
-            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel"]:
+            if data.get("config", {}).get("type") in ["webhook", "manual", "tracking_pixel", "schedule"]:
                 trigger_is_function = True
             elif data.get("config", {}).get("type") == "event":
                 filters = data.get("config", {}).get("filters", {})
@@ -95,6 +95,25 @@ class HogFlowActionSerializer(serializers.Serializer):
             function_config_serializer.is_valid(raise_exception=True)
 
             data["config"]["inputs"] = function_config_serializer.validated_data["inputs"]
+
+        conditions = data.get("config", {}).get("conditions", [])
+
+        single_condition = data.get("config", {}).get("condition", None)
+        if conditions and single_condition:
+            raise serializers.ValidationError({"config": "Cannot specify both 'conditions' and 'condition' fields"})
+        if single_condition:
+            conditions = [single_condition]
+
+        if conditions:
+            for condition in conditions:
+                filters = condition.get("filters")
+                if filters is not None:
+                    if "events" in filters:
+                        raise serializers.ValidationError("Event filters are not allowed in conditionals")
+
+                    serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                    serializer.is_valid(raise_exception=True)
+                    condition["filters"] = serializer.validated_data
 
         return data
 

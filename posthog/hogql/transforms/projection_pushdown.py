@@ -33,7 +33,6 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             self._register_subqueries(node.select_from)
 
         # Phase 2: Collect column demands from query clauses
-        # Skip asterisk-expanded SELECT columns - their demands flow from parent queries
         for expr in node.select:
             if not self._is_from_asterisk(expr):
                 self.visit(expr)
@@ -102,9 +101,15 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         When a parent query demands a column from us, we need to visit that column's
         source expression to propagate the demand down to our child subqueries.
+
+        If there are no parent demands but we have asterisk columns,
+        this query defines the output. Visit all asterisk columns to preserve them.
         """
         demanded_from_this = self.demands.get(id(node))
         if not demanded_from_this:
+            for expr in node.select:
+                if self._is_from_asterisk(expr):
+                    self.visit(expr)
             return
 
         for col_name in demanded_from_this:
