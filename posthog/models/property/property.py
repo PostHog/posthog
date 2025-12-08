@@ -40,6 +40,8 @@ PropertyType = Literal[
     "data_warehouse_person_property",
     "error_tracking_issue",
     "log",
+    "log_attribute",
+    "log_resource_attribute",
     "revenue_analytics",
     "flag",
     "workflow_variable",

@@ -2,6 +2,7 @@ import json
 import shlex
 import base64
 import datetime as dt
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -12,7 +13,6 @@ from posthog.schema import (
     LogPropertyFilterType,
     LogsQuery,
     LogsQueryResponse,
-    PropertyGroupFilterValue,
     PropertyGroupsMode,
     PropertyOperator,
 )
@@ -300,17 +300,17 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             resource_attribute_negative_filters = []
 
             for property_group in self.query.filterGroup.values:
-                attribute_group_filters = [
-                    f for f in property_group.values if f.type == LogPropertyFilterType.ATTRIBUTE
-                ]
-                log_filters = [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
-                resource_attribute_group_filters = [
-                    f for f in property_group.values if f.type == LogPropertyFilterType.RESOURCE_ATTRIBUTE
-                ]
-                if attribute_group_filters:
-                    attribute_filters.append(
-                        PropertyGroupFilterValue(type=property_group.type, values=attribute_group_filters)
-                    )
+                attribute_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.ATTRIBUTE],
+                )
+                log_filters = cast(
+                    list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
+                )
+                resource_attribute_group_filters = cast(
+                    list[LogPropertyFilter],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.RESOURCE_ATTRIBUTE],
+                )
                 if resource_attribute_group_filters:
                     resource_attribute_positive_filters += [
                         filter for filter in resource_attribute_group_filters if not filter.operator.is_negative()
