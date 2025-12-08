@@ -22,6 +22,16 @@ import { execHog } from '../utils/hog-exec'
 import { convertClickhouseRawEventToFilterGlobals } from '../utils/hog-function-filtering'
 import { CdpConsumerBase } from './cdp-base.consumer'
 
+export type PersonPropertyFilterGlobals = {
+    person: {
+        id?: string
+        properties: Record<string, any>
+    }
+    project: {
+        id: number
+    }
+}
+
 export type PreCalculatedEvent = {
     uuid: string // event uuid
     team_id: number
@@ -133,7 +143,7 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
     // Evaluate person properties against filter using bytecode execution
     // Used for person_properties field from events
     private async evaluatePersonPropertiesAgainstFilter(
-        personGlobals: { person: { id?: string; properties: any }; project: { id: number } },
+        personGlobals: PersonPropertyFilterGlobals,
         filter: RealtimeSupportedFilter
     ): Promise<boolean> {
         if (!filter.bytecode) {
@@ -254,7 +264,7 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
                         if (personPropertyFilters.length > 0 && clickHouseEvent.person_properties) {
                             const personProperties = parseJSON(clickHouseEvent.person_properties)
 
-                            const personGlobals = {
+                            const personGlobals: PersonPropertyFilterGlobals = {
                                 person: {
                                     id: clickHouseEvent.person_id,
                                     properties: personProperties,
