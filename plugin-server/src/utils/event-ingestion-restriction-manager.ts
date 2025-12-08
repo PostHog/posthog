@@ -1,3 +1,5 @@
+import { z } from 'zod'
+
 import { Hub } from '../types'
 import { BackgroundRefresher } from './background-refresher'
 import { parseJSON } from './json-parse'
@@ -34,6 +36,33 @@ type RestrictionIdentifier =
     | { type: 'session_id'; value: string }
     | { type: 'event_name'; value: string }
     | { type: 'event_uuid'; value: string }
+
+const RedisRestrictionItemSchema = z
+    .object({
+        token: z.string(),
+        pipelines: z.array(z.enum(['analytics', 'session_recordings'])).optional(),
+        distinct_id: z.string().optional(),
+        session_id: z.string().optional(),
+        event_name: z.string().optional(),
+        event_uuid: z.string().optional(),
+    })
+    .transform((item): { token: string; pipelines?: IngestionPipeline[]; identifier: RestrictionIdentifier } => {
+        let identifier: RestrictionIdentifier
+        if (item.distinct_id) {
+            identifier = { type: 'distinct_id', value: item.distinct_id }
+        } else if (item.session_id) {
+            identifier = { type: 'session_id', value: item.session_id }
+        } else if (item.event_name) {
+            identifier = { type: 'event_name', value: item.event_name }
+        } else if (item.event_uuid) {
+            identifier = { type: 'event_uuid', value: item.event_uuid }
+        } else {
+            identifier = { type: 'all' }
+        }
+        return { token: item.token, pipelines: item.pipelines, identifier }
+    })
+
+const RedisRestrictionArraySchema = z.array(z.union([z.string(), RedisRestrictionItemSchema]))
 
 type TokenRestrictions = {
     all: Set<Restriction>
@@ -280,52 +309,27 @@ export class EventIngestionRestrictionManager {
                     }
 
                     try {
-                        const parsedArray = parseJSON(redisResult[1] as string)
-                        if (Array.isArray(parsedArray)) {
-                            for (const item of parsedArray) {
-                                if (typeof item === 'string') {
-                                    // Old format - ignore
-                                    continue
-                                }
-                                if (typeof item === 'object' && item !== null && 'token' in item) {
-                                    const pipelines: unknown = item.pipelines
-                                    const appliesToPipeline =
-                                        Array.isArray(pipelines) && pipelines.includes(this.pipeline)
+                        const json = parseJSON(redisResult[1] as string)
+                        const parseResult = RedisRestrictionArraySchema.safeParse(json)
 
-                                    if (appliesToPipeline) {
-                                        const token = String(item.token)
-                                        if ('distinct_id' in item && item.distinct_id) {
-                                            restrictions.push({
-                                                restriction,
-                                                token,
-                                                identifier: { type: 'distinct_id', value: String(item.distinct_id) },
-                                            })
-                                        } else if ('session_id' in item && item.session_id) {
-                                            restrictions.push({
-                                                restriction,
-                                                token,
-                                                identifier: { type: 'session_id', value: String(item.session_id) },
-                                            })
-                                        } else if ('event_name' in item && item.event_name) {
-                                            restrictions.push({
-                                                restriction,
-                                                token,
-                                                identifier: { type: 'event_name', value: String(item.event_name) },
-                                            })
-                                        } else if ('event_uuid' in item && item.event_uuid) {
-                                            restrictions.push({
-                                                restriction,
-                                                token,
-                                                identifier: { type: 'event_uuid', value: String(item.event_uuid) },
-                                            })
-                                        } else {
-                                            restrictions.push({ restriction, token, identifier: { type: 'all' } })
-                                        }
-                                    }
-                                }
+                        if (!parseResult.success) {
+                            logger.warn(`Failed to parse Redis restriction config for ${restriction}`, {
+                                error: parseResult.error,
+                            })
+                            return
+                        }
+
+                        for (const item of parseResult.data) {
+                            if (typeof item === 'string') {
+                                // Old format - ignore
+                                continue
                             }
-                        } else {
-                            logger.warn(`Expected array for ${restriction} but got different JSON type`)
+
+                            if (!item.pipelines?.includes(this.pipeline)) {
+                                continue
+                            }
+
+                            restrictions.push({ restriction, token: item.token, identifier: item.identifier })
                         }
                     } catch (error) {
                         logger.warn(`Failed to parse JSON for ${restriction}`, { error })
