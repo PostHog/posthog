@@ -602,6 +602,22 @@ class ClickHouseClient:
             self.logger.warning("Expected event not found in query log", query_id=query_id, events=events)
             raise ClickHouseQueryNotFound(query, query_id)
 
+    async def acancel_query(self, query_id: str) -> None:
+        """Cancel a running query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to cancel.
+        """
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+
+        await self.execute_query(
+            query,
+            query_parameters={"query_id": query_id},
+            query_id=f"{query_id}-KILL",
+        )
+
+        self.logger.info("Cancelled query", query_id=query_id)
+
     async def stream_query_as_jsonl(
         self,
         query,
