@@ -121,6 +121,10 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
         filter: RealtimeSupportedFilter
     ): Promise<boolean> {
         if (!filter.bytecode) {
+            logger.error('Missing bytecode for behavioral filter', {
+                conditionHash: filter.conditionHash,
+                cohortId: filter.cohort_id,
+            })
             return false
         }
 
@@ -147,6 +151,10 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
         filter: RealtimeSupportedFilter
     ): Promise<boolean> {
         if (!filter.bytecode) {
+            logger.error('Missing bytecode for person property filter', {
+                conditionHash: filter.conditionHash,
+                cohortId: filter.cohort_id,
+            })
             return false
         }
 
