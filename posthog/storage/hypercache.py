@@ -262,7 +262,9 @@ class HyperCache:
     ) -> None:
         self._set_cache_value_redis(key, data, ttl=ttl)
         self._set_cache_value_s3(key, data, ttl=ttl)
-        self._track_expiry(key, data, ttl=ttl)
+        # Only track expiry when we have a Team object (avoids DB lookup)
+        if isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
         """
@@ -314,9 +316,7 @@ class HyperCache:
             # Use sort_keys for deterministic serialization (consistent ETags)
             object_storage.write(key, json.dumps(data, sort_keys=True))
 
-    def _track_expiry(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
-    ) -> None:
+    def _track_expiry(self, team: Team, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None) -> None:
         """
         Track cache expiration in Redis sorted set for efficient expiry queries.
 
@@ -331,8 +331,6 @@ class HyperCache:
             return
 
         try:
-            # Get team to derive identifier
-            team = self.team_from_key(key)
             identifier = self.get_cache_identifier(team)
             ttl_seconds = ttl if ttl is not None else self.cache_ttl
             expiry_timestamp = int(time.time()) + ttl_seconds

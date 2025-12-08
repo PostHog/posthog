@@ -226,6 +226,9 @@ def clear_flags_cache(team: Team | int, kinds: list[str] | None = None) -> None:
     flags_hypercache.clear_cache(team, kinds=kinds)
 
     # Remove from expiry tracking sorted set
+    # Note: When team is an int, we use it directly as the identifier. This works
+    # because flags_hypercache is ID-based (token_based=False). For token-based
+    # caches, callers must pass a Team object to derive the correct identifier.
     try:
         redis_client = get_client(flags_hypercache.redis_url)
         identifier = flags_hypercache.get_cache_identifier(team) if isinstance(team, Team) else team
