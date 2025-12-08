@@ -1,5 +1,45 @@
 # Cloud Runs
 
+## GitHub App Setup
+
+Cloud runs require a GitHub App to interact with repositories. Create a GitHub App with these permissions:
+
+### Required Permissions
+
+| Permission | Access | Purpose |
+|------------|--------|---------|
+| **Contents** | Read & Write | Read files, create branches, push commits |
+| **Pull requests** | Read & Write | Create and update PRs |
+| **Metadata** | Read | Required for all GitHub Apps |
+
+### Optional Permissions
+
+| Permission | Access | Purpose |
+|------------|--------|---------|
+| **Issues** | Read & Write | Link tasks to issues |
+| **Workflows** | Read & Write | Trigger CI workflows |
+
+### Environment Variables
+
+Add to your `.env`:
+
+```bash
+GITHUB_APP_CLIENT_ID=your_app_id
+GITHUB_APP_SLUG=your-app-slug
+GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
+```
+
+The app slug is the URL-friendly name shown in your GitHub App's URL (e.g., `github.com/apps/your-app-slug`).
+
+The private key can include literal `\n` characters - they'll be converted to newlines.
+
+### Creating the GitHub App
+
+1. Go to GitHub → Settings → Developer Settings → GitHub Apps → New GitHub App
+2. Set the permissions listed above
+3. Generate a private key and download it
+4. Install the app on the repositories you want to use
+
 ## Sandbox Providers
 
 In production, we use **ModalSandbox** which runs on [Modal](https://modal.com) with gVisor isolation. gVisor provides kernel-level sandboxing by intercepting system calls, offering stronger isolation than standard containers.
