@@ -26,7 +26,7 @@ class DummyCachedResponse(GenericCachedQueryResponse):
     errors: list[str] | None = None
 
 
-class DummyQueryRunner(QueryRunner[DummyQuery, DummyResponse, DummyCachedResponse]):
+class DummyQueryRunner(QueryRunner[DummyQuery, DummyResponse, DummyCachedResponse]):  # type: ignore
     query: DummyQuery
     response: DummyResponse
     cached_response: DummyCachedResponse
