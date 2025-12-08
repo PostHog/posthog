@@ -203,6 +203,14 @@ class UsageReportCounters:
     elixir_events_count_in_period: int
     active_hog_destinations_in_period: int
     active_hog_transformations_in_period: int
+    # Workflow metrics
+    workflow_emails_sent_in_period: int
+    workflow_push_sent_in_period: int
+    workflow_sms_sent_in_period: int
+    workflow_billable_invocations_in_period: int
+    # Logs
+    logs_bytes_in_period: int
+    logs_records_in_period: int
 
 
 # Instance metadata to be included in overall report
@@ -1240,7 +1248,7 @@ def get_teams_with_dwh_total_storage_in_s3() -> list:
 def get_teams_with_exceptions_captured_in_period(
     begin: datetime,
     end: datetime,
-) -> list[dict[str, int]]:
+) -> tuple[dict[str, list[list[int]]], list[list[int]]]:
     # Check if $lib is materialized
     lib_expression, _ = get_property_string_expr("events", "$lib", "'$lib'", "properties")
 
@@ -1426,6 +1434,132 @@ def get_teams_with_active_hog_transformations_in_period() -> list:
     )
 
 
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_emails_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('email_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_push_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('push_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_sms_sent_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('sms_sent') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_billable_invocations_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='hog_flow' AND metric_name IN ('billable_invocation') AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_bytes_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='logs' AND metric_name='bytes_ingested' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_logs_records_in_period(
+    begin: datetime,
+    end: datetime,
+) -> list[tuple[int, int]]:
+    results = sync_execute(
+        """
+        SELECT team_id, SUM(count) as count
+        FROM app_metrics2
+        WHERE app_source='logs' AND metric_name='records_ingested' AND timestamp >= %(begin)s AND timestamp < %(end)s
+        GROUP BY team_id
+    """,
+        {"begin": begin, "end": end},
+        workload=Workload.OFFLINE,
+        settings=CH_BILLING_SETTINGS,
+    )
+
+    return results
+
+
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
 def capture_report(
     *,
@@ -1473,6 +1607,10 @@ def has_non_zero_usage(report: FullUsageReport) -> bool:
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.ai_credits_used_in_period > 0
+        or report.workflow_emails_sent_in_period > 0
+        or report.workflow_push_sent_in_period > 0
+        or report.workflow_sms_sent_in_period > 0
+        or report.workflow_billable_invocations_in_period > 0
     )
 
 
@@ -1720,6 +1858,18 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         ),
         "teams_with_active_hog_destinations_in_period": get_teams_with_active_hog_destinations_in_period(),
         "teams_with_active_hog_transformations_in_period": get_teams_with_active_hog_transformations_in_period(),
+        "teams_with_workflow_emails_sent_in_period": get_teams_with_workflow_emails_sent_in_period(
+            period_start, period_end
+        ),
+        "teams_with_workflow_push_sent_in_period": get_teams_with_workflow_push_sent_in_period(
+            period_start, period_end
+        ),
+        "teams_with_workflow_sms_sent_in_period": get_teams_with_workflow_sms_sent_in_period(period_start, period_end),
+        "teams_with_workflow_billable_invocations_in_period": get_teams_with_workflow_billable_invocations_in_period(
+            period_start, period_end
+        ),
+        "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
+        "teams_with_logs_records_in_period": get_teams_with_logs_records_in_period(period_start, period_end),
     }
 
 
@@ -1861,6 +2011,14 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         active_hog_transformations_in_period=all_data["teams_with_active_hog_transformations_in_period"].get(
             team.id, 0
         ),
+        workflow_emails_sent_in_period=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
+        workflow_push_sent_in_period=all_data["teams_with_workflow_push_sent_in_period"].get(team.id, 0),
+        workflow_sms_sent_in_period=all_data["teams_with_workflow_sms_sent_in_period"].get(team.id, 0),
+        workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
+            team.id, 0
+        ),
+        logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
+        logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
     )
 
 
