@@ -35,11 +35,8 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
 
 
 def _extract_config_id(payload: dict[str, Any]) -> str | None:
-    # Vercel marketplace webhooks include the installation ID in two places:
-    # - payload.installationId
-    # - payload.configuration.id (same value)
     # Ref: https://vercel.com/docs/observability/webhooks-overview/webhooks-api
-    return payload.get("installationId") or payload.get("configuration", {}).get("id")
+    return payload.get("installationId")
 
 
 def _is_billing_event(event_type: str | None) -> bool:
