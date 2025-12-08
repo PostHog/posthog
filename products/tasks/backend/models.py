@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import time
 import uuid
 from typing import Literal, Optional
 
@@ -287,16 +286,20 @@ class TaskRun(models.Model):
         self.completed_at = timezone.now()
         self.save(update_fields=["status", "error_message", "completed_at"])
 
-    def _get_timestamp_ms(self) -> int:
-        return int(time.time() * 1000)
-
     def emit_console_event(self, level: LogLevel, message: str) -> None:
-        """Emit a console-style log event (debug, info, warn, error)."""
+        """Emit a console-style log event in ACP notification format."""
         event = {
-            "type": "console",
-            "ts": self._get_timestamp_ms(),
-            "level": level,
-            "message": message,
+            "type": "notification",
+            "timestamp": timezone.now().isoformat(),
+            "notification": {
+                "jsonrpc": "2.0",
+                "method": "_posthog/console",
+                "params": {
+                    "sessionId": str(self.id),
+                    "level": level,
+                    "message": message,
+                },
+            },
         }
         self.append_log([event])
 

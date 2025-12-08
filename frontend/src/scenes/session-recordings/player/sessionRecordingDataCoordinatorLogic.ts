@@ -125,6 +125,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         loadRecordingData: true,
         reportUsageIfFullyLoaded: true,
         setRecordingReportedLoaded: true,
+        processSnapshotsAsync: true,
+        setProcessedSnapshots: (snapshots: RecordingSnapshot[]) => ({ snapshots }),
     }),
     reducers(() => ({
         reportedLoaded: [
@@ -133,8 +135,14 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 setRecordingReportedLoaded: () => true,
             },
         ],
+        processedSnapshots: [
+            [] as RecordingSnapshot[],
+            {
+                setProcessedSnapshots: (_, { snapshots }) => snapshots,
+            },
+        ],
     })),
-    listeners(({ values, actions }) => ({
+    listeners(({ values, actions, props, cache }) => ({
         loadRecordingData: () => {
             actions.loadRecordingMeta()
         },
@@ -154,6 +162,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadSnapshotsForSourceSuccess: () => {
             actions.reportUsageIfFullyLoaded()
+            actions.processSnapshotsAsync()
         },
 
         loadRecordingCommentsSuccess: () => {
@@ -162,6 +171,31 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         loadRecordingNotebookCommentsSuccess: () => {
             actions.reportUsageIfFullyLoaded()
+        },
+
+        setProcessedSnapshots: () => {
+            actions.reportUsageIfFullyLoaded()
+        },
+
+        processSnapshotsAsync: async (_, breakpoint) => {
+            cache.processingCache = cache.processingCache || { snapshots: {} }
+
+            const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
+            const enableYielding = processingMode === 'yielding' || processingMode === 'worker_and_yielding'
+            const discardRawSnapshots = !!values.featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
+
+            const result = await processAllSnapshots(
+                values.snapshotSources,
+                values.snapshotsBySources,
+                cache.processingCache,
+                values.viewportForTimestamp,
+                props.sessionRecordingId,
+                enableYielding,
+                discardRawSnapshots
+            )
+
+            breakpoint()
+            actions.setProcessedSnapshots(result)
         },
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
@@ -173,36 +207,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         },
     })),
     selectors(({ cache }) => ({
-        snapshots: [
-            (s, p) => [
-                s.snapshotSources,
-                s.viewportForTimestamp,
-                p.sessionRecordingId,
-                s.snapshotsBySources,
-                s.featureFlags,
-            ],
-            (
-                sources,
-                viewportForTimestamp,
-                sessionRecordingId,
-                snapshotsBySources,
-                featureFlags
-            ): RecordingSnapshot[] => {
-                cache.processingCache = cache.processingCache || { snapshots: {} }
-                const discardRawSnapshots = !!featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
-                const snapshots = processAllSnapshots(
-                    sources,
-                    snapshotsBySources,
-                    cache.processingCache,
-                    viewportForTimestamp,
-                    sessionRecordingId,
-                    false,
-                    discardRawSnapshots
-                )
-
-                return snapshots || []
-            },
-        ],
+        snapshots: [(s) => [s.processedSnapshots], (processedSnapshots): RecordingSnapshot[] => processedSnapshots],
 
         start: [
             (s) => [s.snapshots, s.sessionPlayerMetaData],
