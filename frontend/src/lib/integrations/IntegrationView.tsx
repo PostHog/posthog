@@ -32,7 +32,7 @@ export function IntegrationView({
 
     const isGitHub = integration.kind === 'github'
     const repositories = isGitHub ? getGitHubRepositories(integration.id) : []
-    const refreshedAtTimestamp = integration.config?.refreshed_at || null
+    const refreshedAtTimestamp = integration.config?.refreshed_at || dayjs().unix()
 
     useEffect(() => {
         if (isGitHub) {
@@ -75,7 +75,7 @@ export function IntegrationView({
                                 {refreshedAtTimestamp && (
                                     <>
                                         <LemonDivider vertical />
-                                        <div className="flex items-center gap-1 text-xs">
+                                        <div className="flex items-baseline gap-1 text-xs text-secondary">
                                             Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
                                         </div>
                                     </>
