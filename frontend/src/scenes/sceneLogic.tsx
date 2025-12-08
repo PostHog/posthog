@@ -1137,19 +1137,15 @@ export const sceneLogic = kea<sceneLogicType>([
                                 return
                             }
                         }
-                    }
-
-                    // Redirect users away from use-case selection if they've already ingested events
-                    if (
+                        // Redirect users away from use-case selection if they've already ingested events
+                    } else if (
                         teamLogic.values.currentTeam &&
                         teamLogic.values.currentTeam.ingested_event &&
                         removeProjectIdIfPresent(location.pathname) === urls.useCaseSelection()
                     ) {
                         router.actions.replace(urls.default())
                         return
-                    }
-
-                    if (
+                    } else if (
                         teamLogic.values.currentTeam &&
                         !teamLogic.values.currentTeam.is_demo &&
                         !pathPrefixesOnboardingNotRequiredFor.some((path) =>
