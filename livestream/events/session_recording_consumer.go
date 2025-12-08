@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"errors"
 	"log"
 	"strconv"
@@ -32,9 +33,9 @@ func NewSessionRecordingKafkaConsumer(
 		"auto.offset.reset":          "latest",
 		"enable.auto.commit":         false,
 		"security.protocol":          securityProtocol,
-		"fetch.message.max.bytes":    1_000_000_000,
-		"fetch.max.bytes":            1_000_000_000,
-		"queued.max.messages.kbytes": 2_000_000,
+		"fetch.message.max.bytes":    10_000_000,  // 10MB - we only read headers
+		"fetch.max.bytes":            50_000_000,  // 50MB - reduced from 1GB
+		"queued.max.messages.kbytes": 100_000,     // 100MB - reduced from 2GB
 	}
 
 	consumer, err := kafka.NewConsumer(config)
@@ -49,34 +50,44 @@ func NewSessionRecordingKafkaConsumer(
 	}, nil
 }
 
-func (c *SessionRecordingKafkaConsumer) Consume() {
+func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
 		log.Fatalf("Failed to subscribe to session recording topic: %v", err)
 	}
 
 	for {
-		msg, err := c.consumer.ReadMessage(15 * time.Second)
-		if err != nil {
-			var inErr kafka.Error
-			if errors.As(err, &inErr) {
-				if inErr.Code() == kafka.ErrTransport {
-					metrics.SessionRecordingConnectFailure.Inc()
-				} else if inErr.IsTimeout() {
-					metrics.SessionRecordingTimeoutConsume.Inc()
-					continue
+		select {
+		case <-ctx.Done():
+			log.Println("session recording consumer shutting down...")
+			return
+		default:
+			msg, err := c.consumer.ReadMessage(1 * time.Second)
+			if err != nil {
+				var inErr kafka.Error
+				if errors.As(err, &inErr) {
+					if inErr.Code() == kafka.ErrTransport {
+						metrics.SessionRecordingConnectFailure.Inc()
+					} else if inErr.IsTimeout() {
+						metrics.SessionRecordingTimeoutConsume.Inc()
+						continue
+					}
 				}
+				log.Printf("Error consuming session recording message: %v", err)
+				continue
 			}
-			log.Printf("Error consuming session recording message: %v", err)
-			continue
-		}
 
-		metrics.SessionRecordingMsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+			metrics.SessionRecordingMsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
 
-		token, sessionId := parseSessionRecordingHeaders(msg.Headers)
-		if token != "" && sessionId != "" {
-			c.statsChan <- SessionRecordingEvent{Token: token, SessionId: sessionId}
-		} else {
-			metrics.SessionRecordingDroppedMessages.Inc()
+			token, sessionId := parseSessionRecordingHeaders(msg.Headers)
+			if token != "" && sessionId != "" {
+				select {
+				case c.statsChan <- SessionRecordingEvent{Token: token, SessionId: sessionId}:
+				case <-ctx.Done():
+					return
+				}
+			} else {
+				metrics.SessionRecordingDroppedMessages.Inc()
+			}
 		}
 	}
 }
