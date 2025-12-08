@@ -11,7 +11,6 @@ from posthog.temporal.data_imports.sources.generated_configs import (
     MySQLSourceConfig,
     PostgresSourceConfig,
     SalesforceSourceConfig,
-    ShopifySourceConfig,
     SnowflakeSourceConfig,
     StripeSourceConfig,
     TemporalIOSourceConfig,
@@ -255,15 +254,6 @@ def test_stripe_config():
     config = StripeSourceConfig.from_dict({"stripe_account_id": "acct_id", "stripe_secret_key": "api_key"})
     assert config.stripe_account_id == "acct_id"
     assert config.stripe_secret_key == "api_key"
-
-
-def test_shopify_config():
-    config = ShopifySourceConfig.from_dict(
-        {"shopify_store_id": "store_id", "shopify_client_id": "client_id", "shopify_client_secret": "client_secret"}
-    )
-    assert config.shopify_store_id == "store_id"
-    assert config.shopify_client_id == "client_id"
-    assert config.shopify_client_secret == "client_secret"
 
 
 def test_temporal_config():
