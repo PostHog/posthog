@@ -65,7 +65,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         response_data = {
             "status": result.status,
             "message": result.message,
-            "change_request": ChangeRequestSerializer(result.change_request).data,
+            "change_request": ChangeRequestSerializer(result.change_request, context={"request": request}).data,
         }
         if result.result_data:
             response_data["result"] = result.result_data
@@ -91,7 +91,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
             {
                 "status": result.status,
                 "message": result.message,
-                "change_request": ChangeRequestSerializer(result.change_request).data,
+                "change_request": ChangeRequestSerializer(result.change_request, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )
@@ -114,7 +114,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
             {
                 "status": result.status,
                 "message": result.message,
-                "change_request": ChangeRequestSerializer(result.change_request).data,
+                "change_request": ChangeRequestSerializer(result.change_request, context={"request": request}).data,
             },
             status=status.HTTP_200_OK,
         )

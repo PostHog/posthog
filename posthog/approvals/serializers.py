@@ -86,14 +86,20 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         # Check if user has any of the required roles
         approver_roles = policy.get("roles", [])
         if approver_roles:
-            from posthog.models import OrganizationMembership
+            try:
+                from ee.models.rbac.role import RoleMembership
 
-            user_roles = OrganizationMembership.objects.filter(user=user, organization=obj.organization).values_list(
-                "role_id", flat=True
-            )
+                user_role_ids = set(
+                    RoleMembership.objects.filter(
+                        user=user,
+                        role__organization=obj.organization,
+                    ).values_list("role_id", flat=True)
+                )
 
-            if any(role_id in approver_roles for role_id in user_roles):
-                return True
+                if user_role_ids & set(approver_roles):
+                    return True
+            except ImportError:
+                pass
 
         # Check self-approval policy
         if policy.get("allow_self_approve") and obj.created_by_id == user.id:

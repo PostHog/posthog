@@ -25,7 +25,7 @@ def send_approval_requested_notification(change_request: "ChangeRequest") -> Non
         )
         return
 
-    approver_ids = policy.get_approver_user_ids(change_request.team)
+    approver_ids = policy.get_approver_user_ids()
     approvers = User.objects.filter(id__in=approver_ids)
 
     for approver in approvers:
