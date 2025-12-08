@@ -97,56 +97,69 @@ def optimize(
     learning_rate: float = DEFAULT_LEARNING_RATE,
     iterations: int = DEFAULT_ITERATIONS,
 ) -> dict[str, float]:
-    """Iteratively optimize synthetic durations for balanced shards."""
-    sorted_tests = sorted(real_durations.keys())
-    target_per_shard = sum(real_durations.values()) / num_shards
+    """Simple ceiling-cap optimization.
 
-    # Initialize: use real durations, but neutralize inflated values
-    # Tests above ceiling (e.g. 60s) are likely first-test-in-shard getting blamed for
-    # global setup time (~240s for Django DB). Their actual test time is negligible,
-    # so set them to a small value rather than avg (which would give them too much weight).
-    synthetic = {}
+    Just cap inflated first-test durations and use real durations otherwise.
+    This is simple and predictable.
+    """
+    sorted_tests = sorted(real_durations.keys())
+
+    # Cap inflated durations (first-test-in-shard warm-up artifacts)
+    # and ensure minimum duration for tests with 0 or very small times
+    capped = {}
     for test in sorted_tests:
         real = real_durations[test]
         if real > ceiling:
-            synthetic[test] = 0.1  # Negligible - setup time isn't their fault
+            # Likely first-test warm-up, cap it
+            capped[test] = ceiling
         else:
-            synthetic[test] = max(0.01, real)
+            capped[test] = max(0.01, real)
 
-    best_std = float("inf")
-    best_synthetic = None
+    return capped
 
-    for _iteration in range(iterations):
-        shards, test_to_shard = simulate_distribution(synthetic, num_shards)
-        real_times, std = calculate_stats(shards, real_durations)
 
-        if std < best_std:
-            best_std = std
-            best_synthetic = dict(synthetic)
+def collect_existing_tests(segment: str | None = None) -> set[str]:
+    """Collect test names that actually exist in the codebase.
 
-        # Calculate correction for each shard
-        shard_corrections = []
-        for i, shard in enumerate(shards):
-            if not shard:
-                shard_corrections.append(1.0)
-                continue
-            real_time = real_times[i]
-            if target_per_shard > 0:
-                ratio = real_time / target_per_shard
-                correction = 1.0 + (ratio - 1.0) * learning_rate
-                correction = max(0.5, min(2.0, correction))
-                shard_corrections.append(correction)
-            else:
-                shard_corrections.append(1.0)
+    This filters out stale tests from artifacts that no longer exist.
+    """
+    import subprocess
 
-        # Apply corrections
-        for test in sorted_tests:
-            shard_idx = test_to_shard.get(test, 0)
-            if shard_idx < len(shard_corrections):
-                synthetic[test] *= shard_corrections[shard_idx]
-                synthetic[test] = max(0.001, synthetic[test])
+    # Build pytest command based on segment
+    cmd = [
+        "pytest",
+        "posthog",
+        "products",
+        "ee/",
+        "-m",
+        "not async_migrations",
+        "--ignore=posthog/temporal",
+        "--ignore=posthog/dags",
+        "--ignore=products/**/dags",
+        "--ignore=products/batch_exports/backend/tests/temporal",
+        "--ignore=common/hogvm/python/test",
+        "--collect-only",
+        "-q",
+    ]
 
-    return best_synthetic or synthetic
+    # Add segment-specific filters
+    if segment == "Temporal":
+        cmd = [
+            "pytest",
+            "posthog/temporal",
+            "products/batch_exports/backend/tests/temporal",
+            "-m",
+            "not async_migrations",
+            "--collect-only",
+            "-q",
+        ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+    tests = set()
+    for line in result.stdout.splitlines():
+        if "::" in line:
+            tests.add(line.strip())
+    return tests
 
 
 def main():
@@ -182,6 +195,11 @@ def main():
         default=None,
         help="Only load artifacts from this segment (e.g., 'Core'). Filters by artifact dir name.",
     )
+    parser.add_argument(
+        "--filter-existing",
+        action="store_true",
+        help="Filter to only tests that exist in the codebase (runs pytest --collect-only)",
+    )
 
     args = parser.parse_args()
 
@@ -189,6 +207,19 @@ def main():
     if args.segment:
         logger.info("  Filtering to segment: %s", args.segment)
     real_durations = load_timing_artifacts(args.artifacts_dir, segment=args.segment)
+    logger.info("  Loaded %d tests from artifacts", len(real_durations))
+
+    # Filter to only existing tests if requested
+    if args.filter_existing:
+        logger.info("Collecting existing tests from codebase...")
+        existing_tests = collect_existing_tests(segment=args.segment)
+        logger.info("  Found %d tests in codebase", len(existing_tests))
+
+        before_count = len(real_durations)
+        real_durations = {k: v for k, v in real_durations.items() if k in existing_tests}
+        logger.info(
+            "  Filtered to %d tests (removed %d stale)", len(real_durations), before_count - len(real_durations)
+        )
     logger.info("  Total tests: %d", len(real_durations))
 
     target = sum(real_durations.values()) / args.num_shards
