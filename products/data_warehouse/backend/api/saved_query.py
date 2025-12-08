@@ -528,21 +528,20 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         should_unpause = saved_query.sync_frequency_interval is None
 
         saved_query.sync_frequency_interval = sync_frequency_interval
-        saved_query.save(update_fields=["sync_frequency_interval"])
+        saved_query.is_materialized = True
+        saved_query.save(update_fields=["sync_frequency_interval", "is_materialized"])
 
         # Enable materialization - this handles model path setup and schedule creation
         # If this fails, it will set is_materialized = False
         saved_query.schedule_materialization(unpause=should_unpause)
 
-        # Mark as materialized after successful enable_materialization
+        # Refresh from DB to check if schedule_materialization set is_materialized = False on failure
+        saved_query.refresh_from_db()
         if saved_query.is_materialized is False:
             return response.Response(
                 {"error": "Materialization failed. Please try again or contact support."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
-        saved_query.is_materialized = True
-        saved_query.save(update_fields=["is_materialized"])
 
         return response.Response(status=status.HTTP_200_OK)
 
