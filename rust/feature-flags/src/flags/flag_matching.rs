@@ -31,7 +31,6 @@ use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, TeamId};
 use rayon::prelude::*;
 use serde_json::Value;
-use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tracing::{error, instrument, warn};
@@ -402,10 +401,15 @@ impl FeatureFlagMatcher {
                 .get_cohort_id()
                 .ok_or(FlagError::CohortFiltersParsingError)?;
 
-            if let Entry::Vacant(e) = cohort_matches.entry(cohort_id) {
-                let match_result =
-                    evaluate_dynamic_cohorts(cohort_id, target_properties, &cohorts)?;
-                e.insert(match_result);
+            if !cohort_matches.contains_key(&cohort_id) {
+                let current_matches = cohort_matches.clone();
+                let match_result = evaluate_dynamic_cohorts(
+                    cohort_id,
+                    target_properties,
+                    &cohorts,
+                    &current_matches,
+                )?;
+                cohort_matches.insert(cohort_id, match_result);
             }
         }
 

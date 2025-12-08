@@ -17,6 +17,8 @@ from posthog.schema import (
     TracesQuery,
 )
 
+from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
+
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models import PropertyDefinition, Team
 from posthog.models.property_definition import PropertyType
@@ -1555,6 +1557,51 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         expected_input_tokens = 39
         self.assertIsNotNone(trace.inputTokens)
         self.assertEqual(trace.inputTokens, expected_input_tokens)
+
+    def test_export_limit_caps_at_max_traces_limit(self):
+        """Test that export context caps limit at MAX_SELECT_TRACES_LIMIT_EXPORT."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=50000),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+
+    def test_export_limit_respects_smaller_explicit_limit(self):
+        """Test that export context respects explicit limits smaller than MAX_SELECT_TRACES_LIMIT_EXPORT."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=100),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, 100)
+
+    def test_export_limit_defaults_to_max_when_no_limit_specified(self):
+        """Test that export context defaults to MAX_SELECT_TRACES_LIMIT_EXPORT when no limit is specified."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.EXPORT,
+        )
+        self.assertEqual(runner.paginator.limit, MAX_SELECT_TRACES_LIMIT_EXPORT)
+
+    def test_query_limit_uses_default_when_no_limit_specified(self):
+        """Test that query context uses default (100) when no limit is specified."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(),
+            limit_context=LimitContext.QUERY,
+        )
+        self.assertEqual(runner.paginator.limit, 100)
+
+    def test_query_limit_respects_explicit_limit(self):
+        """Test that query context respects explicit limits."""
+        runner = TracesQueryRunner(
+            team=self.team,
+            query=TracesQuery(limit=50),
+            limit_context=LimitContext.QUERY,
+        )
+        self.assertEqual(runner.paginator.limit, 50)
 
     @freeze_time("2025-01-16T00:00:00Z")
     def test_random_order(self):

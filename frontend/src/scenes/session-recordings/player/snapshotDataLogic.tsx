@@ -172,14 +172,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const clientSideDecompression = values.featureFlags[FEATURE_FLAGS.REPLAY_CLIENT_SIDE_DECOMPRESSION]
-                    if (clientSideDecompression) {
-                        params = { ...params, decompress: false }
-                    }
+                    const response = await api.recordings.getSnapshots(
+                        props.sessionRecordingId,
+                        { decompress: false, ...params },
+                        headers
+                    )
 
-                    const response = await api.recordings.getSnapshots(props.sessionRecordingId, params, headers)
-
-                    const decompressionMode = normalizeMode()
+                    const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
+                    const decompressionMode = normalizeMode(processingMode)
 
                     // Create a local copy of the registry state for synchronous lookups during parsing
                     const localWindowIds: Record<string, number> = { ...values.uuidToIndex }
