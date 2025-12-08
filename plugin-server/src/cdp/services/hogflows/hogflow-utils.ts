@@ -128,7 +128,6 @@ export function trackE2eLag(result: CyclotronJobInvocationResult<CyclotronJobInv
         workflowE2eLagGauge
             .labels({
                 team_id: result.invocation.teamId.toString(),
-                hog_function_id: result.invocation.functionId,
             })
             .set(e2eLag)
     }
