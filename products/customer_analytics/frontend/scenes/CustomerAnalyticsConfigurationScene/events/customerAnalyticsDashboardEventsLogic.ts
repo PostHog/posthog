@@ -242,7 +242,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['activity_event'] = activityEvents[0]
+                events['activity_event'] = activityEvents[0] as ActionsNode | EventsNode | DataWarehouseNode
             }
             if (values.signupEventSelection) {
                 const signupEvents = actionsAndEventsToSeries(
@@ -250,7 +250,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['signup_event'] = signupEvents[0]
+                events['signup_event'] = signupEvents[0] as ActionsNode | EventsNode | DataWarehouseNode
             }
             if (values.signupPageviewEventSelection) {
                 const signupPageviewEvents = actionsAndEventsToSeries(
@@ -258,7 +258,10 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['signup_pageview_event'] = signupPageviewEvents[0]
+                events['signup_pageview_event'] = signupPageviewEvents[0] as
+                    | ActionsNode
+                    | EventsNode
+                    | DataWarehouseNode
             }
             if (values.paymentEventSelection) {
                 const paymentEvents = actionsAndEventsToSeries(
@@ -266,7 +269,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['payment_event'] = paymentEvents[0]
+                events['payment_event'] = paymentEvents[0] as ActionsNode | EventsNode | DataWarehouseNode
             }
             if (values.subscriptionEventSelection) {
                 const subscriptionEvents = actionsAndEventsToSeries(
@@ -274,7 +277,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['subscription_event'] = subscriptionEvents[0]
+                events['subscription_event'] = subscriptionEvents[0] as ActionsNode | EventsNode | DataWarehouseNode
             }
             actions.updateEvents(events)
         },
