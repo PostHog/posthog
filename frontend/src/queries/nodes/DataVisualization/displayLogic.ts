@@ -59,7 +59,7 @@ export const displayLogic = kea<displayLogicType>([
                         if (Number.isNaN(value)) {
                             goalLines[goalLineIndex][key] = 0
                         } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString())
+                            goalLines[goalLineIndex][key] = parseFloat(value.toString())
                         }
                     } else {
                         goalLines[goalLineIndex][key] = value

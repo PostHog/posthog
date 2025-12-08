@@ -41,7 +41,7 @@ export const goalLinesLogic = kea<goalLinesLogicType>([
                         if (Number.isNaN(value)) {
                             goalLines[goalLineIndex][key] = 0
                         } else {
-                            goalLines[goalLineIndex][key] = parseInt(value.toString(), 10)
+                            goalLines[goalLineIndex][key] = parseFloat(value.toString())
                         }
                     } else {
                         // @ts-expect-error not sure why it thinks this is an error but it clearly isn't
