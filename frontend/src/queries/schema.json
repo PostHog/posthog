@@ -626,6 +626,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/GroupNode"
                 }
             ]
         },
