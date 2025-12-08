@@ -2161,12 +2161,15 @@ describe('BatchWritingPersonStore', () => {
                 { teamId, distinctId: 'user-2' },
             ])
 
-            // Should have called fetchPersonsByDistinctIds once with both entries
+            // Should have called fetchPersonsByDistinctIds once with both entries (useReadReplica=false)
             expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledTimes(1)
-            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([
-                { teamId, distinctId: 'user-1' },
-                { teamId, distinctId: 'user-2' },
-            ])
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith(
+                [
+                    { teamId, distinctId: 'user-1' },
+                    { teamId, distinctId: 'user-2' },
+                ],
+                false
+            )
 
             // Both caches should be populated (check cache stores InternalPerson without distinct_id)
             const { distinct_id: _1, ...expectedPerson1 } = person1
@@ -2216,7 +2219,7 @@ describe('BatchWritingPersonStore', () => {
             ])
 
             // Should only fetch user-2 since user-1 was already cached
-            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }])
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }], false)
         })
 
         it('should skip entries already in update cache', async () => {
@@ -2235,7 +2238,7 @@ describe('BatchWritingPersonStore', () => {
             ])
 
             // Should only fetch user-2 since user-1 was already in update cache
-            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }])
+            expect(mockRepo.fetchPersonsByDistinctIds).toHaveBeenCalledWith([{ teamId, distinctId: 'user-2' }], false)
         })
 
         it('should do nothing for empty input', async () => {
