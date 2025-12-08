@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from django.conf import settings
 
 import aioboto3
-import aiobotocore.config
+from aiobotocore.config import AioConfig
+from aiobotocore.httpsession import AIOHTTPSession as BaseAIOHTTPSession
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -69,12 +70,6 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
-class AioConfig(aiobotocore.config.AioConfig):
-    def __init__(self, *args, socket_factory, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.connector_args["socket_factory"] = socket_factory
-
-
 def socket_factory(addr_info):
     """Socket factory for ``aiohttp.TCPConnector``."""
     family, type_, proto, _, _ = addr_info
@@ -90,6 +85,19 @@ def socket_factory(addr_info):
         # Give up after 5 failed probes
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
     return sock
+
+
+class AIOHTTPSession(BaseAIOHTTPSession):
+    """Session class used to include ``socket_factory``.
+
+    This is required because aiobotocore will not allow passing ``socket_factory`` as
+    a ``connector_args``.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # This exists, but mypy is unable to check it.
+        self._connector_args["socket_factory"] = socket_factory  # type: ignore[attr-defined]
 
 
 @asynccontextmanager
@@ -108,7 +116,7 @@ async def get_s3_client():
             connect_timeout=60,
             read_timeout=300,
             connector_args={"keepalive_timeout": 300},
-            socket_factory=socket_factory,
+            http_session_cls=AIOHTTPSession,
         ),
     ) as s3_client:
         yield s3_client
