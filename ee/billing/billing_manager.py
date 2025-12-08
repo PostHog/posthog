@@ -576,13 +576,7 @@ class BillingManager:
         Forward billing provider webhook to billing service for processing.
 
         Pure passthrough - no transformation of event data.
-        Raises exception on failure (causes webhook endpoint to return 500, triggering Vercel retry).
-
-        Args:
-            event_type: Raw event type (e.g., "marketplace.invoice.paid")
-            event_data: Raw event payload from billing provider
-            organization: The organization this event is for
-            billing_provider: The billing provider (e.g., "vercel")
+        Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
         """
         res = requests.post(
             f"{BILLING_SERVICE_URL}/api/billing-provider-webhook",
