@@ -74,7 +74,12 @@ def login_required(view):
         elif not request.user.is_authenticated and settings.AUTO_LOGIN:
             user = User.objects.filter(is_active=True).first()
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-        return base_handler(request, *args, **kwargs)
+        response = base_handler(request, *args, **kwargs)
+
+        # Don't include next=/ in the login redirect URL since "/" is the default destination
+        if hasattr(response, "url") and response.status_code == 302 and response.url == f"{settings.LOGIN_URL}?next=/":
+            response["Location"] = settings.LOGIN_URL
+        return response
 
     return handler
 
