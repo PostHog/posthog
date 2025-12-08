@@ -80,6 +80,7 @@ import {
     DashboardTemplateType,
     DashboardType,
     DataColorThemeModel,
+    DataModelingEdge,
     DataModelingJob,
     DataModelingNode,
     DataWarehouseActivityRecord,
@@ -1206,6 +1207,11 @@ export class ApiRequest {
 
     public dataModelingNode(id: DataModelingNode['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dataModelingNodes(teamId).addPathComponent(id)
+    }
+
+    // # Data Modeling Edges
+    public dataModelingEdges(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_edges')
     }
 
     // # Warehouse view link
@@ -4021,6 +4027,12 @@ const api = {
         },
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
+        },
+    },
+
+    dataModelingEdges: {
+        async list(): Promise<PaginatedResponse<DataModelingEdge>> {
+            return await new ApiRequest().dataModelingEdges().get()
         },
     },
 

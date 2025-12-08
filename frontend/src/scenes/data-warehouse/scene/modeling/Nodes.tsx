@@ -63,7 +63,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     return (
         <div
             className={clsx(
-                'transition-all hover:translate-y-[-2px] rounded-lg border bg-surface-light shadow-sm',
+                'transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
                 isSelected ? 'border-primary ring-2 ring-primary/20' : 'border-border'
             )}
             // eslint-disable-next-line react/forbid-dom-props

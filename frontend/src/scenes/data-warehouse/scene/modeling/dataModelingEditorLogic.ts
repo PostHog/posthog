@@ -16,7 +16,7 @@ import type { DragEvent, RefObject } from 'react'
 import api from 'lib/api'
 import { uuid } from 'lib/utils'
 
-import { DataModelingNode } from '~/types'
+import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { getSmartStepPath } from './SmartEdge'
 import { getFormattedNodes } from './autolayout'
@@ -46,7 +46,10 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: CreateModelNodeType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
-        resetGraphFromNodes: (dataModelingNodes: DataModelingNode[]) => ({ dataModelingNodes }),
+        resetGraph: (dataModelingNodes: DataModelingNode[], dataModelingEdges: DataModelingEdge[]) => ({
+            dataModelingNodes,
+            dataModelingEdges,
+        }),
     }),
     loaders({
         dataModelingNodes: [
@@ -54,6 +57,15 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             {
                 loadDataModelingNodes: async () => {
                     const response = await api.dataModelingNodes.list()
+                    return response.results
+                },
+            },
+        ],
+        dataModelingEdges: [
+            [] as DataModelingEdge[],
+            {
+                loadDataModelingEdges: async () => {
+                    const response = await api.dataModelingEdges.list()
                     return response.results
                 },
             },
@@ -128,7 +140,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 return nodes.find((node) => node.id === selectedNodeId) ?? null
             },
         ],
-        nodesLoading: [(s) => [s.dataModelingNodesLoading], (dataModelingNodesLoading) => dataModelingNodesLoading],
+        nodesLoading: [
+            (s) => [s.dataModelingNodesLoading, s.dataModelingEdgesLoading],
+            (dataModelingNodesLoading: boolean, dataModelingEdgesLoading: boolean): boolean =>
+                dataModelingNodesLoading || dataModelingEdgesLoading,
+        ],
     }),
     listeners(({ values, actions }) => ({
         onEdgesChange: ({ edges }) => {
@@ -138,18 +154,24 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             actions.setNodes(applyNodeChanges(nodes, values.nodes))
         },
 
-        loadDataModelingNodesSuccess: ({ dataModelingNodes }) => {
-            actions.resetGraphFromNodes(dataModelingNodes)
+        loadDataModelingNodesSuccess: () => {
+            if (values.dataModelingEdges.length > 0 || !values.dataModelingEdgesLoading) {
+                actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
+            }
         },
 
-        resetGraphFromNodes: async ({ dataModelingNodes }) => {
-            // Build edges from the upstream/downstream relationships
-            // For now, we'll create a simple graph with matviews only
+        loadDataModelingEdgesSuccess: () => {
+            if (values.dataModelingNodes.length > 0 || !values.dataModelingNodesLoading) {
+                actions.resetGraph(values.dataModelingNodes, values.dataModelingEdges)
+            }
+        },
+
+        resetGraph: async ({ dataModelingNodes, dataModelingEdges }) => {
             const matviewNodes = dataModelingNodes.filter((n) => n.type === 'matview')
+            const nodeIds = new Set(matviewNodes.map((n) => n.id))
 
             const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
 
-            // Initialize handles for each node
             matviewNodes.forEach((node) => {
                 handlesByNodeId[node.id] = {
                     [`target_${node.id}`]: {
@@ -167,7 +189,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }
             })
 
-            const nodes: ModelNode[] = matviewNodes.map((node) => ({
+            const sortedMatviewNodes = [...matviewNodes].sort((a, b) =>
+                a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+            )
+
+            const nodes: ModelNode[] = sortedMatviewNodes.map((node) => ({
                 id: node.id,
                 type: 'model',
                 data: {
@@ -184,9 +210,19 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 connectable: false,
             }))
 
-            // For now, edges will be empty since we don't have explicit edge data
-            // In a real implementation, you would derive edges from the upstream/downstream counts
-            const edges: Edge[] = []
+            // Build edges from the API data, filtering to only include edges between matview nodes
+            const edges: Edge[] = dataModelingEdges
+                .filter((edge) => nodeIds.has(edge.source_id) && nodeIds.has(edge.target_id))
+                .map((edge) => ({
+                    id: getEdgeId(edge.source_id, edge.target_id),
+                    source: edge.source_id,
+                    target: edge.target_id,
+                    type: 'smart',
+                    deletable: false,
+                    markerEnd: { type: MarkerType.ArrowClosed },
+                    sourceHandle: `source_${edge.source_id}`,
+                    targetHandle: `target_${edge.target_id}`,
+                }))
 
             actions.setEdges(edges)
             actions.setNodes(nodes)
@@ -388,5 +424,6 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadDataModelingNodes()
+        actions.loadDataModelingEdges()
     }),
 ])

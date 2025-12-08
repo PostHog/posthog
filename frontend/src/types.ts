@@ -4829,6 +4829,17 @@ export interface DataModelingNode {
     last_run_at: string
 }
 
+export interface DataModelingEdge {
+    /** UUID */
+    id: string
+    source_id: string
+    target_id: string
+    dag_id: string
+    properties: Record<string, unknown>
+    created_at: string
+    updated_at: string
+}
+
 export interface DataWarehouseSavedQueryRunHistory {
     status: DataModelingJobStatus
     timestamp?: string

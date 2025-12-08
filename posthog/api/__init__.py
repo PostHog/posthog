@@ -17,6 +17,7 @@ import products.live_debugger.backend.api as live_debugger
 import products.revenue_analytics.backend.api as revenue_analytics
 import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
+from products.data_modeling.backend.api.edge import EdgeViewSet
 from products.data_modeling.backend.api.node import NodeViewSet
 from products.data_warehouse.backend.api import (
     data_modeling_job,
@@ -480,6 +481,12 @@ environments_router.register(
     r"data_modeling_nodes",
     NodeViewSet,
     "environment_data_modeling_nodes",
+    ["team_id"],
+)
+environments_router.register(
+    r"data_modeling_edges",
+    EdgeViewSet,
+    "environment_data_modeling_edges",
     ["team_id"],
 )
 
