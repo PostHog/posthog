@@ -173,53 +173,6 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    shouldDropEvent(
-        token?: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): boolean {
-        return this.checkRestriction(token, distinctId, sessionId, eventName, eventUuid, Restriction.DROP_EVENT)
-    }
-
-    shouldSkipPerson(
-        token?: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): boolean {
-        return this.checkRestriction(
-            token,
-            distinctId,
-            sessionId,
-            eventName,
-            eventUuid,
-            Restriction.SKIP_PERSON_PROCESSING
-        )
-    }
-
-    shouldForceOverflow(
-        token?: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): boolean {
-        return this.checkRestriction(token, distinctId, sessionId, eventName, eventUuid, Restriction.FORCE_OVERFLOW)
-    }
-
-    shouldRedirectToDlq(
-        token?: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): boolean {
-        return this.checkRestriction(token, distinctId, sessionId, eventName, eventUuid, Restriction.REDIRECT_TO_DLQ)
-    }
-
     getAppliedRestrictions(
         token?: string,
         distinctId?: string,

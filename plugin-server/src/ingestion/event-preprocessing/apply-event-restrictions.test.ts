@@ -1,6 +1,6 @@
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { EventHeaders } from '../../types'
-import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
+import { EventIngestionRestrictionManager, Restriction } from '../../utils/event-ingestion-restriction-manager'
 import { dlq, drop, ok, redirect } from '../pipelines/results'
 import { RoutingConfig, createApplyEventRestrictionsStep } from './apply-event-restrictions'
 
@@ -11,10 +11,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
     beforeEach(() => {
         eventIngestionRestrictionManager = {
-            shouldDropEvent: jest.fn().mockReturnValue(false),
-            shouldRedirectToDlq: jest.fn().mockReturnValue(false),
-            shouldForceOverflow: jest.fn().mockReturnValue(false),
-            shouldSkipPerson: jest.fn().mockReturnValue(false),
+            getAppliedRestrictions: jest.fn().mockReturnValue([]),
         } as unknown as EventIngestionRestrictionManager
 
         routingConfig = {
@@ -26,8 +23,116 @@ describe('createApplyEventRestrictionsStep', () => {
         step = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, routingConfig)
     })
 
+    describe('header passing', () => {
+        it('passes token and distinct_id correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                'test-user',
+                undefined,
+                undefined,
+                undefined
+            )
+        })
+
+        it('passes session_id correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    session_id: 'session-123',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                'test-user',
+                'session-123',
+                undefined,
+                undefined
+            )
+        })
+
+        it('passes event_name correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    event: '$pageview',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                'test-user',
+                undefined,
+                '$pageview',
+                undefined
+            )
+        })
+
+        it('passes uuid correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    uuid: 'event-uuid-123',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                'test-user',
+                undefined,
+                undefined,
+                'event-uuid-123'
+            )
+        })
+
+        it('passes all headers correctly', async () => {
+            const input = {
+                message: {} as any,
+                headers: createTestEventHeaders({
+                    token: 'test-token',
+                    distinct_id: 'test-user',
+                    session_id: 'session-123',
+                    event: '$pageview',
+                    uuid: 'event-uuid-123',
+                }),
+            }
+
+            await step(input)
+
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
+                'test-token',
+                'test-user',
+                'session-123',
+                '$pageview',
+                'event-uuid-123'
+            )
+        })
+    })
+
     describe('drop events', () => {
-        it('returns drop when shouldDropEvent returns true', async () => {
+        it('returns drop when DROP_EVENT restriction is applied', async () => {
             const input = {
                 message: {} as any,
                 headers: createTestEventHeaders({
@@ -35,99 +140,18 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.DROP_EVENT,
+            ])
 
             const result = await step(input)
 
             expect(result).toEqual(drop('blocked_token'))
         })
-
-        it('passes token and distinct_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes session_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    session_id: 'session-123',
-                }),
-            }
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                'session-123',
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes event_name correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    event: '$pageview',
-                }),
-            }
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                '$pageview',
-                undefined
-            )
-        })
-
-        it('passes uuid correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    uuid: 'event-uuid-123',
-                }),
-            }
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                'event-uuid-123'
-            )
-        })
     })
 
     describe('DLQ redirect', () => {
-        it('returns dlq when shouldRedirectToDlq returns true', async () => {
+        it('returns dlq when REDIRECT_TO_DLQ restriction is applied', async () => {
             const input = {
                 message: {} as any,
                 headers: createTestEventHeaders({
@@ -135,103 +159,18 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.REDIRECT_TO_DLQ,
+            ])
 
             const result = await step(input)
 
             expect(result).toEqual(dlq('restricted_to_dlq'))
         })
-
-        it('passes token and distinct_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldRedirectToDlq).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes session_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    session_id: 'session-123',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldRedirectToDlq).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                'session-123',
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes event_name correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    event: '$pageview',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldRedirectToDlq).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                '$pageview',
-                undefined
-            )
-        })
-
-        it('passes uuid correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    uuid: 'event-uuid-123',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldRedirectToDlq).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                'event-uuid-123'
-            )
-        })
     })
 
     describe('overflow redirect', () => {
-        it('returns redirect when shouldForceOverflow returns true', async () => {
+        it('returns redirect when FORCE_OVERFLOW restriction is applied', async () => {
             const input = {
                 message: {} as any,
                 headers: createTestEventHeaders({
@@ -239,7 +178,9 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await step(input)
 
@@ -253,93 +194,6 @@ describe('createApplyEventRestrictionsStep', () => {
             )
         })
 
-        it('passes token and distinct_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes session_id correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    session_id: 'session-123',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                'session-123',
-                undefined,
-                undefined
-            )
-        })
-
-        it('passes event_name correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    event: '$pageview',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                '$pageview',
-                undefined
-            )
-        })
-
-        it('passes uuid correctly', async () => {
-            const input = {
-                message: {} as any,
-                headers: createTestEventHeaders({
-                    token: 'test-token',
-                    distinct_id: 'test-user',
-                    uuid: 'event-uuid-123',
-                }),
-            }
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-
-            await step(input)
-
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).toHaveBeenCalledWith(
-                'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                'event-uuid-123'
-            )
-        })
-
         it('partition locality: config=true, skipPerson=false -> preserves locality', async () => {
             const input = {
                 message: {} as any,
@@ -349,8 +203,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await step(input)
 
@@ -382,8 +237,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await stepWithNoLocality(input)
 
@@ -406,8 +262,10 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+                Restriction.SKIP_PERSON_PROCESSING,
+            ])
 
             const result = await step(input)
 
@@ -439,8 +297,10 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+                Restriction.SKIP_PERSON_PROCESSING,
+            ])
 
             const result = await stepWithNoLocality(input)
 
@@ -469,12 +329,13 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await disabledStep(input)
 
             expect(result).toEqual(ok(input))
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).not.toHaveBeenCalled()
         })
     })
 
@@ -488,13 +349,14 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.DROP_EVENT,
+                Restriction.REDIRECT_TO_DLQ,
+            ])
 
             const result = await step(input)
 
             expect(result).toEqual(drop('blocked_token'))
-            expect(eventIngestionRestrictionManager.shouldRedirectToDlq).not.toHaveBeenCalled()
         })
 
         it('drop takes priority over overflow', async () => {
@@ -506,13 +368,14 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldDropEvent).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.DROP_EVENT,
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await step(input)
 
             expect(result).toEqual(drop('blocked_token'))
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).not.toHaveBeenCalled()
         })
 
         it('DLQ takes priority over overflow', async () => {
@@ -524,13 +387,14 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.shouldRedirectToDlq).mockReturnValue(true)
-            jest.mocked(eventIngestionRestrictionManager.shouldForceOverflow).mockReturnValue(true)
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
+                Restriction.REDIRECT_TO_DLQ,
+                Restriction.FORCE_OVERFLOW,
+            ])
 
             const result = await step(input)
 
             expect(result).toEqual(dlq('restricted_to_dlq'))
-            expect(eventIngestionRestrictionManager.shouldForceOverflow).not.toHaveBeenCalled()
         })
 
         it('returns ok when nothing matches', async () => {
@@ -558,7 +422,7 @@ describe('createApplyEventRestrictionsStep', () => {
             const result = await step(input)
 
             expect(result).toEqual(ok(input))
-            expect(eventIngestionRestrictionManager.shouldDropEvent).toHaveBeenCalledWith(
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 undefined,
                 undefined,
                 undefined,
