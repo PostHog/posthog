@@ -11,7 +11,16 @@ import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
+import {
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    InsightActorsQuery,
+    InsightVizNode,
+    NodeKind,
+    PathsLink,
+    PathsQuery,
+} from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -161,7 +170,11 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None),
+                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None) as (
+                        | EventsNode
+                        | ActionsNode
+                        | DataWarehouseNode
+                    )[],
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },

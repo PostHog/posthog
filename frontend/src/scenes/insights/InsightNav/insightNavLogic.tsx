@@ -78,12 +78,13 @@ export interface CommonInsightFilter
         Partial<LifecycleFilter> {}
 
 export interface QueryPropertyCache
-    extends Omit<Partial<TrendsQuery>, 'kind' | 'response'>,
-        Omit<Partial<FunnelsQuery>, 'kind' | 'response'>,
-        Omit<Partial<RetentionQuery>, 'kind' | 'response'>,
+    extends Omit<Partial<TrendsQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<FunnelsQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<RetentionQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
-        Omit<Partial<StickinessQuery>, 'kind' | 'response'>,
-        Omit<Partial<LifecycleQuery>, 'kind' | 'response'> {
+        Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
+        Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
+    series?: AnyEntityNode[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
