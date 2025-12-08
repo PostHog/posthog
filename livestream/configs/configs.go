@@ -2,7 +2,6 @@ package configs
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"strings"
 
@@ -55,7 +54,7 @@ func InitConfigs(filename, configPath string) {
 	}
 
 	viper.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Println("Config file changed:", e.Name)
+		log.Printf("Config file changed: %s", e.Name)
 	})
 	viper.WatchConfig()
 
