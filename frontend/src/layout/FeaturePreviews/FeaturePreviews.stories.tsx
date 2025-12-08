@@ -45,6 +45,7 @@ Basic.args = {
             stage: 'beta',
             documentationUrl: 'https://docs.example.com',
             flagKey: 'data-warehouse',
+            payload: {},
         },
     ],
     enabledFeatureFlags: ['data-warehouse'],

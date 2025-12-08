@@ -196,7 +196,7 @@ export const Settings = ({
         }
 
         return modifiedQuery
-    }, [query, canvasFiltersOverride])
+    }, [query, canvasFiltersOverride, isDefaultFilterApplied, attributes, updateAttributes])
 
     const detachSavedInsight = (): void => {
         if (isSavedInsightNode(attributes.query)) {

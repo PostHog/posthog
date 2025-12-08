@@ -247,6 +247,7 @@ class AssistantNavigateUrl(StrEnum):
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
     PERSONS = "persons"
 
 
@@ -695,16 +696,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ContextMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["context"] = "context"
-
-
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -934,6 +925,12 @@ class DataWarehouseEventsModifier(BaseModel):
 
 class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
+class DataWarehouseSavedQueryOrigin(StrEnum):
+    DATA_WAREHOUSE = "data_warehouse"
+    ENDPOINT = "endpoint"
+    MANAGED_VIEWSET = "managed_viewset"
 
 
 class DataWarehouseSyncInterval(StrEnum):
@@ -1547,6 +1544,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MARKETING_ANALYTICS = "marketing_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
@@ -2010,6 +2008,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
     REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -2333,6 +2332,14 @@ class MinimalHedgehogConfig(BaseModel):
     use_as_profile: bool
 
 
+class ModeContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AgentMode
+    type: Literal["mode"] = "mode"
+
+
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2448,7 +2455,6 @@ class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: float
     url: str
 
 
@@ -3092,6 +3098,13 @@ class SimpleIntervalType(StrEnum):
     MONTH = "month"
 
 
+class SlashCommandName(StrEnum):
+    FIELD_INIT = "/init"
+    FIELD_REMEMBER = "/remember"
+    FIELD_USAGE = "/usage"
+    FIELD_FEEDBACK = "/feedback"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3533,6 +3546,7 @@ class WebAnalyticsOrderByDirection(StrEnum):
 class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
+    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
@@ -4971,7 +4985,6 @@ class MaxRecordingEventFilter(BaseModel):
         extra="forbid",
     )
     id: str = Field(..., description="Name of the event.")
-    name: str | None = Field(default=None, description="Optional display name for this event.")
     properties: (
         list[
             AssistantGenericPropertyFilter1
@@ -5753,6 +5766,7 @@ class SurveyAppearanceSchema(BaseModel):
     buttonColor: str | None = None
     buttonTextColor: str | None = None
     inputBackground: str | None = None
+    inputTextColor: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -7236,6 +7250,7 @@ class CachedLogsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -8234,6 +8249,17 @@ class CalendarHeatmapResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    meta: ModeContext | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["context"] = "context"
 
 
 class ConversionGoalFilter1(BaseModel):
@@ -10077,6 +10103,7 @@ class LogsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11543,6 +11570,7 @@ class QueryResponseAlternative70(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12396,6 +12424,7 @@ class WebStatsTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
@@ -14591,6 +14620,7 @@ class LogsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
@@ -16675,6 +16705,9 @@ class SourceConfig(BaseModel):
     docsUrl: str | None = None
     existingSource: bool | None = None
     featureFlag: str | None = None
+    featured: bool | None = Field(
+        default=False, description="Whether this source should be prominently displayed in onboarding flows"
+    )
     fields: list[
         SourceFieldInputConfig
         | SourceFieldSwitchGroupConfig

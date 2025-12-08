@@ -103,6 +103,44 @@ const counterBackgroundTaskNotFound = new Counter({
     labelNames: ['pod', 'groupId'],
 })
 
+// Simple metrics to track offset commits
+const gaugeLastProcessedOffset = new Gauge({
+    name: 'kafka_consumer_last_processed_offset',
+    help: 'Last processed offset per partition',
+    labelNames: ['topic', 'partition', 'groupId'],
+})
+
+const gaugeLastStoredOffset = new Gauge({
+    name: 'kafka_consumer_last_stored_offset',
+    help: 'Last stored (committed) offset per partition',
+    labelNames: ['topic', 'partition', 'groupId'],
+})
+
+const counterOffsetStoreAttempts = new Counter({
+    name: 'kafka_consumer_offset_store_attempts_total',
+    help: 'Total offset store attempts per partition',
+    labelNames: ['topic', 'partition', 'groupId', 'status'],
+})
+
+// Metrics for tracking actual Kafka broker commits (vs local offset storage)
+const gaugeLastBrokerCommittedOffset = new Gauge({
+    name: 'kafka_consumer_last_broker_committed_offset',
+    help: 'Last offset successfully committed to Kafka broker (not just stored locally)',
+    labelNames: ['topic', 'partition', 'groupId'],
+})
+
+const gaugeTimeSinceLastBrokerCommit = new Gauge({
+    name: 'kafka_consumer_time_since_last_broker_commit_ms',
+    help: 'Time elapsed since last successful commit to Kafka broker',
+    labelNames: ['topic', 'partition', 'groupId'],
+})
+
+const counterBrokerCommitAttempts = new Counter({
+    name: 'kafka_consumer_broker_commit_attempts_total',
+    help: 'Actual commit attempts to Kafka broker (vs local offset storage)',
+    labelNames: ['topic', 'partition', 'groupId', 'status'],
+})
+
 export const findOffsetsToCommit = (messages: TopicPartitionOffset[]): TopicPartitionOffset[] => {
     // We only need to commit the highest offset for a batch of messages
     const messagesByTopicPartition = messages.reduce(
@@ -175,6 +213,7 @@ export class KafkaConsumer {
     private podName: string
     private lastBackgroundTaskCompletionTime: number
     private consumerId: string
+    private lastBrokerCommitTimestamps: Map<string, number>
     // New health monitoring state
     private consumerLoopStallThresholdMs: number
     private lastConsumerLoopTime = 0
@@ -194,6 +233,7 @@ export class KafkaConsumer {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
         this.lastBackgroundTaskCompletionTime = Date.now()
+        this.lastBrokerCommitTimestamps = new Map()
         // Generate unique consumer ID: pod + group + timestamp + random number (need timestamp/random number because multiple consumers per pod)
         this.consumerId = `${this.podName}-${this.config.groupId}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
@@ -598,8 +638,54 @@ export class KafkaConsumer {
         consumer.on('offset.commit', (error: LibrdKafkaError, topicPartitionOffsets: TopicPartitionOffset[]) => {
             if (error) {
                 logger.warn('📝', 'librdkafka_offet_commit_error', { error, topicPartitionOffsets })
+                // Track failed broker commits
+                topicPartitionOffsets?.forEach((tpo) => {
+                    counterBrokerCommitAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'failed',
+                        })
+                        .inc()
+                })
             } else {
                 logger.debug('📝', 'librdkafka_offset_commit', { topicPartitionOffsets })
+                // Track successful broker commits and update metrics
+                topicPartitionOffsets?.forEach((tpo) => {
+                    const partitionKey = `${tpo.topic}:${tpo.partition}`
+                    const now = Date.now()
+
+                    counterBrokerCommitAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'success',
+                        })
+                        .inc()
+
+                    // Update last broker committed offset
+                    gaugeLastBrokerCommittedOffset
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                        })
+                        .set(tpo.offset)
+
+                    // Store timestamp for this partition's last commit
+                    this.lastBrokerCommitTimestamps.set(partitionKey, now)
+
+                    // Reset time since last commit for this partition
+                    gaugeTimeSinceLastBrokerCommit
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                        })
+                        .set(0)
+                })
             }
         })
 
@@ -611,7 +697,39 @@ export class KafkaConsumer {
             logger.debug('📝', 'Storing offsets', { topicPartitionOffsetsToCommit })
             try {
                 this.rdKafkaConsumer.offsetsStore(topicPartitionOffsetsToCommit)
+
+                // Track successful offset stores
+                topicPartitionOffsetsToCommit.forEach((tpo) => {
+                    counterOffsetStoreAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'success',
+                        })
+                        .inc()
+
+                    // Track the last stored offset
+                    gaugeLastStoredOffset
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                        })
+                        .set(tpo.offset)
+                })
             } catch (e) {
+                // Track failed offset stores
+                topicPartitionOffsetsToCommit.forEach((tpo) => {
+                    counterOffsetStoreAttempts
+                        .labels({
+                            topic: tpo.topic,
+                            partition: tpo.partition.toString(),
+                            groupId: this.config.groupId,
+                            status: 'failed',
+                        })
+                        .inc()
+                })
                 // NOTE: We don't throw here - this can happen if we were re-assigned partitions
                 // and the offsets are no longer valid whilst processing a batch
                 let assignedPartitions: Assignment[] | string = []
@@ -738,6 +856,17 @@ export class KafkaConsumer {
                     // Pull out the offsets to commit from the messages so we can release the messages reference
                     const topicPartitionOffsetsToCommit = findOffsetsToCommit(messages)
 
+                    // Track last processed offsets
+                    topicPartitionOffsetsToCommit.forEach((tpo) => {
+                        gaugeLastProcessedOffset
+                            .labels({
+                                topic: tpo.topic,
+                                partition: tpo.partition.toString(),
+                                groupId: this.config.groupId,
+                            })
+                            .set(tpo.offset)
+                    })
+
                     void backgroundTask.finally(async () => {
                         // Track that we made progress
                         this.lastBackgroundTaskCompletionTime = Date.now()
@@ -793,6 +922,22 @@ export class KafkaConsumer {
 
                     const timeSinceProgress = Date.now() - this.lastBackgroundTaskCompletionTime
                     gaugeTimeSinceLastProgress.labels({ pod: this.podName, groupId }).set(timeSinceProgress)
+
+                    // Update time since last broker commit for all tracked partitions
+                    const now = Date.now()
+                    this.lastBrokerCommitTimestamps.forEach((timestamp, partitionKey) => {
+                        const lastColonIndex = partitionKey.lastIndexOf(':')
+                        const topic = partitionKey.substring(0, lastColonIndex)
+                        const partition = partitionKey.substring(lastColonIndex + 1)
+                        const timeSinceCommit = now - timestamp
+                        gaugeTimeSinceLastBrokerCommit
+                            .labels({
+                                topic: topic,
+                                partition: partition,
+                                groupId: this.config.groupId,
+                            })
+                            .set(timeSinceCommit)
+                    })
 
                     // If we have too much "backpressure" we need to await one of the background tasks. We await the oldest one on purpose
 
@@ -897,6 +1042,7 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
 
     const result: EventHeaders = {
         force_disable_person_processing: false,
+        historical_migration: false,
     }
 
     headers?.forEach((header) => {
@@ -906,6 +1052,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 result.token = sanitizeString(value)
             } else if (key === 'distinct_id') {
                 result.distinct_id = sanitizeString(value)
+            } else if (key === 'session_id') {
+                result.session_id = sanitizeString(value)
             } else if (key === 'timestamp') {
                 result.timestamp = value
             } else if (key === 'event') {
@@ -919,6 +1067,8 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
                 if (!isNaN(parsed.getTime())) {
                     result.now = parsed
                 }
+            } else if (key === 'historical_migration') {
+                result.historical_migration = value === 'true'
             }
         })
     })
@@ -927,10 +1077,13 @@ export const parseEventHeaders = (headers?: MessageHeader[]): EventHeaders => {
     const trackedHeaders = [
         'token',
         'distinct_id',
+        'session_id',
         'timestamp',
         'event',
         'uuid',
+        'now',
         'force_disable_person_processing',
+        'historical_migration',
     ] as const
     trackedHeaders.forEach((header) => {
         const status = result[header] ? 'present' : 'absent'

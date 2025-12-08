@@ -28,7 +28,7 @@ from posthog.models import FeatureFlag, Integration, PersonalAPIKey, Team, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import Task, TaskRun
 
 
 def create_test_task(repository=None):
@@ -81,6 +81,8 @@ def create_test_task(repository=None):
             repository=repository,
         )
 
+        task_run = TaskRun.objects.create(task=task, team=team)
+
         api_key_value = generate_random_token_personal()
         api_key = PersonalAPIKey.objects.create(
             user=user,
@@ -98,12 +100,13 @@ def create_test_task(repository=None):
         )
 
         print(f"✓ Created test task: {task.id}")
+        print(f"  - Run ID: {task_run.id}")
         print(f"  - Team: {team.id}")
         print(f"  - Task slug: {task.slug}")
         print(f"  - API Key: {api_key_value}")
         print(f"  - GitHub token: {'✓' if github_token else '✗ (not configured)'}")
 
-        return task, api_key.id, api_key_value, github_token
+        return task, task_run.id, api_key.id, api_key_value, github_token
 
 
 def cleanup_test_data(task_id, api_key_id):
@@ -115,7 +118,16 @@ def cleanup_test_data(task_id, api_key_id):
 
 
 def run_agent_in_docker(
-    task_id, repository_path, api_key, team_id, repository, github_token=None, prompt=None, max_turns=None
+    task_id,
+    run_id,
+    repository_path,
+    api_key,
+    team_id,
+    repository,
+    github_token=None,
+    prompt=None,
+    max_turns=None,
+    local_agent_path=None,
 ):
     image_name = "posthog-sandbox-base"
     # Access PostHog web server directly on host port 8000
@@ -143,6 +155,11 @@ def run_agent_in_docker(
             check=True,
         )
 
+    # Build local agent package if provided
+    if local_agent_path:
+        print(f"Building local agent package at {local_agent_path}...")
+        subprocess.run(["npm", "run", "build"], cwd=local_agent_path, check=True)
+
     # Clone repository first, then run agent (matching production flow)
     # Use token in URL for authentication if available
     # GitHub accepts tokens in the format: https://x-access-token:TOKEN@github.com/...
@@ -161,6 +178,7 @@ def run_agent_in_docker(
             cmd_parts.extend(["--max-turns", str(max_turns)])
     else:
         cmd_parts.extend(["--taskId", str(task_id)])
+        cmd_parts.extend(["--runId", str(run_id)])
 
     cmd_parts.extend(["--repositoryPath", container_repo_path])
 
@@ -176,6 +194,8 @@ def run_agent_in_docker(
     print(f"  Clone + Run command: {full_cmd}")
     print(f"  Host URL: {host_url}")
     print(f"  Project ID: {team_id}")
+    print(f"  Task ID: {task_id}")
+    print(f"  Run ID: {run_id}")
     print(f"  Repository: {repository}")
     print(f"  GitHub token: {'✓' if github_token else '✗ (not configured - will fail on git push)'}")
     print()
@@ -197,6 +217,24 @@ def run_agent_in_docker(
         f"POSTHOG_PROJECT_ID={team_id}",
     ]
 
+    # Mount local agent package if provided
+    if local_agent_path:
+        # Create a tarball of the package for proper installation with dependencies
+        pack_result = subprocess.run(
+            ["npm", "pack", "--pack-destination", "/tmp"],
+            cwd=local_agent_path,
+            capture_output=True,
+            text=True,
+        )
+        tarball_name = pack_result.stdout.strip().split("\n")[-1]
+        tarball_path = f"/tmp/{tarball_name}"
+
+        docker_args.extend(["-v", f"{tarball_path}:/agent-package.tgz:ro"])
+        # Install from tarball to get proper dependency resolution
+        install_cmd = "cd /scripts && npm install /agent-package.tgz"
+        full_cmd = f"{install_cmd} && {full_cmd}"
+        print(f"  Using local agent: {local_agent_path} (packed as {tarball_name})")
+
     if github_token:
         docker_args.extend(["-e", f"GITHUB_TOKEN={github_token}"])
 
@@ -204,9 +242,9 @@ def run_agent_in_docker(
 
     result = subprocess.run(docker_args)
 
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print(f"Agent completed with exit code: {result.returncode}")
-    print(f"{'='*60}\n")
+    print(f"{'=' * 60}\n")
 
     return result.returncode
 
@@ -219,11 +257,13 @@ def main():
     parser.add_argument("--repository", help="GitHub repository", default="posthog/posthog-js")
     parser.add_argument("--github-token", help="GitHub personal access token")
     parser.add_argument("--no-cleanup", action="store_true", help="Don't cleanup test data")
+    parser.add_argument("--local-agent", help="Path to local @posthog/agent package (will be built and linked)")
 
     args = parser.parse_args()
 
-    task, api_key_id, api_key_value, github_token_from_integration = create_test_task(args.repository)
+    task, run_id, api_key_id, api_key_value, github_token_from_integration = create_test_task(args.repository)
     task_id = str(task.id)
+    run_id = str(run_id)
     api_key = api_key_value
     github_token = args.github_token or github_token_from_integration
     team_id = 1  # Hardcoded to hedgebox team
@@ -232,6 +272,7 @@ def main():
     try:
         exit_code = run_agent_in_docker(
             task_id,
+            run_id,
             args.repository_path,
             api_key,
             team_id,
@@ -239,6 +280,7 @@ def main():
             github_token=github_token,
             prompt=args.prompt,
             max_turns=args.max_turns,
+            local_agent_path=args.local_agent,
         )
 
         if not args.no_cleanup:
@@ -246,6 +288,7 @@ def main():
         else:
             print(f"\n⚠ Test data not cleaned up")
             print(f"  Task ID: {task_id}")
+            print(f"  Run ID: {run_id}")
 
         sys.exit(exit_code)
 

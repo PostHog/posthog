@@ -232,7 +232,6 @@ export function formatResolvedName(
 
 export function formatType(exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace'>): string {
     const hasJavaFrames = exception.stacktrace?.frames?.some((frame) => frame.lang === 'java')
-
     return exception.module && hasJavaFrames ? `${exception.module}.${exception.type}` : exception.type
 }
 
@@ -240,4 +239,13 @@ export function formatExceptionDisplay(
     exception: Pick<ErrorTrackingException, 'module' | 'type' | 'stacktrace' | 'value'>
 ): string {
     return `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
+}
+
+export function createFrameFilter(showAllFrames: boolean) {
+    return (frame: ErrorTrackingStackFrame) => {
+        if (showAllFrames) {
+            return true
+        }
+        return frame.in_app
+    }
 }

@@ -44,7 +44,7 @@ function getSourceDisplayStatus(
         }
     }
     // regardless of release status, those failing the feature flag should see an unreleased source
-    if (featureFlag === false) {
+    if (!featureFlag) {
         return {
             status: 'coming_soon',
             descriptionEl: unreleasedDescriptionEl,
@@ -89,6 +89,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         unreleasedValue,
                         featureFlagValue
                     )
+
                     return {
                         id: `managed-${connector.name}`,
                         type: 'source',
@@ -103,6 +104,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
+                        featured: connector.featured ?? false,
                     }
                 })
                 const selfManaged = manualConnectors.map(

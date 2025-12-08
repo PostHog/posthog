@@ -1,24 +1,20 @@
 import './Playlist.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { ReactNode, useRef, useState } from 'react'
 
-import { IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonCollapse, LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonCollapse, LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { range } from 'lib/utils'
-import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 
 import { SessionRecordingType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
-import { playlistLogic } from './playlistLogic'
+import { playlistFiltersLogic } from './playlistFiltersLogic'
 
 const SCROLL_TRIGGER_OFFSET = 100
 
@@ -81,17 +77,15 @@ export function Playlist({
     'data-attr': dataAttr,
     filterContent,
 }: PlaylistProps): JSX.Element {
-    const { isFiltersExpanded } = useValues(playlistLogic)
+    const { isFiltersExpanded } = useValues(playlistFiltersLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { askSidePanelMax } = useActions(maxGlobalLogic)
 
-    const firstRecordingItem = sections
+    const firstItem = sections
         .filter((s): s is PlaylistRecordingPreviewBlock => 'items' in s)
         ?.find((s) => s.items.length > 0)?.items[0]
 
     const [controlledActiveItemId, setControlledActiveItemId] = useState<SessionRecordingType['id'] | null>(
-        selectInitialItem && firstRecordingItem ? firstRecordingItem.id : null
+        selectInitialItem && firstItem ? firstItem.id : null
     )
 
     const playlistListRef = useRef<HTMLDivElement>(null)
@@ -254,24 +248,6 @@ export function Playlist({
                             </div>
                         </div>
                     </div>
-                    {featureFlags[FEATURE_FLAGS.MAX_SESSION_SUMMARIZATION_BUTTON] && (
-                        <LemonButton
-                            icon={<IconMagicWand />}
-                            type="primary"
-                            onClick={() => {
-                                askSidePanelMax('Summarize recordings based on the current filters')
-                            }}
-                            fullWidth
-                            size="small"
-                            className="mt-2"
-                            disabledReason={!firstRecordingItem ? 'No recordings in the list' : undefined}
-                        >
-                            Summarize above recordings
-                            <LemonTag type="warning" size="small" className="ml-auto uppercase">
-                                Beta
-                            </LemonTag>
-                        </LemonButton>
-                    )}
                 </div>
             </div>
         </>

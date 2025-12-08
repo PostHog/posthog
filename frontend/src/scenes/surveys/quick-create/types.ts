@@ -1,10 +1,12 @@
-import { FeatureFlagType } from '~/types'
+import { Experiment, FeatureFlagType } from '~/types'
 
-export type QuickSurveyContext = {
-    type: QuickSurveyType.FEATURE_FLAG
-    flag: FeatureFlagType
-    initialVariantKey?: string | null
-}
+import { FunnelContext } from '../utils/opportunityDetection'
+
+export type QuickSurveyContext =
+    | { type: QuickSurveyType.FEATURE_FLAG; flag: FeatureFlagType; initialVariantKey?: string | null }
+    | { type: QuickSurveyType.FUNNEL; funnel: FunnelContext }
+    | { type: QuickSurveyType.EXPERIMENT; experiment: Experiment }
+    | { type: QuickSurveyType.ANNOUNCEMENT }
 
 export interface QuickSurveyFormProps {
     context: QuickSurveyContext
@@ -14,4 +16,7 @@ export interface QuickSurveyFormProps {
 
 export enum QuickSurveyType {
     FEATURE_FLAG = 'feature_flag',
+    FUNNEL = 'funnel',
+    EXPERIMENT = 'experiment',
+    ANNOUNCEMENT = 'announcement',
 }

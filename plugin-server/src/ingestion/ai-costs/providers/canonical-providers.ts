@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-03 10:03:34 UTC
+// Generated at: 2025-12-08 10:03:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,7 +20,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'byteplus'
     | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'
@@ -107,6 +106,7 @@ export type CanonicalProvider =
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
+    | 'sambanova-standard'
     | 'sambanova-turbo'
     | 'siliconflow-fp8'
     | 'streamlake-fp16'

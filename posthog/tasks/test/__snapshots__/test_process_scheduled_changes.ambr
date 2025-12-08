@@ -127,7 +127,9 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -165,7 +167,9 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -524,6 +528,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -864,7 +869,9 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -902,7 +909,9 @@
          "posthog_survey"."current_iteration",
          "posthog_survey"."current_iteration_start_date",
          "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses"
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count"
   FROM "posthog_survey"
   WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
@@ -987,6 +996,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"

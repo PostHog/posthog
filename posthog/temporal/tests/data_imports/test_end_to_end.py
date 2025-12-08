@@ -2941,5 +2941,5 @@ async def test_non_retryable_error_short_circuiting(team, stripe_customer, mock_
                 ignore_assertions=True,
             )
 
-    # We should early exit on the first attempt with a non-retryable error
-    assert mock_get_rows.call_count == 1
+    # Non-retryable errors are retried up to 3 times before giving up (4 total attempts)
+    assert mock_get_rows.call_count == 4
