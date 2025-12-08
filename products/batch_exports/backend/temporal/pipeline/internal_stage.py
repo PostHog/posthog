@@ -506,7 +506,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
                         f"Query not found in query log after {num_attempts} attempts",
                         query_id=str(query_id),
                     )
-                    await client.acancel_query(str(query_id))
+                    try:
+                        await client.acancel_query(str(query_id))
+                    except Exception as cancel_error:
+                        logger.warning("Failed to cancel query", query_id=str(query_id), error=str(cancel_error))
                     raise
 
             except Exception as e:
