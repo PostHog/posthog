@@ -216,7 +216,7 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
         config = get_config()
         alias = "ducklake"
         with duckdb.connect() as conn:
-            _configure_source_storage(conn, logger)
+            _configure_source_storage(conn)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -264,7 +264,7 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
-def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
+def _configure_source_storage(conn: duckdb.DuckDBPyConnection) -> None:
     """Configure DuckDB to read from source Delta tables in object storage."""
     conn.execute("INSTALL httpfs")
     conn.execute("LOAD httpfs")
@@ -353,7 +353,7 @@ def verify_data_imports_ducklake_copy_activity(
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
         with duckdb.connect() as conn:
-            _configure_source_storage(conn, logger)
+            _configure_source_storage(conn)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
