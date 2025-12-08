@@ -17,6 +17,7 @@ export interface ModelNodeData extends Record<string, unknown> {
     name: string
     type: DataModelingNodeType
     dagId?: string
+    savedQueryId?: string
     handles?: ModelNodeHandle[]
     userTag?: string
 }

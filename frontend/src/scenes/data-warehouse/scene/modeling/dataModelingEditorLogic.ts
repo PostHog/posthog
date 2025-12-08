@@ -214,6 +214,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         name: node.name,
                         type: node.type,
                         dagId: node.dag_id,
+                        savedQueryId: node.saved_query_id,
                         handles: Object.values(handlesByNodeId[node.id] ?? {}),
                         userTag,
                     },

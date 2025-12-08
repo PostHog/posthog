@@ -6,6 +6,9 @@ import { useEffect, useState } from 'react'
 import { IconPlus, IconRefresh } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { sceneLogic } from 'scenes/sceneLogic'
+import { urls } from 'scenes/urls'
+
 import { DataModelingNodeType } from '~/types'
 
 import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
@@ -54,6 +57,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
     const { selectedNodeId, highlightedNodeType } = useValues(dataModelingEditorLogic)
     const { runNode } = useActions(dataModelingEditorLogic)
+    const { newTab } = useActions(sceneLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
     const [isHovered, setIsHovered] = useState(false)
 
@@ -63,12 +67,13 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const settings = NODE_TYPE_SETTINGS[props.data.type]
     const isSelected = selectedNodeId === props.id
-    const { userTag, name, type } = props.data
+    const { userTag, name, type, savedQueryId } = props.data
 
     const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
 
     const canRun = type !== 'table'
+    const canOpenInEditor = type !== 'table' && savedQueryId
 
     const handleRunUpstream = (e: React.MouseEvent): void => {
         e.stopPropagation()
@@ -78,6 +83,12 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const handleRunDownstream = (e: React.MouseEvent): void => {
         e.stopPropagation()
         runNode(props.id, 'downstream')
+    }
+
+    const handleNodeClick = (): void => {
+        if (canOpenInEditor) {
+            newTab(urls.sqlEditor(undefined, savedQueryId))
+        }
     }
 
     return (
@@ -90,7 +101,8 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                       ? 'border-link ring-2 ring-link/30'
                       : isSelected
                         ? 'border-primary ring-2 ring-primary/50'
-                        : 'border-border'
+                        : 'border-border',
+                canOpenInEditor && 'cursor-pointer'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -99,6 +111,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             }}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
+            onClick={handleNodeClick}
         >
             {props.data.handles?.map((handle) => (
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
@@ -106,7 +119,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
             {canRun && isHovered && (
                 <>
-                    <Tooltip title="Run all upstream nodes">
+                    <Tooltip title="Run all upstream nodes including this one">
                         <button
                             type="button"
                             onClick={handleRunUpstream}
@@ -115,7 +128,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                             <IconRefresh className="w-3 h-3 text-muted rotate-180" />
                         </button>
                     </Tooltip>
-                    <Tooltip title="Run all downstream nodes">
+                    <Tooltip title="Run all downstream nodes including this one">
                         <button
                             type="button"
                             onClick={handleRunDownstream}
