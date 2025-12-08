@@ -148,7 +148,7 @@ async def fetch_session_batch_events_activity(
         recordings_max_timestamp=datetime.fromisoformat(inputs.max_timestamp_str),
     )
     # Early filter: skip sessions that are too short to have any events survive the cutoff filter
-    session_ids_to_fetch: list[str] = []
+    filtered_session_ids: list[str] = []
     for session_id in session_ids_to_fetch:
         session_metadata = metadata_dict.get(session_id)
         if not session_metadata:
@@ -166,9 +166,9 @@ async def fetch_session_batch_events_activity(
             )
             expected_skip_session_ids.append(session_id)
             continue
-        session_ids_to_fetch.append(session_id)
+        filtered_session_ids.append(session_id)
     # If no sessions left to fetch after filtering
-    if not session_ids_to_fetch:
+    if not filtered_session_ids:
         return SessionBatchFetchOutput(
             fetched_session_ids=fetched_session_ids, expected_skip_session_ids=expected_skip_session_ids
         )
@@ -179,7 +179,7 @@ async def fetch_session_batch_events_activity(
     # Paginate
     while True:
         response = await database_sync_to_async(_get_db_events_per_page)(
-            session_ids=session_ids_to_fetch,
+            session_ids=filtered_session_ids,
             team=team,
             min_timestamp_str=inputs.min_timestamp_str,
             max_timestamp_str=inputs.max_timestamp_str,
@@ -201,7 +201,7 @@ async def fetch_session_batch_events_activity(
             break
         offset += page_size
     # Store all per-session DB data in Redis to summarize in the next activity
-    for session_id in session_ids_to_fetch:
+    for session_id in filtered_session_ids:
         session_events = all_session_events.get(session_id)
         if not session_events:
             temporalio.activity.logger.info(
