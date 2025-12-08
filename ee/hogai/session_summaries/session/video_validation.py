@@ -284,16 +284,39 @@ class SessionSummaryVideoValidator:
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
         # Validate that updates_result is a list
         if not isinstance(updates_result, list):
-            err = TypeError(
+            type_err = TypeError(
                 f"Invalid updates_result type for session {self.session_id}, expected list but got {type(updates_result).__name__}"
             )
             logger.error(
-                str(err),
+                str(type_err),
                 session_id=self.session_id,
                 signals_type="session-summaries",
-                exc_info=err,
+                exc_info=type_err,
             )
-            raise ExceptionToRetry() from err
+            raise ExceptionToRetry() from type_err
+        # Validate that fields are dicts with required keys
+        first_field = updates_result[0]
+        if not isinstance(first_field, dict):
+            type_err = TypeError(
+                f"Invalid field type in updates_result for session {self.session_id}, expected dict but got {type(first_field).__name__}"
+            )
+            logger.error(
+                str(type_err),
+                session_id=self.session_id,
+                signals_type="session-summaries",
+                exc_info=type_err,
+            )
+            raise ExceptionToRetry() from type_err
+        if "path" not in first_field or "new_value" not in first_field:
+            value_err = ValueError(f"Missing required keys in field for session {self.session_id}")
+            logger.error(
+                str(value_err),
+                session_id=self.session_id,
+                signals_type="session-summaries",
+                exc_info=value_err,
+            )
+            raise ExceptionToRetry() from value_err
+        # We're good on the format front, let's go
         updates_result = cast(list[dict[str, str]], updates_result)
         return updates_result
 
@@ -301,27 +324,6 @@ class SessionSummaryVideoValidator:
         """Apply updates to the summary"""
         summary_to_update = copy.deepcopy(self.summary.data)
         for field in updates_result:
-            # Validate that field is a dict with required keys
-            if not isinstance(field, dict):
-                err = TypeError(
-                    f"Invalid field type in updates_result for session {self.session_id}, expected dict but got {type(field).__name__}"
-                )
-                logger.error(
-                    str(err),
-                    session_id=self.session_id,
-                    signals_type="session-summaries",
-                    exc_info=err,
-                )
-                raise ExceptionToRetry() from err
-            if "path" not in field or "new_value" not in field:
-                err = ValueError(f"Missing required keys in field for session {self.session_id}")
-                logger.error(
-                    str(err),
-                    session_id=self.session_id,
-                    signals_type="session-summaries",
-                    exc_info=err,
-                )
-                raise ExceptionToRetry() from err
             # Ensure the path exists and wasn't hallucinated
             try:
                 find_value(target=summary_to_update, spec=field["path"])
