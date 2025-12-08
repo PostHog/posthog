@@ -2,9 +2,17 @@
 Widget API endpoints for the Conversations product.
 
 These endpoints are public (authenticated via public token) and used by the posthog-js widget.
+
+Security model:
+- `widget_session_id`: Random UUID generated client-side, stored in localStorage. Used for ACCESS CONTROL.
+  (NOT the same as PostHog's session replay session_id - this one is persistent and never resets)
+- `distinct_id`: PostHog's user identifier. Used for PERSON LINKING only, not access control.
+
+This prevents users from accessing others' chats by knowing their email.
 """
 
 import html
+import uuid
 import hashlib
 import logging
 from typing import Optional
@@ -31,16 +39,16 @@ logger = logging.getLogger(__name__)
 
 
 class WidgetUserBurstThrottle(SimpleRateThrottle):
-    """Rate limit per distinct_id or IP for POST/GET requests."""
+    """Rate limit per widget_session_id or IP for POST/GET requests."""
 
     scope = "widget_user_burst"
     rate = "30/minute"
 
     def get_cache_key(self, request, view):
-        # Throttle by distinct_id if available, otherwise by IP
-        distinct_id = request.data.get("distinct_id") or request.query_params.get("distinct_id")
-        if distinct_id:
-            ident = hashlib.sha256(distinct_id.encode()).hexdigest()
+        # Throttle by widget_session_id if available, otherwise by IP
+        widget_session_id = request.data.get("widget_session_id") or request.query_params.get("widget_session_id")
+        if widget_session_id:
+            ident = hashlib.sha256(widget_session_id.encode()).hexdigest()
         else:
             ident = self.get_ident(request)
         return self.cache_format % {"scope": self.scope, "ident": ident}
@@ -63,7 +71,7 @@ class WidgetAuthentication(BaseAuthentication):
     """
     Authenticate widget requests via conversations_public_token.
     This provides team-level authentication only. User-level scoping
-    is enforced via distinct_id validation in each endpoint.
+    is enforced via widget_session_id validation in each endpoint.
     """
 
     def authenticate(self, request: Request) -> tuple[None, Team]:
@@ -86,10 +94,32 @@ class WidgetAuthentication(BaseAuthentication):
 # Validation helpers
 
 
+def validate_widget_session_id(widget_session_id: Optional[str]) -> str:
+    """
+    Validate widget_session_id is present and is a valid UUID.
+    Widget session ID is used for access control - must be unguessable.
+    Note: This is NOT the same as PostHog's session replay session_id.
+    """
+    if not widget_session_id:
+        raise ValidationError("widget_session_id is required")
+
+    if len(widget_session_id) > 64:
+        raise ValidationError("widget_session_id too long (max 64 chars)")
+
+    # Validate UUID format
+    try:
+        uuid.UUID(widget_session_id)
+    except ValueError:
+        raise ValidationError("widget_session_id must be a valid UUID")
+
+    return widget_session_id
+
+
 def validate_distinct_id(distinct_id: Optional[str]) -> str:
     """
     Validate distinct_id is present and within length limits.
     PostHog allows any distinct_id format.
+    Note: distinct_id is used for Person linking only, not access control.
     """
     if not distinct_id:
         raise ValidationError("distinct_id is required")
@@ -162,6 +192,8 @@ class WidgetMessageView(APIView):
     """
     POST /api/conversations/v1/widget/message
     Create a new message in a ticket (or create ticket if first message).
+
+    Security: Access controlled by widget_session_id (random UUID), not distinct_id.
     """
 
     authentication_classes = [WidgetAuthentication]
@@ -183,6 +215,7 @@ class WidgetMessageView(APIView):
 
         try:
             # Validate and extract data
+            widget_session_id = validate_widget_session_id(request.data.get("widget_session_id"))
             distinct_id = validate_distinct_id(request.data.get("distinct_id"))
             message_content = sanitize_message_content(request.data.get("message", ""))
             traits = validate_traits(request.data.get("traits", {}))
@@ -198,30 +231,45 @@ class WidgetMessageView(APIView):
             try:
                 ticket = Ticket.objects.get(id=ticket_id, team=team)
 
-                # CRITICAL: Verify ticket belongs to this distinct_id
-                if ticket.distinct_id != distinct_id:
+                # CRITICAL: Verify ticket belongs to this widget_session_id (NOT distinct_id)
+                if ticket.widget_session_id != widget_session_id:
                     return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+                # Update distinct_id if changed (anonymous → identified transition)
+                if ticket.distinct_id != distinct_id:
+                    ticket.distinct_id = distinct_id
 
                 # Update traits if provided
                 if traits:
                     ticket.anonymous_traits.update(traits)
-                    ticket.save(update_fields=["anonymous_traits", "updated_at"])
+
+                ticket.save(update_fields=["distinct_id", "anonymous_traits", "updated_at"])
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
-            # Create new ticket
-            ticket, created = Ticket.objects.get_or_create(
-                team=team,
-                distinct_id=distinct_id,
-                channel_source="widget",
-                defaults={"status": "new", "anonymous_traits": traits},
-            )
+            # Find existing ticket by widget_session_id or create new one
+            ticket = Ticket.objects.filter(
+                team=team, widget_session_id=widget_session_id, channel_source="widget"
+            ).first()
 
-            # Update traits if ticket already existed
-            if not created and traits:
-                ticket.anonymous_traits.update(traits)
-                ticket.save(update_fields=["anonymous_traits", "updated_at"])
+            if ticket:
+                # Update distinct_id if changed (anonymous → identified)
+                if ticket.distinct_id != distinct_id:
+                    ticket.distinct_id = distinct_id
+                if traits:
+                    ticket.anonymous_traits.update(traits)
+                ticket.save(update_fields=["distinct_id", "anonymous_traits", "updated_at"])
+            else:
+                # Create new ticket
+                ticket = Ticket.objects.create(
+                    team=team,
+                    widget_session_id=widget_session_id,
+                    distinct_id=distinct_id,
+                    channel_source="widget",
+                    status="new",
+                    anonymous_traits=traits,
+                )
 
         # Create message
         comment = Comment.objects.create(
@@ -247,6 +295,8 @@ class WidgetMessagesView(APIView):
     """
     GET /api/conversations/v1/widget/messages/<ticket_id>
     Fetch messages for a specific ticket.
+
+    Security: Access controlled by widget_session_id (random UUID), not distinct_id.
     """
 
     authentication_classes = [WidgetAuthentication]
@@ -259,7 +309,7 @@ class WidgetMessagesView(APIView):
         team: Team = request.auth
 
         try:
-            distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
+            widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
         except ValidationError:
             logger.exception("Validation error in WidgetMessagesView")
             return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
@@ -270,8 +320,8 @@ class WidgetMessagesView(APIView):
         except Ticket.DoesNotExist:
             return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        # CRITICAL: Verify the ticket belongs to this distinct_id
-        if ticket.distinct_id != distinct_id:
+        # CRITICAL: Verify the ticket belongs to this widget_session_id (NOT distinct_id)
+        if ticket.widget_session_id != widget_session_id:
             return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
 
         # Get query parameters
@@ -332,7 +382,10 @@ class WidgetMessagesView(APIView):
 class WidgetTicketsView(APIView):
     """
     GET /api/conversations/v1/widget/tickets
-    List all tickets for current distinct_id (for conversation history).
+    List all tickets for current widget_session_id (for conversation history).
+
+    Security: Lists tickets by widget_session_id, not distinct_id.
+    Users only see tickets from their browser session.
     """
 
     authentication_classes = [WidgetAuthentication]
@@ -340,12 +393,12 @@ class WidgetTicketsView(APIView):
     throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
 
     def get(self, request: Request) -> Response:
-        """List tickets for a distinct_id."""
+        """List tickets for a widget_session_id."""
 
         team: Team = request.auth
 
         try:
-            distinct_id = validate_distinct_id(request.query_params.get("distinct_id"))
+            widget_session_id = validate_widget_session_id(request.query_params.get("widget_session_id"))
         except ValidationError:
             logger.exception("Validation error in WidgetTicketsView")
             return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
@@ -355,8 +408,8 @@ class WidgetTicketsView(APIView):
         limit = min(int(request.query_params.get("limit", 10)), 50)  # Max 50
         offset = int(request.query_params.get("offset", 0))
 
-        # Build query
-        tickets_query = Ticket.objects.filter(team=team, distinct_id=distinct_id)
+        # Build query - filter by widget_session_id, not distinct_id
+        tickets_query = Ticket.objects.filter(team=team, widget_session_id=widget_session_id)
 
         if status_filter:
             tickets_query = tickets_query.filter(status=status_filter)

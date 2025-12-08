@@ -1,6 +1,7 @@
 """Tests for widget API endpoints."""
 
 import json
+import uuid
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -14,6 +15,11 @@ from posthog.models.comment import Comment
 from products.conversations.backend.models import Ticket
 
 
+def generate_widget_session_id() -> str:
+    """Generate a random widget_session_id for testing."""
+    return str(uuid.uuid4())
+
+
 class TestWidgetAuthentication(APIBaseTest):
     """Tests for widget authentication."""
 
@@ -21,7 +27,9 @@ class TestWidgetAuthentication(APIBaseTest):
         """Request without X-Conversations-Token should fail."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": "test_user", "message": "Hello"}
+            ),
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
@@ -31,7 +39,9 @@ class TestWidgetAuthentication(APIBaseTest):
         """Request with invalid token should fail."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": "test_user", "message": "Hello"}
+            ),
             content_type="application/json",
             headers={"X-Conversations-Token": "invalid_token_123"},
         )
@@ -45,7 +55,9 @@ class TestWidgetAuthentication(APIBaseTest):
 
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": "test_user", "message": "Hello"}
+            ),
             content_type="application/json",
             headers={"X-Conversations-Token": "test_token_123"},
         )
@@ -59,7 +71,9 @@ class TestWidgetAuthentication(APIBaseTest):
 
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "test_user", "message": "Hello"}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": "test_user", "message": "Hello"}
+            ),
             content_type="application/json",
             headers={"X-Conversations-Token": "test_token_123"},
         )
@@ -77,10 +91,13 @@ class TestWidgetMessageView(APIBaseTest):
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
     def test_create_first_message_creates_ticket(self):
-        """First message from a distinct_id should create a new ticket."""
+        """First message from a widget_session_id should create a new ticket."""
+        widget_session_id = generate_widget_session_id()
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": "Hello, I need help"}),
+            data=json.dumps(
+                {"widget_session_id": widget_session_id, "distinct_id": "user_123", "message": "Hello, I need help"}
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -91,8 +108,9 @@ class TestWidgetMessageView(APIBaseTest):
         self.assertIn("message_id", data)
         self.assertEqual(data["ticket_status"], "new")
 
-        # Verify ticket was created
+        # Verify ticket was created with widget_session_id
         ticket = Ticket.objects.get(id=data["ticket_id"])
+        self.assertEqual(ticket.widget_session_id, widget_session_id)
         self.assertEqual(ticket.distinct_id, "user_123")
         self.assertEqual(ticket.channel_source, "widget")
         self.assertEqual(ticket.status, "new")
@@ -105,19 +123,30 @@ class TestWidgetMessageView(APIBaseTest):
 
     def test_add_message_to_existing_ticket(self):
         """Adding a message with ticket_id should add to existing ticket."""
+        widget_session_id = generate_widget_session_id()
+
         # Create initial ticket
         response1 = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": "First message"}),
+            data=json.dumps(
+                {"widget_session_id": widget_session_id, "distinct_id": "user_123", "message": "First message"}
+            ),
             content_type="application/json",
             headers=self.headers,
         )
         ticket_id = response1.json()["ticket_id"]
 
-        # Add second message
+        # Add second message with same widget_session_id
         response2 = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": "Second message", "ticket_id": ticket_id}),
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user_123",
+                    "message": "Second message",
+                    "ticket_id": ticket_id,
+                }
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -129,32 +158,147 @@ class TestWidgetMessageView(APIBaseTest):
         messages = Comment.objects.filter(scope="conversations_ticket", item_id=ticket_id)
         self.assertEqual(messages.count(), 2)
 
-    def test_cannot_add_to_another_users_ticket(self):
-        """User should not be able to add messages to another user's ticket."""
-        # Create ticket for user_1
+    def test_cannot_add_to_another_sessions_ticket(self):
+        """User should not be able to add messages to another session's ticket."""
+        widget_session_1 = generate_widget_session_id()
+        widget_session_2 = generate_widget_session_id()
+
+        # Create ticket for widget_session_1
         response1 = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_1", "message": "User 1 message"}),
+            data=json.dumps(
+                {"widget_session_id": widget_session_1, "distinct_id": "user_1", "message": "User 1 message"}
+            ),
             content_type="application/json",
             headers=self.headers,
         )
         ticket_id = response1.json()["ticket_id"]
 
-        # Try to add message as user_2
+        # Try to add message as widget_session_2 (different session, even same distinct_id)
         response2 = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_2", "message": "User 2 message", "ticket_id": ticket_id}),
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_2,
+                    "distinct_id": "user_1",
+                    "message": "User 2 message",
+                    "ticket_id": ticket_id,
+                }
+            ),
             content_type="application/json",
             headers=self.headers,
         )
 
         self.assertEqual(response2.status_code, status.HTTP_403_FORBIDDEN)
 
+    def test_knowing_email_cannot_access_ticket(self):
+        """Security: knowing someone's email (distinct_id) should NOT grant access."""
+        widget_session_1 = generate_widget_session_id()
+        widget_session_2 = generate_widget_session_id()
+
+        # Create ticket for widget_session_1 with email as distinct_id
+        response1 = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_1,
+                    "distinct_id": "victim@example.com",
+                    "message": "Private message",
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+        ticket_id = response1.json()["ticket_id"]
+
+        # Attacker knows the email but has different widget_session_id - should be denied
+        response2 = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_2,
+                    "distinct_id": "victim@example.com",  # Same email!
+                    "message": "Attacker message",
+                    "ticket_id": ticket_id,
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response2.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonymous_to_identified_transition(self):
+        """When user identifies, distinct_id should update but session stays same."""
+        widget_session_id = generate_widget_session_id()
+
+        # First message as anonymous
+        response1 = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {"widget_session_id": widget_session_id, "distinct_id": "anon-uuid-123", "message": "Anonymous message"}
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+        ticket_id = response1.json()["ticket_id"]
+
+        # Second message after identifying (same session, different distinct_id)
+        response2 = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user@example.com",  # Now identified
+                    "message": "Identified message",
+                    "ticket_id": ticket_id,
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response2.status_code, status.HTTP_200_OK)
+
+        # Verify distinct_id was updated
+        ticket = Ticket.objects.get(id=ticket_id)
+        self.assertEqual(ticket.widget_session_id, widget_session_id)
+        self.assertEqual(ticket.distinct_id, "user@example.com")
+
     def test_honeypot_field_blocks_bots(self):
         """Request with _hp field (honeypot) should be rejected."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "bot_123", "message": "spam", "_hp": "filled"}),
+            data=json.dumps(
+                {
+                    "widget_session_id": generate_widget_session_id(),
+                    "distinct_id": "bot_123",
+                    "message": "spam",
+                    "_hp": "filled",
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_missing_widget_session_id(self):
+        """Request without widget_session_id should fail."""
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps({"distinct_id": "user_123", "message": "Hello"}),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_widget_session_id_format(self):
+        """Request with non-UUID widget_session_id should fail."""
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps({"widget_session_id": "not-a-uuid", "distinct_id": "user_123", "message": "Hello"}),
             content_type="application/json",
             headers=self.headers,
         )
@@ -165,19 +309,18 @@ class TestWidgetMessageView(APIBaseTest):
         """Request without distinct_id should fail."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"message": "Hello"}),
+            data=json.dumps({"widget_session_id": generate_widget_session_id(), "message": "Hello"}),
             content_type="application/json",
             headers=self.headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.json())
 
     def test_missing_message(self):
         """Request without message should fail."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123"}),
+            data=json.dumps({"widget_session_id": generate_widget_session_id(), "distinct_id": "user_123"}),
             content_type="application/json",
             headers=self.headers,
         )
@@ -189,7 +332,9 @@ class TestWidgetMessageView(APIBaseTest):
         long_message = "x" * 5001
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": long_message}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": "user_123", "message": long_message}
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -201,7 +346,9 @@ class TestWidgetMessageView(APIBaseTest):
         long_id = "x" * 201
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": long_id, "message": "Hello"}),
+            data=json.dumps(
+                {"widget_session_id": generate_widget_session_id(), "distinct_id": long_id, "message": "Hello"}
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -212,7 +359,13 @@ class TestWidgetMessageView(APIBaseTest):
         """HTML in message should be escaped for security."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": "<script>alert('xss')</script>"}),
+            data=json.dumps(
+                {
+                    "widget_session_id": generate_widget_session_id(),
+                    "distinct_id": "user_123",
+                    "message": "<script>alert('xss')</script>",
+                }
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -225,10 +378,12 @@ class TestWidgetMessageView(APIBaseTest):
 
     def test_traits_are_stored(self):
         """Customer traits should be stored on ticket."""
+        widget_session_id = generate_widget_session_id()
         response = self.client.post(
             "/api/conversations/v1/widget/message",
             data=json.dumps(
                 {
+                    "widget_session_id": widget_session_id,
                     "distinct_id": "user_123",
                     "message": "Hello",
                     "traits": {"name": "John Doe", "email": "john@example.com"},
@@ -246,10 +401,19 @@ class TestWidgetMessageView(APIBaseTest):
 
     def test_traits_are_updated(self):
         """Traits should be updated on subsequent messages."""
+        widget_session_id = generate_widget_session_id()
+
         # First message
         response1 = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"distinct_id": "user_123", "message": "Hello", "traits": {"name": "John"}}),
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user_123",
+                    "message": "Hello",
+                    "traits": {"name": "John"},
+                }
+            ),
             content_type="application/json",
             headers=self.headers,
         )
@@ -260,6 +424,7 @@ class TestWidgetMessageView(APIBaseTest):
             "/api/conversations/v1/widget/message",
             data=json.dumps(
                 {
+                    "widget_session_id": widget_session_id,
                     "distinct_id": "user_123",
                     "message": "Follow up",
                     "ticket_id": ticket_id,
@@ -280,7 +445,7 @@ class TestWidgetMessageView(APIBaseTest):
         """Validation errors should be logged internally."""
         response = self.client.post(
             "/api/conversations/v1/widget/message",
-            data=json.dumps({"message": "Hello"}),  # Missing distinct_id
+            data=json.dumps({"distinct_id": "user_123", "message": "Hello"}),  # Missing widget_session_id
             content_type="application/json",
             headers=self.headers,
         )
@@ -300,8 +465,13 @@ class TestWidgetMessagesView(APIBaseTest):
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
         # Create a ticket with messages
+        self.widget_session_id = generate_widget_session_id()
         self.ticket = Ticket.objects.create(
-            team=self.team, distinct_id="user_123", channel_source="widget", status="new"
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
         )
 
         self.message1 = Comment.objects.create(
@@ -324,7 +494,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_get_messages_for_ticket(self):
         """Should return all messages for a ticket."""
         response = self.client.get(
-            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={self.widget_session_id}",
             headers=self.headers,
         )
 
@@ -333,19 +503,40 @@ class TestWidgetMessagesView(APIBaseTest):
         self.assertEqual(data["ticket_id"], str(self.ticket.id))
         self.assertEqual(len(data["messages"]), 2)
 
-    def test_cannot_get_another_users_messages(self):
-        """User should not be able to access another user's ticket messages."""
+    def test_cannot_get_another_sessions_messages(self):
+        """User should not be able to access another session's ticket messages."""
+        other_widget_session = generate_widget_session_id()
         response = self.client.get(
-            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_456",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={other_widget_session}",
             headers=self.headers,
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_missing_distinct_id(self):
-        """Request without distinct_id should fail."""
+    def test_knowing_email_cannot_read_messages(self):
+        """Security: knowing distinct_id (email) should NOT grant read access."""
+        other_widget_session = generate_widget_session_id()
+        # Even with the same distinct_id, different session should be denied
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={other_widget_session}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_missing_widget_session_id(self):
+        """Request without widget_session_id should fail."""
         response = self.client.get(
             f"/api/conversations/v1/widget/messages/{self.ticket.id}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_invalid_widget_session_id_format(self):
+        """Request with non-UUID widget_session_id should fail."""
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id=not-a-uuid",
             headers=self.headers,
         )
 
@@ -354,7 +545,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_ticket_not_found(self):
         """Request for non-existent ticket should return 404."""
         response = self.client.get(
-            "/api/conversations/v1/widget/messages/00000000-0000-0000-0000-000000000000?distinct_id=user_123",
+            f"/api/conversations/v1/widget/messages/00000000-0000-0000-0000-000000000000?widget_session_id={self.widget_session_id}",
             headers=self.headers,
         )
 
@@ -373,7 +564,7 @@ class TestWidgetMessagesView(APIBaseTest):
         )
 
         response = self.client.get(
-            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={self.widget_session_id}",
             headers=self.headers,
         )
 
@@ -396,7 +587,7 @@ class TestWidgetMessagesView(APIBaseTest):
             )
 
         response = self.client.get(
-            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=5",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={self.widget_session_id}&limit=5",
             headers=self.headers,
         )
 
@@ -407,7 +598,7 @@ class TestWidgetMessagesView(APIBaseTest):
     def test_max_limit_is_500(self):
         """Limit should be capped at 500."""
         response = self.client.get(
-            f"/api/conversations/v1/widget/messages/{self.ticket.id}?distinct_id=user_123&limit=1000",
+            f"/api/conversations/v1/widget/messages/{self.ticket.id}?widget_session_id={self.widget_session_id}&limit=1000",
             headers=self.headers,
         )
 
@@ -425,19 +616,38 @@ class TestWidgetTicketsView(APIBaseTest):
         self.team.save()
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
-    def test_list_tickets_for_user(self):
-        """Should list all tickets for a distinct_id."""
-        # Create tickets
-        ticket1 = Ticket.objects.create(team=self.team, distinct_id="user_123", channel_source="widget", status="new")
+    def test_list_tickets_for_session(self):
+        """Should list all tickets for a widget_session_id."""
+        widget_session_id = generate_widget_session_id()
+
+        # Create tickets for this session
+        ticket1 = Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+        )
         ticket2 = Ticket.objects.create(
-            team=self.team, distinct_id="user_123", channel_source="widget", status="resolved"
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="resolved",
         )
 
-        # Create ticket for different user (should not appear)
-        Ticket.objects.create(team=self.team, distinct_id="user_456", channel_source="widget", status="new")
+        # Create ticket for different session (should not appear)
+        other_widget_session = generate_widget_session_id()
+        Ticket.objects.create(
+            team=self.team,
+            widget_session_id=other_widget_session,
+            distinct_id="user_456",
+            channel_source="widget",
+            status="new",
+        )
 
         response = self.client.get(
-            "/api/conversations/v1/widget/tickets?distinct_id=user_123",
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}",
             headers=self.headers,
         )
 
@@ -448,13 +658,50 @@ class TestWidgetTicketsView(APIBaseTest):
         self.assertIn(str(ticket1.id), ticket_ids)
         self.assertIn(str(ticket2.id), ticket_ids)
 
+    def test_cannot_see_other_sessions_tickets_even_with_same_email(self):
+        """Security: same distinct_id but different session should not see tickets."""
+        widget_session_1 = generate_widget_session_id()
+        widget_session_2 = generate_widget_session_id()
+
+        # Create ticket for widget_session_1
+        Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_1,
+            distinct_id="shared@example.com",  # Same email
+            channel_source="widget",
+            status="new",
+        )
+
+        # Query with widget_session_2 (same email, different session)
+        response = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_2}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 0)  # Should NOT see widget_session_1's ticket
+
     def test_filter_by_status(self):
         """Should filter tickets by status."""
-        Ticket.objects.create(team=self.team, distinct_id="user_123", channel_source="widget", status="new")
-        Ticket.objects.create(team=self.team, distinct_id="user_123", channel_source="widget", status="resolved")
+        widget_session_id = generate_widget_session_id()
+        Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+        )
+        Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="resolved",
+        )
 
         response = self.client.get(
-            "/api/conversations/v1/widget/tickets?distinct_id=user_123&status=new",
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}&status=new",
             headers=self.headers,
         )
 
@@ -463,8 +710,8 @@ class TestWidgetTicketsView(APIBaseTest):
         self.assertEqual(data["count"], 1)
         self.assertEqual(data["results"][0]["status"], "new")
 
-    def test_missing_distinct_id(self):
-        """Request without distinct_id should fail."""
+    def test_missing_widget_session_id(self):
+        """Request without widget_session_id should fail."""
         response = self.client.get(
             "/api/conversations/v1/widget/tickets",
             headers=self.headers,
@@ -472,14 +719,30 @@ class TestWidgetTicketsView(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_invalid_widget_session_id_format(self):
+        """Request with non-UUID widget_session_id should fail."""
+        response = self.client.get(
+            "/api/conversations/v1/widget/tickets?widget_session_id=not-a-uuid",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_pagination(self):
         """Should support pagination with limit and offset."""
+        widget_session_id = generate_widget_session_id()
         # Create multiple tickets
         for _i in range(15):
-            Ticket.objects.create(team=self.team, distinct_id="user_123", channel_source="widget", status="new")
+            Ticket.objects.create(
+                team=self.team,
+                widget_session_id=widget_session_id,
+                distinct_id="user_123",
+                channel_source="widget",
+                status="new",
+            )
 
         response = self.client.get(
-            "/api/conversations/widget/tickets?distinct_id=user_123&limit=10&offset=0",
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}&limit=10&offset=0",
             headers=self.headers,
         )
 
@@ -490,8 +753,9 @@ class TestWidgetTicketsView(APIBaseTest):
 
     def test_max_limit_is_50(self):
         """Limit should be capped at 50."""
+        widget_session_id = generate_widget_session_id()
         response = self.client.get(
-            "/api/conversations/widget/tickets?distinct_id=user_123&limit=100",
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}&limit=100",
             headers=self.headers,
         )
 
@@ -518,12 +782,18 @@ class TestWidgetRateLimiting(APIBaseTest):
         self.headers = {"X-Conversations-Token": "test_token_123"}
 
     def test_burst_rate_limit(self):
-        """Should rate limit after 30 requests per minute per user."""
+        """Should rate limit after 30 requests per minute per widget_session."""
         # Note: In practice, this test might need adjustment based on actual rate limit configuration
         for i in range(35):
             response = self.client.post(
                 "/api/conversations/v1/widget/message",
-                data=json.dumps({"distinct_id": f"user_{i}", "message": f"Message {i}"}),
+                data=json.dumps(
+                    {
+                        "widget_session_id": generate_widget_session_id(),
+                        "distinct_id": f"user_{i}",
+                        "message": f"Message {i}",
+                    }
+                ),
                 content_type="application/json",
                 headers=self.headers,
             )

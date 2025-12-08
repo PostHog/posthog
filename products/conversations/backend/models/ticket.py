@@ -8,7 +8,10 @@ from .constants import Channel, Status
 class Ticket(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     channel_source = models.CharField(max_length=20, choices=Channel.choices, default=Channel.WIDGET)
-    distinct_id = models.CharField(max_length=400)
+    widget_session_id = models.CharField(
+        max_length=64, db_index=True
+    )  # Random UUID for access control (NOT session replay session_id)
+    distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
@@ -19,9 +22,10 @@ class Ticket(UUIDTModel):
     class Meta:
         db_table = "posthog_conversations_ticket"
         indexes = [
-            models.Index(fields=["team", "distinct_id"]),
+            models.Index(fields=["team", "widget_session_id"]),  # Access control queries
+            models.Index(fields=["team", "distinct_id"]),  # Person linking queries
             models.Index(fields=["team", "status"]),
         ]
 
     def __str__(self):
-        return f"Ticket {self.id} - {self.distinct_id}"
+        return f"Ticket {self.id} - {self.widget_session_id[:8]}..."

@@ -13,51 +13,60 @@ This document explains how to integrate the PostHog Conversations widget, includ
 - Validates: "You're allowed to create tickets/messages for this team"
 - **Scoping**: Token is read-only for widget operations, cannot access admin endpoints
 
-### Distinct ID (User-level scoping)
+### Session ID (Access Control) - **CRITICAL FOR SECURITY**
 
-- `distinct_id` is what scopes data to the **USER**
-- This is PostHog's standard user identifier from posthog-js
-- Widget can ONLY access tickets that match its own distinct_id
+- `widget_session_id` is a **random UUID** generated client-side, stored in localStorage
+- This is what controls **ACCESS** to tickets
+- Widget can ONLY access tickets that match its own widget_session_id
+- **Why not distinct_id?** Because distinct_id is often an email, which is guessable
+
+### Distinct ID (Person Linking Only)
+
+- `distinct_id` is PostHog's standard user identifier
+- Used **ONLY** for linking conversations to Person records in PostHog
+- **NOT used for access control** - someone knowing your email can't access your chats
 
 ## Flow for Different User Types
 
 ### Anonymous (Non-identified) Users
 
 1. User opens widget on website
-2. posthog-js generates anonymous distinct_id (e.g., `abc-123-uuid`)
-3. Widget sends message with:
+2. Widget generates random `widget_session_id` (e.g., `f47ac10b-58cc-4372-...`), stores in localStorage
+3. posthog-js has anonymous `distinct_id` (e.g., `abc-123-uuid`)
+4. Widget sends message with:
    - `conversations_public_token` (from Team config)
-   - `distinct_id`: `abc-123-uuid`
+   - `widget_session_id`: `f47ac10b-58cc-4372-...` (random, for access control)
+   - `distinct_id`: `abc-123-uuid` (for Person linking)
    - `traits`: `{name: null, email: null}` (empty)
-4. Backend:
+5. Backend:
    - Validates token → gets team_id
-   - Finds or creates `Ticket(team_id, distinct_id="abc-123-uuid")`
+   - Finds or creates `Ticket(team_id, widget_session_id="f47ac10b-...")`
    - Creates Comment linked to ticket
-5. Widget polls for responses using same distinct_id
+6. Widget polls for responses using same widget_session_id
 
 ### Identified Users
 
 1. User logs in, website calls `posthog.identify('user@example.com')`
 2. Widget sends message with:
    - `conversations_public_token`
-   - `distinct_id`: `user@example.com`
+   - `widget_session_id`: `f47ac10b-58cc-4372-...` (same as before - stays in localStorage)
+   - `distinct_id`: `user@example.com` (for Person linking)
    - `traits`: `{name: "John", email: "user@example.com"}`
 3. Backend:
    - Validates token → gets team_id
-   - Finds or creates `Ticket(team_id, distinct_id="user@example.com")`
+   - Finds ticket by `widget_session_id` (NOT distinct_id)
+   - Updates `ticket.distinct_id` to new value (for Person linking)
    - Stores traits in `anonymous_traits` JSON
-   - Can optionally link to Person model if exists
-4. Widget polls using `distinct_id="user@example.com"`
+4. Widget polls using same `widget_session_id`
 
 ### Anonymous → Identified Transition
 
-1. User starts anonymous: `distinct_id="abc-123"`
+1. User starts anonymous: `widget_session_id="f47ac10b-..."`, `distinct_id="abc-123"`
 2. Creates ticket, sends messages
-3. User logs in, `posthog.alias()` is called
-4. Widget now uses `distinct_id="user@example.com"`
-5. Options:
-   - **For MVP**: Create new ticket (simplest)
-   - **Post-MVP**: Merge old ticket with new distinct_id
+3. User logs in, `posthog.identify('user@example.com')` is called
+4. Widget uses **same widget_session_id** but new `distinct_id`
+5. Backend updates `ticket.distinct_id` for Person linking
+6. **User keeps access to their ticket** because widget_session_id hasn't changed
 
 ## Security Model
 
@@ -71,42 +80,48 @@ def post_message(request):
     token = request.headers.get('X-Conversations-Token')
     team = Team.objects.get(conversations_public_token=token)  # or 401
     
-    # 2. Get distinct_id from request body
-    distinct_id = request.data['distinct_id']
+    # 2. Get widget_session_id (access control) and distinct_id (Person linking)
+    widget_session_id = request.data['widget_session_id']  # Random UUID from localStorage
+    distinct_id = request.data['distinct_id']  # For Person linking only
     
-    # 3. Scope ticket to (team, distinct_id)
-    ticket, created = Ticket.objects.get_or_create(
-        team=team,
-        distinct_id=distinct_id,
-        defaults={'status': 'new'}
-    )
+    # 3. Scope ticket to (team, widget_session_id) - NOT distinct_id!
+    ticket = Ticket.objects.filter(team=team, widget_session_id=widget_session_id).first()
+    if not ticket:
+        ticket = Ticket.objects.create(
+            team=team,
+            widget_session_id=widget_session_id,
+            distinct_id=distinct_id,
+            status='new'
+        )
     
-    # Widget can ONLY access this specific ticket
-    # Cannot access other distinct_ids' tickets
+    # Widget can ONLY access tickets with matching widget_session_id
+    # Knowing someone's email (distinct_id) does NOT grant access
 ```
 
 ### Security Rules
 
 **Widget endpoints should:**
 
-- ✅ Allow creating/reading tickets for provided distinct_id
-- ✅ Allow reading messages for tickets owned by distinct_id
-- ❌ NOT allow reading tickets from different distinct_ids
+- ✅ Allow creating/reading tickets for provided widget_session_id
+- ✅ Allow reading messages for tickets owned by widget_session_id
+- ❌ NOT allow reading tickets from different widget_session_ids
+- ❌ NOT allow access based on knowing distinct_id/email
 - ❌ NOT allow admin operations (changing settings, seeing all tickets)
-- ✅ Apply rate limiting per distinct_id or IP
+- ✅ Apply rate limiting per widget_session_id or IP
 
 **Critical Validation:**
 
 ```python
 def get_messages(request, ticket_id):
     token = request.headers.get('X-Conversations-Token')
-    distinct_id = request.GET.get('distinct_id')
+    widget_session_id = request.GET.get('widget_session_id')  # NOT distinct_id!
     
     team = Team.objects.get(conversations_public_token=token)
     ticket = Ticket.objects.get(id=ticket_id, team=team)
     
-    # CRITICAL: Verify the ticket belongs to this distinct_id
-    if ticket.distinct_id != distinct_id:
+    # CRITICAL: Verify the ticket belongs to this widget_session_id
+    # This is a random UUID, impossible to guess
+    if ticket.widget_session_id != widget_session_id:
         return 403  # Forbidden
     
     messages = Comment.objects.filter(
@@ -119,15 +134,17 @@ def get_messages(request, ticket_id):
 
 ## Security Best Practices
 
-### Understanding the Token Model
+### Understanding the Security Model
 
 **Important**: `conversations_public_token` is **meant to be public** (like PostHog's `phc_` token or Stripe's `pk_` key).
 
 **Why this is safe:**
 
 - Token only authenticates the TEAM, not individual users
-- Real security comes from `distinct_id` scoping on the backend
-- Similar to how Intercom, Zendesk, Drift widgets work
+- Real security comes from `widget_session_id` scoping on the backend
+- `widget_session_id` is a random UUID stored in localStorage - impossible to guess
+- `distinct_id` (email) is only used for Person linking, NOT access control
+- Similar to how Crisp, Intercom, Zendesk, Drift widgets work
 - Token is read-only for widget operations (no admin access)
 
 **What an attacker with the token CAN do:**
@@ -137,25 +154,26 @@ def get_messages(request, ticket_id):
 
 **What an attacker CANNOT do:**
 
-- ✅ Access conversations from other distinct_ids
+- ✅ Access conversations from other widget_session_ids (random UUIDs are unguessable)
+- ✅ Access someone's chats by knowing their email
 - ✅ Access admin endpoints or settings
 - ✅ See all team tickets
-- ✅ Modify existing tickets (except those with their own distinct_id)
+- ✅ Modify existing tickets (except those with their own widget_session_id)
 
 ### Rate Limiting (Critical)
 
 The backend implements **multi-layer rate limiting**:
 
-**Per distinct_id limits:**
+**Per widget_session_id limits:**
 
 - Messages: 10 per minute, 50 per hour
 - Message fetches: 30 per minute
-- Ticket creation: 3 per hour (first-time distinct_ids)
+- Ticket creation: 3 per hour (first-time widget_session_ids)
 
 **Per IP limits:**
 
-- Messages: 100 per minute (across all distinct_ids)
-- Prevents single attacker from creating many distinct_ids
+- Messages: 100 per minute (across all widget_session_ids)
+- Prevents single attacker from creating many widget_session_ids
 
 **Per team/token limits:**
 
@@ -169,7 +187,8 @@ All inputs are validated on the backend:
 
 - Max message length: 5000 chars
 - Max trait values: 500 chars each
-- Distinct_id format validation (alphanumeric, dashes, underscores, max 200 chars)
+- Session_id format validation (must be valid UUID)
+- Distinct_id format validation (max 200 chars)
 - HTML/script sanitization in message content
 - Rejection of suspicious patterns
 
@@ -231,11 +250,25 @@ if (!config.conversations_enabled) {
   return // Don't render widget
 }
 
+// Generate or retrieve widget_session_id (random UUID for access control)
+function getOrCreateSessionId() {
+  const STORAGE_KEY = 'ph_conversations_widget_session_id'
+  let sessionId = localStorage.getItem(STORAGE_KEY)
+  
+  if (!sessionId) {
+    sessionId = crypto.randomUUID()  // e.g., "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+    localStorage.setItem(STORAGE_KEY, sessionId)
+  }
+  
+  return sessionId
+}
+
 const widget = {
   greeting: config.conversations_greeting_text,
   color: config.conversations_color,
   publicToken: config.conversations_public_token,
-  distinctId: posthog.get_distinct_id(),
+  sessionId: getOrCreateSessionId(),  // Random UUID for ACCESS CONTROL
+  distinctId: posthog.get_distinct_id(),  // For Person linking only
   currentTicketId: null // Will be set after first message
 }
 ```
@@ -251,7 +284,7 @@ X-Conversations-Token: <conversations_public_token>
 Content-Type: application/json
 ```
 
-### POST /api/conversations/widget/message
+### POST /api/conversations/v1/widget/message
 
 Create a new message or start a new conversation.
 
@@ -259,7 +292,8 @@ Create a new message or start a new conversation.
 
 ```json
 {
-  "distinct_id": "user@example.com",
+  "widget_session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",  // REQUIRED: Random UUID for access control
+  "distinct_id": "user@example.com",  // REQUIRED: For Person linking
   "message": "I need help with my billing",
   "traits": {
     "name": "John Doe",
@@ -270,7 +304,7 @@ Create a new message or start a new conversation.
 }
 ```
 
-**Success Response (201):**
+**Success Response (200):**
 
 ```json
 {
@@ -284,25 +318,27 @@ Create a new message or start a new conversation.
 **Error Responses:**
 
 - `401 Unauthorized`: Invalid or missing token
-- `403 Forbidden`: Ticket exists but doesn't belong to this distinct_id
+- `403 Forbidden`: Ticket exists but doesn't belong to this widget_session_id
 - `429 Too Many Requests`: Rate limit exceeded
-- `400 Bad Request`: Invalid message format or missing required fields
+- `400 Bad Request`: Invalid message format, missing required fields, or invalid widget_session_id format
 
 **Notes:**
 
-- First message creates a new ticket
+- `widget_session_id` must be a valid UUID (generated client-side, stored in localStorage)
+- First message creates a new ticket associated with the widget_session_id
 - Subsequent messages should include `ticket_id`
-- `traits` are stored in `Ticket.anonymous_traits` (replaces existing traits on each message)
+- `distinct_id` can change (anonymous → identified) - backend updates ticket.distinct_id
+- `traits` are stored in `Ticket.anonymous_traits` (merged on each message)
 - Empty/null traits are allowed for anonymous users
 
-### GET /api/conversations/widget/messages/:ticket_id
+### GET /api/conversations/v1/widget/messages/:ticket_id
 
 Get all messages for a ticket.
 
 **Query Parameters:**
 
 ```http
-?distinct_id=user@example.com  // REQUIRED
+?widget_session_id=f47ac10b-58cc-4372-a567-0e02b2c3d479  // REQUIRED: for access control
 &after=2024-01-01T12:00:00Z    // Optional: only get messages after this timestamp
 &limit=50                       // Optional: default 100, max 500
 ```
@@ -355,23 +391,25 @@ Get all messages for a ticket.
 **Error Responses:**
 
 - `401 Unauthorized`: Invalid token
-- `403 Forbidden`: Ticket doesn't belong to this distinct_id
+- `403 Forbidden`: Ticket doesn't belong to this widget_session_id
 - `404 Not Found`: Ticket doesn't exist
+- `400 Bad Request`: Missing or invalid widget_session_id
 
 **Notes:**
 
+- Access controlled by widget_session_id (knowing the email doesn't grant access)
 - Only returns messages where `is_private=false`
 - Messages are ordered by `created_at` ascending (oldest first)
 - Use `after` parameter for polling (every 5-10 seconds)
 
-### GET /api/conversations/widget/tickets
+### GET /api/conversations/v1/widget/tickets
 
-Get all tickets for current distinct_id.
+Get all tickets for current widget_session_id (browser session).
 
 **Query Parameters:**
 
 ```http
-?distinct_id=user@example.com  // REQUIRED
+?widget_session_id=f47ac10b-58cc-4372-a567-0e02b2c3d479  // REQUIRED: for access control
 &status=open                   // Optional: filter by status
 &limit=10                       // Optional: default 10, max 50
 &offset=0                       // Optional: for pagination
@@ -414,7 +452,13 @@ Get all tickets for current distinct_id.
 **Error Responses:**
 
 - `401 Unauthorized`: Invalid token
-- `400 Bad Request`: Missing distinct_id
+- `400 Bad Request`: Missing or invalid widget_session_id
+
+**Notes:**
+
+- Returns only tickets owned by this widget_session_id
+- Different devices/browsers have different widget_session_ids, so chat history is per-browser
+- This is by design for security - prevents accessing chats by knowing someone's email
 
 ## Implementation Recommendations
 
@@ -431,13 +475,13 @@ setInterval(async () => {
   if (!currentTicketId) return
   
   const params = {
-    distinct_id: posthog.get_distinct_id(),
+    widget_session_id: widget.sessionId,  // Random UUID from localStorage
     after: lastMessageTimestamp,
     limit: 50
   }
   
   const response = await fetch(
-    `/api/conversations/widget/messages/${currentTicketId}?${new URLSearchParams(params)}`,
+    `/api/conversations/v1/widget/messages/${currentTicketId}?${new URLSearchParams(params)}`,
     {
       headers: {
         'X-Conversations-Token': config.conversations_public_token
@@ -465,14 +509,15 @@ setInterval(async () => {
 ```javascript
 async function sendMessage(message) {
   try {
-    const response = await fetch('/api/conversations/widget/message', {
+    const response = await fetch('/api/conversations/v1/widget/message', {
       method: 'POST',
       headers: {
         'X-Conversations-Token': config.conversations_public_token,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        distinct_id: posthog.get_distinct_id(),
+        widget_session_id: widget.sessionId,  // Random UUID from localStorage
+        distinct_id: posthog.get_distinct_id(),  // For Person linking
         message: message,
         traits: {
           name: getUserName(),
@@ -512,55 +557,65 @@ async function sendMessage(message) {
 ### Local Storage Persistence
 
 ```javascript
-// Save current ticket ID to localStorage
-// So user can resume conversation after page reload
-const STORAGE_KEY = `ph_conversations_ticket_${posthog.get_distinct_id()}`
+// Session ID is stored separately - this is the key for access control
+const SESSION_KEY = 'ph_conversations_widget_session_id'
+const TICKET_KEY = 'ph_conversations_current_ticket'
+
+function getOrCreateSessionId() {
+  let sessionId = localStorage.getItem(SESSION_KEY)
+  if (!sessionId) {
+    sessionId = crypto.randomUUID()
+    localStorage.setItem(SESSION_KEY, sessionId)
+  }
+  return sessionId
+}
 
 function saveTicketId(ticketId) {
-  localStorage.setItem(STORAGE_KEY, ticketId)
+  localStorage.setItem(TICKET_KEY, ticketId)
 }
 
 function loadTicketId() {
-  return localStorage.getItem(STORAGE_KEY)
+  return localStorage.getItem(TICKET_KEY)
 }
 
 // On widget open, check for existing ticket
 async function initializeWidget() {
+  const sessionId = getOrCreateSessionId()
   const savedTicketId = loadTicketId()
   
   if (savedTicketId) {
-    // Verify ticket still exists and belongs to this user
+    // Verify ticket still exists and belongs to this session
     try {
-      const response = await fetchMessages(savedTicketId)
+      const response = await fetchMessages(savedTicketId, sessionId)
       if (response.ok) {
         currentTicketId = savedTicketId
         loadMessages(response.data.messages)
       } else {
-        // Ticket doesn't exist or doesn't belong to user
-        localStorage.removeItem(STORAGE_KEY)
+        // Ticket doesn't exist or doesn't belong to this session
+        localStorage.removeItem(TICKET_KEY)
       }
     } catch (error) {
-      localStorage.removeItem(STORAGE_KEY)
+      localStorage.removeItem(TICKET_KEY)
     }
   }
 }
 ```
 
-### Distinct ID Handling
+### Distinct ID Handling (Anonymous → Identified)
 
 ```javascript
 // Handle anonymous -> identified transition
+// IMPORTANT: widget_session_id stays the same, only distinct_id changes
 posthog.on('identify', (newDistinctId) => {
-  // Clear old ticket from localStorage
-  const oldKey = `ph_conversations_ticket_${posthog.get_distinct_id()}`
-  localStorage.removeItem(oldKey)
+  // Update widget's distinct_id reference
+  widget.distinctId = newDistinctId
   
-  // Reset widget state
-  currentTicketId = null
-  clearMessages()
+  // NO need to clear ticket or session!
+  // Same widget_session_id means user keeps access to their conversation
+  // Backend will update ticket.distinct_id for Person linking
   
-  // Check for existing tickets with new distinct_id
-  loadExistingTickets(newDistinctId)
+  // Just update traits on next message
+  console.log('User identified, distinct_id updated for Person linking')
 })
 
 // Update traits on every message
@@ -579,9 +634,9 @@ function getCurrentTraits() {
 
 Expected rate limits (subject to change):
 
-- **Messages**: 10 per minute per distinct_id
-- **Polls**: 30 per minute per distinct_id (don't poll faster than 2s)
-- **Ticket creation**: 5 per hour per distinct_id
+- **Messages**: 10 per minute per widget_session_id
+- **Polls**: 30 per minute per widget_session_id (don't poll faster than 2s)
+- **Ticket creation**: 5 per hour per widget_session_id
 
 When rate limited (429), exponentially back off:
 
@@ -597,18 +652,22 @@ When rate limited (429), exponentially back off:
 # Get team config
 curl https://app.posthog.com/api/projects/123/environments/456/
 
+# Generate a random widget_session_id (UUID)
+SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+
 # Send a message
-curl -X POST https://app.posthog.com/api/conversations/widget/message \
+curl -X POST https://app.posthog.com/api/conversations/v1/widget/message \
   -H "X-Conversations-Token: phc_abc123..." \
   -H "Content-Type: application/json" \
-  -d '{
-    "distinct_id": "test-user-123",
-    "message": "Test message",
-    "traits": {"name": "Test User"}
-  }'
+  -d "{
+    \"widget_session_id\": \"$SESSION_ID\",
+    \"distinct_id\": \"test-user-123\",
+    \"message\": \"Test message\",
+    \"traits\": {\"name\": \"Test User\"}
+  }"
 
-# Get messages
-curl "https://app.posthog.com/api/conversations/widget/messages/550e8400-e29b-41d4-a716-446655440000?distinct_id=test-user-123" \
+# Get messages (use same widget_session_id)
+curl "https://app.posthog.com/api/conversations/v1/widget/messages/550e8400-e29b-41d4-a716-446655440000?widget_session_id=$SESSION_ID" \
   -H "X-Conversations-Token: phc_abc123..."
 ```
 
@@ -616,11 +675,12 @@ curl "https://app.posthog.com/api/conversations/widget/messages/550e8400-e29b-41
 
 - **Initialization**: Fetch team config to get `conversations_public_token` and settings
 - **Public token** = Team auth (read-only widget operations) - meant to be public!
-- **distinct_id** = User scoping (can only see own tickets) - the REAL security boundary
-- **No difference** between identified/anonymous for auth - both use distinct_id
+- **widget_session_id** = Random UUID for ACCESS CONTROL (stored in localStorage) - the REAL security boundary
+- **distinct_id** = PostHog user ID for PERSON LINKING only - NOT used for access control
+- **Anonymous → Identified**: widget_session_id stays same, distinct_id updates, user keeps access
 - **Polling**: Poll messages endpoint every 5s when widget is open
-- **Persistence**: Store ticket_id in localStorage for session continuity
-- **Rate limiting**: Multi-layer (distinct_id, IP, team) - most critical security control
+- **Persistence**: Store widget_session_id and ticket_id in localStorage
+- **Rate limiting**: Multi-layer (widget_session_id, IP, team) - most critical security control
 - **Error handling**: Gracefully handle 401, 403, 429, 500 errors
 
 ### Why This Is Safe (Security Model)
@@ -628,21 +688,22 @@ curl "https://app.posthog.com/api/conversations/widget/messages/550e8400-e29b-41
 **Token is public by design** (like PostHog's `phc_` key):
 
 1. ✅ Token only authenticates the TEAM (like "which PostHog project is this?")
-2. ✅ Real security comes from `distinct_id` validation on every request
-3. ✅ Widget can't access other users' tickets (distinct_id scoping enforced server-side)
-4. ✅ Widget can't do admin operations (token is widget-scoped only)
+2. ✅ Real security comes from `widget_session_id` validation on every request
+3. ✅ `widget_session_id` is a random UUID - impossible to guess (2^122 bits of entropy)
+4. ✅ Knowing someone's email does NOT grant access to their chats
+5. ✅ Widget can't do admin operations (token is widget-scoped only)
 
 **Multi-layer protection:**
-5. ✅ Rate limiting prevents spam/DoS (per distinct_id, per IP, per team)
-6. ✅ Origin validation prevents token reuse on attacker's domain
-7. ✅ Input validation prevents injection attacks
-8. ✅ Private messages (internal notes) are never returned to widget
-9. ✅ Suspicious activity detection and auto-blocking
+6. ✅ Rate limiting prevents spam/DoS (per widget_session_id, per IP, per team)
+7. ✅ Origin validation prevents token reuse on attacker's domain
+8. ✅ Input validation prevents injection attacks
+9. ✅ Private messages (internal notes) are never returned to widget
 10. ✅ Manual token rotation available for suspected compromise
 
 **What matters most:**
 
-- 🔐 **distinct_id validation** - always check `ticket.distinct_id == request.distinct_id`
+- 🔐 **widget_session_id validation** - always check `ticket.widget_session_id == request.widget_session_id`
+- 🔐 **widget_session_id is unguessable** - random UUID, not an email
 - 🔐 **Rate limiting** - aggressive multi-layer limits
 - 🔐 **Origin validation** - prevent token reuse from other domains
 
@@ -651,3 +712,4 @@ curl "https://app.posthog.com/api/conversations/widget/messages/550e8400-e29b-41
 - ❌ Token being visible in client code (by design)
 - ❌ Frequent token rotation (unnecessary and breaks UX)
 - ❌ Someone seeing the token in network tab (expected)
+- ❌ Someone knowing a user's email (doesn't grant access)
