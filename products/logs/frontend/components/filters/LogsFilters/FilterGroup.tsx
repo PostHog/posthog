@@ -140,9 +140,7 @@ const UniversalFilterGroup = (): JSX.Element => {
                         filter={filterOrGroup}
                         onRemove={() => removeGroupValue(index)}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={
-                            allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL && !filterOrGroup.value
-                        }
+                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                     />
                 )
             })}
