@@ -590,7 +590,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         endpoint: combineUrl(`api/environments/${projectId}/logs/attributes`, { attribute_type: 'log' })
                             .url,
                         valuesEndpoint: (key) =>
-                            combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'log',
                                 key: key,
                             }).url,
@@ -606,7 +606,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             attribute_type: 'resource',
                         }).url,
                         valuesEndpoint: (key) =>
-                            combineUrl(`api/environments/${projectId}/logs/attributes`, {
+                            combineUrl(`api/environments/${projectId}/logs/values`, {
                                 attribute_type: 'resource',
                                 key: key,
                             }).url,
