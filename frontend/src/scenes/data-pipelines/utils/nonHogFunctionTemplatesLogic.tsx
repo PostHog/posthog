@@ -44,7 +44,7 @@ function getSourceDisplayStatus(
         }
     }
     // regardless of release status, those failing the feature flag should see an unreleased source
-    if (!featureFlag) {
+    if (featureFlag === false) {
         return {
             status: 'coming_soon',
             descriptionEl: unreleasedDescriptionEl,
