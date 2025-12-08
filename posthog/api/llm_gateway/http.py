@@ -1,8 +1,11 @@
 import os
 import json
+import time
+import uuid
 import asyncio
 import logging
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from django.conf import settings
 from django.http import StreamingHttpResponse
@@ -62,6 +65,57 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
     def get_throttles(self):
         return [LLMGatewayBurstRateThrottle(), LLMGatewaySustainedRateThrottle()]
+
+    def _capture_anthropic_generation(
+        self,
+        request: Request,
+        response: dict[str, Any] | None,
+        input_messages: list[dict[str, Any]],
+        model: str,
+        latency_ms: float,
+        trace_id: str | None = None,
+        error: Exception | None = None,
+    ) -> None:
+        """Capture an LLM generation event to PostHog following the LLM Analytics spec."""
+        try:
+            distinct_id = str(request.user.distinct_id) if request.user.is_authenticated else str(uuid.uuid4())
+            span_id = str(uuid.uuid4())
+
+            properties: dict[str, Any] = {
+                "$ai_model": response.get("model", model) if response else model,
+                "$ai_provider": "anthropic",
+                "$ai_input": input_messages,
+                "$ai_latency": latency_ms / 1000.0,
+                "$ai_trace_id": trace_id or str(uuid.uuid4()),
+                "$ai_span_id": span_id,
+                "$ai_http_status": 200 if not error else getattr(error, "status_code", 500),
+                "team_id": self.team.id,
+                "organization_id": str(self.organization.id),
+            }
+
+            if response:
+                usage = response.get("usage", {})
+                properties["$ai_input_tokens"] = usage.get("input_tokens", 0)
+                properties["$ai_output_tokens"] = usage.get("output_tokens", 0)
+                content = response.get("content", [])
+                role = response.get("role", "assistant")
+                properties["$ai_output_choices"] = [
+                    {"role": role, "content": block.get("text", str(block)) if isinstance(block, dict) else str(block)}
+                    for block in content
+                ]
+
+            if error:
+                properties["$ai_is_error"] = True
+                properties["$ai_error"] = getattr(error, "message", str(error))
+
+            posthoganalytics.capture(
+                distinct_id=distinct_id,
+                event="$ai_generation",
+                properties=properties,
+                groups={"organization": str(self.organization.id), "project": str(self.team.id)},
+            )
+        except Exception as e:
+            logger.warning(f"Failed to capture LLM generation event: {e}")
 
     async def _anthropic_stream(self, data: dict) -> AsyncGenerator[bytes, None]:
         response = await litellm.anthropic_messages(**data)
@@ -159,15 +213,23 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             },
         }
 
+        model = data.get("model", "")
+        input_messages = data.get("messages", [])
+
         if is_streaming:
             sse_stream = self._format_as_sse(self._anthropic_stream(data), request)
             return self._create_streaming_response(sse_stream)
         else:
+            start_time = time.perf_counter()
+            response_data = None
+            error = None
+
             try:
                 response = asyncio.run(litellm.anthropic_messages(**data))
-                response_dict = response.model_dump() if hasattr(response, "model_dump") else response
-                return Response(response_dict)
+                response_data = response.model_dump() if hasattr(response, "model_dump") else response
+                return Response(response_data)
             except Exception as e:
+                error = e
                 logger.exception(f"Error in Anthropic messages endpoint: {e}")
                 error_response = {
                     "error": {
@@ -178,6 +240,17 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 }
                 status_code = getattr(e, "status_code", 500)
                 return Response(error_response, status=status_code)
+            finally:
+                latency_ms = (time.perf_counter() - start_time) * 1000
+                self._capture_anthropic_generation(
+                    request=request,
+                    response=response_data,
+                    input_messages=input_messages,
+                    model=model,
+                    latency_ms=latency_ms,
+                    trace_id=trace_id,
+                    error=error,
+                )
 
     @extend_schema(
         summary="OpenAI Chat Completions API",
