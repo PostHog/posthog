@@ -1,5 +1,5 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
@@ -11,14 +11,14 @@ class TestLLMGatewayViewSet(APIBaseTest):
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_non_streaming(self, mock_anthropic, mock_asyncio_run):
+    def test_anthropic_messages_non_streaming(self, _mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "msg_01XYZ",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Hello! How can I help you?"}],
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 25},
         }
@@ -27,7 +27,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },
@@ -44,14 +44,14 @@ class TestLLMGatewayViewSet(APIBaseTest):
 
     @patch("posthog.api.llm_gateway.http.asyncio.run")
     @patch("posthog.api.llm_gateway.http.litellm.anthropic_messages")
-    def test_anthropic_messages_with_all_params(self, mock_anthropic, mock_asyncio_run):
+    def test_anthropic_messages_with_all_params(self, _mock_anthropic, mock_asyncio_run):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "msg_01XYZ",
             "type": "message",
             "role": "assistant",
             "content": [{"type": "text", "text": "Response"}],
-            "model": "claude-3-5-sonnet-20241022",
+            "model": "claude-sonnet-4-20250514",
             "stop_reason": "end_turn",
             "usage": {"input_tokens": 10, "output_tokens": 5},
         }
@@ -60,7 +60,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 2048,
                 "temperature": 0.7,
@@ -93,7 +93,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "max_tokens": 1024,
             },
             format="json",
@@ -102,9 +102,8 @@ class TestLLMGatewayViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("error", response.json())
 
-    @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.acompletion")
-    def test_chat_completions_non_streaming(self, mock_completion, mock_asyncio_run):
+    @patch("posthog.api.llm_gateway.http.litellm.completion")
+    def test_chat_completions_non_streaming(self, mock_completion):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "chatcmpl-123",
@@ -120,8 +119,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
         }
-        mock_completion.return_value = AsyncMock(return_value=mock_response)
-        mock_asyncio_run.return_value = mock_response
+        mock_completion.return_value = mock_response
 
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
@@ -136,11 +134,10 @@ class TestLLMGatewayViewSet(APIBaseTest):
         data = response.json()
         self.assertEqual(data["id"], "chatcmpl-123")
         self.assertEqual(data["object"], "chat.completion")
-        mock_asyncio_run.assert_called_once()
+        mock_completion.assert_called_once()
 
-    @patch("posthog.api.llm_gateway.http.asyncio.run")
-    @patch("posthog.api.llm_gateway.http.litellm.acompletion")
-    def test_chat_completions_with_all_params(self, mock_completion, mock_asyncio_run):
+    @patch("posthog.api.llm_gateway.http.litellm.completion")
+    def test_chat_completions_with_all_params(self, mock_completion):
         mock_response = MagicMock()
         mock_response.model_dump.return_value = {
             "id": "chatcmpl-123",
@@ -156,8 +153,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
             ],
             "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
         }
-        mock_completion.return_value = AsyncMock(return_value=mock_response)
-        mock_asyncio_run.return_value = mock_response
+        mock_completion.return_value = mock_response
 
         response = self.client.post(
             f"{self.base_url}/v1/chat/completions/",
@@ -174,7 +170,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        mock_asyncio_run.assert_called_once()
+        mock_completion.assert_called_once()
 
     def test_chat_completions_missing_model(self):
         response = self.client.post(
@@ -205,7 +201,7 @@ class TestLLMGatewayViewSet(APIBaseTest):
         response = self.client.post(
             f"{self.base_url}/v1/messages/",
             data={
-                "model": "claude-3-5-sonnet-20241022",
+                "model": "claude-sonnet-4-20250514",
                 "messages": [{"role": "user", "content": "Hello"}],
                 "max_tokens": 1024,
             },

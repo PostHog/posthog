@@ -150,12 +150,12 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )  # Claude Code passes a user_id in the metadata which is a concatenation of the user_id and the session_id
 
         data["metadata"] = {
-            "user_id": str(request.user.distinct_id) if request.user else None,
+            "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
             "organization_id": str(self.organization.id),
             "ai_product": "llm_gateway",
             **{
-                "$ai_trace_id": trace_id,
+                "trace_id": trace_id,
             },
         }
 
@@ -233,7 +233,7 @@ class LLMGatewayViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         is_streaming = data.get("stream", False)
 
         data["metadata"] = {
-            "user_id": str(request.user.distinct_id) if request.user else None,
+            "user_id": str(request.user.distinct_id) if request.user.is_authenticated else None,
             "team_id": str(self.team.id),
             "ai_product": "llm_gateway",
             "organization_id": str(self.organization.id),
