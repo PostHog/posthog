@@ -16,6 +16,7 @@ from glom import (
 
 from posthog.models.user import User
 
+from ee.hogai.session_summaries import ExceptionToRetry
 from ee.hogai.session_summaries.constants import (
     EXPIRES_AFTER_DAYS,
     FAILED_MOMENTS_MIN_RATIO,
@@ -279,7 +280,7 @@ class SessionSummaryVideoValidator:
                 session_id=self.session_id,
                 signals_type="session-summaries",
             )
-            return None
+            raise ExceptionToRetry()
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
         # Validate that updates_result is a list
         if not isinstance(updates_result, list):
@@ -288,7 +289,7 @@ class SessionSummaryVideoValidator:
                 session_id=self.session_id,
                 signals_type="session-summaries",
             )
-            return None
+            raise ExceptionToRetry()
         updates_result = cast(list[dict[str, str]], updates_result)
         return updates_result
 
