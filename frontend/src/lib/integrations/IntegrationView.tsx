@@ -7,6 +7,7 @@ import { LemonBanner, LemonButton, LemonDivider, Spinner } from '@posthog/lemon-
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { dayjs } from 'lib/dayjs'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
 import { IconBranch, IconOpenInNew } from 'lib/lemon-ui/icons'
 
