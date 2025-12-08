@@ -6,17 +6,17 @@ Cloud runs require a GitHub App to interact with repositories. Create a GitHub A
 
 ### Required Permissions
 
-| Permission | Access | Purpose |
-|------------|--------|---------|
-| **Contents** | Read & Write | Read files, create branches, push commits |
-| **Pull requests** | Read & Write | Create and update PRs |
-| **Metadata** | Read | Required for all GitHub Apps |
+| Permission        | Access       | Purpose                                   |
+| ----------------- | ------------ | ----------------------------------------- |
+| **Contents**      | Read & Write | Read files, create branches, push commits |
+| **Pull requests** | Read & Write | Create and update PRs                     |
+| **Metadata**      | Read         | Required for all GitHub Apps              |
 
 ### Optional Permissions
 
-| Permission | Access | Purpose |
-|------------|--------|---------|
-| **Issues** | Read & Write | Link tasks to issues |
+| Permission    | Access       | Purpose              |
+| ------------- | ------------ | -------------------- |
+| **Issues**    | Read & Write | Link tasks to issues |
 | **Workflows** | Read & Write | Trigger CI workflows |
 
 ### Environment Variables
