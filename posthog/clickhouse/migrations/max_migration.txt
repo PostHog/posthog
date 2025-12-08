@@ -1,1 +1,1 @@
-0186_precalculated_person_properties.py
+0186_precalculated_person_properties
