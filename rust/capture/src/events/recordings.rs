@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use chrono::DateTime;
-use common_types::CapturedEvent;
+use common_types::{CapturedEvent, HasEventName};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tracing::{error, instrument, Span};
@@ -141,6 +141,12 @@ impl RawRecording {
             Some(b) => Some(b),
             None => Some(false),
         }
+    }
+}
+
+impl HasEventName for RawRecording {
+    fn event_name(&self) -> &str {
+        &self.event
     }
 }
 

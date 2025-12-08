@@ -68,7 +68,7 @@ pub async fn handle_recording_payload(
 
     // Deserialize to RecordingPayload (handles both single event and array)
     let recording_payload: RecordingPayload = serde_json::from_str(&payload)?;
-    let events = recording_payload.into_vec();
+    let mut events = recording_payload.into_vec();
 
     if events.is_empty() {
         warn!("rejected empty recording batch");
@@ -104,6 +104,14 @@ pub async fn handle_recording_payload(
         historical_migration: false, // recordings don't support historical migration
         user_agent: Some(metadata.user_agent.to_string()),
     };
+
+    // Apply all billing limit quotas and drop partial or whole
+    // payload if any are exceeded for this token (team)
+    debug!(context=?context, event_count=?events.len(), "handle_recording_payload: evaluating quota limits");
+    events = state
+        .quota_limiter
+        .check_and_filter(&context.token, events)
+        .await?;
 
     debug!(context=?context,
         event_count=?events.len(),
