@@ -51,6 +51,10 @@ export interface RawPostgresPersonRepository {
 
     updatePersonAssertVersion(personUpdate: PersonUpdate): Promise<[number | undefined, TopicMessage[]]>
 
+    updatePersonsBatch(
+        personUpdates: PersonUpdate[]
+    ): Promise<Map<string, { success: boolean; version?: number; kafkaMessage?: TopicMessage; error?: Error }>>
+
     deletePerson(person: InternalPerson, tx?: TransactionClient): Promise<TopicMessage[]>
 
     addDistinctId(
