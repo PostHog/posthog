@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { workflowE2eLagGauge, workflowE2eLagSummary } from '~/main/ingestion-queues/metrics'
+import { workflowE2eLagMsGauge, workflowE2eLagMsSummary } from '~/main/ingestion-queues/metrics'
 import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
@@ -122,13 +122,14 @@ export function trackE2eLag(result: CyclotronJobInvocationResult<CyclotronJobInv
     const capturedAt = result.invocation.state.event?.captured_at
     // We're ignoring hogflows with delay actions for now because they're hard to track accurately (may or may not have run)
     const hasDelay = hasDelayActions(result.invocation.hogFlow.actions)
+
     if (capturedAt && !hasDelay) {
-        const e2eLag = Date.now() - new Date(capturedAt).getTime()
-        workflowE2eLagSummary.observe(e2eLag)
-        workflowE2eLagGauge
+        const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+        workflowE2eLagMsSummary.observe(e2eLagMs)
+        workflowE2eLagMsGauge
             .labels({
                 team_id: result.invocation.teamId.toString(),
             })
-            .set(e2eLag)
+            .set(e2eLagMs)
     }
 }

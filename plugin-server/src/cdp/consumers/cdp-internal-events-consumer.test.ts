@@ -84,6 +84,7 @@ describe('CDP Internal Events Consumer', () => {
                         distinct_id: 'distinct_id',
                         elements_chain: '',
                         event: '$pageview',
+                        captured_at: null,
                         properties: {},
                         timestamp: '2024-12-18T15:06:23.545Z',
                         url: '',

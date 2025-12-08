@@ -49,13 +49,13 @@ export const kafkaConsumerEventRequestPendingMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const workflowE2eLagSummary = new Summary({
+export const workflowE2eLagMsSummary = new Summary({
     name: 'workflow_e2e_lag_ms',
     help: 'Time difference in ms between event capture time and workflow finishing time',
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const workflowE2eLagGauge = new Gauge({
+export const workflowE2eLagMsGauge = new Gauge({
     name: 'workflow_e2e_lag_ms_by_team',
     help: 'Time difference in ms between event capture time and workflow finishing time',
     labelNames: ['team_id'],
