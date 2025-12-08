@@ -58,7 +58,6 @@ export const workflowE2eLagSummary = new Summary({
 export const workflowE2eLagGauge = new Gauge({
     name: 'workflow_e2e_lag_ms_by_team',
     help: 'Time difference in ms between event capture time and workflow finishing time',
-    // It might be nice to also track by hog_flow_id if high cardinality isn't a prohibitive issue
     labelNames: ['team_id'],
 })
 
