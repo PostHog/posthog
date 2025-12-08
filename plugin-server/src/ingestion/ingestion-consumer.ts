@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
+import { prefetchPersonsStep } from '~/worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -28,7 +29,7 @@ import { PromiseScheduler } from '../utils/promise-scheduler'
 import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
+import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -86,7 +87,6 @@ type PreprocessedEvent = {
 
 export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
     headers: EventHeaders
-    personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
 }
 
@@ -125,7 +125,7 @@ export class IngestionConsumer {
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
-    private personStore: BatchWritingPersonsStore
+    private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
     private eventIngestionRestrictionManager: EventIngestionRestrictionManager
     public readonly promiseScheduler = new PromiseScheduler()
@@ -179,7 +179,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
+        this.personsStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
@@ -298,8 +298,13 @@ export class IngestionConsumer {
                                     .pipe(createValidateEventUuidStep())
                             )
                             // We want to call cookieless with the whole batch at once.
+                            // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
+                            // are captured with $posthog_cookieless distinct ID and rewritten here).
+                            // Any steps that depend on the final distinct ID must run after this step.
                             .gather()
-                            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+                            .pipeBatch(createApplyCookielessProcessingStep(this.hub.cookielessManager))
+                            // Prefetch must run after cookieless, as cookieless changes distinct IDs
+                            .pipeBatch(prefetchPersonsStep(this.personsStore, this.hub.PERSONS_PREFETCH_ENABLED))
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )
@@ -333,7 +338,13 @@ export class IngestionConsumer {
                                     retry
                                         .pipe(createNormalizeProcessPersonFlagStep())
                                         .pipe(createHandleClientIngestionWarningStep())
-                                        .pipe(createEventPipelineRunnerV1Step(this.hub, this.hogTransformer))
+                                        .pipe(
+                                            createEventPipelineRunnerV1Step(
+                                                this.hub,
+                                                this.hogTransformer,
+                                                this.personsStore
+                                            )
+                                        )
                                         .pipe(
                                             createEmitEventStep({
                                                 kafkaProducer: this.kafkaProducer!,
@@ -426,7 +437,6 @@ export class IngestionConsumer {
             await this.fetchAndCacheHogFunctionStates(eventsPerDistinctId)
         }
 
-        const personsStoreForBatch = this.personStore.forBatch()
         const groupStoreForBatch = this.groupStore.forBatch()
         await this.runInstrumented('processBatch', async () => {
             await Promise.all(
@@ -434,19 +444,20 @@ export class IngestionConsumer {
                     const eventsToProcess = this.redirectEvents(events)
 
                     return await this.runInstrumented('processEventsForDistinctId', () =>
-                        this.processEventsForDistinctId(eventsToProcess, personsStoreForBatch, groupStoreForBatch)
+                        this.processEventsForDistinctId(eventsToProcess, groupStoreForBatch)
                     )
                 })
             )
         })
 
-        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), personsStoreForBatch.flush()])
+        const [_, personsStoreMessages] = await Promise.all([groupStoreForBatch.flush(), this.personsStore.flush()])
 
         if (this.kafkaProducer) {
             await this.producePersonsStoreMessages(personsStoreMessages)
         }
 
-        personsStoreForBatch.reportBatch()
+        this.personsStore.reportBatch()
+        this.personsStore.reset()
         groupStoreForBatch.reportBatch()
 
         for (const message of messages) {
@@ -607,7 +618,6 @@ export class IngestionConsumer {
 
     private async processEventsForDistinctId(
         eventsForDistinctId: EventsForDistinctId,
-        personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<void> {
         const preprocessedEventsWithStores: PerDistinctIdPipelineInput[] = eventsForDistinctId.events.map(
@@ -616,7 +626,6 @@ export class IngestionConsumer {
                 trackIfNonPersonEventUpdatesPersons(incomingEvent.event)
                 return {
                     ...incomingEvent,
-                    personsStoreForBatch,
                     groupStoreForBatch,
                 }
             }

@@ -1,6 +1,6 @@
 {
     "name": "@posthog/agent-toolkit",
-    "version": "0.2.4",
+    "version": "0.2.5",
     "description": "PostHog tools for AI agents",
     "main": "dist/index.js",
     "module": "dist/index.mjs",
@@ -57,7 +57,7 @@
     },
     "dependencies": {
         "@byjohann/toon": "^0.4.0",
-        "@modelcontextprotocol/sdk": "^1.17.3",
+        "@modelcontextprotocol/sdk": "^1.24.2",
         "agents": "^0.0.113",
         "ai": "^5.0.18",
         "fflate": "^0.7.4",
@@ -75,8 +75,8 @@
         "tsup": "^8.5.0",
         "tsx": "^4.20.5",
         "typed-openapi": "^2.2.2",
-        "typescript": "^5.8.3",
-        "vite": "^5.0.0",
+        "typescript": "^5.2.2",
+        "vite": "^5.4.21",
         "vite-tsconfig-paths": "^5.1.4",
         "vitest": "^3.2.4",
         "wrangler": "^4.14.4",

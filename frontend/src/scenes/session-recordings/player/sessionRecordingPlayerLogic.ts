@@ -115,7 +115,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
+    /** @deprecated Use onRecordingDeleted callback instead */
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
+    onRecordingDeleted?: () => void
     autoPlay?: boolean
     noInspector?: boolean
     mode?: SessionRecordingPlayerMode
@@ -1652,15 +1654,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            if (props.playlistLogic) {
+            if (props.onRecordingDeleted) {
+                props.onRecordingDeleted()
+            } else if (props.playlistLogic) {
                 props.playlistLogic.actions.loadAllRecordings()
-                // Reset selected recording to first one in the list
                 props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
-                // On a page that displays a single recording `replay/:id` that doesn't contain a list
                 router.actions.push(urls.replay())
-            } else {
-                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }
         },
         openExplorer: () => {

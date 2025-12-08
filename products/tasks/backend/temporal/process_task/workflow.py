@@ -22,8 +22,18 @@ from .activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryOutput,
     get_sandbox_for_repository,
 )
-from .activities.get_task_processing_context import TaskProcessingContext, get_task_processing_context
+from .activities.get_task_processing_context import (
+    GetTaskProcessingContextInput,
+    TaskProcessingContext,
+    get_task_processing_context,
+)
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
+
+
+@dataclass
+class ProcessTaskInput:
+    run_id: str
+    create_pr: bool = True
 
 
 @dataclass
@@ -46,16 +56,20 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return self._context
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> str:
+    def parse_inputs(inputs: list[str]) -> ProcessTaskInput:
         loaded = json.loads(inputs[0])
-        return loaded["run_id"]
+        return ProcessTaskInput(
+            run_id=loaded["run_id"],
+            create_pr=loaded.get("create_pr", True),
+        )
 
     @temporalio.workflow.run
-    async def run(self, run_id: str) -> ProcessTaskOutput:
+    async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
+        run_id = input.run_id
 
         try:
-            self._context = await self._get_task_processing_context(run_id)
+            self._context = await self._get_task_processing_context(input)
 
             await self._track_workflow_event(
                 "process_task_workflow_started",
@@ -70,8 +84,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             sandbox_output = await self._get_sandbox_for_repository()
             sandbox_id = sandbox_output.sandbox_id
 
-            if sandbox_output.should_create_snapshot:
-                await self._trigger_snapshot_workflow()
+            # TODO: Re-enable snapshot creation
+            # if sandbox_output.should_create_snapshot:
+            #     await self._trigger_snapshot_workflow()
 
             result = await self._execute_task_in_sandbox(sandbox_id)
 
@@ -122,10 +137,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             if sandbox_id:
                 await self._cleanup_sandbox(sandbox_id)
 
-    async def _get_task_processing_context(self, run_id: str) -> TaskProcessingContext:
+    async def _get_task_processing_context(self, input: ProcessTaskInput) -> TaskProcessingContext:
         return await workflow.execute_activity(
             get_task_processing_context,
-            run_id,
+            GetTaskProcessingContextInput(run_id=input.run_id, create_pr=input.create_pr),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
