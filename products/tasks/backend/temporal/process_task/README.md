@@ -1,0 +1,41 @@
+# Cloud Runs
+
+## Sandbox Providers
+
+In production, we use **ModalSandbox** which runs on [Modal](https://modal.com) with gVisor isolation. gVisor provides kernel-level sandboxing by intercepting system calls, offering stronger isolation than standard containers.
+
+For local development, **DockerSandbox** uses regular Docker containers. This is fine for dev/testing but doesn't provide the same isolation guarantees - containers share the host kernel and are easier to escape. DockerSandbox is blocked from running in production.
+
+## Local Development
+
+### Using DockerSandbox (recommended)
+
+Add to your `.env`:
+
+```
+SANDBOX_PROVIDER=docker
+```
+
+Requires Docker to be running locally.
+
+### Using ModalSandbox
+
+Add to your `.env`:
+
+```
+MODAL_TOKEN_ID=your_token_id
+MODAL_TOKEN_SECRET=your_token_secret
+```
+
+Get tokens from [modal.com](https://modal.com).
+
+## Running Tests
+
+Tests require the Array OAuth app fixture. It's created automatically via `autouse=True` in `conftest.py`.
+
+To run tests that need Modal:
+```bash
+MODAL_TOKEN_ID=xxx MODAL_TOKEN_SECRET=xxx pytest products/tasks/backend/temporal/
+```
+
+Tests without Modal tokens will be skipped if they aren't provided.
