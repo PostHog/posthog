@@ -153,12 +153,12 @@ const LeftHandColumn = (): JSX.Element => {
                 width: desiredSize ?? '30%',
                 minWidth: 320,
             }}
-            className="flex flex-col relative bg-surface-primary"
+            className="flex flex-col h-full relative bg-surface-primary"
         >
             <TabsPrimitive
                 value={category}
                 onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}
-                className="flex flex-col min-h-0"
+                className="flex flex-col flex-1 min-h-0"
             >
                 <div>
                     <ScrollableShadows direction="horizontal" className="border-b" hideScrollbars>
@@ -187,10 +187,12 @@ const LeftHandColumn = (): JSX.Element => {
                 <TabsPrimitiveContent value="exceptions" className="h-full min-h-0">
                     <ExceptionsTab />
                 </TabsPrimitiveContent>
-                <TabsPrimitiveContent value="breakdowns">
-                    <BreakdownsSearchBar />
-                    <MiniBreakdowns />
-                    <BreakdownsChart />
+                <TabsPrimitiveContent value="breakdowns" className="flex-1 min-h-0">
+                    <div className="flex flex-col h-full">
+                        <BreakdownsSearchBar />
+                        <MiniBreakdowns />
+                        <BreakdownsChart />
+                    </div>
                 </TabsPrimitiveContent>
                 {hasTasks && (
                     <TabsPrimitiveContent value="autofix">
