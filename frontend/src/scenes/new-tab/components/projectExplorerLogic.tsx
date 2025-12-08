@@ -11,6 +11,7 @@ import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { getNewTabProjectTreeLogicProps, newTabSceneLogic } from '../newTabSceneLogic'
+import type { projectExplorerLogicType } from './projectExplorerLogicType'
 
 export interface ProjectExplorerLogicProps {
     tabId: string
@@ -24,9 +25,9 @@ export interface ExplorerRow {
     isSearchResult?: boolean
 }
 
-export const projectExplorerLogic = kea([
+export const projectExplorerLogic = kea<projectExplorerLogicType>([
     path(['scenes', 'new-tab', 'components', 'projectExplorerLogic']),
-    props<ProjectExplorerLogicProps>(),
+    props({} as ProjectExplorerLogicProps),
     key(({ tabId }) => tabId),
     connect(({ tabId }: ProjectExplorerLogicProps) => {
         const projectTreeLogicProps = getNewTabProjectTreeLogicProps(tabId)
