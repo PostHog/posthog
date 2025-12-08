@@ -51,11 +51,19 @@ class OrderedCsvRenderer(
                 field_headers.remove(single_header)
                 field_headers[pos_single_header:pos_single_header] = ordered_fields[single_header]
 
-        # Return your "table", with the headers as the first row.
-        if labels:
-            yield [labels.get(x, x) for x in field_headers]
-        else:
-            yield [extract_expression_comment(header) for header in field_headers]
+        # # Return your "table", with the headers as the first row.
+        final_headers = []
+        if labels is None:
+            labels = {}
+
+        for header in field_headers:
+            custom_label = labels.get(header)
+            if custom_label is not None:
+                final_headers.append(custom_label)
+            else:
+                final_headers.append(extract_expression_comment(header))
+
+        yield final_headers
 
         # Create a row for each dictionary, filling in columns for which the
         # item has no data with None values.
