@@ -9,18 +9,25 @@ import {
     applyEdgeChanges,
     applyNodeChanges,
 } from '@xyflow/react'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { DragEvent, RefObject } from 'react'
 
 import api from 'lib/api'
 
-import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
+import { DataModelingEdge, DataModelingJob, DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
 import type { dataModelingEditorLogicType } from './dataModelingEditorLogicType'
 import { CreateModelNodeType, ModelNode, ModelNodeHandle } from './types'
+
+const POLL_INTERVAL_MS = 2000
+const MIN_RUNNING_DURATION_MS = 2000
+
+let pollIntervalId: ReturnType<typeof setInterval> | null = null
+// Track when nodes started running to enforce minimum animation duration
+const nodeStartTimes: Map<string, number> = new Map()
 
 const getEdgeId = (from: string, to: string): string => `${from}->${to}`
 
@@ -50,7 +57,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             dataModelingEdges,
         }),
         runNode: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
-        runNodeSuccess: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
+        runNodeSuccess: (nodeId: string, direction: 'upstream' | 'downstream', runningNodeIds: string[]) => ({
+            nodeId,
+            direction,
+            runningNodeIds,
+        }),
         runNodeFailure: (nodeId: string, direction: 'upstream' | 'downstream', error: string) => ({
             nodeId,
             direction,
@@ -59,6 +70,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         materializeNode: (nodeId: string) => ({ nodeId }),
         materializeNodeSuccess: (nodeId: string) => ({ nodeId }),
         materializeNodeFailure: (nodeId: string, error: string) => ({ nodeId, error }),
+        setRunningNodeIds: (runningNodeIds: Set<string>) => ({ runningNodeIds }),
+        startPollingRunningJobs: true,
+        stopPollingRunningJobs: true,
+        pollRunningJobs: true,
+        pollRunningJobsSuccess: (runningJobs: DataModelingJob[]) => ({ runningJobs }),
     }),
     loaders({
         dataModelingNodes: [
@@ -135,6 +151,35 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
             },
         ],
+        runningNodeIds: [
+            new Set<string>(),
+            {
+                setRunningNodeIds: (_, { runningNodeIds }) => {
+                    // Clean up start times for nodes that are no longer running
+                    for (const nodeId of nodeStartTimes.keys()) {
+                        if (!runningNodeIds.has(nodeId)) {
+                            nodeStartTimes.delete(nodeId)
+                        }
+                    }
+                    return runningNodeIds
+                },
+                runNodeSuccess: (state, { runningNodeIds }) => {
+                    const now = Date.now()
+                    for (const nodeId of runningNodeIds) {
+                        if (!nodeStartTimes.has(nodeId)) {
+                            nodeStartTimes.set(nodeId, now)
+                        }
+                    }
+                    return new Set([...state, ...runningNodeIds])
+                },
+                materializeNode: (state, { nodeId }) => {
+                    if (!nodeStartTimes.has(nodeId)) {
+                        nodeStartTimes.set(nodeId, Date.now())
+                    }
+                    return new Set([...state, nodeId])
+                },
+            },
+        ],
     })),
     selectors({
         nodesById: [
@@ -146,6 +191,20 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                         return acc
                     },
                     {} as Record<string, ModelNode>
+                )
+            },
+        ],
+        nodeIdBySavedQueryId: [
+            (s) => [s.nodes],
+            (nodes): Record<string, string> => {
+                return nodes.reduce(
+                    (acc, node) => {
+                        if (node.data.savedQueryId) {
+                            acc[node.data.savedQueryId] = node.id
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
                 )
             },
         ],
@@ -264,8 +323,9 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
 
         runNode: async ({ nodeId, direction }) => {
             try {
-                await api.dataModelingNodes.run(nodeId, direction)
-                actions.runNodeSuccess(nodeId, direction)
+                const response = await api.dataModelingNodes.run(nodeId, direction)
+                actions.runNodeSuccess(nodeId, direction, response.node_ids)
+                actions.startPollingRunningJobs()
             } catch (e) {
                 actions.runNodeFailure(nodeId, direction, String(e))
             }
@@ -275,13 +335,75 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             try {
                 await api.dataModelingNodes.materialize(nodeId)
                 actions.materializeNodeSuccess(nodeId)
+                actions.startPollingRunningJobs()
             } catch (e) {
                 actions.materializeNodeFailure(nodeId, String(e))
+            }
+        },
+
+        pollRunningJobs: async () => {
+            try {
+                const runningJobs = await api.dataModelingJobs.listRunning()
+                actions.pollRunningJobsSuccess(runningJobs)
+            } catch {
+                // On API error, treat it as "no running jobs" to clear optimistic state
+                // This prevents nodes from being stuck in "running" state forever
+                actions.pollRunningJobsSuccess([])
+            }
+        },
+
+        pollRunningJobsSuccess: ({ runningJobs }) => {
+            const now = Date.now()
+            // Map running jobs to node IDs via saved_query_id
+            const runningSavedQueryIds = new Set(runningJobs.map((job) => job.saved_query_id))
+            const newRunningNodeIds = new Set<string>()
+
+            for (const [savedQueryId, nodeId] of Object.entries(values.nodeIdBySavedQueryId)) {
+                if (runningSavedQueryIds.has(savedQueryId)) {
+                    newRunningNodeIds.add(nodeId)
+                }
+            }
+
+            // Keep nodes running if they haven't reached the minimum duration yet
+            for (const nodeId of values.runningNodeIds) {
+                const startTime = nodeStartTimes.get(nodeId)
+                if (startTime && now - startTime < MIN_RUNNING_DURATION_MS) {
+                    newRunningNodeIds.add(nodeId)
+                }
+            }
+
+            actions.setRunningNodeIds(newRunningNodeIds)
+
+            // Stop polling if no jobs are running
+            if (newRunningNodeIds.size === 0) {
+                actions.stopPollingRunningJobs()
+            }
+        },
+
+        startPollingRunningJobs: () => {
+            if (pollIntervalId) {
+                return
+            }
+            actions.pollRunningJobs()
+            pollIntervalId = setInterval(() => {
+                actions.pollRunningJobs()
+            }, POLL_INTERVAL_MS)
+        },
+
+        stopPollingRunningJobs: () => {
+            if (pollIntervalId) {
+                clearInterval(pollIntervalId)
+                pollIntervalId = null
             }
         },
     })),
     afterMount(({ actions }) => {
         actions.loadDataModelingNodes()
         actions.loadDataModelingEdges()
+        // Start polling to check for any jobs that are already running
+        actions.startPollingRunningJobs()
+    }),
+    beforeUnmount(({ actions }) => {
+        actions.stopPollingRunningJobs()
     }),
 ])

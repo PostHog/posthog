@@ -1200,6 +1200,10 @@ export class ApiRequest {
             .withQueryString({ saved_query_id: savedQueryId, limit: pageSize, offset })
     }
 
+    public dataModelingJobsRunning(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -4042,6 +4046,12 @@ const api = {
     dataModelingEdges: {
         async list(): Promise<PaginatedResponse<DataModelingEdge>> {
             return await new ApiRequest().dataModelingEdges().get()
+        },
+    },
+
+    dataModelingJobs: {
+        async listRunning(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRunning().get()
         },
     },
 

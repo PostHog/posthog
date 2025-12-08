@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
 import { IconPlay, IconPlus, IconRefresh } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -55,7 +55,7 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId, highlightedNodeType } = useValues(dataModelingEditorLogic)
+    const { selectedNodeId, highlightedNodeType, runningNodeIds } = useValues(dataModelingEditorLogic)
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
@@ -68,6 +68,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const settings = NODE_TYPE_SETTINGS[props.data.type]
     const isSelected = selectedNodeId === props.id
     const { userTag, name, type, savedQueryId } = props.data
+    const isRunning = runningNodeIds.has(props.id)
 
     const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
@@ -100,13 +101,15 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
         <div
             className={clsx(
                 'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
-                isSearchMatch
-                    ? 'border-link ring-2 ring-link/30'
-                    : isTypeHighlighted
+                isRunning
+                    ? 'border-warning ring-2 ring-warning/30 animate-pulse'
+                    : isSearchMatch
                       ? 'border-link ring-2 ring-link/30'
-                      : isSelected
-                        ? 'border-primary ring-2 ring-primary/50'
-                        : 'border-border',
+                      : isTypeHighlighted
+                        ? 'border-link ring-2 ring-link/30'
+                        : isSelected
+                          ? 'border-primary ring-2 ring-primary/50'
+                          : 'border-border',
                 canOpenInEditor && 'cursor-pointer'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -122,7 +125,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
 
-            {canRun && isHovered && (
+            {canRun && isHovered && !isRunning && (
                 <>
                     <Tooltip title="Run all upstream nodes including this one">
                         <button
@@ -167,12 +170,13 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 <div className="flex items-center justify-between gap-1">
                     <span className="font-medium text-sm truncate">{name}</span>
                     {canRun && (
-                        <Tooltip title="Run this node">
+                        <Tooltip title={isRunning ? 'Running...' : 'Run this node'}>
                             <LemonButton
                                 size="xsmall"
                                 type="secondary"
                                 onClick={handleMaterialize}
-                                icon={<IconPlay className="w-3 h-3" />}
+                                disabled={isRunning}
+                                icon={isRunning ? <Spinner textColored /> : <IconPlay className="w-3 h-3" />}
                             />
                         </Tooltip>
                     )}
