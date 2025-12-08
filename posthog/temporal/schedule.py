@@ -23,6 +23,7 @@ from posthog.temporal.ai import SyncVectorsInputs
 from posthog.temporal.ai.sync_vectors import EmbeddingVersion
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.delete_recordings.types import DeleteRecordingMetadataInput
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.enforce_max_replay_retention.types import EnforceMaxReplayRetentionInput
 from posthog.temporal.llm_analytics.trace_summarization.schedule import create_batch_trace_summarization_schedule
@@ -265,7 +266,7 @@ async def create_delete_recording_metadata_schedule(client: Client):
     delete_recording_metadata_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
             "delete-recording-metadata",
-            None,
+            DeleteRecordingMetadataInput(dry_run=False),
             id="delete-recording-metadata-schedule",
             task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
             retry_policy=common.RetryPolicy(

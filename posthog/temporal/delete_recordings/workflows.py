@@ -15,6 +15,7 @@ from posthog.temporal.delete_recordings.activities import (
     load_recordings_with_query,
     load_recordings_with_team_id,
     perform_recording_metadata_deletion,
+    schedule_recording_metadata_deletion,
 )
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingMetadataInput,
@@ -76,6 +77,17 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                             ),
                         )
                     )
+
+        await workflow.execute_activity(
+            schedule_recording_metadata_deletion,
+            input,
+            start_to_close_timeout=timedelta(minutes=5),
+            schedule_to_close_timeout=timedelta(hours=3),
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=2,
+                initial_interval=timedelta(minutes=1),
+            ),
+        )
 
 
 @workflow.defn(name="delete-recordings-with-person")
