@@ -5,10 +5,8 @@ from uuid import uuid4
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
-from unittest.mock import MagicMock, patch
 
 from django.db import transaction
-from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
@@ -36,10 +34,6 @@ from posthog.settings import (
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
 
-@override_settings(
-    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
-    OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
-)
 class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
         s3 = resource(
@@ -609,10 +603,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Verify no item was actually added
         assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
 
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts")
-    def test_get_pinned_recordings_for_playlist(self, mock_copy_to_lts: MagicMock) -> None:
-        mock_copy_to_lts.return_value = "some-lts-path"
-
+    def test_get_pinned_recordings_for_playlist(self) -> None:
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
         session_one = f"test_fetch_playlist_recordings-session1-{uuid4()}"
@@ -656,11 +647,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
 
-    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts")
-    def test_fetch_playlist_recordings(self, mock_copy_to_lts: MagicMock) -> None:
-        # all sessions have been blob ingested and had data to copy into the LTS storage location
-        mock_copy_to_lts.return_value = "some-lts-path"
-
+    def test_fetch_playlist_recordings(self) -> None:
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
             name="playlist1",

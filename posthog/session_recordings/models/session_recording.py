@@ -1,18 +1,15 @@
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Optional, Union
 
-from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
-from posthog.models.signals import mutable_receiver
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents, ttl_days
-from posthog.tasks.tasks import ee_persist_single_recording_v2
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 
 class SessionRecording(UUIDTModel):
@@ -62,7 +59,6 @@ class SessionRecording(UUIDTModel):
     matching_events: Optional[RecordingMatchingEvents] = None
     ongoing: Optional[bool] = None
     activity_score: Optional[float] = None
-    ttl_days: Optional[int] = None
     expiry_time: Optional[datetime] = None
     recording_ttl: Optional[int] = None
 
@@ -73,7 +69,7 @@ class SessionRecording(UUIDTModel):
         if self._metadata:
             return True
 
-        if self.object_storage_path:
+        if self.object_storage_path or self.full_recording_v2_path:
             # Nothing todo as we have all the metadata in the model
             pass
         else:
@@ -88,7 +84,6 @@ class SessionRecording(UUIDTModel):
                 return False
 
             self._metadata = metadata
-            self.ttl_days = ttl_days(self.team)
 
             # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]
@@ -109,13 +104,6 @@ class SessionRecording(UUIDTModel):
             self.recording_ttl = metadata["recording_ttl"]
 
         return True
-
-    @property
-    def storage(self):
-        if self._state.adding:
-            return "object_storage"
-
-        return "object_storage_lts"
 
     @property
     def snapshot_source(self) -> Optional[str]:
@@ -155,16 +143,6 @@ class SessionRecording(UUIDTModel):
         else:
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
-
-    def build_blob_lts_storage_path(self, version: Literal["2023-08-01"]) -> str:
-        if version == "2023-08-01":
-            return self.build_blob_ingestion_storage_path(settings.OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER)
-        else:
-            raise NotImplementedError(f"Unknown session replay object storage version {version}")
-
-    def build_blob_ingestion_storage_path(self, root_prefix: Optional[str] = None) -> str:
-        root_prefix = root_prefix or settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
@@ -222,9 +200,3 @@ class SessionRecording(UUIDTModel):
 
         url = urls[0] if urls else None
         self.start_url = url.split("?")[0][:512] if url else None
-
-
-@mutable_receiver(models.signals.post_save, sender=SessionRecording)
-def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
-    if created:
-        ee_persist_single_recording_v2.delay(instance.session_id, instance.team_id)

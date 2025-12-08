@@ -12,6 +12,7 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -29,8 +30,14 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { CompareFilter, DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    CompareFilter,
+    DataTableNode,
+    InsightVizNode,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { SurveyAnalysisQuestionGroup, SurveyAnalysisResponseItem } from '~/queries/schema/schema-surveys'
 import { HogQLQueryString } from '~/queries/utils'
 import {
@@ -78,6 +85,7 @@ import {
     defaultSurveyFieldValues,
 } from './constants'
 import type { surveyLogicType } from './surveyLogicType'
+import { SurveyVersionWarning, getSurveyVersionWarnings } from './surveyVersionRequirements'
 import { surveysLogic } from './surveysLogic'
 import {
     DATE_FORMAT,
@@ -483,13 +491,15 @@ export const surveyLogic = kea<surveyLogicType>([
             enabledFlagLogic,
             ['featureFlags as enabledFlags'],
             surveysLogic,
-            ['data'],
+            ['data', 'teamSdkVersions'],
             userLogic,
             ['user'],
             teamLogic,
             ['currentTeam'],
             propertyDefinitionsModel,
             ['propertyDefinitionsByType'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
         ],
     })),
     actions({
@@ -556,6 +566,22 @@ export const surveyLogic = kea<surveyLogicType>([
                 return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
+        surveyHeadline: [
+            null as { headline: string; responses_sampled: number; has_more: boolean } | null,
+            {
+                loadSurveyHeadline: async (forceRefresh: boolean = false) => {
+                    if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
+                        return null
+                    }
+                    const result = await api.surveys.getSummaryHeadline(props.id, forceRefresh)
+                    if (result) {
+                        actions.setSurveyValue('headline_summary', result.headline)
+                        actions.setSurveyValue('headline_response_count', result.responses_sampled)
+                    }
+                    return result
+                },
+            },
+        ],
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -965,6 +991,25 @@ export const surveyLogic = kea<surveyLogicType>([
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
                 }
             },
+            loadSurveyBaseStatsSuccess: () => {
+                if (!values.isSurveyHeadlineEnabled || !values.dataProcessingAccepted) {
+                    return
+                }
+
+                const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
+                const cachedCount = values.survey.headline_response_count ?? 0
+
+                if (currentCount === 0) {
+                    return
+                }
+
+                const needsGeneration = !values.survey.headline_summary
+                const isStale = currentCount > cachedCount + 5
+
+                if (needsGeneration || isStale) {
+                    actions.loadSurveyHeadline(true)
+                }
+            },
             resetSurveyResponseLimits: () => {
                 actions.setSurveyValue('responses_limit', null)
             },
@@ -1291,7 +1336,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
         dateRange: [
             null as SurveyDateRange | null,
-            { persist: true },
             {
                 setDateRange: (_, { dateRange }) => dateRange,
             },
@@ -1333,10 +1377,10 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         partialResponsesFilter: [
-            (s) => [s.survey],
-            (survey: Survey): string => {
+            (s) => [s.survey, s.dateRange],
+            (survey: Survey, dateRange: SurveyDateRange): string => {
                 if (survey.enable_partial_responses) {
-                    return buildPartialResponsesFilter(survey)
+                    return buildPartialResponsesFilter(survey, dateRange)
                 }
                 /**
                  * Return only complete responses. For pre-partial responses, we didn't have the survey_completed property.
@@ -1381,6 +1425,12 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
                 return !!enabledFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
+            },
+        ],
+        isSurveyHeadlineEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_HEADLINE_SUMMARY]
             },
         ],
         isAnyResultsLoading: [
@@ -1539,25 +1589,26 @@ export const surveyLogic = kea<surveyLogicType>([
                     where.push(archivedResponsesFilter.substring(4))
                 }
 
+                const defaultColumns = [
+                    '*',
+                    ...survey.questions.map((q, i) => {
+                        if (q.type === SurveyQuestionType.MultipleChoice) {
+                            return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
+                        }
+                        return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
+                    }),
+                    'timestamp',
+                    'person',
+                    `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
+                    `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
+                    `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
+                ]
+
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.EventsQuery,
-                        select: [
-                            '*',
-                            ...survey.questions.map((q, i) => {
-                                if (q.type === SurveyQuestionType.MultipleChoice) {
-                                    return `arrayStringConcat(${getSurveyResponse(q, i)}, ', ') -- ${getExpressionCommentForQuestion(q, i)}`
-                                }
-                                // Use the new condition that checks both formats
-                                return `${getSurveyResponse(q, i)} -- ${getExpressionCommentForQuestion(q, i)}`
-                            }),
-                            'timestamp',
-                            'person',
-                            `coalesce(JSONExtractString(properties, '$lib_version')) -- Library Version`,
-                            `coalesce(JSONExtractString(properties, '$lib')) -- Library`,
-                            `coalesce(JSONExtractString(properties, '$current_url')) -- URL`,
-                        ],
+                        select: defaultColumns,
                         orderBy: ['timestamp DESC'],
                         where,
                         after: dateRange?.date_from || startDate,
@@ -1572,6 +1623,7 @@ export const surveyLogic = kea<surveyLogicType>([
                             ...propertyFilters,
                         ],
                     },
+                    defaultColumns,
                     propertiesViaUrl: true,
                     showExport: true,
                     showReload: true,
@@ -1579,6 +1631,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     showEventFilter: false,
                     showPropertyFilter: false,
                     showTimings: false,
+                    showPersistentColumnConfigurator: true,
+                    contextKey: `survey:${survey.id}`,
                 }
             },
         ],
@@ -1985,6 +2039,12 @@ export const surveyLogic = kea<surveyLogicType>([
                 return responsesByQuestion
             },
         ],
+        surveyVersionWarnings: [
+            (s) => [s.survey, s.teamSdkVersions],
+            (survey, teamSdkVersions): SurveyVersionWarning[] => {
+                return getSurveyVersionWarnings(survey as Survey, teamSdkVersions)
+            },
+        ],
     }),
     forms(({ actions, props, values }) => ({
         survey: {
@@ -2107,7 +2167,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 try {
                     const parsedAnswerFilters = JSON.parse(searchParams.answerFilters)
                     if (Array.isArray(parsedAnswerFilters) && parsedAnswerFilters.length > 0) {
-                        actions.setAnswerFilters(parsedAnswerFilters, false)
+                        const mergedFilters =
+                            values.answerFilters.length > 0
+                                ? values.answerFilters.map((existingFilter) => {
+                                      const urlFilter = parsedAnswerFilters.find(
+                                          (f: EventPropertyFilter) => f.key === existingFilter.key
+                                      )
+                                      return urlFilter ?? existingFilter
+                                  })
+                                : parsedAnswerFilters
+                        actions.setAnswerFilters(mergedFilters, false)
                     }
                 } catch (e) {
                     console.error('Failed to parse answerFilters from URL:', e)

@@ -30,7 +30,6 @@ import { Celery } from './utils/db/celery'
 import { DB } from './utils/db/db'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
-import { ObjectStorage } from './utils/object_storage'
 import { PubSub } from './utils/pubsub'
 import { TeamManager } from './utils/team-manager'
 import { UUID } from './utils/utils'
@@ -235,6 +234,17 @@ export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: string
     LOGS_INGESTION_CONSUMER_DLQ_TOPIC: string
     LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
+    LOGS_REDIS_HOST: string
+    LOGS_REDIS_PORT: number
+    LOGS_REDIS_PASSWORD: string
+    LOGS_REDIS_TLS: boolean
+    LOGS_LIMITER_ENABLED_TEAMS: string
+    LOGS_LIMITER_DISABLED_FOR_TEAMS: string
+    LOGS_LIMITER_BUCKET_SIZE_KB: number
+    LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: number
+    LOGS_LIMITER_TTL_SECONDS: number
+    LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: string
+    LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
 }
 
 /**
@@ -266,6 +276,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
+    PERSON_PROPERTIES_UPDATE_ALL: boolean // when true, all property changes trigger person updates (disables filtering of eventToPersonProperties and geoip)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     // Topic for async person merge processing
@@ -274,17 +285,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_MERGE_ASYNC_ENABLED: boolean
     // Batch size for sync person merge processing (0 = unlimited)
     PERSON_MERGE_SYNC_BATCH_SIZE: number
-    // Enable person table cutover migration
-    PERSON_TABLE_CUTOVER_ENABLED: boolean
-    // New person table name for cutover migration
-    PERSON_NEW_TABLE_NAME: string
-    // Person ID offset threshold - person IDs >= this value route to new table
-    PERSON_NEW_TABLE_ID_OFFSET: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
     GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
     GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
@@ -366,12 +372,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number // (advanced) how many kafka partitions the plugin server should consume from concurrently
     PERSON_INFO_CACHE_TTL: number
     KAFKA_HEALTHCHECK_SECONDS: number
-    OBJECT_STORAGE_ENABLED: boolean // Disables or enables the use of object storage. It will become mandatory to use object storage
-    OBJECT_STORAGE_REGION: string // s3 region
-    OBJECT_STORAGE_ENDPOINT: string // s3 endpoint
-    OBJECT_STORAGE_ACCESS_KEY_ID: string
-    OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    OBJECT_STORAGE_BUCKET: string // the object storage bucket name
     PLUGIN_SERVER_MODE: PluginServerMode | null
     PLUGIN_SERVER_EVENTS_INGESTION_PIPELINE: string | null // TODO: shouldn't be a string probably
     PLUGIN_LOAD_SEQUENTIALLY: boolean // could help with reducing memory usage spikes on startup
@@ -510,7 +510,6 @@ export interface Hub extends PluginsServerConfig {
     cookielessRedisPool: GenericPool<Redis>
     kafka: Kafka
     kafkaProducer: KafkaProducerWrapper
-    objectStorage?: ObjectStorage
     // currently enabled plugin status
     plugins: Map<PluginId, Plugin>
     pluginConfigs: Map<PluginConfigId, PluginConfig>
@@ -898,6 +897,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -1012,8 +1012,6 @@ export interface RawPerson extends BasePerson {
 export interface InternalPerson extends BasePerson {
     created_at: DateTime
     version: number
-    /** Internal flag to track which table this person exists in during cutover migration */
-    __useNewTable?: boolean
 }
 
 /** Mutable fields that can be updated on a Person via updatePerson. */
@@ -1386,15 +1384,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 export interface EventHeaders {
     token?: string
     distinct_id?: string
+    session_id?: string
     timestamp?: string
     event?: string
     uuid?: string
+    now?: Date
     force_disable_person_processing: boolean
+    historical_migration: boolean
 }
 
 export interface IncomingEvent {
     event: PipelineEvent
-    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {

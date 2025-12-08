@@ -4,7 +4,6 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -338,6 +337,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentMetricTimeout',
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
+                'reportExperimentAiSummaryRequested',
             ],
             teamLogic,
             ['addProductIntent'],
@@ -972,9 +972,6 @@ export const experimentLogic = kea<experimentLogicType>([
                     const statsConfig = {
                         ...values.experiment?.stats_config,
                         timeseries: true,
-                        ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
-                            use_new_query_builder: true,
-                        }),
                     }
 
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {

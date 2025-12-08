@@ -15,7 +15,6 @@ from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
-from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 
 import jwt
@@ -66,7 +65,7 @@ from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.feature_flag.flag_matching import get_all_feature_flags
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications, ShortcutPosition
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
@@ -145,6 +144,7 @@ class UserSerializer(serializers.ModelSerializer):
             "theme_mode",
             "hedgehog_config",
             "allow_sidebar_suggestions",
+            "shortcut_position",
             "role_at_organization",
         ]
 
@@ -363,7 +363,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance: Any) -> Any:
         user_identify.identify_task.delay(user_id=instance.id)
-        return super().to_representation(instance)
+        data = super().to_representation(instance)
+
+        # Backfill shortcut_position default for frontend if null
+        if data.get("shortcut_position") is None:
+            data["shortcut_position"] = ShortcutPosition.ABOVE.value
+
+        return data
 
 
 class ScenePersonalisationSerializer(serializers.ModelSerializer):
@@ -422,7 +428,12 @@ class UserViewSet(
         UserNoOrgMembershipDeletePermission,
         TimeSensitiveActionPermission,
     ]
-    time_sensitive_allow_if_only_fields = ["theme_mode", "set_current_organization", "allow_sidebar_suggestions"]
+    time_sensitive_allow_if_only_fields = [
+        "theme_mode",
+        "set_current_organization",
+        "allow_sidebar_suggestions",
+        "shortcut_position",
+    ]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
@@ -492,7 +503,7 @@ class UserViewSet(
             user.email = user.pending_email
             user.pending_email = None
             user.save()
-            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
+            send_email_change_emails.delay(datetime.now(UTC).isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()

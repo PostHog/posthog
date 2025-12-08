@@ -68,6 +68,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
         kafka_metadata_max_age_ms: 60000,
         kafka_producer_max_retries: 2,
         kafka_producer_acks: "all".to_string(),
+        kafka_socket_timeout_ms: 60000,
     },
     otel_url: None,
     otel_sampling_rate: 0.0,
@@ -286,7 +287,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -321,7 +322,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }
@@ -368,7 +369,7 @@ impl EphemeralTopic {
                         std::thread::sleep(Duration::from_millis(100));
                         continue;
                     }
-                    bail!("kafka read error: {}", err);
+                    bail!("kafka read error: {err}");
                 }
                 None => bail!("kafka read timeout"),
             }

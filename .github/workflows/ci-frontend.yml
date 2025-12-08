@@ -8,7 +8,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run frontend ci
@@ -20,7 +20,7 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run frontend checks
         outputs:
-            frontend: ${{ steps.filter.outputs.frontend }}
+            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -28,6 +28,7 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       frontend:
@@ -212,7 +213,7 @@ jobs:
               run: pnpm --filter=@posthog/frontend schema:build:json && git diff --exit-code
 
             - name: Check if mobile replay "schema.json" is up to date
-              run: pnpm --filter=@posthog/ee mobile-replay:schema:build:json && git diff --exit-code
+              run: pnpm --filter=@posthog/frontend mobile-replay:schema:build:json && git diff --exit-code
 
     jest:
         runs-on: depot-ubuntu-24.04

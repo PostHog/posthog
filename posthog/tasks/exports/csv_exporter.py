@@ -232,6 +232,9 @@ def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = 
                     prop_name = breakdowns[idx].get("property") if idx < len(breakdowns) else None
                     if not prop_name:
                         continue
+                    # Convert list property names to string (e.g., HogQL expressions)
+                    if isinstance(prop_name, list):
+                        prop_name = ", ".join(str(p) for p in prop_name)
                     formatted_val = str(val) if val is not None else ""
                     if formatted_val == BREAKDOWN_OTHER_STRING_LABEL:
                         formatted_val = BREAKDOWN_OTHER_DISPLAY

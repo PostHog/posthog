@@ -12,7 +12,7 @@ use crate::{
 use common_database::PostgresReader;
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
-use common_types::ProjectId;
+use common_types::TeamId;
 use std::sync::Arc;
 
 /// Result of fetching feature flags, including cache hit status
@@ -155,17 +155,17 @@ impl FlagService {
     /// tracking cache metrics.
     pub async fn get_flags_from_cache_or_pg(
         &self,
-        project_id: ProjectId,
+        team_id: TeamId,
     ) -> Result<FlagResult, FlagError> {
         let pg_client = self.pg_client.clone();
         let cache_result = self
             .flags_cache
-            .get_or_load(&project_id, move |&project_id| {
+            .get_or_load(&team_id, move |&team_id| {
                 let pg_client = pg_client.clone();
                 async move {
                     // Load from PostgreSQL - always returns Some, even for empty results
                     // This ensures empty flag lists are cached to prevent repeated DB queries
-                    let flags = FeatureFlagList::from_pg(pg_client, project_id).await?;
+                    let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
                     Ok::<Option<Vec<_>>, FlagError>(Some(flags))
                 }
             })
@@ -333,6 +333,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 },
                 FeatureFlag {
                     id: 2,
@@ -353,6 +354,7 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 },
                 FeatureFlag {
                     id: 3,
@@ -384,11 +386,12 @@ mod tests {
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
+                    bucketing_identifier: None,
                 },
             ],
         };
 
-        update_flags_in_redis(redis_client.clone(), team.project_id(), &mock_flags, None)
+        update_flags_in_redis(redis_client.clone(), team.id, &mock_flags, None)
             .await
             .expect("Failed to insert mock flags in Redis");
 
@@ -402,9 +405,7 @@ mod tests {
         );
 
         // Test fetching from Redis
-        let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id())
-            .await;
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(result.is_ok());
         let flag_result = result.unwrap();
         assert_eq!(flag_result.flag_list.flags.len(), mock_flags.flags.len());
@@ -462,12 +463,10 @@ mod tests {
             .await
             .expect("Failed to remove flags from Redis");
 
-        let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id())
-            .await;
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
         assert!(result.is_ok());
         // Verify that the flags were re-added to Redis
-        let redis_flags = get_flags_from_redis(redis_client.clone(), team.project_id()).await;
+        let redis_flags = get_flags_from_redis(redis_client.clone(), team.id).await;
         assert!(redis_flags.is_ok());
         assert_eq!(redis_flags.unwrap().flags.len(), mock_flags.flags.len());
     }
@@ -485,7 +484,7 @@ mod tests {
         // Set up mock redis client to return Timeout on read
         let mut mock_client = MockRedisClient::new();
         mock_client.get_ret(
-            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.id),
             Err(CustomRedisError::Timeout),
         );
 
@@ -500,9 +499,7 @@ mod tests {
             crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
-        let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id())
-            .await;
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
 
         // Should succeed despite Redis timeout
         assert!(result.is_ok());
@@ -531,7 +528,7 @@ mod tests {
         // Set up mock redis client to return Redis error (maps to RedisUnavailable)
         let mut mock_client = MockRedisClient::new();
         mock_client.get_ret(
-            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.project_id()),
+            &format!("{TEAM_FLAGS_CACHE_PREFIX}{}", team.id),
             Err(CustomRedisError::from_redis_kind(
                 RedisErrorKind::IoError,
                 "Connection refused",
@@ -549,9 +546,7 @@ mod tests {
             crate::config::DEFAULT_TEST_CONFIG.clone(),
         );
 
-        let result = flag_service
-            .get_flags_from_cache_or_pg(team.project_id())
-            .await;
+        let result = flag_service.get_flags_from_cache_or_pg(team.id).await;
 
         // Should succeed despite Redis being unavailable
         assert!(result.is_ok());
