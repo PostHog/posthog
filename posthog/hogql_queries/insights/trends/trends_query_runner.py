@@ -728,7 +728,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     events.append(event_name)
                 elif isinstance(value, ActionsNode):
                     action = Action.objects.get(pk=int(value.id), team__project_id=self.team.project_id)
-                    events.append(action.name)
+                    action_name = action.name if action.name is not None else "Unnamed action"
+                    events.append(action_name)
                 elif isinstance(value, DataWarehouseNode):
                     events.append(value.table_name)
             return ", ".join(events)
