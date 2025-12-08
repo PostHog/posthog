@@ -280,7 +280,8 @@ export class PostgresPersonRepository
         })
 
         // Use UNNEST with two arrays to keep query structure constant for prepared statement reuse.
-        // This avoids creating different query plans for different batch sizes.
+        // This is more efficient than building dynamic OR conditions because PostgreSQL can
+        // prepare and cache the execution plan regardless of batch size.
         const teamIds = uniqueTeamPersons.map((p) => p.teamId)
         const distinctIds = uniqueTeamPersons.map((p) => p.distinctId)
 
