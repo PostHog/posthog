@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"log"
 	"sync"
 	"time"
@@ -9,7 +10,7 @@ import (
 	"github.com/posthog/posthog/livestream/metrics"
 )
 
-const SESSION_RECORDING_TTL = 5 * time.Minute
+const sessionRecordingTTL = 5 * time.Minute
 
 type SessionStats struct {
 	store map[string]*expirable.LRU[string, NoSpaceType]
@@ -36,18 +37,40 @@ func (ss *SessionStats) GetStoreForToken(token string) *expirable.LRU[string, No
 	ss.mu.Lock()
 	store = ss.store[token]
 	if store == nil {
-		store = expirable.NewLRU[string, NoSpaceType](0, nil, SESSION_RECORDING_TTL)
+		store = expirable.NewLRU[string, NoSpaceType](0, nil, sessionRecordingTTL)
 		ss.store[token] = store
 	}
 	ss.mu.Unlock()
 	return store
 }
 
-func (ss *SessionStats) KeepStats(statsChan chan SessionRecordingEvent) {
+func (ss *SessionStats) KeepStats(ctx context.Context, statsChan chan SessionRecordingEvent) {
 	log.Println("starting session recording stats keeper...")
 
-	for event := range statsChan {
-		ss.GetStoreForToken(event.Token).Add(event.SessionId, NoSpaceType{})
-		metrics.SessionRecordingHandledEvents.Inc()
+	cleanupTicker := time.NewTicker(10 * time.Minute)
+	defer cleanupTicker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Println("session recording stats keeper shutting down...")
+			return
+		case <-cleanupTicker.C:
+			ss.cleanupEmptyStores()
+		case event := <-statsChan:
+			ss.GetStoreForToken(event.Token).Add(event.SessionId, NoSpaceType{})
+			metrics.SessionRecordingHandledEvents.Inc()
+		}
+	}
+}
+
+func (ss *SessionStats) cleanupEmptyStores() {
+	ss.mu.Lock()
+	defer ss.mu.Unlock()
+
+	for token, store := range ss.store {
+		if store.Len() == 0 {
+			delete(ss.store, token)
+		}
 	}
 }

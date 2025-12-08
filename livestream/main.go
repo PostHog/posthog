@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo-contrib/echoprometheus"
@@ -33,6 +37,23 @@ func main() {
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
+	// Setup context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Channel to signal when HTTP server should shutdown
+	shutdownHTTP := make(chan struct{})
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("Shutdown signal received, stopping consumers...")
+		cancel()
+		close(shutdownHTTP)
+	}()
+
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper()
 
@@ -43,7 +64,7 @@ func main() {
 	unSubChan := make(chan events.Subscription, 10000)
 
 	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(sessionStatsChan)
+	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if config.Debug {
@@ -57,7 +78,7 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	if config.Kafka.SessionRecordingTopic != "" {
+	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
 			config.Kafka.SessionRecordingBrokers, kafkaSecurityProtocol, config.Kafka.GroupID,
 			config.Kafka.SessionRecordingTopic, sessionStatsChan)
@@ -65,20 +86,27 @@ func main() {
 			log.Printf("Failed to create session recording Kafka consumer: %v", err)
 		} else {
 			defer sessionConsumer.Close()
-			go sessionConsumer.Consume()
+			go sessionConsumer.Consume(ctx)
 			log.Printf("Session recording consumer started for topic: %s", config.Kafka.SessionRecordingTopic)
 		}
 	}
 
 	go func() {
+		ticker := time.NewTicker(7127 * time.Millisecond)
+		defer ticker.Stop()
 		for {
-			metrics.IncomingQueue.Set(consumer.IncomingRatio())
-			metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
-			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
-			metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
-			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
-			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
-			time.Sleep(7127 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				log.Println("metrics collection shutting down...")
+				return
+			case <-ticker.C:
+				metrics.IncomingQueue.Set(consumer.IncomingRatio())
+				metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
+				metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
+				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
+				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
+				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+			}
 		}
 	}()
 
@@ -156,5 +184,21 @@ func main() {
 		})
 	}
 
-	e.Logger.Fatal(e.Start(":8080"))
+	// Start HTTP server in goroutine
+	go func() {
+		if err := e.Start(":8080"); err != nil && err != http.ErrServerClosed {
+			e.Logger.Fatal(err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-shutdownHTTP
+
+	// Gracefully shutdown HTTP server with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := e.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+	log.Println("HTTP server stopped")
 }

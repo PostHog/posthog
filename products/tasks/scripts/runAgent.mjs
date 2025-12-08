@@ -23,6 +23,7 @@ export async function runAgent({
     posthogProjectId,
     prompt,
     maxTurns,
+    createPR,
 }) {
     const envOverrides = {
         POSTHOG_API_KEY: posthogApiKey,
@@ -60,12 +61,13 @@ export async function runAgent({
     } else {
         await agent.runTaskCloud(taskId, runId, {
             repositoryPath,
+            createPR,
         })
     }
 }
 
 async function main() {
-    const { taskId, runId, repositoryPath, prompt, 'max-turns': maxTurns } = parseArgs()
+    const { taskId, runId, repositoryPath, prompt, 'max-turns': maxTurns, createPR } = parseArgs()
 
     if (!prompt && !taskId) {
         console.error('Missing required argument: either --prompt or --taskId must be provided')
@@ -111,6 +113,7 @@ async function main() {
             posthogProjectId,
             prompt,
             maxTurns,
+            createPR: createPR === 'true',
         })
         process.exit(0)
     } catch (error) {

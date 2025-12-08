@@ -14561,7 +14561,9 @@
                 "apps",
                 "live",
                 "chat",
-                "search"
+                "search",
+                "folder",
+                "folder_open"
             ],
             "type": "string"
         },
