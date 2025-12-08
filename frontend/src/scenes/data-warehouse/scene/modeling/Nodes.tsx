@@ -3,8 +3,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus, IconRefresh } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { IconPlay, IconPlus, IconRefresh } from '@posthog/icons'
+import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -56,7 +56,7 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
     const { selectedNodeId, highlightedNodeType } = useValues(dataModelingEditorLogic)
-    const { runNode } = useActions(dataModelingEditorLogic)
+    const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
     const [isHovered, setIsHovered] = useState(false)
@@ -83,6 +83,11 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const handleRunDownstream = (e: React.MouseEvent): void => {
         e.stopPropagation()
         runNode(props.id, 'downstream')
+    }
+
+    const handleMaterialize = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        materializeNode(props.id)
     }
 
     const handleNodeClick = (): void => {
@@ -159,7 +164,19 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                         </span>
                     )}
                 </div>
-                <span className="font-medium text-sm truncate">{name}</span>
+                <div className="flex items-center justify-between gap-1">
+                    <span className="font-medium text-sm truncate">{name}</span>
+                    {canRun && (
+                        <Tooltip title="Run this node">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                onClick={handleMaterialize}
+                                icon={<IconPlay className="w-3 h-3" />}
+                            />
+                        </Tooltip>
+                    )}
+                </div>
             </div>
         </div>
     )

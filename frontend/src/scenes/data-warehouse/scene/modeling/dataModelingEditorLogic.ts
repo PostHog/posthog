@@ -56,6 +56,9 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             direction,
             error,
         }),
+        materializeNode: (nodeId: string) => ({ nodeId }),
+        materializeNodeSuccess: (nodeId: string) => ({ nodeId }),
+        materializeNodeFailure: (nodeId: string, error: string) => ({ nodeId, error }),
     }),
     loaders({
         dataModelingNodes: [
@@ -265,6 +268,15 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 actions.runNodeSuccess(nodeId, direction)
             } catch (e) {
                 actions.runNodeFailure(nodeId, direction, String(e))
+            }
+        },
+
+        materializeNode: async ({ nodeId }) => {
+            try {
+                await api.dataModelingNodes.materialize(nodeId)
+                actions.materializeNodeSuccess(nodeId)
+            } catch (e) {
+                actions.materializeNodeFailure(nodeId, String(e))
             }
         },
     })),

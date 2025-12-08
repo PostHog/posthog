@@ -4034,6 +4034,9 @@ const api = {
         ): Promise<{ node_ids: string[] }> {
             return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
         },
+        async materialize(nodeId: DataModelingNode['id']): Promise<void> {
+            await new ApiRequest().dataModelingNode(nodeId).withAction('materialize').create()
+        },
     },
 
     dataModelingEdges: {

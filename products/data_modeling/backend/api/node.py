@@ -14,6 +14,7 @@ from temporalio.common import RetryPolicy
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
+from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.models import Edge, Node, NodeType
 
@@ -176,3 +177,40 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Materialize just this single node.
+        """
+        node = self.get_object()
+
+        if node.type == NodeType.TABLE:
+            return response.Response(
+                {"error": "Cannot materialize a table node"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        inputs = MaterializeViewWorkflowInputs(
+            team_id=self.team_id,
+            dag_id=node.dag_id,
+            node_id=str(node.id),
+        )
+
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                "materialize-view",
+                asdict(inputs),
+                id=f"materialize-view-{node.id}-{uuid4()}",
+                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
+                ),
+            )
+        )
+
+        return response.Response(status=status.HTTP_200_OK)
