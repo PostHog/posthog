@@ -361,7 +361,7 @@ def _export_to_dict(exported_asset: ExportedAsset, limit: int) -> Any:
 
     all_csv_rows = list(returned_rows)
     renderer = OrderedCsvRenderer()
-    render_context = {}
+    render_context = {"labels": {"person.distinct_ids.0": "distinct_id"}}
     if columns:
         render_context["header"] = columns
 
