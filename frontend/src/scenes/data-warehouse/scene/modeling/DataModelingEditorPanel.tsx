@@ -25,12 +25,10 @@ const NODES_TO_SHOW: CreateModelNodeType[] = [
 ]
 
 function DraggableNodeButton({ node }: { node: CreateModelNodeType }): JSX.Element {
-    const onClick = (event: React.MouseEvent): void => {}
-
     const color = NODE_TYPE_COLORS[node.type]
 
     return (
-        <div draggable onClick={onClick}>
+        <div draggable>
             <LemonButton
                 icon={
                     <span style={{ color }}>

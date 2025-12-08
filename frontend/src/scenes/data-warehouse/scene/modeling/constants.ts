@@ -1,7 +1,7 @@
 export const NODE_WIDTH = 180
 export const NODE_HEIGHT = 50
 
-export const NODE_GAP = 60
+export const NODE_GAP = 30
 
 // Minimum horizontal distance between parallel edges
 export const MINIMUM_EDGE_SPACING = 200

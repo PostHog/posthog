@@ -22,6 +22,11 @@ import { REACT_FLOW_EDGE_TYPES } from './SmartEdge'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNode } from './types'
 
+const FIT_VIEW_OPTIONS = {
+    padding: 0.2,
+    maxZoom: 1,
+}
+
 function DataModelingEditorContent(): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -67,9 +72,10 @@ function DataModelingEditorContent(): JSX.Element {
                 nodesDraggable={false}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}
+                fitViewOptions={FIT_VIEW_OPTIONS}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
-                <Controls showInteractive={false} />
+                <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
                 <DataModelingEditorPanel />
             </ReactFlow>
         </div>
