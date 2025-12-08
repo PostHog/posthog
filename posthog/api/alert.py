@@ -116,14 +116,14 @@ class AlertSerializer(serializers.ModelSerializer):
     config = TrendsAlertConfigField(required=False, allow_null=True)
     insight = serializers.PrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
-        help_text="Insight ID. Note: Response returns full InsightBasicSerializer object.",
+        help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
     )
     subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,
         required=True,
         allow_empty=True,
-        help_text="User IDs to subscribe to this alert. Response returns full user objects (`UserBasicSerializer`) in 'subscribed_users' field.",
+        help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 
