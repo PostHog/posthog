@@ -74,7 +74,7 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 RUN mkdir -p /scripts && \
     cd /scripts && \
     npm init -y && \
-    npm install @posthog/agent@1.25.0
+    npm install @posthog/agent@1.27.0
 
 # Download agent runner script from GitHub
 RUN cd /scripts && \

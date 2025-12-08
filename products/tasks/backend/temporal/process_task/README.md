@@ -12,7 +12,7 @@ For local development, **DockerSandbox** uses regular Docker containers. This is
 
 Add to your `.env`:
 
-```
+```bash
 SANDBOX_PROVIDER=docker
 ```
 
@@ -42,7 +42,7 @@ The local image is rebuilt each time to pick up your changes. The base image is 
 
 Add to your `.env`:
 
-```
+```bash
 MODAL_TOKEN_ID=your_token_id
 MODAL_TOKEN_SECRET=your_token_secret
 ```
