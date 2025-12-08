@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0935_cohortcalculationhistory_error_code"),
+        ("posthog", "0937_remove_redundant_cohortcalculationhistory_indexes"),
     ]
 
     operations = [
