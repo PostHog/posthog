@@ -394,6 +394,7 @@
 
     /* Destructive color for errors and critical actions */
     --color-destructive: color-mix(in oklab, var(--color-red-500) 15%, transparent);
+    --color-destructive-strong: var(--color-red-300);
     --color-destructive-foreground: var(--color-red-600);
 
     --color-border: var(--color-posthog-3000-200);

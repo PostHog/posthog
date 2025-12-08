@@ -10,12 +10,12 @@ import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsView
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
-    trace: 'bg-muted-alt',
+    trace: 'bg-muted',
     debug: 'bg-muted',
     info: 'bg-brand-blue',
     warn: 'bg-warning',
-    error: 'bg-danger',
-    fatal: 'bg-danger-dark',
+    error: 'bg-destructive',
+    fatal: 'bg-destructive-strong',
 }
 
 export interface LogColumnConfig {

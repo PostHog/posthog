@@ -79,7 +79,7 @@ function StatusIcon({ status, urgent }: { status: HealthCheckStatus; urgent?: bo
             )
         case 'loading':
             return (
-                <div className="w-6 h-6 rounded-full bg-muted-alt flex items-center justify-center flex-shrink-0">
+                <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center flex-shrink-0">
                     <LemonSkeleton className="w-4 h-4 rounded-full" />
                 </div>
             )

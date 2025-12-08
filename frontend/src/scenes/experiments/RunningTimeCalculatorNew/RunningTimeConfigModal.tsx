@@ -124,7 +124,9 @@ export function RunningTimeConfigModal({ experimentId, tabId }: RunningTimeConfi
                                 />
                                 {config.metricType === 'funnel' && <span className="text-muted">%</span>}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">{getBaselineHelp(config.metricType)}</div>
+                            <div className="text-xs text-muted-foreground mt-1">
+                                {getBaselineHelp(config.metricType)}
+                            </div>
                         </div>
 
                         <div>

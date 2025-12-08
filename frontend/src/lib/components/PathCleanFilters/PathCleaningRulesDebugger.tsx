@@ -130,7 +130,7 @@ export function PathCleaningRulesDebugger({
                                                 />
                                             ) : (
                                                 <div
-                                                    className="w-2 h-2 rounded-full bg-muted-alt"
+                                                    className="w-2 h-2 rounded-full bg-muted"
                                                     title="No match, unchanged"
                                                 />
                                             )}
