@@ -61,7 +61,7 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 			log.Println("session recording consumer shutting down...")
 			return
 		default:
-			msg, err := c.consumer.ReadMessage(15 * time.Second)
+			msg, err := c.consumer.ReadMessage(1 * time.Second)
 			if err != nil {
 				var inErr kafka.Error
 				if errors.As(err, &inErr) {

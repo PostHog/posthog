@@ -41,6 +41,9 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Channel to signal when HTTP server should shutdown
+	shutdownHTTP := make(chan struct{})
+
 	// Handle shutdown signals
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
@@ -48,6 +51,7 @@ func main() {
 		<-sigChan
 		log.Println("Shutdown signal received, stopping consumers...")
 		cancel()
+		close(shutdownHTTP)
 	}()
 
 	stats := events.NewStatsKeeper()
@@ -180,5 +184,21 @@ func main() {
 		})
 	}
 
-	e.Logger.Fatal(e.Start(":8080"))
+	// Start HTTP server in goroutine
+	go func() {
+		if err := e.Start(":8080"); err != nil && err != http.ErrServerClosed {
+			e.Logger.Fatal(err)
+		}
+	}()
+
+	// Wait for shutdown signal
+	<-shutdownHTTP
+
+	// Gracefully shutdown HTTP server with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+	if err := e.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+	log.Println("HTTP server stopped")
 }
