@@ -66,6 +66,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         # Verify that log attribute filters are included in the query
@@ -117,6 +118,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         # Verify resource attribute filtering logic is applied
@@ -163,6 +165,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         # Verify negative filtering uses NOT IN subquery pattern
@@ -223,6 +226,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         # All filter types should be present
@@ -279,6 +283,7 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             settings=runner.settings,
         )
         executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
         query_str = executor.clickhouse_prepared_ast.to_hogql()
 
         # All filter types should be present
