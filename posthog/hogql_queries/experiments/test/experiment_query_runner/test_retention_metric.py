@@ -5,6 +5,8 @@ from posthog.test.base import _create_event, _create_person, flush_persons_and_e
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     EventsNode,
     ExperimentMetricMathType,
