@@ -24,7 +24,7 @@ export const SCENE_TABS: SceneTabConfig[] = [
         label: 'Tickets',
         href: urls.conversationsTickets(),
     },
-    {
+    /*{
         key: 'content',
         label: 'Knowledge base',
         href: urls.conversationsContent(),
@@ -34,7 +34,7 @@ export const SCENE_TABS: SceneTabConfig[] = [
         label: 'Guidance',
         href: urls.conversationsGuidance(),
     },
-    /*{
+    {
         key: 'playground',
         label: 'Playground',
         href: urls.conversationsPlayground(),

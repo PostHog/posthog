@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -33,8 +33,9 @@ export const scene: SceneExport = {
 
 export function ConversationsTicketsScene(): JSX.Element {
     const logic = conversationsTicketsSceneLogic()
-    const { filteredTickets, statusFilter, channelFilter, slaFilter, ticketsLoading } = useValues(logic)
-    const { setStatusFilter, setChannelFilter, setSlaFilter } = useActions(logic)
+    const { filteredTickets, statusFilter, channelFilter, slaFilter, ticketsLoading, autoUpdateEnabled } =
+        useValues(logic)
+    const { setStatusFilter, setChannelFilter, setSlaFilter, setAutoUpdate } = useActions(logic)
     const { push } = useActions(router)
     const [dateRange, setDateRange] = useState<{ dateFrom: string | null; dateTo: string | null }>({
         dateFrom: '-7d',
@@ -51,33 +52,36 @@ export function ConversationsTicketsScene(): JSX.Element {
                 }}
             />
             <ScenesTabs />
-            <div className="flex flex-wrap gap-3 items-center">
-                <DateFilter
-                    dateFrom={dateRange.dateFrom}
-                    dateTo={dateRange.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
-                />
-                <LemonSelect
-                    value={statusFilter}
-                    onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}
-                    options={statusOptions}
-                    size="small"
-                    placeholder="Status"
-                />
-                <LemonSelect
-                    value={channelFilter}
-                    onChange={(value) => value && setChannelFilter(value as TicketChannel | 'all')}
-                    options={channelOptions}
-                    size="small"
-                    placeholder="Channel"
-                />
-                <LemonSelect
-                    value={slaFilter}
-                    onChange={(value) => value && setSlaFilter(value as TicketSlaState | 'all')}
-                    options={slaOptions}
-                    size="small"
-                    placeholder="SLA"
-                />
+            <div className="flex flex-wrap gap-3 items-center justify-between">
+                <div className="flex flex-wrap gap-3 items-center">
+                    <DateFilter
+                        dateFrom={dateRange.dateFrom}
+                        dateTo={dateRange.dateTo}
+                        onChange={(dateFrom, dateTo) => setDateRange({ dateFrom, dateTo })}
+                    />
+                    <LemonSelect
+                        value={statusFilter}
+                        onChange={(value) => value && setStatusFilter(value as TicketStatus | 'all')}
+                        options={statusOptions}
+                        size="small"
+                        placeholder="Status"
+                    />
+                    <LemonSelect
+                        value={channelFilter}
+                        onChange={(value) => value && setChannelFilter(value as TicketChannel | 'all')}
+                        options={channelOptions}
+                        size="small"
+                        placeholder="Channel"
+                    />
+                    <LemonSelect
+                        value={slaFilter}
+                        onChange={(value) => value && setSlaFilter(value as TicketSlaState | 'all')}
+                        options={slaOptions}
+                        size="small"
+                        placeholder="SLA"
+                    />
+                </div>
+                <LemonCheckbox checked={autoUpdateEnabled} onChange={setAutoUpdate} label="Autoupdate" />
             </div>
 
             <LemonTable<Ticket>
