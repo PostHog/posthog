@@ -6,7 +6,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { projectDroppableId } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
-import { projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { ProjectTreeLogicProps, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { joinPath, sortFilesAndFolders, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 
@@ -24,6 +24,8 @@ export interface ExplorerRow {
     navigatesToSearch?: boolean
     isSearchResult?: boolean
 }
+
+export interface JSXElement extends JSX.Element {}
 
 export const projectExplorerLogic = kea<projectExplorerLogicType>([
     path(['scenes', 'new-tab', 'components', 'projectExplorerLogic']),
@@ -56,7 +58,7 @@ export const projectExplorerLogic = kea<projectExplorerLogicType>([
     selectors({
         projectTreeLogicProps: [
             (_, props) => [props.tabId],
-            (tabId): ReturnType<typeof getNewTabProjectTreeLogicProps> => getNewTabProjectTreeLogicProps(tabId),
+            (tabId): ProjectTreeLogicProps => getNewTabProjectTreeLogicProps(tabId),
         ],
         droppableScope: [(_, props) => [props.tabId], (tabId): string => `project-explorer-${tabId}`],
         explorerFolderPath: [
@@ -216,7 +218,7 @@ export const projectExplorerLogic = kea<projectExplorerLogicType>([
         highlightSearchText: [
             (s) => [s.shouldUseSearchRows, s.trimmedSearch],
             (shouldUseSearchRows, trimmedSearch) =>
-                (text: string): JSX.Element | string => {
+                (text: string): JSXElement | string => {
                     if (!shouldUseSearchRows || !trimmedSearch) {
                         return text
                     }
@@ -232,7 +234,7 @@ export const projectExplorerLogic = kea<projectExplorerLogicType>([
         renderCreatedBy: [
             (s) => [s.users],
             (users) =>
-                (entry: FileSystemEntry): JSX.Element => {
+                (entry: FileSystemEntry): JSXElement => {
                     const createdById = entry.meta?.created_by
                     const createdBy = createdById ? users[createdById] : undefined
                     if (!createdBy) {
