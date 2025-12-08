@@ -298,6 +298,27 @@ ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
     )
 )
 
+# migration to add lts_uri, lts_expiration and is_deleted columns
+ALTER_SESSION_REPLAY_ADD_LTS_COLUMNS = """
+    ALTER TABLE {table_name}
+        ADD COLUMN IF NOT EXISTS lts_uri SimpleAggregateFunction(max, Nullable(Int64))
+        ADD COLUMN IF NOT EXISTS lts_expiration SimpleAggregateFunction(max, Nullable(Int64))
+        ADD COLUMN IF NOT EXISTS is_deleted SimpleAggregateFunction(max, Nullable(Int64))
+"""
+
+ADD_LTS_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_LTS_COLUMNS.format(
+    table_name="session_replay_events",
+)
+
+ADD_LTS_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_LTS_COLUMNS.format(
+    table_name="writable_session_replay_events",
+)
+
+ADD_LTS_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL = lambda: ALTER_SESSION_REPLAY_ADD_LTS_COLUMNS.format(
+    table_name=SESSION_REPLAY_EVENTS_DATA_TABLE(),
+)
+
+
 # =========================
 # MIGRATION: Add block columns to support session recording v2 implementation
 # This migration adds block_url to the kafka table, and block_first_timestamps, block_last_timestamps, and block_urls

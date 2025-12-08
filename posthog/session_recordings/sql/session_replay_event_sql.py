@@ -89,6 +89,12 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     _timestamp SimpleAggregateFunction(max, DateTime),
     -- retention period for this session, in days. Useful to show TTL for the recording
     retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
+    -- S3 URI for the LTS data if this recording was ever copied to LTS
+    lts_uri SimpleAggregateFunction(any, Nullable(String)),
+    -- Time at which the LTS data expires, if any
+    lts_expires SimpleAggregateFunction(max, Nullable(DateTime)),
+    -- Has the recording been soft deleted?
+    is_deleted SimpleAggregateFunction(sum, UInt8)
 ) ENGINE = {engine}
 """
 
@@ -156,8 +162,11 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime)
-{',`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))' if 'retention_period_days' not in exclude_columns else ''}
+`_timestamp` Nullable(DateTime),
+{'`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64)),' if 'retention_period_days' not in exclude_columns else ''}
+`lts_uri` Nullable(String),
+`lts_expires` Nullable(DateTime),
+`is_deleted` UInt8
 )"""
 
     return f"""
@@ -196,8 +205,11 @@ sum(message_count) as message_count,
 sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp
-{',max(retention_period_days) as retention_period_days' if 'retention_period_days' not in exclude_columns else ''}
+max(_timestamp) as _timestamp,
+{'max(retention_period_days) as retention_period_days,' if 'retention_period_days' not in exclude_columns else ''}
+any(lts_uri) as lts_uri,
+max(lts_expires) as lts_expires,
+sum(is_deleted) as is_deleted
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """
