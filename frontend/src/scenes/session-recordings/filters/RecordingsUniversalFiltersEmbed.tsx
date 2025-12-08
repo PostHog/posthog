@@ -111,15 +111,15 @@ function QuickFilterButton({
 
                     // Clone the current filter group structure
                     const currentGroup = filters.filter_group
-                    const newGroup = {
+                    const newGroup: UniversalFiltersGroup = {
                         ...currentGroup,
                         values: currentGroup.values.map((nestedGroup, index) => {
                             // Add to the first nested group (index 0)
-                            if (index === 0 && 'values' in nestedGroup) {
+                            if (index === 0 && 'values' in nestedGroup && Array.isArray(nestedGroup.values)) {
                                 return {
                                     ...nestedGroup,
                                     values: [...nestedGroup.values, newFilter],
-                                }
+                                } as UniversalFiltersGroup
                             }
                             return nestedGroup
                         }),
