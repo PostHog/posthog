@@ -144,12 +144,13 @@ class CaptureKafkaProducer:
 
 
 @pytest_asyncio.fixture(scope="function")
-async def producer(event_loop):
+async def producer():
     """Yield a CaptureKafkaProducer to inspect entries captured.
 
     After usage, we ensure the producer was closed to avoid leaking/warnings.
     """
-    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=event_loop)
+    loop = asyncio.get_running_loop()
+    producer = CaptureKafkaProducer(bootstrap_servers=settings.KAFKA_HOSTS, loop=loop)
 
     yield producer
 
@@ -158,7 +159,7 @@ async def producer(event_loop):
 
 
 @pytest_asyncio.fixture(autouse=True, scope="function")
-async def configure_logger_auto(log_capture, queue, producer, event_loop):
+async def configure_logger_auto(log_capture, queue, producer):
     """Configure StructLog logging for testing.
 
     The extra parameters configured for testing are:
@@ -170,13 +171,14 @@ async def configure_logger_auto(log_capture, queue, producer, event_loop):
     that we override the usual configuration with the specific parameters
     we need in these tests.
     """
+    loop = asyncio.get_running_loop()
     with override_settings(TEST=False, DEBUG=False):
         configure_logger(
             extra_processors=[log_capture],
             queue=queue,
             producer=producer,
             cache_logger_on_first_use=False,
-            loop=event_loop,
+            loop=loop,
         )
 
     yield
@@ -209,7 +211,7 @@ def test_configure_default_ssl_context_uses_modern_defaults():
     assert context.check_hostname is False
 
 
-async def test_logger_context(log_capture, event_loop):
+async def test_logger_context(log_capture):
     """Test whether log messages contain the expected context.
 
     We expect a log message to contain:
