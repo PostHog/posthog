@@ -38,6 +38,7 @@ from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.sync import database_sync_to_async
+from posthog.temporal.data_imports.sources.shopify.constants import SHOPIFY_ACCESS_TOKEN_GRANT, SHOPIFY_ACCESS_TOKEN_URL
 
 from products.workflows.backend.providers import SESProvider, TwilioProvider
 
@@ -65,6 +66,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
+        SHOPIFY = "shopify"
         SLACK = "slack"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
@@ -127,6 +129,8 @@ class Integration(models.Model):
             return self.integration_id or "unknown ID"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
+        if self.kind == "shopify":
+            return self.config.get("shop", self.integration_id) or "unknown shop"
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
 
@@ -2045,3 +2049,48 @@ class DatabricksIntegration:
             raise DatabricksIntegrationError(
                 f"Databricks integration error: could not connect to hostname '{server_hostname}'"
             )
+
+
+class ShopifyIntegration:
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "shopify":
+            raise Exception("ShopifyIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration
+
+    @classmethod
+    def integration_from_shop(cls, team_id: int, shop: str, created_by: User | None = None) -> Integration:
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.SHOPIFY.value,
+            integration_id=shop,
+            defaults={
+                "config": {"shop": shop},
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+    @property
+    def shop(self):
+        return self.integration.config.get("shop")
+
+    def get_access_token(self):
+        access_token_url = SHOPIFY_ACCESS_TOKEN_URL.format(self.shop)
+        access_res = requests.post(
+            access_token_url,
+            data={
+                "client_id": settings.SHOPIFY_APP_CLIENT_ID,
+                "client_secret": settings.SHOPIFY_APP_CLIENT_SECRET,
+                "grant_type": SHOPIFY_ACCESS_TOKEN_GRANT,
+            },
+        )
+        if not access_res.ok:
+            raise requests.HTTPError(
+                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.text}",
+                response=access_res,
+            )
+        return access_res.json().get("access_token")

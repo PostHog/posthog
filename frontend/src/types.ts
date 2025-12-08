@@ -4400,6 +4400,7 @@ export enum EventDefinitionType {
 }
 
 export const INTEGRATION_KINDS = [
+    'shopify',
     'slack',
     'salesforce',
     'hubspot',

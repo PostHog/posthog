@@ -217,9 +217,7 @@ class SalesforceSourceConfig(config.Config):
 
 @config.config
 class ShopifySourceConfig(config.Config):
-    shopify_store_id: str
-    shopify_client_id: str
-    shopify_client_secret: str
+    shopify_integration_id: int = config.value(converter=config.str_to_int)
 
 
 @config.config

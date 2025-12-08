@@ -32,6 +32,7 @@ from posthog.models.integration import (
     LinearIntegration,
     LinkedInAdsIntegration,
     OauthIntegration,
+    ShopifyIntegration,
     SlackIntegration,
     TwilioIntegration,
 )
@@ -155,6 +156,19 @@ class IntegrationSerializer(serializers.ModelSerializer):
                 )
             except DatabricksIntegrationError as e:
                 raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "shopify":
+            config = validated_data.get("config", {})
+            shop = config.get("shop")
+            if not shop:
+                raise ValidationError("Shop name must be provided")
+
+            instance = ShopifyIntegration.integration_from_shop(
+                team_id=team_id,
+                shop=shop,
+                created_by=request.user,
+            )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:

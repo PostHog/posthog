@@ -17245,6 +17245,7 @@
         },
         "IntegrationKind": {
             "enum": [
+                "shopify",
                 "slack",
                 "salesforce",
                 "hubspot",
