@@ -118,6 +118,7 @@ func main() {
 	e := echo.New()
 
 	// Middleware
+	e.Use(middleware.RequestID())
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
 		LogLatency:       true,
 		LogRemoteIP:      true,
@@ -149,8 +150,13 @@ func main() {
 			if v.Error != nil {
 				logEntry["error"] = v.Error.Error()
 			}
-			jsonBytes, _ := json.Marshal(logEntry)
-			log.Println(string(jsonBytes))
+			jsonBytes, err := json.Marshal(logEntry)
+			if err != nil {
+				log.Printf("failed to marshal log entry: %v", err)
+				return nil
+			}
+			// Write directly to stdout without log prefix since JSON already has time field
+			os.Stdout.Write(append(jsonBytes, '\n'))
 			return nil
 		},
 	}))
