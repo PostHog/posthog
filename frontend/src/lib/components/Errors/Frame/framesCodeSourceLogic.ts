@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import { match } from 'ts-pattern'
 
@@ -9,19 +9,16 @@ import {
 
 import api from 'lib/api'
 
-import { ErrorPropertiesLogicProps } from './errorPropertiesLogic'
 import type { framesCodeSourceLogicType } from './framesCodeSourceLogicType'
 import { stackFrameLogic } from './stackFrameLogic'
 
 export interface SourceData {
-    url: string | null
-    provider: string | null
+    url: string
+    provider: string
 }
 
 export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
     path(['components', 'Errors', 'framesCodeSourceLogic']),
-
-    props({} as ErrorPropertiesLogicProps),
 
     connect({
         values: [stackFrameLogic, ['stackFrameRecords']],
@@ -84,6 +81,12 @@ export const framesCodeSourceLogic = kea<framesCodeSourceLogicType>([
                 }
 
                 const result = await resolveMethod(parsed.owner, parsed.repository, codeSample, fileName)
+
+                if (!result.url) {
+                    // Nothing to provide here
+                    return
+                }
+
                 let url = result.url ?? null
 
                 if (url && lineNumber) {
