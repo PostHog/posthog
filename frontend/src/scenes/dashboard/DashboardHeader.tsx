@@ -130,7 +130,7 @@ export function DashboardHeader(): JSX.Element | null {
         )
     }, [dashboard, dashboardLoading])
 
-    const hasDashboardColors = useFeatureFlag('DASHBOARD_COLORS')
+    const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const exportOptions: ExportButtonItem[] = [
         {
