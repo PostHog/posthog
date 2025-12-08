@@ -4409,7 +4409,6 @@ dependencies = [
  "itertools 0.14.0",
  "metrics",
  "metrics-exporter-prometheus",
- "num_cpus",
  "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",

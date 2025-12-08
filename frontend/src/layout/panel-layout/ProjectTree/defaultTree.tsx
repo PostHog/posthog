@@ -82,6 +82,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     marketing_settings: {
         icon: <IconMegaphone />,
     },
+    marketing_analytics: {
+        icon: <IconMegaphone />,
+        iconColor: ['var(--color-product-marketing-analytics-light)'],
+    },
     managed_viewsets: {
         icon: <IconDatabase />,
     },
