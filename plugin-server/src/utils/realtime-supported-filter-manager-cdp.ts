@@ -1,5 +1,6 @@
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader } from './lazy-loader'
+import { logger } from './logger'
 
 /**
  * Type of filter for realtime cohort evaluation.
@@ -149,8 +150,12 @@ export class RealtimeSupportedFilterManagerCDP {
             } else if (node.type === 'behavioral') {
                 filterType = 'behavioral'
             } else {
-                // Default to behavioral for event-based filters
-                filterType = 'behavioral'
+                logger.warn('Unknown filter type, skipping', {
+                    filterType: node.type,
+                    conditionHash: node.conditionHash,
+                    cohortId: cohortRow.cohort_id,
+                })
+                return
             }
 
             const conditionHash = node.conditionHash as string
