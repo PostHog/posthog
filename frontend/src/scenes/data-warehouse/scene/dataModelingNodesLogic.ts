@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -6,6 +6,7 @@ import api from 'lib/api'
 import { DataModelingNode } from '~/types'
 
 import type { dataModelingNodesLogicType } from './dataModelingNodesLogicType'
+import { dataModelingEditorLogic } from './modeling/dataModelingEditorLogic'
 
 export const PAGE_SIZE = 10
 
@@ -66,6 +67,13 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
             },
         ],
     }),
+    listeners(() => ({
+        setSearchTerm: ({ searchTerm }) => {
+            if (searchTerm.length > 0) {
+                dataModelingEditorLogic.actions.setHighlightedNodeType(null)
+            }
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadNodes()
     }),

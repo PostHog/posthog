@@ -172,12 +172,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         },
 
         resetGraph: async ({ dataModelingNodes, dataModelingEdges }) => {
-            const matviewNodes = dataModelingNodes.filter((n) => n.type === 'matview')
-            const nodeIds = new Set(matviewNodes.map((n) => n.id))
+            const nodeIds = new Set(dataModelingNodes.map((n) => n.id))
 
             const handlesByNodeId: Record<string, Record<string, ModelNodeHandle>> = {}
 
-            matviewNodes.forEach((node) => {
+            dataModelingNodes.forEach((node) => {
                 handlesByNodeId[node.id] = {
                     [`target_${node.id}`]: {
                         id: `target_${node.id}`,
@@ -194,11 +193,11 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 }
             })
 
-            const sortedMatviewNodes = [...matviewNodes].sort((a, b) =>
+            const sortedNodes = [...dataModelingNodes].sort((a, b) =>
                 a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
             )
 
-            const nodes: ModelNode[] = sortedMatviewNodes.map((node) => {
+            const nodes: ModelNode[] = sortedNodes.map((node) => {
                 const userTag = (node.properties?.user as Record<string, unknown>)?.tag as string | undefined
                 return {
                     id: node.id,

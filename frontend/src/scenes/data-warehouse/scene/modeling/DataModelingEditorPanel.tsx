@@ -5,6 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { DataModelingNodeType } from '~/types'
 
+import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { CreateModelNodeType } from './types'
 
@@ -62,12 +63,14 @@ function DraggableNodeButton({
 export function DataModelingEditorPanel(): JSX.Element {
     const { highlightedNodeType } = useValues(dataModelingEditorLogic)
     const { setHighlightedNodeType } = useActions(dataModelingEditorLogic)
+    const { setSearchTerm } = useActions(dataModelingNodesLogic)
 
     const handleNodeTypeClick = (type: DataModelingNodeType): void => {
         if (highlightedNodeType === type) {
             setHighlightedNodeType(null)
         } else {
             setHighlightedNodeType(type)
+            setSearchTerm('')
         }
     }
 
