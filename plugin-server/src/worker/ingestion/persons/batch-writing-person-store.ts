@@ -512,8 +512,12 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         // Create a shared promise for the batch fetch that populates caches when complete
+        // Use primary (useReadReplica=false) to ensure fresh data for updates
         const batchFetchPromise = this.personRepository
-            .fetchPersonsByDistinctIds(uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })))
+            .fetchPersonsByDistinctIds(
+                uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })),
+                false
+            )
             .then((persons) => {
                 // Build a map of cacheKey -> person for quick lookup
                 // Strip distinct_id since InternalPerson doesn't have it
