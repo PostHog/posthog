@@ -62,7 +62,7 @@ const RedisRestrictionItemSchema = z
         return { token: item.token, pipelines: item.pipelines, identifier }
     })
 
-const RedisRestrictionArraySchema = z.array(z.union([z.string(), RedisRestrictionItemSchema]))
+const RedisRestrictionArraySchema = z.array(RedisRestrictionItemSchema)
 
 type TokenRestrictions = {
     all: Set<Restriction>
@@ -320,11 +320,6 @@ export class EventIngestionRestrictionManager {
                         }
 
                         for (const item of parseResult.data) {
-                            if (typeof item === 'string') {
-                                // Old format - ignore
-                                continue
-                            }
-
                             if (!item.pipelines?.includes(this.pipeline)) {
                                 continue
                             }

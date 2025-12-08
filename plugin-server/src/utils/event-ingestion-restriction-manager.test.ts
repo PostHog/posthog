@@ -291,34 +291,6 @@ describe('EventIngestionRestrictionManager', () => {
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
         })
 
-        it('ignores old format entries (analytics pipeline)', async () => {
-            pipelineMock.exec.mockResolvedValueOnce([
-                [
-                    null,
-                    JSON.stringify([
-                        'old-token1',
-                        'old-token2:distinct1',
-                        { token: 'new-token1', pipelines: ['analytics'] },
-                        { token: 'new-token2', distinct_id: 'user1', pipelines: ['session_recordings'] },
-                    ]),
-                ],
-                [null, null],
-                [null, null],
-                [null, null],
-            ])
-
-            await eventIngestionRestrictionManager.forceRefresh()
-
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('old-token1')).toEqual(new Set())
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('old-token2', 'distinct1')).toEqual(
-                new Set()
-            )
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('new-token1')).toContain(
-                Restriction.DROP_EVENT
-            )
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('new-token2', 'user1')).toEqual(new Set())
-        })
-
         it('excludes entries when pipeline field is missing', async () => {
             pipelineMock.exec.mockResolvedValueOnce([
                 [null, JSON.stringify([{ token: 'token1' }, { token: 'token2', pipelines: ['analytics'] }])],
@@ -356,23 +328,6 @@ describe('EventIngestionRestrictionManager', () => {
             expect(manager.getAppliedRestrictions('token1')).toEqual(new Set())
             expect(manager.getAppliedRestrictions('token2')).toContain(Restriction.DROP_EVENT)
             expect(manager.getAppliedRestrictions('token3')).toContain(Restriction.DROP_EVENT)
-        })
-
-        it('old format excluded from session_recordings pipeline', async () => {
-            pipelineMock.exec.mockResolvedValueOnce([
-                [null, JSON.stringify(['old-token1', { token: 'new-token1', pipelines: ['session_recordings'] }])],
-                [null, null],
-                [null, null],
-                [null, null],
-            ])
-
-            const manager = new EventIngestionRestrictionManager(hub, {
-                pipeline: 'session_recordings',
-            })
-            await manager.forceRefresh()
-
-            expect(manager.getAppliedRestrictions('old-token1')).toEqual(new Set())
-            expect(manager.getAppliedRestrictions('new-token1')).toContain(Restriction.DROP_EVENT)
         })
     })
 
