@@ -43,11 +43,18 @@ export function GoalLinesList({ goalLines, updateGoalLine, removeGoalLine }: Goa
                         onChange={(value) => updateGoalLine(goalLineIndex, 'label', value)}
                     />
                     <LemonInput
+                        type="number"
+                        step="any"
                         placeholder="Value"
                         className="grow"
-                        value={value.toString()}
-                        inputMode="numeric"
-                        onChange={(value) => updateGoalLine(goalLineIndex, 'value', parseInt(value))}
+                        value={value}
+                        onChange={(value) =>
+                            updateGoalLine(
+                                goalLineIndex,
+                                'value',
+                                value !== undefined && !Number.isNaN(value) ? value : 0
+                            )
+                        }
                     />
                     <LemonSegmentedButton
                         value={position ?? 'end'}
