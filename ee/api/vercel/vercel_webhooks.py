@@ -28,6 +28,7 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
     secret = getattr(settings, "VERCEL_CLIENT_INTEGRATION_SECRET", None)
     if not secret:
         logger.error("vercel_webhook_missing_secret")
+        capture_exception(Exception("VERCEL_CLIENT_INTEGRATION_SECRET not configured"), {})
         return False
 
     expected = hmac.new(secret.encode("utf-8"), payload, hashlib.sha1).hexdigest()
