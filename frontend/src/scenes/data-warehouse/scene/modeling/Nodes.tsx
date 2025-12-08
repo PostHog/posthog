@@ -7,6 +7,7 @@ import { IconPlus } from '@posthog/icons'
 
 import { DataModelingNodeType } from '~/types'
 
+import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { DropzoneNodeProps, ModelNodeProps } from './types'
@@ -51,6 +52,7 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
     const { selectedNodeId } = useValues(dataModelingEditorLogic)
+    const { searchTerm } = useValues(dataModelingNodesLogic)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -58,13 +60,19 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const settings = NODE_TYPE_SETTINGS[props.data.type]
     const isSelected = selectedNodeId === props.id
-    const { userTag } = props.data
+    const { userTag, name } = props.data
+
+    const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
 
     return (
         <div
             className={clsx(
                 'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
-                isSelected ? 'border-primary ring-2 ring-primary/20' : 'border-border'
+                isSearchMatch
+                    ? 'border-warning ring-2 ring-warning/50'
+                    : isSelected
+                      ? 'border-primary ring-2 ring-primary/50'
+                      : 'border-border'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
@@ -94,7 +102,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                         </span>
                     )}
                 </div>
-                <span className="font-medium text-sm truncate">{props.data.name}</span>
+                <span className="font-medium text-sm truncate">{name}</span>
             </div>
         </div>
     )
