@@ -14,11 +14,8 @@ import { expandGroupNodes } from '~/queries/nodes/InsightQuery/utils/filtersToQu
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
-    ActionsNode,
     AnyEntityNode,
     CalendarHeatmapFilter,
-    DataWarehouseNode,
-    EventsNode,
     FunnelsFilter,
     FunnelsQuery,
     InsightQueryNode,
@@ -343,11 +340,7 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             const seriesList = isTrendsQuery(mergedQuery) ? cache.series : expandGroupNodes(cache.series)
 
             if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None) as (
-                    | EventsNode
-                    | ActionsNode
-                    | DataWarehouseNode
-                )[]
+                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None)
             } else {
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All

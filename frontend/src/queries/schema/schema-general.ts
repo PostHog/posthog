@@ -712,17 +712,6 @@ export interface EventsNode extends EntityNode {
     orderBy?: string[]
 }
 
-export interface GroupNode extends EntityNode {
-    kind: NodeKind.GroupNode
-    /** Group of entities combined with AND/OR operator */
-    operator: FilterLogicalOperator
-    /** Entities to combine in this group */
-    values: (EventsNode | ActionsNode | DataWarehouseNode)[]
-    limit?: integer
-    /** Columns to order by */
-    orderBy?: string[]
-}
-
 export interface DataWarehouseNode extends EntityNode {
     id: string
     kind: NodeKind.DataWarehouseNode
@@ -738,7 +727,18 @@ export interface ActionsNode extends EntityNode {
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode | GroupNode
+export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+
+export interface GroupNode extends EntityNode {
+    kind: NodeKind.GroupNode
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperator
+    /** Entities to combine in this group */
+    values: AnyEntityNode[]
+    limit?: integer
+    /** Columns to order by */
+    orderBy?: string[]
+}
 
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
@@ -1305,7 +1305,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: (AnyEntityNode | GroupNode)[]
     /** Properties specific to the trends insight */
     trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */

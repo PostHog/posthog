@@ -626,9 +626,6 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
-                },
-                {
-                    "$ref": "#/definitions/GroupNode"
                 }
             ]
         },
@@ -15696,17 +15693,7 @@
                 "values": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/DataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -29935,7 +29922,14 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyEntityNode"
+                            },
+                            {
+                                "$ref": "#/definitions/GroupNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },

@@ -111,6 +111,12 @@ function SeriesDisplay({
     const { mathDefinitions } = useValues(mathsLogic)
     const series = query.series[seriesIndex]
 
+    // GroupNode is a container, not displayable - skip for now
+    // TODO: Handle GroupNode display properly
+    if (series.kind === 'GroupNode') {
+        return <></>
+    }
+
     const hasBreakdown = isInsightQueryWithBreakdown(query) && isValidBreakdown(query.breakdownFilter)
 
     const mathDefinition = mathDefinitions[

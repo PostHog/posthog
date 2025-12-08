@@ -11,14 +11,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import {
-    ActionsNode,
-    AnyEntityNode,
-    DataWarehouseNode,
-    EventsNode,
-    InsightVizNode,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { ActionsNode, AnyEntityNode, EventsNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import {
     BaseMathType,
     Breadcrumb,
@@ -773,10 +766,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         source: {
                             kind: NodeKind.FunnelsQuery,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [
-                                signupPageviewSeries as EventsNode | ActionsNode | DataWarehouseNode,
-                                signupSeries as EventsNode | ActionsNode | DataWarehouseNode,
-                            ],
+                            series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
@@ -809,7 +799,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         source: {
                             kind: NodeKind.LifecycleQuery,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [dauSeries as EventsNode | ActionsNode | DataWarehouseNode],
+                            series: [dauSeries as AnyEntityNode],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
@@ -832,10 +822,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                         source: {
                             kind: NodeKind.FunnelsQuery,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [
-                                signupSeries as EventsNode | ActionsNode | DataWarehouseNode,
-                                paymentSeries as EventsNode | ActionsNode | DataWarehouseNode,
-                            ],
+                            series: [signupSeries as AnyEntityNode, paymentSeries as AnyEntityNode],
                             dateRange: {
                                 date_from: dateRange.date_from,
                                 date_to: dateRange.date_to,

@@ -12,9 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
-    ActionsNode,
-    DataWarehouseNode,
-    EventsNode,
+    AnyEntityNode,
     InsightActorsQuery,
     InsightVizNode,
     NodeKind,
@@ -170,11 +168,12 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 kind: NodeKind.InsightVizNode,
                 source: {
                     kind: NodeKind.FunnelsQuery,
-                    series: actionsAndEventsToSeries({ events: events.reverse() }, true, MathAvailability.None) as (
-                        | EventsNode
-                        | ActionsNode
-                        | DataWarehouseNode
-                    )[],
+                    // actionsAndEventsToSeries can return GroupNode, but we're only passing events here (no groups)
+                    series: actionsAndEventsToSeries(
+                        { events: events.reverse() },
+                        true,
+                        MathAvailability.None
+                    ) as AnyEntityNode[],
                     dateRange: {
                         date_from: values.dateRange?.date_from,
                     },
