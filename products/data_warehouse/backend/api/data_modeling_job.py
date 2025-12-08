@@ -50,8 +50,9 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset=None):
-        queryset = super().safely_get_queryset(queryset).filter(team_id=self.team_id)
-        return queryset
+        if queryset is None:
+            queryset = self.queryset
+        return queryset.filter(team_id=self.team_id)
 
     @action(methods=["GET"], detail=False)
     def running(self, request: Request, *args, **kwargs) -> Response:
@@ -60,5 +61,15 @@ class DataModelingJobViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
         Returns a list of jobs with status 'Running'.
         """
         queryset = self.safely_get_queryset().filter(status=DataModelingJob.Status.RUNNING)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(methods=["GET"], detail=False)
+    def recent(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Get the most recent job for each saved_query_id.
+        Returns a list of jobs (one per saved_query_id) with their latest status.
+        """
+        queryset = self.safely_get_queryset().order_by("-created_at")
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)

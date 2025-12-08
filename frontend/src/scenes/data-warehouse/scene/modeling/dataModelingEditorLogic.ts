@@ -15,7 +15,13 @@ import type { DragEvent, RefObject } from 'react'
 
 import api from 'lib/api'
 
-import { DataModelingEdge, DataModelingJob, DataModelingNode, DataModelingNodeType } from '~/types'
+import {
+    DataModelingEdge,
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataModelingNode,
+    DataModelingNodeType,
+} from '~/types'
 
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
@@ -75,6 +81,8 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         stopPollingRunningJobs: true,
         pollRunningJobs: true,
         pollRunningJobsSuccess: (runningJobs: DataModelingJob[]) => ({ runningJobs }),
+        loadRecentJobs: true,
+        loadRecentJobsSuccess: (recentJobs: DataModelingJob[]) => ({ recentJobs }),
     }),
     loaders({
         dataModelingNodes: [
@@ -180,6 +188,24 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 },
             },
         ],
+        lastJobStatusBySavedQueryId: [
+            {} as Record<string, DataModelingJobStatus>,
+            {
+                loadRecentJobsSuccess: (_, { recentJobs }) => {
+                    const statusMap: Record<string, DataModelingJobStatus> = {}
+                    const jobIdMap: Record<string, string> = {}
+                    // Jobs are ordered by -created_at, so only keep the first (most recent) per saved_query_id
+                    for (const job of recentJobs) {
+                        if (!(job.saved_query_id in statusMap)) {
+                            statusMap[job.saved_query_id] = job.status
+                            jobIdMap[job.saved_query_id] = job.id
+                        }
+                    }
+
+                    return statusMap
+                },
+            },
+        ],
     })),
     selectors({
         nodesById: [
@@ -218,6 +244,19 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             (s) => [s.dataModelingNodesLoading, s.dataModelingEdgesLoading],
             (dataModelingNodesLoading: boolean, dataModelingEdgesLoading: boolean): boolean =>
                 dataModelingNodesLoading || dataModelingEdgesLoading,
+        ],
+        lastJobStatusByNodeId: [
+            (s) => [s.nodes, s.lastJobStatusBySavedQueryId],
+            (nodes, lastJobStatusBySavedQueryId): Record<string, DataModelingJobStatus> => {
+                const statusMap: Record<string, DataModelingJobStatus> = {}
+                for (const node of nodes) {
+                    if (node.data.savedQueryId && lastJobStatusBySavedQueryId[node.data.savedQueryId]) {
+                        statusMap[node.id] = lastJobStatusBySavedQueryId[node.data.savedQueryId]
+                    }
+                }
+
+                return statusMap
+            },
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -343,18 +382,19 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
 
         pollRunningJobs: async () => {
             try {
-                const runningJobs = await api.dataModelingJobs.listRunning()
-                actions.pollRunningJobsSuccess(runningJobs)
+                const [running, recent] = await Promise.all([
+                    api.dataModelingJobs.listRunning(),
+                    api.dataModelingJobs.listRecent(),
+                ])
+                actions.pollRunningJobsSuccess(running)
+                actions.loadRecentJobsSuccess(recent)
             } catch {
-                // On API error, treat it as "no running jobs" to clear optimistic state
-                // This prevents nodes from being stuck in "running" state forever
                 actions.pollRunningJobsSuccess([])
             }
         },
 
         pollRunningJobsSuccess: ({ runningJobs }) => {
             const now = Date.now()
-            // Map running jobs to node IDs via saved_query_id
             const runningSavedQueryIds = new Set(runningJobs.map((job) => job.saved_query_id))
             const newRunningNodeIds = new Set<string>()
 
@@ -363,18 +403,13 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                     newRunningNodeIds.add(nodeId)
                 }
             }
-
-            // Keep nodes running if they haven't reached the minimum duration yet
             for (const nodeId of values.runningNodeIds) {
                 const startTime = nodeStartTimes.get(nodeId)
                 if (startTime && now - startTime < MIN_RUNNING_DURATION_MS) {
                     newRunningNodeIds.add(nodeId)
                 }
             }
-
             actions.setRunningNodeIds(newRunningNodeIds)
-
-            // Stop polling if no jobs are running
             if (newRunningNodeIds.size === 0) {
                 actions.stopPollingRunningJobs()
             }
@@ -394,6 +429,17 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             if (pollIntervalId) {
                 clearInterval(pollIntervalId)
                 pollIntervalId = null
+                // Refresh job statuses when polling stops (job completed)
+                actions.loadRecentJobs()
+            }
+        },
+
+        loadRecentJobs: async () => {
+            try {
+                const recentJobs = await api.dataModelingJobs.listRecent()
+                actions.loadRecentJobsSuccess(recentJobs)
+            } catch {
+                // Silently fail
             }
         },
     })),

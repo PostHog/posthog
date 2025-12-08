@@ -3,13 +3,13 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlay, IconPlus, IconRefresh } from '@posthog/icons'
+import { IconCheck, IconPlay, IconPlus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
-import { DataModelingNodeType } from '~/types'
+import { DataModelingJobStatus, DataModelingNodeType } from '~/types'
 
 import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
 import { NODE_HEIGHT, NODE_WIDTH } from './constants'
@@ -22,6 +22,33 @@ const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: s
     table: { label: 'table', color: 'var(--muted)' },
     view: { label: 'view', color: 'var(--primary-3000)' },
     matview: { label: 'matview', color: 'var(--success)' },
+}
+
+const JOB_STATUS_CONFIG: Record<
+    DataModelingJobStatus,
+    { icon: React.ComponentType<{ className?: string }>; color: string; label: string }
+> = {
+    Completed: { icon: IconCheck, color: 'text-success', label: 'Last run completed' },
+    Failed: { icon: IconX, color: 'text-danger', label: 'Last run failed' },
+    Running: { icon: Spinner, color: 'text-warning', label: 'Running' },
+    Cancelled: { icon: IconWarning, color: 'text-muted', label: 'Last run cancelled' },
+}
+
+function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Element {
+    const config = JOB_STATUS_CONFIG[status]
+    const Icon = config.icon
+    return (
+        <Tooltip title={config.label}>
+            <div
+                className={clsx(
+                    'flex items-center justify-center w-4 h-4 rounded-full bg-bg-light border border-border shadow-sm',
+                    config.color
+                )}
+            >
+                <Icon className="w-2.5 h-2.5" />
+            </div>
+        </Tooltip>
+    )
 }
 
 function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
@@ -55,7 +82,8 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId, highlightedNodeType, runningNodeIds } = useValues(dataModelingEditorLogic)
+    const { selectedNodeId, highlightedNodeType, runningNodeIds, lastJobStatusByNodeId } =
+        useValues(dataModelingEditorLogic)
     const { runNode, materializeNode } = useActions(dataModelingEditorLogic)
     const { newTab } = useActions(sceneLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
@@ -69,6 +97,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const isSelected = selectedNodeId === props.id
     const { userTag, name, type, savedQueryId } = props.data
     const isRunning = runningNodeIds.has(props.id)
+    const lastJobStatus = lastJobStatusByNodeId[props.id]
 
     const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
@@ -161,11 +190,14 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                     >
                         {settings.label}
                     </span>
-                    {userTag && (
-                        <span className="text-[10px] text-muted lowercase tracking-wide px-1 py-px rounded bg-primary/50">
-                            #{userTag}
-                        </span>
-                    )}
+                    <div className="flex items-center gap-1">
+                        {userTag && (
+                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 py-px rounded bg-primary/50">
+                                #{userTag}
+                            </span>
+                        )}
+                        {lastJobStatus && !isRunning && <JobStatusBadge status={lastJobStatus} />}
+                    </div>
                 </div>
                 <div className="flex items-center justify-between gap-1">
                     <span className="font-medium text-sm truncate">{name}</span>

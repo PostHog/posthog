@@ -1204,6 +1204,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('running')
     }
 
+    public dataModelingJobsRecent(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('data_modeling_jobs').addPathComponent('recent')
+    }
+
     // # Data Modeling Nodes
     public dataModelingNodes(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_modeling_nodes')
@@ -4052,6 +4056,9 @@ const api = {
     dataModelingJobs: {
         async listRunning(): Promise<DataModelingJob[]> {
             return await new ApiRequest().dataModelingJobsRunning().get()
+        },
+        async listRecent(): Promise<DataModelingJob[]> {
+            return await new ApiRequest().dataModelingJobsRecent().get()
         },
     },
 
