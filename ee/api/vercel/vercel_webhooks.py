@@ -18,7 +18,7 @@ from ee.models import License
 
 logger = structlog.get_logger(__name__)
 
-BILLING_EVENT_PREFIX = "marketplace."
+BILLING_EVENTS = frozenset(["marketplace.invoice.paid"])
 
 
 def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
@@ -41,7 +41,7 @@ def _extract_config_id(payload: dict[str, Any]) -> str | None:
 
 
 def _is_billing_event(event_type: str | None) -> bool:
-    return bool(event_type and event_type.startswith(BILLING_EVENT_PREFIX))
+    return event_type in BILLING_EVENTS
 
 
 def _get_integration(config_id: str) -> OrganizationIntegration | None:

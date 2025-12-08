@@ -90,7 +90,14 @@ class TestVercelWebhooks(VercelTestBase):
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_non_billing_events_ignored(self):
-        for event_type in ["integration.configuration-removed", "deployment.created", None]:
+        # Non-marketplace events and unhandled marketplace events should be ignored
+        for event_type in [
+            "integration.configuration-removed",
+            "deployment.created",
+            "marketplace.invoice.created",  # Other marketplace events we don't handle
+            "marketplace.invoice.refunded",
+            None,
+        ]:
             payload = {
                 "type": event_type,
                 "payload": {"installationId": self.installation_id},

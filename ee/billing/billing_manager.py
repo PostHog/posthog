@@ -579,7 +579,7 @@ class BillingManager:
         Raises exception on failure (causes webhook endpoint to return 500, triggering provider retry).
         """
         res = requests.post(
-            f"{BILLING_SERVICE_URL}/api/billing-provider-webhook",
+            f"{BILLING_SERVICE_URL}/api/webhooks/billing-provider",
             headers=self.get_auth_headers(organization),
             json={
                 "event_type": event_type,
