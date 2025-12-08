@@ -70,5 +70,19 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     linkedFlagId: context.experiment.feature_flag?.id,
                 },
             }
+
+        case QuickSurveyType.ANNOUNCEMENT:
+            return {
+                key: `announcement-quick-survey-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.SURVEY_FORM,
+                defaults: {
+                    questionType: SurveyQuestionType.Link,
+                    name: `Announcement (${randomId})`,
+                    question: 'Hog mode is now available!',
+                    description: 'You can never have too many hedgehogs.',
+                    buttonText: 'Check it out 👉',
+                },
+            }
     }
 }

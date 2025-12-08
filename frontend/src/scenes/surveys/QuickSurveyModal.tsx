@@ -49,17 +49,68 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
 
             <div className="grid grid-cols-2 gap-6 mt-2">
                 <div className="space-y-4">
-                    <div>
-                        <LemonLabel className="mb-2">Question for users</LemonLabel>
-                        <LemonTextArea
-                            value={surveyForm.question}
-                            onChange={(value) => setSurveyFormValue('question', value)}
-                            placeholder="What do you think?"
-                            minRows={2}
-                            data-attr="quick-survey-question-input"
-                            onFocus={(e) => e.currentTarget.select()}
-                        />
-                    </div>
+                    {context.type !== QuickSurveyType.ANNOUNCEMENT && (
+                        <div>
+                            <LemonLabel className="mb-2">Question for users</LemonLabel>
+                            <LemonTextArea
+                                value={surveyForm.question}
+                                onChange={(value) => setSurveyFormValue('question', value)}
+                                placeholder="What do you think?"
+                                minRows={2}
+                                data-attr="quick-survey-question-input"
+                                onFocus={(e) => e.currentTarget.select()}
+                            />
+                        </div>
+                    )}
+
+                    {context.type === QuickSurveyType.ANNOUNCEMENT && (
+                        <>
+                            <div>
+                                <LemonLabel className="mb-2">Title</LemonLabel>
+                                <LemonInput
+                                    value={surveyForm.question}
+                                    onChange={(value) => setSurveyFormValue('question', value)}
+                                    placeholder="Hog mode is now available!"
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+
+                            <div>
+                                <LemonLabel className="mb-2">Description</LemonLabel>
+                                <LemonTextArea
+                                    value={surveyForm.description}
+                                    onChange={(value) => setSurveyFormValue('description', value)}
+                                    placeholder="You can never have too many hedgehogs."
+                                    minRows={2}
+                                    data-attr="quick-survey-question-input"
+                                    onFocus={(e) => e.currentTarget.select()}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <LemonLabel className="mb-2">Button text</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.buttonText}
+                                        onChange={(value) => setSurveyFormValue('buttonText', value)}
+                                        placeholder="Check it out 👉"
+                                        data-attr="quick-survey-question-input"
+                                        onFocus={(e) => e.currentTarget.select()}
+                                    />
+                                </div>
+                                <div>
+                                    <LemonLabel className="mb-2">Button link</LemonLabel>
+                                    <LemonInput
+                                        value={surveyForm.link}
+                                        placeholder="Optional"
+                                        onChange={(value) => setSurveyFormValue('link', value)}
+                                        data-attr="quick-survey-question-input"
+                                    />
+                                </div>
+                            </div>
+                        </>
+                    )}
 
                     {surveyForm.questionType === SurveyQuestionType.Rating && (
                         <div className="grid grid-cols-2 gap-4">
@@ -122,6 +173,12 @@ export function QuickSurveyForm({ context, info, onCancel }: QuickSurveyFormProp
                     </div>
                 )}
 
+                {submitDisabledReason && (
+                    <LemonBanner type="error" className="mb-4">
+                        {submitDisabledReason}
+                    </LemonBanner>
+                )}
+
                 <div className="flex justify-between items-end">
                     <LemonButton
                         type="secondary"
@@ -175,10 +232,17 @@ export function QuickSurveyModal({
     info,
     onCancel,
     isOpen,
-}: QuickSurveyFormProps & { isOpen: boolean }): JSX.Element {
+    modalTitle,
+}: {
+    context?: QuickSurveyFormProps['context']
+    info?: QuickSurveyFormProps['info']
+    onCancel: () => void
+    isOpen: boolean
+    modalTitle?: string
+}): JSX.Element {
     return (
-        <LemonModal title="Quick feedback survey" isOpen={isOpen} onClose={onCancel} width={900}>
-            <QuickSurveyForm context={context} info={info} onCancel={onCancel} />
+        <LemonModal title={modalTitle || 'Quick feedback survey'} isOpen={isOpen} onClose={onCancel} width={900}>
+            {context && <QuickSurveyForm context={context} info={info} onCancel={onCancel} />}
         </LemonModal>
     )
 }

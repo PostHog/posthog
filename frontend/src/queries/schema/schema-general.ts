@@ -2698,6 +2698,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'marketing_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -3432,6 +3433,12 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
+export enum DataWarehouseSavedQueryOrigin {
+    DATA_WAREHOUSE = 'data_warehouse',
+    ENDPOINT = 'endpoint',
+    MANAGED_VIEWSET = 'managed_viewset',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
     type: 'managed_view'
@@ -4116,7 +4123,6 @@ export interface RevenueAnalyticsConfig {
 
 export interface PageURL {
     url: string
-    count: number
 }
 
 export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
