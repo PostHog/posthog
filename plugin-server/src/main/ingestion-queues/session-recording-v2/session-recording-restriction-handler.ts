@@ -39,7 +39,7 @@ export class SessionRecordingRestrictionHandler {
             const restrictions = this.restrictionManager.getAppliedRestrictions(token, distinct_id, session_id)
 
             // Check if this message should be dropped
-            if (restrictions.includes(Restriction.DROP_EVENT)) {
+            if (restrictions.has(Restriction.DROP_EVENT)) {
                 logger.info('🚫', 'session_recording_dropped_by_restriction', {
                     token,
                     distinct_id,
@@ -52,7 +52,7 @@ export class SessionRecordingRestrictionHandler {
             }
 
             // Check if this message should be forced to overflow
-            if (!this.consumeOverflow && restrictions.includes(Restriction.FORCE_OVERFLOW)) {
+            if (!this.consumeOverflow && restrictions.has(Restriction.FORCE_OVERFLOW)) {
                 overflowMessages.push(message)
                 continue
             }

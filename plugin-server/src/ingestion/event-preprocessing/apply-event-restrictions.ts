@@ -26,20 +26,24 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
 
         const restrictions = manager.getAppliedRestrictions(token, distinctId, sessionId, eventName, eventUuid)
 
+        if (restrictions.size === 0) {
+            return Promise.resolve(ok(input))
+        }
+
         // Priority 1: Drop
-        if (restrictions.includes(Restriction.DROP_EVENT)) {
+        if (restrictions.has(Restriction.DROP_EVENT)) {
             return drop('blocked_token')
         }
 
         // Priority 2: DLQ
-        if (restrictions.includes(Restriction.REDIRECT_TO_DLQ)) {
+        if (restrictions.has(Restriction.REDIRECT_TO_DLQ)) {
             return dlq('restricted_to_dlq')
         }
 
         // Priority 3: Overflow
-        if (routingConfig.overflowEnabled && restrictions.includes(Restriction.FORCE_OVERFLOW)) {
+        if (routingConfig.overflowEnabled && restrictions.has(Restriction.FORCE_OVERFLOW)) {
             ingestionOverflowingMessagesTotal.inc()
-            const shouldProcessPerson = !restrictions.includes(Restriction.SKIP_PERSON_PROCESSING)
+            const shouldProcessPerson = !restrictions.has(Restriction.SKIP_PERSON_PROCESSING)
             const preservePartitionLocality = shouldProcessPerson ? true : routingConfig.preservePartitionLocality
             return redirect(
                 'Event redirected to overflow due to force overflow restrictions',

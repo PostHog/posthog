@@ -11,7 +11,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
     beforeEach(() => {
         eventIngestionRestrictionManager = {
-            getAppliedRestrictions: jest.fn().mockReturnValue([]),
+            getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
         } as unknown as EventIngestionRestrictionManager
 
         routingConfig = {
@@ -140,9 +140,9 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.DROP_EVENT,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.DROP_EVENT])
+            )
 
             const result = await step(input)
 
@@ -159,9 +159,9 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.REDIRECT_TO_DLQ,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.REDIRECT_TO_DLQ])
+            )
 
             const result = await step(input)
 
@@ -178,9 +178,9 @@ describe('createApplyEventRestrictionsStep', () => {
                     distinct_id: 'user-123',
                 }),
             }
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await step(input)
 
@@ -203,9 +203,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await step(input)
 
@@ -237,9 +237,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await stepWithNoLocality(input)
 
@@ -262,10 +262,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-                Restriction.SKIP_PERSON_PROCESSING,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
+            )
 
             const result = await step(input)
 
@@ -297,10 +296,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-                Restriction.SKIP_PERSON_PROCESSING,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW, Restriction.SKIP_PERSON_PROCESSING])
+            )
 
             const result = await stepWithNoLocality(input)
 
@@ -329,9 +327,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await disabledStep(input)
 
@@ -349,10 +347,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.DROP_EVENT,
-                Restriction.REDIRECT_TO_DLQ,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.DROP_EVENT, Restriction.REDIRECT_TO_DLQ])
+            )
 
             const result = await step(input)
 
@@ -368,10 +365,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.DROP_EVENT,
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.DROP_EVENT, Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await step(input)
 
@@ -387,10 +383,9 @@ describe('createApplyEventRestrictionsStep', () => {
                 }),
             }
 
-            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-                Restriction.REDIRECT_TO_DLQ,
-                Restriction.FORCE_OVERFLOW,
-            ])
+            jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+                new Set([Restriction.REDIRECT_TO_DLQ, Restriction.FORCE_OVERFLOW])
+            )
 
             const result = await step(input)
 

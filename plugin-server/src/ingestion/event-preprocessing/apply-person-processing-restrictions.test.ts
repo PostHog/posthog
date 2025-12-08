@@ -43,7 +43,7 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
 
     beforeEach(() => {
         eventIngestionRestrictionManager = {
-            getAppliedRestrictions: jest.fn().mockReturnValue([]),
+            getAppliedRestrictions: jest.fn().mockReturnValue(new Set()),
         } as unknown as EventIngestionRestrictionManager
 
         step = createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager)
@@ -76,9 +76,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         })
         const headers = createHeaders({ token: 'restricted-token-def', distinct_id: 'restricted-user-456' })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 
@@ -121,9 +121,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         })
         const headers = createHeaders({ token: 'preserve-token-jkl', distinct_id: 'preserve-user-012' })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 
@@ -172,9 +172,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         })
         const headers = createHeaders({ token: undefined, distinct_id: 'undefined-token-user-888' })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 
@@ -275,9 +275,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             session_id: 'restricted-session',
         })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 
@@ -303,9 +303,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             event: '$restricted_event',
         })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 
@@ -331,9 +331,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
             uuid: 'restricted-uuid-789',
         })
         const input = { eventWithTeam, headers }
-        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue([
-            Restriction.SKIP_PERSON_PROCESSING,
-        ])
+        jest.mocked(eventIngestionRestrictionManager.getAppliedRestrictions).mockReturnValue(
+            new Set([Restriction.SKIP_PERSON_PROCESSING])
+        )
 
         const result = await step(input)
 

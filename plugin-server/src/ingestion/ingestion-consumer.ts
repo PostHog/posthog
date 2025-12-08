@@ -528,7 +528,7 @@ export class IngestionConsumer {
 
         // Check if this token is in the force overflow static/dynamic config list
         const restrictions = this.getAppliedRestrictions(token, distinctId)
-        const shouldForceOverflow = restrictions.includes(Restriction.FORCE_OVERFLOW)
+        const shouldForceOverflow = restrictions.has(Restriction.FORCE_OVERFLOW)
 
         // Check the rate limiter and emit to overflow if necessary
         const isBelowRateLimit = this.overflowRateLimiter.consume(
@@ -550,7 +550,7 @@ export class IngestionConsumer {
             // If the event is marked for skipping persons however locality doesn't matter so we would rather have the higher throughput
             // of random partitioning.
             const preserveLocality =
-                shouldForceOverflow && !restrictions.includes(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
+                shouldForceOverflow && !restrictions.has(Restriction.SKIP_PERSON_PROCESSING) ? true : undefined
 
             void this.promiseScheduler.schedule(
                 this.emitToOverflow(
@@ -674,10 +674,7 @@ export class IngestionConsumer {
         return groupedEvents
     }
 
-    private getAppliedRestrictions(token?: string, distinctId?: string): Restriction[] {
-        if (!token) {
-            return []
-        }
+    private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
         return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, distinctId)
     }
 
