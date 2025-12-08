@@ -55,10 +55,10 @@ class LogAttributesTable(Table):
     }
 
     def to_printed_clickhouse(self, context):
-        return "log_attributes2"
+        return "log_attributes"
 
     def to_printed_hogql(self):
-        return "log_attributes2"
+        return "log_attributes"
 
 
 class LogsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):

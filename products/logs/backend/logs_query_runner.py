@@ -101,7 +101,7 @@ def _generate_resource_attribute_filters(
                 SELECT
                     groupBitmapState(resource_fingerprint) as resources,
                     {{ops}} as ops
-                FROM log_attributes2
+                FROM log_attributes
                 WHERE
                     time_bucket >= toStartOfInterval({{date_from}},toIntervalMinute(10))
                     AND time_bucket <= toStartOfInterval({{date_to}},toIntervalMinute(10))
