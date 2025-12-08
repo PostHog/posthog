@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.temporal.common.clickhouse import (
     ClickHouseMemoryLimitExceededError,
+    ClickHouseQueryNotFound,
     ClickHouseQueryStatus,
     add_log_comment_param,
     encode_clickhouse_data,
@@ -100,8 +101,6 @@ async def test_acancel_query(clickhouse_client):
     with pytest.raises(Exception):
         await query_task
 
-    await asyncio.sleep(1)
-
     max_wait_time = 5.0
     poll_interval = 0.5
     elapsed_time = 0.0
@@ -111,7 +110,7 @@ async def test_acancel_query(clickhouse_client):
         try:
             status = await clickhouse_client.acheck_query(long_running_query_id, raise_on_error=False)
             break
-        except Exception:
+        except ClickHouseQueryNotFound:
             await asyncio.sleep(poll_interval)
             elapsed_time += poll_interval
 
