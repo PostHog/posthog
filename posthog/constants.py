@@ -311,6 +311,7 @@ class FlagRequestType(StrEnum):
 
 
 SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+PRODUCT_TOUR_TARGETING_FLAG_PREFIX = "product-tour-targeting-"
 GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"

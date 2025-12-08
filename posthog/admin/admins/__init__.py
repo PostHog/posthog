@@ -23,6 +23,7 @@ from .person_distinct_id_admin import PersonDistinctIdAdmin
 from .personal_api_key_admin import PersonalAPIKeyAdmin
 from .plugin_admin import PluginAdmin
 from .plugin_config_admin import PluginConfigAdmin
+from .product_tour_admin import ProductTourAdmin
 from .project_admin import ProjectAdmin
 from .survey_admin import SurveyAdmin
 from .team_admin import TeamAdmin
@@ -55,6 +56,7 @@ __all__ = [
     "PersonDistinctIdAdmin",
     "PluginAdmin",
     "PluginConfigAdmin",
+    "ProductTourAdmin",
     "ProjectAdmin",
     "SurveyAdmin",
     "TeamAdmin",
