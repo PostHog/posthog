@@ -101,6 +101,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                         await api.hogFunctions.list({
                             filter_groups: props.forceFilterGroups,
                             types: [props.type, ...(props.additionalTypes || [])],
+                            // TODO: This is a temporary fix. We need proper server-side pagination
+                            // once we rework the data pipelines UI and batch exports is no longer
+                            // part of the same list
+                            limit: 300,
                         })
                     ).results
                 },

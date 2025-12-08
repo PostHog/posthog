@@ -23,7 +23,7 @@ import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, Un
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
-import { ParsedLogMessage } from './types'
+import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
@@ -37,6 +37,12 @@ const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
+
+export enum SparklineTimezone {
+    UTC = 'utc',
+    Project = 'project',
+    Device = 'device',
+}
 
 const parseLogAttributes = (logs: LogMessage[]): void => {
     logs.forEach((row) => {
@@ -217,7 +223,7 @@ export const logsLogic = kea<logsLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: LogsOrderBy) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
@@ -257,6 +263,7 @@ export const logsLogic = kea<logsLogicType>([
         expireLiveTail: () => true,
         setLiveTailExpired: (liveTailExpired: boolean) => ({ liveTailExpired }),
         addLogsToSparkline: (logs: LogMessage[]) => logs,
+        setSparklineTimezone: (sparklineTimezone: SparklineTimezone) => ({ sparklineTimezone }),
     }),
 
     reducers({
@@ -406,6 +413,13 @@ export const logsLogic = kea<logsLogicType>([
             {
                 setLiveTailRunning: (_, { enabled }) => enabled,
                 runQuery: () => false,
+            },
+        ],
+        sparklineTimezone: [
+            SparklineTimezone.UTC as SparklineTimezone,
+            { persist: true },
+            {
+                setSparklineTimezone: (_, { sparklineTimezone }) => sparklineTimezone,
             },
         ],
         liveTailPollInterval: [
@@ -736,12 +750,14 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions, cache }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
         fetchNextLogsPageFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },

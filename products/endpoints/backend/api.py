@@ -655,6 +655,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
     @action(methods=["POST"], detail=False, url_path="last_execution_times")
     def get_endpoints_last_execution_times(self, request: Request, *args, **kwargs) -> Response:
         try:
+            tag_queries(product=Product.ENDPOINTS)
             data = EndpointLastExecutionTimesRequest.model_validate(request.data)
             names = data.names
             if not names:
@@ -747,3 +748,34 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             return Response({"error": f"Version {version_number} not found"}, status=status.HTTP_404_NOT_FOUND)
 
         return Response(self._serialize_endpoint_version(version_obj))
+
+    @extend_schema(
+        description="Get materialization status for an endpoint.",
+    )
+    @action(methods=["GET"], detail=True, url_path="materialization_status")
+    def materialization_status(self, request: Request, name=None, *args, **kwargs) -> Response:
+        """Get materialization status for an endpoint without fetching full endpoint data."""
+        endpoint = get_object_or_404(Endpoint.objects.select_related("saved_query"), team=self.team, name=name)
+
+        if endpoint.is_materialized and endpoint.saved_query:
+            sync_freq_str = None
+            if endpoint.saved_query.sync_frequency_interval:
+                sync_freq_str = sync_frequency_interval_to_sync_frequency(endpoint.saved_query.sync_frequency_interval)
+
+            result = {
+                "status": endpoint.materialization_status,
+                "can_materialize": True,
+                "last_materialized_at": (
+                    endpoint.last_materialized_at.isoformat() if endpoint.last_materialized_at else None
+                ),
+                "error": endpoint.materialization_error,
+                "sync_frequency": sync_freq_str,
+            }
+        else:
+            can_mat, reason = endpoint.can_materialize()
+            result = {
+                "can_materialize": can_mat,
+                "reason": reason if not can_mat else None,
+            }
+
+        return Response(result)

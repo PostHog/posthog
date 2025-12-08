@@ -238,6 +238,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         blank=True,
     )
     enable_partial_responses = models.BooleanField(default=False, null=True)
+
+    # AI-generated headline summary
+    headline_summary = models.TextField(blank=True, null=True)
+    headline_response_count = models.PositiveIntegerField(null=True, blank=True)
+
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(
         models.BooleanField(

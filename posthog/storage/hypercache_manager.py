@@ -24,8 +24,9 @@ from django.db import connection
 
 import structlog
 from posthoganalytics import capture_exception
-from prometheus_client import Counter, Gauge, Histogram
+from prometheus_client import Counter, Gauge
 
+from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.storage.hypercache import HyperCache
@@ -54,25 +55,7 @@ CACHE_SIZE_SAMPLE_LIMIT = 1000
 
 # Consolidated HyperCache metrics with namespace labels
 # These replace cache-specific metrics in flags_cache.py and team_metadata_cache.py
-
-HYPERCACHE_BATCH_REFRESH_COUNTER = Counter(
-    "posthog_hypercache_batch_refresh",
-    "Batch refresh operations for HyperCaches",
-    labelnames=["namespace", "result"],
-)
-
-HYPERCACHE_BATCH_REFRESH_DURATION_HISTOGRAM = Histogram(
-    "posthog_hypercache_batch_refresh_duration_seconds",
-    "Time taken for batch refresh operations",
-    labelnames=["namespace"],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float("inf")),
-)
-
-HYPERCACHE_TEAMS_PROCESSED_COUNTER = Counter(
-    "posthog_hypercache_teams_processed",
-    "Teams processed by batch refresh operations",
-    labelnames=["namespace", "result"],
-)
+# Note: Batch refresh duration is tracked by the generic posthog_celery_task_duration_seconds metric
 
 HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
@@ -86,29 +69,100 @@ HYPERCACHE_INVALIDATION_COUNTER = Counter(
     labelnames=["namespace"],
 )
 
-HYPERCACHE_COVERAGE_GAUGE = Gauge(
-    "posthog_hypercache_coverage_percent",
-    "Percentage of teams with cached data",
-    labelnames=["namespace"],
-)
 
-HYPERCACHE_SIZE_GAUGE = Gauge(
-    "posthog_hypercache_size_bytes",
-    "Estimated total cache size in bytes",
-    labelnames=["namespace"],
-)
+def push_hypercache_stats_metrics(
+    namespace: str,
+    coverage_percent: float,
+    entries_total: int,
+    expiry_tracked_total: int,
+    size_bytes: int | None,
+) -> None:
+    """
+    Push HyperCache stats metrics to Pushgateway for single-value display.
 
-HYPERCACHE_ENTRIES_GAUGE = Gauge(
-    "posthog_hypercache_entries_total",
-    "Total number of entries in the HyperCache",
-    labelnames=["namespace"],
-)
+    Gauge metrics are pushed to Pushgateway instead of using module-level gauges
+    to ensure only one value per metric appears in Grafana dashboards.
 
-HYPERCACHE_EXPIRY_TRACKED_GAUGE = Gauge(
-    "posthog_hypercache_expiry_tracked_total",
-    "Number of entries tracked in the expiry sorted set",
-    labelnames=["namespace"],
-)
+    Args:
+        namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        coverage_percent: Percentage of teams with cached data
+        entries_total: Total number of entries in the HyperCache
+        expiry_tracked_total: Number of entries tracked in the expiry sorted set
+        size_bytes: Estimated total cache size in bytes (None if unknown)
+    """
+    if not settings.PROM_PUSHGATEWAY_ADDRESS:
+        return
+
+    try:
+        with pushed_metrics_registry(f"hypercache_stats_{namespace}") as registry:
+            coverage_gauge = Gauge(
+                "posthog_hypercache_coverage_percent",
+                "Percentage of teams with cached data",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            coverage_gauge.labels(namespace=namespace).set(coverage_percent)
+
+            entries_gauge = Gauge(
+                "posthog_hypercache_entries_total",
+                "Total number of entries in the HyperCache",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            entries_gauge.labels(namespace=namespace).set(entries_total)
+
+            expiry_tracked_gauge = Gauge(
+                "posthog_hypercache_expiry_tracked_total",
+                "Number of entries tracked in the expiry sorted set",
+                labelnames=["namespace"],
+                registry=registry,
+            )
+            expiry_tracked_gauge.labels(namespace=namespace).set(expiry_tracked_total)
+
+            if size_bytes is not None:
+                size_gauge = Gauge(
+                    "posthog_hypercache_size_bytes",
+                    "Estimated total cache size in bytes",
+                    labelnames=["namespace"],
+                    registry=registry,
+                )
+                size_gauge.labels(namespace=namespace).set(size_bytes)
+    except Exception as e:
+        logger.warning("Failed to push hypercache stats to Pushgateway", error=str(e), namespace=namespace)
+
+
+def push_hypercache_teams_processed_metrics(
+    namespace: str,
+    successful: int,
+    failed: int,
+) -> None:
+    """
+    Push teams processed metrics to Pushgateway after batch refresh operations.
+
+    Uses Gauges instead of Counters because Counters don't work well with PushGateway
+    (they reset on each push). Gauges show the count from the most recent batch run,
+    which is the relevant information for an hourly task.
+
+    Args:
+        namespace: The HyperCache namespace (e.g., "feature_flags", "team_metadata")
+        successful: Number of teams successfully processed
+        failed: Number of teams that failed processing
+    """
+    if not settings.PROM_PUSHGATEWAY_ADDRESS:
+        return
+
+    try:
+        with pushed_metrics_registry(f"hypercache_teams_processed_{namespace}") as registry:
+            success_gauge = Gauge(
+                "posthog_hypercache_teams_processed_last_run",
+                "Teams processed in the last batch refresh run",
+                labelnames=["namespace", "result"],
+                registry=registry,
+            )
+            success_gauge.labels(namespace=namespace, result="success").set(successful)
+            success_gauge.labels(namespace=namespace, result="failure").set(failed)
+    except Exception as e:
+        logger.warning("Failed to push hypercache teams processed to Pushgateway", error=str(e), namespace=namespace)
 
 
 class UpdateFn(Protocol):
@@ -520,9 +574,10 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
         coverage_percent = (total_keys / total_teams * 100) if total_teams else 0
 
         size_stats = {}
+        estimated_total_bytes: int | None = None
         if sample_sizes:
             avg_size = statistics.mean(sample_sizes)
-            estimated_total_bytes = avg_size * total_keys
+            estimated_total_bytes = int(avg_size * total_keys)
 
             size_stats = {
                 "sample_count": len(sample_sizes),
@@ -533,14 +588,17 @@ def get_cache_stats(config: HyperCacheManagementConfig) -> dict[str, Any]:
                 "estimated_total_mb": round(estimated_total_bytes / (1024 * 1024), 2),
             }
 
-            HYPERCACHE_SIZE_GAUGE.labels(namespace=config.namespace).set(estimated_total_bytes)
-
-        HYPERCACHE_COVERAGE_GAUGE.labels(namespace=config.namespace).set(coverage_percent)
-        HYPERCACHE_ENTRIES_GAUGE.labels(namespace=config.namespace).set(total_keys)
-
-        # Update expiry tracking gauge using ZCARD (O(1) operation)
+        # Get expiry tracking count using ZCARD (O(1) operation)
         expiry_tracked_count = redis_client.zcard(config.expiry_sorted_set_key)
-        HYPERCACHE_EXPIRY_TRACKED_GAUGE.labels(namespace=config.namespace).set(expiry_tracked_count)
+
+        # Push metrics to Pushgateway for single-value display in Grafana
+        push_hypercache_stats_metrics(
+            namespace=config.namespace,
+            coverage_percent=coverage_percent,
+            entries_total=total_keys,
+            expiry_tracked_total=expiry_tracked_count,
+            size_bytes=estimated_total_bytes,
+        )
 
         return {
             "total_cached": total_keys,
