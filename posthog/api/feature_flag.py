@@ -1247,7 +1247,7 @@ def _evaluate_flags_with_fallback(
         # My plan is to roll this out, let it bake for a bit, monitor if this tombstone metric is hit, and then remove this fallback.
         # TODO remove this fallback once we're confident that the proxying works great.
         TOMBSTONE_COUNTER.labels(
-            namespace="feature_flag",
+            namespace="feature_flags",
             operation="proxy_to_flags_service",
             component="python_fallback",
         ).inc()
