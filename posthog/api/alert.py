@@ -17,7 +17,7 @@ from posthog.api.insight import InsightBasicSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.models import Insight, User
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.alert import (
     AlertCheck,
@@ -42,16 +42,6 @@ class AlertConditionField(serializers.JSONField):
 
 @extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
 class TrendsAlertConfigField(serializers.JSONField):
-    pass
-
-
-@extend_schema_field(InsightBasicSerializer)
-class AlertInsightField(serializers.PrimaryKeyRelatedField):
-    pass
-
-
-@extend_schema_field(UserBasicSerializer(many=True))
-class AlertSubscribedUsersField(serializers.PrimaryKeyRelatedField):
     pass
 
 
@@ -124,8 +114,7 @@ class AlertSerializer(serializers.ModelSerializer):
     threshold = ThresholdSerializer()
     condition = AlertConditionField(required=False, allow_null=True)
     config = TrendsAlertConfigField(required=False, allow_null=True)
-    insight = AlertInsightField(queryset=Insight.objects.all())
-    subscribed_users = AlertSubscribedUsersField(
+    subscribed_users = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True),
         many=True,
         required=True,
