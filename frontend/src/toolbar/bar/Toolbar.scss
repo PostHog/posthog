@@ -77,7 +77,7 @@
 
     &--visible {
         .ToolbarMenu__content {
-            border: 1px solid var(--border-bold-3000);
+            border: 1px solid var(--color-border-strong);
         }
     }
 
@@ -120,7 +120,7 @@
     color: var(--color-foreground);
     background-color: var(--color-background);
     filter: drop-shadow(0 5px 10px var(--trace-3000));
-    border: 1px solid var(--border-bold-3000);
+    border: 1px solid var(--color-border-strong);
     border-radius: var(--radius);
     transition-timing-function: ease;
     transition-duration: 150ms;
@@ -128,11 +128,11 @@
     transform: var(--toolbar-translate);
 
     > :first-child {
-        border-right: 1px solid var(--border-bold-3000);
+        border-right: 1px solid var(--color-border-strong);
     }
 
     > :last-child {
-        border-left: 1px solid var(--border-bold-3000);
+        border-left: 1px solid var(--color-border-strong);
     }
 
     &--dragging {

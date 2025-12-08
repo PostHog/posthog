@@ -269,7 +269,7 @@ export function EnvironmentSwitcherOverlay({
                     className={cn('flex-1 max-w-fit min-w-[40px]', iconOnly ? 'min-w-auto' : '', buttonProps.className)}
                 >
                     {iconOnly ? (
-                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 ">
+                        <div className="Lettermark bg-accent  w-5 h-5 ">
                             {currentTeam.name.slice(0, 1).toLocaleUpperCase()}
                         </div>
                     ) : (

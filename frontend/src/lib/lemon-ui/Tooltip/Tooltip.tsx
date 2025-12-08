@@ -1,7 +1,6 @@
 import './Tooltip.scss'
 
 import {
-    FloatingArrow,
     FloatingPortal,
     Placement,
     arrow,
@@ -36,6 +35,7 @@ interface BaseTooltipProps {
     delayMs?: number
     closeDelayMs?: number
     offset?: number
+    /** @deprecated */
     arrowOffset?: number | ((placement: Placement) => number)
     placement?: Placement
     fallbackPlacements?: Placement[]
@@ -66,7 +66,7 @@ export function Tooltip({
     placement = 'top',
     fallbackPlacements,
     offset = 8,
-    arrowOffset,
+    // arrowOffset,
     delayMs = 500,
     closeDelayMs = 100, // Slight delay to ensure smooth transition
     interactive = false,
@@ -178,7 +178,7 @@ export function Tooltip({
                     >
                         <div
                             className={clsx(
-                                'bg-card text-card-foreground py-1.5 px-2 break-words rounded text-start border',
+                                'bg-card text-card-foreground py-1.5 px-2 break-words rounded text-start border border-border-strong',
                                 className
                             )}
                             // eslint-disable-next-line react/forbid-dom-props
@@ -198,16 +198,6 @@ export function Tooltip({
                                     </Link>
                                 </p>
                             )}
-                            <FloatingArrow
-                                ref={caretRef}
-                                context={context}
-                                width={8}
-                                height={4}
-                                staticOffset={
-                                    typeof arrowOffset === 'function' ? arrowOffset(context.placement) : arrowOffset
-                                }
-                                fill="var(--color-card)"
-                            />
                         </div>
                     </div>
                 </FloatingPortal>

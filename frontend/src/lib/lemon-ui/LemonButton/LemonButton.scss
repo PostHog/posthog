@@ -198,17 +198,17 @@
     &.LemonButton--primary {
         --lemon-button-bg-color: var(--color-card);
         --lemon-button-bg-color-active: var(--color-card);
-        --button-border-color: var(--primary-3000-frame-bg);
-        --lemon-button-border-color-hover: var(--primary-3000-frame-bg);
-        --lemon-button-frame-bg-color: var(--primary-3000-frame-bg);
-        --lemon-button-color: var(--text-3000-light);
+        --button-border-color: var(--color-border-strong);
+        --lemon-button-border-color-hover: var(--color-border-strong);
+        --lemon-button-frame-bg-color: var(--color-border-strong);
+        --lemon-button-color: var(--color-card-foreground);
 
         &.LemonButton--status-alt {
             --lemon-button-bg-color: var(--primary-3000-frame-bg-light);
             --lemon-button-bg-color-active: var(--lemon-button-bg-color);
             --button-border-color: var(--primary-3000-button-border);
             --lemon-button-border-color-hover: var(--primary-3000-button-border-hover);
-            --lemon-button-color: var(--text-3000-light);
+            --lemon-button-color: var(--color-card-foreground);
         }
     }
 
@@ -239,7 +239,7 @@
     }
 
     &.LemonButton--secondary.LemonButton--status-alt {
-        --lemon-button-color: var(--color-text-secondary);
+        --lemon-button-color: var(--color-foreground);
 
         &.LemonButton--active,
         &:hover:not([aria-disabled='true']) {
@@ -348,7 +348,7 @@
 
         &.LemonButton--active,
         &[aria-expanded='true'] {
-            background-color: var(--color-bg-fill-button-tertiary-active);
+            background-color: var(--color-accent-strong);
 
             // When inside a LemonButtonWithSideAction, we don't want the side button to have a background color (until hovered)
             // This is because we changed the background color for tertiary to be based on a background color with opacity

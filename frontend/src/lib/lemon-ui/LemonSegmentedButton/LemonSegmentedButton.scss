@@ -37,7 +37,7 @@
 
         .LemonButton.LemonButton--secondary:not([aria-disabled='true']):hover {
             > .LemonButton__chrome::after {
-                border-color: var(--secondary-3000-button-border);
+                border-color: var(--color-border-strong);
             }
         }
 

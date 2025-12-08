@@ -26,7 +26,7 @@ const TRON_THEME = `:root {
 body[theme=dark] {
     --border: rgba(0, 255, 1, 0.5);
     --link: #00FF01;
-    --border-bold: #00FF01;
+    --color-border-strong: #00FF01;
     --color-bg-3000: #111;
     --glass-bg-3000: #111;
     --color-bg-light: #222;
@@ -58,7 +58,7 @@ body[theme=light] {
     --border: rgba(255, 105, 180, 0.5);
     --border-3000: #ff409f;
     --link: #E306AD;
-    --border-bold: rgba(255, 105, 180, 0.8);
+    --color-border-strong: rgba(255, 105, 180, 0.8);
     --color-bg-3000: #FED9E9;
     --glass-bg-3000: rgba(255, 192, 203, 0.8);
     --color-bg-light: #FFF0F5;
@@ -68,7 +68,7 @@ body[theme=light] {
     --primary-3000-hover: #FF1493;
     --primary-alt-highlight: rgba(255, 105, 180, 0.1);
     --text-3000: #ed3993;
-    --text-3000-light: #58003f;
+    --text-card-foreground: #58003f;
     --color-accent-3000: #FEBDE2;
     --glass-border-3000: rgba(245, 145, 199, 0.3);
 

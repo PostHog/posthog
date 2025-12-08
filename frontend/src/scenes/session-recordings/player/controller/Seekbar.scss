@@ -51,8 +51,8 @@
                     45deg,
                     var(--color-border),
                     var(--color-border) 10px,
-                    var(--color-bg-muted) 10px,
-                    var(--color-bg-muted) 20px
+                    var(--color-background) 10px,
+                    var(--color-background) 20px
                 );
                 background-size: 28px 28px;
                 animation: PlayerSeekbar__loading-stripes 0.8s linear infinite;
@@ -92,8 +92,8 @@
                         45deg,
                         var(--color-border),
                         var(--color-border) 10px,
-                        var(--color-bg-muted) 10px,
-                        var(--color-bg-muted) 20px
+                        var(--color-background) 10px,
+                        var(--color-background) 20px
                     );
                     background-size: 28px 28px;
                     opacity: 1;

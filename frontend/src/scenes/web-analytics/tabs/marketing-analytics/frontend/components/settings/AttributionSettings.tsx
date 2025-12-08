@@ -197,14 +197,14 @@ export function AttributionSettings(): JSX.Element {
                 </div>
 
                 <div>
-                    <label className="block text-sm font-medium mb-2 flex items-center gap-1">
+                    <label className="text-sm font-medium mb-2 flex items-center gap-1">
                         Attribution Mode
                         <Tooltip title="Attribution mode determines which marketing touchpoint gets credit for a conversion when multiple touchpoints exist. First Touch: Credits the first marketing touchpoint in the customer journey. Best for measuring brand awareness and top-of-funnel campaigns. Last Touch: Credits the last marketing touchpoint before conversion. Best for measuring bottom-of-funnel effectiveness and direct conversion drivers.">
                             <IconInfo className="text-muted-foreground hover:text-default cursor-help" />
                         </Tooltip>
                     </label>
                     <div className="max-w-md">
-                        <div className="flex items-center gap-1 bg-border rounded p-1">
+                        <div className="flex items-center gap-1 bg-border-muted rounded p-1">
                             {ATTRIBUTION_MODE_OPTIONS.map((option) => (
                                 <LemonButton
                                     key={option.value}

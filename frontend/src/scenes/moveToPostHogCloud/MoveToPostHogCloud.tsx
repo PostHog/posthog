@@ -130,10 +130,7 @@ export function MoveToPostHogCloud(): JSX.Element {
                     <ul className="list-none p-0 grid sm:grid-cols-2 md:grid-cols-3 gap-8 mb-8 ">
                         {CLOUD_FEATURES.map((feature, i) => {
                             return (
-                                <li
-                                    className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-card-alt-highlight"
-                                    key={`subfeature-${i}`}
-                                >
+                                <li className="rounded-lg p-4 sm:p-6 sm:pb-8 bg-card" key={`subfeature-${i}`}>
                                     <span className="inline-block text-2xl mb-2 opacity-75">{feature.icon}</span>
                                     <h3 className="text-[17px] mb-1 leading-tight">{feature.name}</h3>
                                     <p className="m-0 text-[15px]">{feature.description}</p>

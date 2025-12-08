@@ -28,7 +28,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
             {/* eslint-disable-next-line react/forbid-elements */}
             <a
                 ref={ref}
-                className="w-full bg-card-alt-highlight rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
+                className="w-full bg-card rounded-lg justify-center p-4 flex font-bold gap-2 items-center"
                 onDragStart={reportBookmarkletDragged}
             >
                 <IconBookmarkBorder fontSize="1.5rem" />

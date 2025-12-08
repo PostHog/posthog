@@ -15,7 +15,7 @@ const plugin = require('tailwindcss/plugin')
 
 // const deprecatedColors = {
 // 'primary-highlight-light': 'var(--primary-highlight-light)',
-// 'text-3000-light': 'var(--text-3000-light)',
+// 'text-card-foreground': 'var(--text-card-foreground)',
 // 'text-secondary-3000-light': 'var(--color-text-secondary-3000-light)',
 // 'muted-3000-light': 'var(--muted-3000-light)',
 // 'trace-3000-light': 'var(--trace-3000-light)',

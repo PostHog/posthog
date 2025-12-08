@@ -9,7 +9,7 @@
     white-space: nowrap;
     cursor: default;
     background: var(--color-border);
-    border: 1px solid var(--secondary-3000-button-border);
+    border: 1px solid var(--color-border-strong);
     border-radius: 99rem;
     outline: 0;
 
@@ -20,7 +20,7 @@
 
     &:hover:not([aria-disabled='true']),
     &:focus {
-        border-color: var(--secondary-3000-button-border-hover);
+        border-color: var(--color-border-strong);
     }
 
     &:not(.PropertyFilterButton--clickable) {

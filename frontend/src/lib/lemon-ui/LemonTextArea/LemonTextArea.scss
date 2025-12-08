@@ -15,7 +15,7 @@
 
     &:not(:disabled):hover,
     &:focus:not(:disabled) {
-        border: 1px solid var(--border-bold);
+        border: 1px solid var(--color-border-strong);
     }
 
     &:disabled {
