@@ -88,16 +88,6 @@ class ArtifactManager(AssistantContextMixin):
             raise AgentArtifact.DoesNotExist(f"Artifact with short_id={short_id} not found")
         return content
 
-    async def aget_insight(
-        self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
-    ) -> VisualizationArtifactContent | None:
-        """
-        Retrieve artifact content by ID, checking state first then database.
-        Returns None if not found in either location.
-        """
-        result = await self.aget_insight_with_source(state_messages, artifact_id)
-        return result[0] if result else None
-
     async def aget_insight_with_source(
         self, state_messages: Sequence[AssistantMessageUnion], artifact_id: str
     ) -> tuple[VisualizationArtifactContent, ArtifactSource] | None:
