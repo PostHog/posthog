@@ -3,7 +3,8 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconPlus, IconRefresh } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { DataModelingNodeType } from '~/types'
 
@@ -52,7 +53,9 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
     const { selectedNodeId, highlightedNodeType } = useValues(dataModelingEditorLogic)
+    const { runNode } = useActions(dataModelingEditorLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
+    const [isHovered, setIsHovered] = useState(false)
 
     useEffect(() => {
         updateNodeInternals(props.id)
@@ -64,6 +67,18 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
     const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
+
+    const canRun = type !== 'table'
+
+    const handleRunUpstream = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        runNode(props.id, 'upstream')
+    }
+
+    const handleRunDownstream = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        runNode(props.id, 'downstream')
+    }
 
     return (
         <div
@@ -82,10 +97,36 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 width: NODE_WIDTH,
                 height: NODE_HEIGHT,
             }}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
         >
             {props.data.handles?.map((handle) => (
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
+
+            {canRun && isHovered && (
+                <>
+                    <Tooltip title="Run all upstream nodes">
+                        <button
+                            type="button"
+                            onClick={handleRunUpstream}
+                            className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full bg-bg-light border border-border shadow-sm hover:bg-surface-primary hover:border-primary transition-all cursor-pointer z-10"
+                        >
+                            <IconRefresh className="w-3 h-3 text-muted rotate-180" />
+                        </button>
+                    </Tooltip>
+                    <Tooltip title="Run all downstream nodes">
+                        <button
+                            type="button"
+                            onClick={handleRunDownstream}
+                            className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full bg-bg-light border border-border shadow-sm hover:bg-surface-primary hover:border-primary transition-all cursor-pointer z-10"
+                        >
+                            <IconRefresh className="w-3 h-3 text-muted" />
+                        </button>
+                    </Tooltip>
+                </>
+            )}
+
             <div className="flex flex-col justify-between p-2 h-full">
                 <div className="flex justify-between items-start">
                     <span

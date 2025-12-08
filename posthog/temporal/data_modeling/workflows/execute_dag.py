@@ -83,10 +83,11 @@ class ExecuteDAGResult:
     node_results: list[NodeResult]
 
 
-def _get_edge_lookup(edges: list[tuple[str, str]]):
+def _get_edge_lookup(executable_nodes: set[str], edges: list[tuple[str, str]]):
     edge_lookup = defaultdict(set)
     for source, target in edges:
-        edge_lookup[target].add(source)
+        if source in executable_nodes:
+            edge_lookup[target].add(source)
     return edge_lookup
 
 
@@ -127,8 +128,10 @@ def _dag_execution_levels(
     """Compute execution levels using kahn's topological sort."""
     # Initialize in_degree for all nodes, defaulting to 0 for nodes with no dependencies
     in_degree = {node_id: len(edge_lookup.get(node_id, set())) for node_id in nodes}
+    temporalio.workflow.logger.info(f"in_degree={in_degree}")
     # inverse of the edge_lookup
     dependents = _get_dependent_lookup(edge_lookup)
+    temporalio.workflow.logger.info(f"dependents={dependents}")
     levels: list[list[str]] = []
     remaining = nodes.copy()
     while remaining:
@@ -195,7 +198,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                 node_results=[],
             )
 
-        edge_lookup = _get_edge_lookup(dag_structure.edges)
+        edge_lookup = _get_edge_lookup(set(executable_nodes), dag_structure.edges)
         levels = _dag_execution_levels(inputs.team_id, inputs.dag_id, executable_nodes, edge_lookup)
 
         temporalio.workflow.logger.info(

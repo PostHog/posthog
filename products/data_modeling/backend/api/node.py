@@ -1,11 +1,21 @@
-from typing import Any
+import asyncio
+from dataclasses import asdict
+from datetime import timedelta
+from typing import Any, Literal
+from uuid import uuid4
 
-from rest_framework import filters, serializers, viewsets
+from django.conf import settings
+
+from rest_framework import filters, request, response, serializers, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
+from temporalio.common import RetryPolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
-from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models import Edge, Node, NodeType
 
 
 class NodeSerializer(serializers.ModelSerializer):
@@ -51,6 +61,46 @@ class NodePagination(PageNumberPagination):
     page_size = 100
 
 
+def _get_upstream_nodes(node: Node) -> set[str]:
+    """Get all upstream (ancestor) node IDs recursively."""
+    nodes: set[str] = set()
+    current = [node.id]
+    while True:
+        current = (
+            Edge.objects.exclude(source__type=NodeType.TABLE)
+            .filter(
+                team_id=node.team_id,
+                dag_id=node.dag_id,
+                target_id__in=current,
+            )
+            .values_list("source_id", flat=True)
+        )
+        if not current:
+            break
+        nodes.update([str(i) for i in current])
+    return nodes
+
+
+def _get_downstream_nodes(node: Node) -> set[str]:
+    """Get all downstream (descendant) node IDs recursively."""
+    nodes: set[str] = set()
+    current = [node.id]
+    while True:
+        current = (
+            Edge.objects.exclude(target__type=NodeType.TABLE)
+            .filter(
+                team_id=node.team_id,
+                dag_id=node.dag_id,
+                source_id__in=current,
+            )
+            .values_list("target_id", flat=True)
+        )
+        if not current:
+            break
+        nodes.update([str(i) for i in current])
+    return nodes
+
+
 class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
     ViewSet for data modeling nodes.
@@ -62,7 +112,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     pagination_class = NodePagination
     filter_backends = [filters.SearchFilter]
     search_fields = ["name", "dag_id"]
-    ordering = "-created_at"
+    ordering = "name"
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
@@ -70,3 +120,59 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset):
         return queryset.filter(team_id=self.team_id).order_by(self.ordering)
+
+    @action(methods=["POST"], detail=True)
+    def run(self, req: request.Request, *args, **kwargs) -> response.Response:
+        """
+        Run this node and optionally its upstream or downstream dependencies.
+
+        Request body:
+            direction: "upstream" | "downstream" (required)
+                - "upstream": Run all ancestors of this node, plus this node
+                - "downstream": Run this node and all its descendants
+        """
+        node = self.get_object()
+        direction: Literal["upstream", "downstream"] = req.data.get("direction")
+
+        if direction not in ("upstream", "downstream"):
+            return response.Response(
+                {"error": "direction must be 'upstream' or 'downstream'"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if node.type == NodeType.TABLE:
+            return response.Response(
+                {"error": "Cannot run a table node"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if direction == "upstream":
+            node_ids = _get_upstream_nodes(node)
+        else:
+            node_ids = _get_downstream_nodes(node)
+
+        node_ids.add(str(node.id))
+
+        inputs = ExecuteDAGInputs(
+            team_id=self.team_id,
+            dag_id=node.dag_id,
+            node_ids=list(node_ids),
+        )
+
+        temporal = sync_connect()
+        asyncio.run(
+            temporal.start_workflow(
+                "execute-dag",
+                asdict(inputs),
+                id=f"execute-dag-{node.dag_id}-{uuid4()}",
+                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=60),
+                    maximum_attempts=3,
+                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
+                ),
+            )
+        )
+
+        return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)

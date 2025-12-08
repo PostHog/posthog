@@ -4028,6 +4028,12 @@ const api = {
         async get(nodeId: DataModelingNode['id']): Promise<DataModelingNode> {
             return await new ApiRequest().dataModelingNode(nodeId).get()
         },
+        async run(
+            nodeId: DataModelingNode['id'],
+            direction: 'upstream' | 'downstream'
+        ): Promise<{ node_ids: string[] }> {
+            return await new ApiRequest().dataModelingNode(nodeId).withAction('run').create({ data: { direction } })
+        },
     },
 
     dataModelingEdges: {

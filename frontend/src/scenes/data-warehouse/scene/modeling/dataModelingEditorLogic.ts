@@ -49,6 +49,13 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             dataModelingNodes,
             dataModelingEdges,
         }),
+        runNode: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
+        runNodeSuccess: (nodeId: string, direction: 'upstream' | 'downstream') => ({ nodeId, direction }),
+        runNodeFailure: (nodeId: string, direction: 'upstream' | 'downstream', error: string) => ({
+            nodeId,
+            direction,
+            error,
+        }),
     }),
     loaders({
         dataModelingNodes: [
@@ -248,6 +255,15 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         onNodesDelete: ({ deleted }) => {
             if (deleted.some((node) => node.id === values.selectedNodeId)) {
                 actions.setSelectedNodeId(null)
+            }
+        },
+
+        runNode: async ({ nodeId, direction }) => {
+            try {
+                await api.dataModelingNodes.run(nodeId, direction)
+                actions.runNodeSuccess(nodeId, direction)
+            } catch (e) {
+                actions.runNodeFailure(nodeId, direction, String(e))
             }
         },
     })),
