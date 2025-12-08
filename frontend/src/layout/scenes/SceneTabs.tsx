@@ -288,7 +288,7 @@ function SceneTabComponent({ tab, className, isDragging, containerClassName, ind
                             size="xs"
                             className="order-last group z-20 size-5 rounded top-1/2 -translate-y-1/2 right-[5px] hover:[&~.button-primitive:not(.tab-active)]:bg-card"
                         >
-                            <IconX className="text-tertiary size-3 group-hover:text-foreground z-10" />
+                            <IconX className="text-muted-foreground size-3 group-hover:text-foreground z-10" />
                         </ButtonPrimitive>
                     </AppShortcut>
                 )}

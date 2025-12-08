@@ -74,7 +74,7 @@ export function EditCustomProductsModal(): JSX.Element {
                                                     ? 'Loading...'
                                                     : undefined
                                         }
-                                        label={<span className="font-semibold text-tertiary">{category}</span>}
+                                        label={<span className="font-semibold text-muted-foreground">{category}</span>}
                                     />
                                 </div>
                                 <div className="space-y-1">
@@ -155,7 +155,7 @@ export function EditCustomProductsModal(): JSX.Element {
 
                 <div className="flex flex-col items-start gap-2 border-t pt-4">
                     <div className="flex flex-col gap-2 w-full">
-                        <label className="text-sm font-semibold text-tertiary">Shortcut position</label>
+                        <label className="text-sm font-semibold text-muted-foreground">Shortcut position</label>
                         <LemonSelect<UserShortcutPosition>
                             value={shortcutPosition}
                             onChange={(value) => setShortcutPosition(value)}

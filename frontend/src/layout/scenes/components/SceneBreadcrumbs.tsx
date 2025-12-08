@@ -30,14 +30,14 @@ export function SceneBreadcrumbBackButton({
         <>
             <Link
                 {...BackToProps}
-                className={cn('items-center gap-1 text-tertiary text-xs', className)}
+                className={cn('items-center gap-1 text-muted-foreground text-xs', className)}
                 buttonProps={{
                     variant: 'default',
                     iconOnly: true,
                 }}
                 tooltip={<>Go back to {backTo.name}</>}
             >
-                <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary" />
+                <IconArrowLeft aria-hidden="true" className="size-3 text-muted-foreground" />
             </Link>
         </>
     ) : null

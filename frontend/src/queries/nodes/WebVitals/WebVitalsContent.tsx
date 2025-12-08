@@ -51,7 +51,7 @@ export const WebVitalsContent = ({ webVitalsQueryResponse, isLoading }: WebVital
     if (value === undefined || band === 'none') {
         return (
             <div className="w-full p-4 sm:w-[30%] flex flex-col gap-2 bg-card rounded border items-center justify-center">
-                <span className="text-sm text-text-tertiary">No data for the selected date range</span>
+                <span className="text-sm text-text-muted-foreground">No data for the selected date range</span>
             </div>
         )
     }

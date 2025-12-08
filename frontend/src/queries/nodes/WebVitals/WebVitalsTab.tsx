@@ -49,7 +49,7 @@ export function WebVitalsTab({ value, metric, isActive, setTab, isLoading }: Web
                 {isLoading ? (
                     <LemonSkeleton fade className="w-20 h-8" />
                 ) : showNoData ? (
-                    <span className="text-xs text-text-tertiary">No data for this range</span>
+                    <span className="text-xs text-text-muted-foreground">No data for this range</span>
                 ) : (
                     <>
                         <span

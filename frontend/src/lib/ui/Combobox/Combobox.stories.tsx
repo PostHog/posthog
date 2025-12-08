@@ -70,7 +70,7 @@ function RenderCombobox(): JSX.Element {
                                 tooltipPlacement="right"
                                 to="https://posthog.com"
                             >
-                                <IconGear className="text-tertiary" />
+                                <IconGear className="text-muted-foreground" />
                             </Link>
                         </Combobox.Item>
                     </ButtonGroupPrimitive>
@@ -78,7 +78,7 @@ function RenderCombobox(): JSX.Element {
 
                 <Combobox.Item asChild onClick={() => alert('clicked')}>
                     <ButtonPrimitive menuItem className="shrink-0">
-                        <IconPlusSmall className="text-tertiary" />
+                        <IconPlusSmall className="text-muted-foreground" />
                         Static: Add item
                     </ButtonPrimitive>
                 </Combobox.Item>
@@ -94,7 +94,7 @@ export function Default(): JSX.Element {
 
             <div className="max-w-[500px]">
                 <p className="font-semibold">This is a combo box</p>
-                <p className="text-sm text-tertiary mb-2">
+                <p className="text-sm text-muted-foreground mb-2">
                     Try searching for something that doesn't match "Pineapple" or "Banana" to see the Empty state
                 </p>
                 <ul className="list-disc pl-4">

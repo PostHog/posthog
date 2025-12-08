@@ -172,7 +172,7 @@ export function SceneNotebookMenuItems({
                                                     )
                                             )
                                         ) : (
-                                            <ButtonPrimitive menuItem inert className="text-tertiary">
+                                            <ButtonPrimitive menuItem inert className="text-muted-foreground">
                                                 No notebooks found
                                             </ButtonPrimitive>
                                         )}
@@ -206,7 +206,7 @@ export function SceneNotebookMenuItems({
                                                     )
                                             )
                                         ) : (
-                                            <ButtonPrimitive menuItem inert className="text-tertiary">
+                                            <ButtonPrimitive menuItem inert className="text-muted-foreground">
                                                 No notebooks found
                                             </ButtonPrimitive>
                                         )}

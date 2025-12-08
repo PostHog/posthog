@@ -53,7 +53,7 @@ function StackframeTextDisplay({ frame }: { frame: ErrorTrackingStackFrame }): J
                 {resolvedName ? `, in: ${resolvedName}` : ''}
             </p>
             {stackFrameRecords[frame.raw_id] && stackFrameRecords[frame.raw_id].context?.line.line && (
-                <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-tertiary line-clamp-1">
+                <p className="font-mono indent-[2rem] whitespace-no-wrap mb-0 text-muted-foreground line-clamp-1">
                     {stackFrameRecords[frame.raw_id].context?.line.line}
                 </p>
             )}

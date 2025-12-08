@@ -175,9 +175,9 @@ export function SemanticColors(): JSX.Element {
             name: '--color-text-secondary',
         },
         {
-            tailwindClass: 'text-tertiary',
+            tailwindClass: 'text-muted-foreground',
             description: 'most subtle text color',
-            name: '--color-text-tertiary',
+            name: '--color-text-muted-foreground',
         },
         // {
         //     tailwindClass: 'text-accent',

@@ -181,7 +181,7 @@ function Category({
                         {!['persons', 'groups', 'eventDefinitions', 'propertyDefinitions'].includes(category) &&
                             typedItems.length === 0 &&
                             !newTabSceneDataInclude.includes('all') && (
-                                <LemonTag className="text-xs text-tertiary" size="small">
+                                <LemonTag className="text-xs text-muted-foreground" size="small">
                                     No results found
                                 </LemonTag>
                             )}
@@ -191,7 +191,7 @@ function Category({
                     {typedItems.length === 0 ? (
                         // Show loading for recents when searching, otherwise show nothing (tag shows in header)
                         category === 'recents' && isLoading ? (
-                            <div className="flex flex-col gap-2 text-tertiary text-balance">
+                            <div className="flex flex-col gap-2 text-muted-foreground text-balance">
                                 <WrappingLoadingSkeleton>
                                     <ButtonPrimitive size="sm">Loading items...</ButtonPrimitive>
                                 </WrappingLoadingSkeleton>
@@ -376,7 +376,7 @@ function Category({
                                                         }, 0)
                                                     }
                                                 }}
-                                                className="w-full text-tertiary data-[focused=true]:text-foreground"
+                                                className="w-full text-muted-foreground data-[focused=true]:text-foreground"
                                             >
                                                 <IconArrowRight className="rotate-90" />
                                                 {isRecentsSection
@@ -396,7 +396,7 @@ function Category({
                                     to={urls.persons()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
+                                        className: 'w-full text-muted-foreground data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all persons
@@ -409,7 +409,7 @@ function Category({
                                     to={urls.eventDefinitions()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
+                                        className: 'w-full text-muted-foreground data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all events
@@ -422,7 +422,7 @@ function Category({
                                     to={urls.groups(Array.from(groupTypes.keys())[0])}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
+                                        className: 'w-full text-muted-foreground data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all groups
@@ -435,7 +435,7 @@ function Category({
                                     to={urls.propertyDefinitions()}
                                     buttonProps={{
                                         size: 'sm',
-                                        className: 'w-full text-tertiary data-[focused=true]:text-foreground',
+                                        className: 'w-full text-muted-foreground data-[focused=true]:text-foreground',
                                     }}
                                 >
                                     <IconExternal /> See all properties

@@ -354,7 +354,9 @@ function SceneName({
                             fullWidth
                             truncate
                         >
-                            <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                            <span className="truncate">
+                                {name || <span className="text-muted-foreground">Unnamed</span>}
+                            </span>
                             {canEdit && !forceEdit && <IconPencil />}
                         </ButtonPrimitive>
                     </Tooltip>
@@ -362,7 +364,7 @@ function SceneName({
             </>
         ) : (
             <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
+                <span className="min-w-fit">{name || <span className="text-muted-foreground">Unnamed</span>}</span>
             </h1>
         )
 
@@ -511,7 +513,11 @@ function SceneDescription({
                             autoHeight: true,
                         })}
                     >
-                        {description !== null ? description : <span className="text-tertiary">{emptyText}</span>}
+                        {description !== null ? (
+                            description
+                        ) : (
+                            <span className="text-muted-foreground">{emptyText}</span>
+                        )}
                     </p>
                 )}
             </>

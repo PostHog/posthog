@@ -67,7 +67,7 @@ export function SavedInsightsTable({ renderActionColumn }: SavedInsightsTablePro
                                     </span>
                                 </Link>
                             </div>
-                            <div className="text-xs text-tertiary">{insight.description}</div>
+                            <div className="text-xs text-muted-foreground">{insight.description}</div>
                         </div>
                     </>
                 )

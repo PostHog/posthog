@@ -312,9 +312,9 @@ export function Exposures(): JSX.Element {
                             ) : !exposures?.timeseries?.length ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
                                     <div className="text-center">
-                                        <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
+                                        <IconCorrelationAnalysis className="text-3xl mb-2 text-muted-foreground" />
                                         <div className="text-md font-semibold leading-tight mb-2">No exposures yet</div>
-                                        <p className="text-sm text-center text-balance text-tertiary">
+                                        <p className="text-sm text-center text-balance text-muted-foreground">
                                             Exposures will appear here once the first participant has been exposed.
                                         </p>
                                         <div className="flex justify-center mt-4">

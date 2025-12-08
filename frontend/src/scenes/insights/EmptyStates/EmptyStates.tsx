@@ -63,9 +63,9 @@ export function InsightEmptyState({
             data-attr="insight-empty-state"
             className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center text-center text-balance"
         >
-            <IconArchive className="text-5xl mb-2 text-tertiary" />
+            <IconArchive className="text-5xl mb-2 text-muted-foreground" />
             <h2 className="text-xl leading-tight">{heading}</h2>
-            <p className="text-sm text-tertiary">{detail}</p>
+            <p className="text-sm text-muted-foreground">{detail}</p>
         </div>
     )
 }

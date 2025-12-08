@@ -251,9 +251,9 @@ function UpstreamGraphContent({ tabId }: UpstreamGraphProps): JSX.Element {
                 data-attr="upstream-graph-empty-state"
                 className="flex flex-col flex-1 rounded p-4 w-full items-center justify-center"
             >
-                <IconArchive className="text-5xl mb-2 text-tertiary" />
+                <IconArchive className="text-5xl mb-2 text-muted-foreground" />
                 <h2 className="text-xl leading-tight">No tables or views found</h2>
-                <p className="text-sm text-center text-balance text-tertiary">
+                <p className="text-sm text-center text-balance text-muted-foreground">
                     This query doesn't depend on any other tables or views
                 </p>
             </div>

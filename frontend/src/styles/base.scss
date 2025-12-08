@@ -506,7 +506,7 @@
     // --color-text-primary-inverse: var(--color-neutral-100);
     // --color-text-secondary-inverse: var(--color-neutral-400);
     // --color-text-secondary: var(--color-neutral-750);
-    // --color-text-tertiary: var(--color-neutral-600);
+    // --color-text-muted-foreground: var(--color-neutral-600);
     // --color-text-success: var(--color-green-600);
     // --color-text-warning-foreground: var(--color-yellow-700);
     // --color-text-error: var(--color-red-600);
@@ -1213,7 +1213,7 @@
     --color-text-primary-inverse: var(--color-neutral-950);
     --color-text-secondary-inverse: var(--color-neutral-650);
     --color-text-secondary: var(--color-neutral-350);
-    --color-text-tertiary: var(--color-neutral-400);
+    --color-text-muted-foreground: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
     --color-text-warning-foreground: var(--color-yellow-400);
     --color-text-error: var(--color-red-400);
@@ -1725,7 +1725,7 @@
     input::placeholder,
     textarea::placeholder {
         // Overrides Tailwind's default
-        color: var(--color-text-tertiary);
+        color: var(--color-muted-foreground);
     }
 
     a {

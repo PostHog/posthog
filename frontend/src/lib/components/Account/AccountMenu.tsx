@@ -179,10 +179,10 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             <ProfilePicture user={user} size="xs" />
                             <span className="flex flex-col truncate">
                                 <span className="font-semibold truncate">{user?.first_name}</span>
-                                <span className="text-tertiary text-xs truncate">{user?.email}</span>
+                                <span className="text-muted-foreground text-xs truncate">{user?.email}</span>
                             </span>
                             <div className="ml-auto">
-                                <IconGear className="text-tertiary" />
+                                <IconGear className="text-muted-foreground" />
                             </div>
                         </Link>
                     </DropdownMenuItem>
@@ -252,7 +252,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             {currentOrganization && (
                                 <div className="ml-auto flex items-center gap-1">
                                     <AccessLevelIndicator organization={currentOrganization} />
-                                    <IconGear className="text-tertiary" />
+                                    <IconGear className="text-muted-foreground" />
                                 </div>
                             )}
                         </Link>

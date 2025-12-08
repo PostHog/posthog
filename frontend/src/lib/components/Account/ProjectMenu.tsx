@@ -101,7 +101,7 @@ export function ProjectMenu({
                                         data-attr="tree-navbar-project-dropdown-current-project-button"
                                         className="pr-12"
                                     >
-                                        <IconCheck className="text-tertiary" />
+                                        <IconCheck className="text-muted-foreground" />
                                         <ProjectName team={currentTeam} />
                                     </ButtonPrimitive>
                                 </Combobox.Item>
@@ -117,7 +117,7 @@ export function ProjectMenu({
                                         to={urls.project(currentTeam.id, urls.settings('project'))}
                                         data-attr="tree-navbar-project-dropdown-current-project-settings-button"
                                     >
-                                        <IconGear className="text-tertiary" />
+                                        <IconGear className="text-muted-foreground" />
                                     </Link>
                                 </Combobox.Item>
                             </ButtonGroupPrimitive>
@@ -204,7 +204,7 @@ export function ProjectMenu({
                                     className="shrink-0"
                                     disabled={!!projectCreationForbiddenReason}
                                 >
-                                    <IconPlusSmall className="text-tertiary" />
+                                    <IconPlusSmall className="text-muted-foreground" />
                                     New project
                                 </ButtonPrimitive>
                             </Combobox.Item>

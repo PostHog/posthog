@@ -344,7 +344,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 : item.collapsedTooltip
                                             : undefined
 
-                                        const iconClassName = 'flex text-tertiary group-hover:text-foreground'
+                                        const iconClassName = 'flex text-muted-foreground group-hover:text-foreground'
 
                                         const listItem = (
                                             <ListBox.Item
@@ -376,7 +376,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                             <>
                                                                 <span className="truncate">{item.label}</span>
                                                                 <span className="ml-auto pr-1">
-                                                                    <IconChevronRight className="size-3 text-tertiary" />
+                                                                    <IconChevronRight className="size-3 text-muted-foreground" />
                                                                 </span>
                                                             </>
                                                         )}
@@ -524,11 +524,11 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                             >
                                 {isLayoutNavCollapsed ? (
                                     <>
-                                        <IconSidebarClose className="text-tertiary" />
+                                        <IconSidebarClose className="text-muted-foreground" />
                                     </>
                                 ) : (
                                     <>
-                                        <IconSidebarOpen className="text-tertiary" />
+                                        <IconSidebarOpen className="text-muted-foreground" />
                                         Collapse nav
                                     </>
                                 )}
@@ -598,7 +598,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-toolbar"
                             >
-                                <span className="flex text-tertiary group-hover:text-foreground">
+                                <span className="flex text-muted-foreground group-hover:text-foreground">
                                     <IconToolbar />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Toolbar'}
@@ -619,7 +619,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                 tooltipPlacement="right"
                                 data-attr="menu-item-settings"
                             >
-                                <span className="flex text-tertiary group-hover:text-foreground">
+                                <span className="flex text-muted-foreground group-hover:text-foreground">
                                     <IconGear />
                                 </span>
                                 {!isLayoutNavCollapsed && 'Settings'}

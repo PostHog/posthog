@@ -300,7 +300,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         <DropdownMenuTrigger asChild>
                             <ButtonPrimitive
                                 variant="outline"
-                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-tertiary hover:border-border-strong data-[state=open]:border-border-strong ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
+                                className={`ml-[calc(var(--button-padding-x-sm)+1px)] font-mono text-muted-foreground hover:border-border-strong data-[state=open]:border-border-strong ${focusedTagIndex === -1 ? 'ring-2 ring-accent' : ''}`}
                                 iconOnly
                                 size="sm"
                                 tooltip={
@@ -397,7 +397,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                             tabIndex={-1}
                         >
                             {command.displayName}
-                            <IconX className="size-3 ml-1 text-tertiary" />
+                            <IconX className="size-3 ml-1 text-muted-foreground" />
                         </ButtonPrimitive>
                     ))
                 ) : (
@@ -408,7 +408,7 @@ export const SearchInput = forwardRef<SearchInputHandle, SearchInputProps>(funct
                         onClick={() => setShowDropdown(true)}
                     >
                         {selectedCommands.length} filters
-                        <IconChevronRight className="ml-1 rotate-90 text-tertiary" />
+                        <IconChevronRight className="ml-1 rotate-90 text-muted-foreground" />
                     </ButtonPrimitive>
                 )}
 

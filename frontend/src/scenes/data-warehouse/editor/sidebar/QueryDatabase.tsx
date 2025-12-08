@@ -410,7 +410,7 @@ export const QueryDatabase = (): JSX.Element => {
                             }}
                             data-attr="sql-editor-add-source"
                         >
-                            <IconPlusSmall className="text-tertiary" />
+                            <IconPlusSmall className="text-muted-foreground" />
                         </ButtonPrimitive>
                     )
                 }
@@ -429,7 +429,7 @@ export const QueryDatabase = (): JSX.Element => {
                             }}
                             data-attr="sql-editor-add-endpoint"
                         >
-                            <IconPlusSmall className="text-tertiary" />
+                            <IconPlusSmall className="text-muted-foreground" />
                         </ButtonPrimitive>
                     )
                 }

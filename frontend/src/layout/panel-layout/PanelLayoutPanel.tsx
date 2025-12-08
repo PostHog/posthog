@@ -130,7 +130,7 @@ export function PanelLayoutPanel({
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <ButtonPrimitive iconOnly>
-                                            <IconEllipsis className="text-tertiary size-3" />
+                                            <IconEllipsis className="text-muted-foreground size-3" />
                                         </ButtonPrimitive>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent side="bottom" align="start">
@@ -141,7 +141,7 @@ export function PanelLayoutPanel({
                                                     active={isLayoutPanelPinned}
                                                     onClick={() => toggleLayoutPanelPinned(!isLayoutPanelPinned)}
                                                 >
-                                                    <IconPin className="text-tertiary size-3" />{' '}
+                                                    <IconPin className="text-muted-foreground size-3" />{' '}
                                                     {isLayoutPanelPinned ? 'Unpin panel' : 'Pin panel'}
                                                 </ButtonPrimitive>
                                             </DropdownMenuItem>
@@ -169,7 +169,7 @@ export function PanelLayoutPanel({
                                     data-attr="tree-panel-close-panel-button"
                                     size="sm"
                                 >
-                                    <IconX className="text-tertiary size-3" />
+                                    <IconX className="text-muted-foreground size-3" />
                                 </ButtonPrimitive>
                             </div>
                         </div>

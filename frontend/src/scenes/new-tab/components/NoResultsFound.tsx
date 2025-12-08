@@ -12,7 +12,7 @@ export function NoResultsFound({ handleAskAi }: { handleAskAi: () => void }): JS
     return (
         <div className="flex flex-col gap-4 px-2 py-2 bg-glass-bg-3000 rounded-lg">
             <div className="flex flex-col gap-1">
-                <p className="text-tertiary mb-2">
+                <p className="text-muted-foreground mb-2">
                     <IconInfo /> No results found
                 </p>
                 <div className="flex gap-1">

@@ -343,7 +343,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                         }
                         return (
                             <div key={item.id} className="not-first:mt-3 py-1 px-2 flex items-center">
-                                <span className="text-xs font-semibold text-tertiary">{item.displayName}</span>
+                                <span className="text-xs font-semibold text-muted-foreground">{item.displayName}</span>
                             </div>
                         )
                     }
@@ -583,7 +583,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                 isSideActionRight
                                                                 className="z-2 opacity-0 group-hover/lemon-tree-button-group:opacity-100 data-[state=open]:opacity-100 transition-opacity"
                                                             >
-                                                                <IconEllipsis className="size-3 text-tertiary" />
+                                                                <IconEllipsis className="size-3 text-muted-foreground" />
                                                             </ButtonPrimitive>
                                                         )}
                                                     </DropdownMenuTrigger>

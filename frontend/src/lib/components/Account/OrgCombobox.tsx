@@ -46,7 +46,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                                 tooltipPlacement="right"
                                 data-attr="tree-navbar-organization-dropdown-current-organization-button"
                             >
-                                <IconCheck className="text-tertiary" />
+                                <IconCheck className="text-muted-foreground" />
                                 <UploadedLogo
                                     size="xsmall"
                                     name={currentOrganization.name}

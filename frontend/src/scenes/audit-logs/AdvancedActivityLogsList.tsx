@@ -41,7 +41,7 @@ const AdvancedActivityLogsEmptyState = (): JSX.Element => (
     >
         <DetectiveHog width="100" height="100" className="mb-4" />
         <h2 className="text-xl leading-tight">We couldn't find any activity logs for your current query.</h2>
-        <p className="text-sm text-balance text-tertiary">
+        <p className="text-sm text-balance text-muted-foreground">
             Try adjusting your filters or date range to see more results.
         </p>
     </div>

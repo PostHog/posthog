@@ -15,7 +15,7 @@ const iconWrapperVariants = cva({
             default: '',
             primary: 'text-foreground',
             secondary: 'text-secondary',
-            tertiary: 'text-tertiary',
+            tertiary: 'text-muted-foreground',
         },
     },
     defaultVariants: {

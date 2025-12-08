@@ -35,7 +35,7 @@ export function RunningTime(): JSX.Element {
                 {!recommendedSampleSize || !recommendedRunningTime ? (
                     <div className="flex justify-center items-center h-full">
                         <div className="text-center">
-                            <IconCalculator className="text-3xl mb-2 text-tertiary" />
+                            <IconCalculator className="text-3xl mb-2 text-muted-foreground" />
                             <div className="text-md font-semibold leading-tight mb-3">No running time yet</div>
                             <div className="flex justify-center">
                                 <LemonButton

@@ -423,13 +423,13 @@ export function ProjectTree({
                     if (item.name === 'Product analytics') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                <IconPlusSmall className="text-tertiary" />
+                                <IconPlusSmall className="text-muted-foreground" />
                             </ButtonPrimitive>
                         )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
                             <ButtonPrimitive iconOnly isSideActionRight className="z-2">
-                                <IconChevronRight className="size-3 text-tertiary rotate-90" />
+                                <IconChevronRight className="size-3 text-muted-foreground rotate-90" />
                             </ButtonPrimitive>
                         )
                     }
@@ -686,7 +686,7 @@ export function ProjectTree({
                         </span>
 
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
-                            <span className="text-tertiary text-xxs pt-[3px] ml-1">
+                            <span className="text-muted-foreground text-xxs pt-[3px] ml-1">
                                 {dayjs(item.record?.created_at).fromNow()}
                             </span>
                         )}
@@ -739,7 +739,7 @@ export function ProjectTree({
                             onClick: () => createFolder(''),
                             children: (
                                 <>
-                                    <IconFolderPlus className="text-tertiary size-3" />
+                                    <IconFolderPlus className="text-muted-foreground size-3" />
                                     New root folder
                                 </>
                             ),
@@ -757,7 +757,7 @@ export function ProjectTree({
                                 <>
                                     <IconCheckbox
                                         className={cn('size-3', {
-                                            'text-tertiary': selectMode === 'default',
+                                            'text-muted-foreground': selectMode === 'default',
                                             'text-foreground': selectMode === 'multi',
                                         })}
                                     />
@@ -775,7 +775,7 @@ export function ProjectTree({
                                 <>
                                     <IconPlusSmall
                                         className={cn('size-3', {
-                                            'text-tertiary': selectMode === 'default',
+                                            'text-muted-foreground': selectMode === 'default',
                                             'text-foreground': selectMode === 'multi',
                                         })}
                                     />

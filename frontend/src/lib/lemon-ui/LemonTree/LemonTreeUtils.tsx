@@ -10,7 +10,7 @@ import { cn } from 'lib/utils/css-classes'
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
 
-export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
+export const ICON_CLASSES = 'text-muted-foreground size-5 flex items-center justify-center relative'
 
 type TreeNodeDisplayCheckboxProps = {
     item: TreeDataItem
@@ -130,7 +130,7 @@ export const TreeNodeDisplayIcon = ({
                 className={cn(
                     ICON_CLASSES,
                     {
-                        'text-tertiary': item.disabledReason,
+                        'text-muted-foreground': item.disabledReason,
                         'group-hover/lemon-tree-button-group:opacity-0': isFolder,
                     },
                     'transition-opacity duration-150 top-[var(--lemon-tree-button-icon-offset-top)]'

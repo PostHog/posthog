@@ -136,7 +136,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             }
             description={
                 <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
+                    {description || <span className="text-muted-foreground">No description</span>}
                 </p>
             }
             actions={
@@ -198,7 +198,7 @@ function FeaturePreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
             }
             description={
                 <p className="m-0 max-w-prose">
-                    {description || <span className="text-tertiary">No description</span>}
+                    {description || <span className="text-muted-foreground">No description</span>}
                 </p>
             }
             actions={

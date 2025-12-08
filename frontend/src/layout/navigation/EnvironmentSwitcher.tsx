@@ -90,7 +90,7 @@ export function EnvironmentSwitcherOverlay({
                                     className="pr-12"
                                     disabled
                                 >
-                                    <IconCheck className="text-tertiary" />
+                                    <IconCheck className="text-muted-foreground" />
                                     {projectNameEmojiMatch ? (
                                         <div className="size-5 text-xl leading-5 text-center">
                                             {projectNameEmojiMatch}
@@ -118,7 +118,7 @@ export function EnvironmentSwitcherOverlay({
                                     to={urls.project(currentTeam.project_id, urls.settings('project'))}
                                     data-attr="environment-switcher-current-project-settings-button"
                                 >
-                                    <IconGear className="text-tertiary" />
+                                    <IconGear className="text-muted-foreground" />
                                 </Link>
                             </Combobox.Item>
                         </ButtonGroupPrimitive>
@@ -216,7 +216,7 @@ export function EnvironmentSwitcherOverlay({
                                     to={urls.project(projectId, urls.settings('project'))}
                                     data-attr="environment-switcher-other-project-settings-button"
                                 >
-                                    <IconGear className="text-tertiary" />
+                                    <IconGear className="text-muted-foreground" />
                                 </Link>
                             </Combobox.Item>
                         </ButtonGroupPrimitive>
@@ -302,7 +302,7 @@ export function EnvironmentSwitcherOverlay({
                                 className="shrink-0"
                                 disabled={!!projectCreationForbiddenReason}
                             >
-                                <IconPlusSmall className="text-tertiary" />
+                                <IconPlusSmall className="text-muted-foreground" />
                                 New project
                             </ButtonPrimitive>
                         </Combobox.Item>
@@ -341,7 +341,7 @@ function convertTeamToMenuItem(
                             data-attr="environment-switcher-environment-button"
                         >
                             <IconBlank />
-                            <IconCornerDownRight className="text-tertiary" />
+                            <IconCornerDownRight className="text-muted-foreground" />
                             <LemonTag size="small" className="border-text-3000 uppercase">
                                 {team.name}
                             </LemonTag>
@@ -360,7 +360,7 @@ function convertTeamToMenuItem(
                             onClick={active ? handleActiveClick : undefined}
                             data-attr="environment-switcher-environment-settings-button"
                         >
-                            <IconGear className="text-tertiary" />
+                            <IconGear className="text-muted-foreground" />
                         </Link>
                     </Combobox.Item>
                 </ButtonGroupPrimitive>

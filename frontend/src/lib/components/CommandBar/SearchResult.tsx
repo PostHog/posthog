@@ -65,7 +65,7 @@ export const SearchResult = ({ result, resultIndex, focused }: SearchResultProps
                 ref={ref}
             >
                 <div className="px-2 py-3 w-full gap-y-0.5 flex flex-col items-start">
-                    <span className="text-tertiary text-xs">
+                    <span className="text-muted-foreground text-xs">
                         {result.type === 'tree_item'
                             ? `Product`
                             : result.type !== 'group'
