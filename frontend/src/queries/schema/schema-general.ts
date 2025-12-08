@@ -3285,7 +3285,7 @@ export interface FunnelCorrelationActorsQuery extends InsightActorsQueryBase {
     kind: NodeKind.FunnelCorrelationActorsQuery
     source: FunnelCorrelationQuery
     funnelCorrelationPersonConverted?: boolean
-    funnelCorrelationPersonEntity?: EventsNode | ActionsNode | DataWarehouseNode
+    funnelCorrelationPersonEntity?: AnyEntityNode
     funnelCorrelationPropertyValues?: AnyPropertyFilter[]
 }
 

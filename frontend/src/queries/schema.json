@@ -14728,17 +14728,7 @@
                     "type": "boolean"
                 },
                 "funnelCorrelationPersonEntity": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/EventsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/ActionsNode"
-                        },
-                        {
-                            "$ref": "#/definitions/DataWarehouseNode"
-                        }
-                    ]
+                    "$ref": "#/definitions/AnyEntityNode"
                 },
                 "funnelCorrelationPropertyValues": {
                     "items": {
