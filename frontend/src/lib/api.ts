@@ -3373,17 +3373,9 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {},
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            if (params.source) {
-                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
-            }
-            return await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .get({ headers })
+            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
         },
 
         async getSnapshots(

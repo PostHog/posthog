@@ -107,16 +107,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const blob_v2 = true
-                    const blob_v2_lts = true
-                    const response = await api.recordings.listSnapshotSources(
-                        props.sessionRecordingId,
-                        {
-                            blob_v2,
-                            blob_v2_lts,
-                        },
-                        headers
-                    )
+                    const response = await api.recordings.listSnapshotSources(props.sessionRecordingId, headers)
 
                     if (!response || !response.sources) {
                         return []
@@ -150,11 +141,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     } else {
                         const source = sources[0]
 
-                        if (source.source === SnapshotSourceType.blob) {
+                        if (source.source === SnapshotSourceType.blob_v2_lts) {
                             if (!source.blob_key) {
                                 throw new Error('Missing key')
                             }
-                            params = { blob_key: source.blob_key, source: 'blob' }
+                            params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
                         } else if (source.source === SnapshotSourceType.blob_v2) {
                             params = { source: 'blob_v2', blob_key: source.blob_key }
                         } else if (source.source === SnapshotSourceType.file) {
