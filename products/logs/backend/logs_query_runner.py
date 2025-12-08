@@ -267,10 +267,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 cursor_uuid = cursor["uuid"]
             except (KeyError, ValueError, json.JSONDecodeError) as e:
                 raise ValueError(f"Invalid cursor format: {e}")
-            # For DESC (latest first): get rows where (timestamp, uuid) < cursor
             # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
-            op = "<" if self.query.orderBy != "earliest" else ">"
-            ts_op = "<=" if self.query.orderBy != "earliest" else ">="
+            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
             # The logs table is partitioned by timestamp, not (timestamp, uuid).
             # ClickHouse only prunes partitions when the WHERE clause directly matches
             # the partition key. A tuple comparison like (timestamp, uuid) < (x, y)
