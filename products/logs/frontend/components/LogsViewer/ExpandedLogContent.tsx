@@ -76,21 +76,30 @@ export function ExpandedLogContent({ log, logIndex }: ExpandedLogContentProps): 
                                 <LemonButton
                                     tooltip="Add as filter"
                                     size="xsmall"
-                                    onClick={() => addFilter(record.key, record.value)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        addFilter(record.key, record.value)
+                                    }}
                                 >
                                     <IconPlusSquare />
                                 </LemonButton>
                                 <LemonButton
                                     tooltip="Exclude as filter"
                                     size="xsmall"
-                                    onClick={() => addFilter(record.key, record.value, PropertyOperator.IsNot)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        addFilter(record.key, record.value, PropertyOperator.IsNot)
+                                    }}
                                 >
                                     <IconMinusSquare />
                                 </LemonButton>
                                 <LemonButton
                                     tooltip="Show breakdown"
                                     size="xsmall"
-                                    onClick={() => handleToggleBreakdown(record.key)}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        handleToggleBreakdown(record.key)
+                                    }}
                                 >
                                     <IconFilter />
                                 </LemonButton>
