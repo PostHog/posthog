@@ -16,9 +16,11 @@ import { useEffect, useRef } from 'react'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+import { dataModelingNodesLogic } from '../dataModelingNodesLogic'
 import { DataModelingEditorPanel } from './DataModelingEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './Nodes'
 import { REACT_FLOW_EDGE_TYPES } from './SmartEdge'
+import { NODE_HEIGHT, NODE_WIDTH } from './constants'
 import { dataModelingEditorLogic } from './dataModelingEditorLogic'
 import { ModelNode } from './types'
 
@@ -42,6 +44,7 @@ function DataModelingEditorContent(): JSX.Element {
         onDrop,
         setReactFlowWrapper,
     } = useActions(dataModelingEditorLogic)
+    const { searchTerm } = useValues(dataModelingNodesLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
     const reactFlowInstance = useReactFlow()
@@ -53,6 +56,17 @@ function DataModelingEditorContent(): JSX.Element {
     useEffect(() => {
         setReactFlowWrapper(reactFlowWrapper)
     }, [setReactFlowWrapper])
+
+    useEffect(() => {
+        if (searchTerm.length > 0 && nodes.length > 0) {
+            const matchingNode = nodes.find((node) => node.data.name.toLowerCase().includes(searchTerm.toLowerCase()))
+            if (matchingNode) {
+                const x = matchingNode.position.x + NODE_WIDTH / 2
+                const y = matchingNode.position.y + NODE_HEIGHT / 2
+                reactFlowInstance.setCenter(x, y, { duration: 300, zoom: 1 })
+            }
+        }
+    }, [searchTerm, nodes, reactFlowInstance])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
