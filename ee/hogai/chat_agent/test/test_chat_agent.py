@@ -43,6 +43,7 @@ from posthog.schema import (
     AssistantTrendsQuery,
     AssistantUpdateEvent,
     DashboardFilter,
+    EventTaxonomyItem,
     FailureMessage,
     HumanMessage,
     MaxAddonInfo,
@@ -925,10 +926,16 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         assert isinstance(actual_output[7][1], AssistantMessage)
         self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
 
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
-    async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock):
+    async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock, context_mock):
         await self._set_up_onboarding_tests()
+
+        # Mock the context retrieval to return a predictable domain
+        context_mock.return_value = EventTaxonomyItem(
+            property="$host", sample_count=1, sample_values=["us.posthog.com"]
+        )
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(
@@ -997,10 +1004,16 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
-    async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock):
+    async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock, context_mock):
         await self._set_up_onboarding_tests()
+
+        # Mock the context retrieval to return a predictable domain
+        context_mock.return_value = EventTaxonomyItem(
+            property="$host", sample_count=1, sample_values=["us.posthog.com"]
+        )
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(
