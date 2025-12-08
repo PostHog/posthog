@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
@@ -10,9 +11,12 @@ import { urls } from 'scenes/urls'
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Survey, SurveyAppearance } from '~/types'
 
+import { QuickSurveyModal } from './QuickSurveyModal'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { AbsoluteCornerBadge } from './components/AbsoluteCornerBadge'
 import {
     NewSurvey,
+    QuickSurveyFromTemplate,
     SurveyTemplate,
     SurveyTemplateType,
     defaultSurveyAppearance,
@@ -32,32 +36,60 @@ interface TemplateCardProps {
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void
-    isMostPopular?: boolean
 }
 
-export function TemplateCard({
+export function FeaturedTemplateCard({
     template,
     idx,
     handleTemplateClick,
     surveyAppearance,
-    isMostPopular,
 }: TemplateCardProps): JSX.Element {
+    return (
+        <button
+            className="relative flex w-full items-center justify-center gap-4 bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors h-full group p-4 cursor-pointer overflow-hidden"
+            data-attr="survey-template"
+            onClick={() => handleTemplateClick(template)}
+        >
+            <AbsoluteCornerBadge text="New template!" position="tl" />
+
+            <div className="flex flex-col items-end">
+                <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">{template.templateType}</h3>
+                <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
+            </div>
+            <div>
+                <div className="transform scale-75 pointer-events-none">
+                    <SurveyAppearancePreview
+                        survey={
+                            {
+                                id: `templateMock-${idx}`,
+                                questions: template.questions,
+                                appearance: {
+                                    ...defaultSurveyAppearance,
+                                    whiteLabel: true,
+                                    ...template.appearance,
+                                    ...surveyAppearance,
+                                    disabledButtonOpacity: '1',
+                                    maxWidth: '320px',
+                                },
+                            } as Survey
+                        }
+                        previewPageIndex={0}
+                    />
+                </div>
+            </div>
+        </button>
+    )
+}
+
+export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
     return (
         <button
             className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
             data-attr="survey-template"
             onClick={() => handleTemplateClick(template)}
         >
-            {isMostPopular && (
-                <div className="absolute bottom-0 right-0 z-10">
-                    <div className="relative">
-                        <div className="bg-primary-3000/85 text-white text-xs font-semibold px-3 py-1 rounded-tl-lg rounded-br-lg shadow-md">
-                            Most Popular
-                        </div>
-                        <div className="absolute bottom-full right-0 w-0 h-0 border-r-[8px] border-r-transparent border-b-[6px] border-b-primary-3000 opacity-60" />
-                    </div>
-                </div>
-            )}
+            {template.badge && <AbsoluteCornerBadge text={template.badge} position="br" />}
+
             <div>
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
@@ -103,6 +135,10 @@ export function SurveyTemplates(): JSX.Element {
     const surveyAppearance = {
         ...currentTeam?.survey_config?.appearance,
     }
+
+    const [quickModalOpen, setQuickModalOpen] = useState<boolean>(false)
+    const [quickSurveyContext, setQuickSurveyContext] = useState<QuickSurveyFromTemplate | undefined>(undefined)
+
     return (
         <>
             <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
@@ -132,24 +168,35 @@ export function SurveyTemplates(): JSX.Element {
                             setSurveyTemplateValues={setSurveyTemplateValues}
                             reportSurveyTemplateClicked={reportSurveyTemplateClicked}
                             surveyAppearance={surveyAppearance}
-                            isMostPopular={template.templateType === SurveyTemplateType.OpenFeedback}
                             handleTemplateClick={(template) => {
-                                setSurveyTemplateValues({
-                                    name: template.templateType,
-                                    questions: template.questions ?? [],
-                                    appearance: {
-                                        ...defaultSurveyAppearance,
-                                        ...template.appearance,
-                                        ...surveyAppearance,
-                                    },
-                                    conditions: template.conditions ?? null,
-                                })
+                                if (template.quickSurvey) {
+                                    setQuickSurveyContext(template.quickSurvey)
+                                    setQuickModalOpen(true)
+                                } else {
+                                    setSurveyTemplateValues({
+                                        name: template.templateType,
+                                        questions: template.questions ?? [],
+                                        appearance: {
+                                            ...defaultSurveyAppearance,
+                                            ...template.appearance,
+                                            ...surveyAppearance,
+                                        },
+                                        conditions: template.conditions ?? null,
+                                    })
+                                }
                                 reportSurveyTemplateClicked(template.templateType)
                             }}
                         />
                     ))}
                 </div>
             </div>
+            <QuickSurveyModal
+                context={quickSurveyContext?.context}
+                isOpen={!!quickModalOpen}
+                onCancel={() => setQuickModalOpen(false)}
+                modalTitle={quickSurveyContext?.modalTitle}
+                info={quickSurveyContext?.info}
+            />
         </>
     )
 }

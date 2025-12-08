@@ -134,6 +134,7 @@ class Task(DeletedMetaFields, models.Model):
         origin_product: "Task.OriginProduct",
         user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
+        create_pr: bool = True,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -164,6 +165,7 @@ class Task(DeletedMetaFields, models.Model):
             run_id=str(task_run.id),
             team_id=task.team.id,
             user_id=user_id,
+            create_pr=create_pr,
         )
 
         return task

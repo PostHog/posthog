@@ -63,7 +63,7 @@ describe('processAllSnapshots - inline meta patching', () => {
     }
 
     function createSource(
-        sourceType: SnapshotSourceType = 'blob',
+        sourceType: SnapshotSourceType = 'blob_v2',
         blobKey: string = 'blob-key'
     ): SessionRecordingSnapshotSource {
         return {
@@ -189,7 +189,7 @@ describe('processAllSnapshots - inline meta patching', () => {
             expect.objectContaining({
                 feature: 'session-recording-meta-patching',
                 sessionRecordingId: '12345',
-                sourceKey: 'blob-blob-key',
+                sourceKey: 'blob_v2-blob-key',
                 throttleCaptureKey: '12345-no-viewport-found',
             })
         )
@@ -272,8 +272,8 @@ describe('processAllSnapshots - inline meta patching', () => {
     })
 
     it('handles multiple sources correctly', async () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [createFullSnapshot(1000)]),
@@ -302,8 +302,8 @@ describe('processAllSnapshots - inline meta patching', () => {
     })
 
     it('does not patch meta event when previous source ends with meta and next starts with full snapshot', async () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [
@@ -341,8 +341,8 @@ describe('processAllSnapshots - inline meta patching', () => {
     })
 
     it('patches meta event when previous source ends without meta and next starts with full snapshot', async () => {
-        const source1 = createSource('blob', 'blob-key-1')
-        const source2 = createSource('blob', 'blob-key-2')
+        const source1 = createSource('blob_v2', 'blob-key-1')
+        const source2 = createSource('blob_v2', 'blob-key-2')
         const sources = [source1, source2]
         const snapshotsBySource = {
             ...createSnapshotsBySource(source1, [

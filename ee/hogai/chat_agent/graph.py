@@ -72,7 +72,7 @@ class AssistantGraph(ChatAgentLoopGraph):
         )
         self._graph.add_conditional_edges(
             AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY,
-            memory_onboarding_enquiry.router,
+            memory_onboarding_enquiry.arouter,
             path_map={
                 "continue": AssistantNodeName.MEMORY_ONBOARDING_FINALIZE,
                 "interrupt": AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT,
@@ -116,7 +116,7 @@ class AssistantGraph(ChatAgentLoopGraph):
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.SLASH_COMMAND_HANDLER)
         self._graph.add_conditional_edges(
             AssistantNodeName.SLASH_COMMAND_HANDLER,
-            slash_command_handler.router,  # type: ignore[arg-type]
+            slash_command_handler.arouter,
         )
 
         return self
