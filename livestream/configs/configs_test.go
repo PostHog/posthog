@@ -28,9 +28,11 @@ func TestLoadConfig(t *testing.T) {
 				Parallelism:      7,
 				CORSAllowOrigins: []string{"https://example.com", "https://sub.example.com"},
 				Kafka: KafkaConfig{
-					Brokers: "localhost:9092,localhost:9093",
-					Topic:   "topic",
-					GroupID: "livestream-dev",
+					Brokers:                 "localhost:9092,localhost:9093",
+					Topic:                   "topic",
+					SessionRecordingTopic:   "session_recording_snapshot_item_events",
+					SessionRecordingBrokers: "localhost:9092,localhost:9093",
+					GroupID:                 "livestream-dev",
 				},
 				Postgres: PostgresConfig{
 					URL: "pg url",

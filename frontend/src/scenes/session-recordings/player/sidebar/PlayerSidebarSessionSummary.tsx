@@ -415,9 +415,9 @@ function SessionSummaryTitle(): JSX.Element {
     return (
         <h3 className="text-lg font-semibold mt-2 flex items-center gap-2">
             <IconAIText />
-            AI Replay Research
-            <LemonTag type="completion" size="medium">
-                ALPHA
+            AI summary
+            <LemonTag type="warning" size="medium">
+                BETA
             </LemonTag>
         </h3>
     )
@@ -440,7 +440,7 @@ function SessionSummaryOutcomeBanner({ sessionSummary }: { sessionSummary: Sessi
     return (
         <LemonBanner type={sessionSummary?.session_outcome?.success ? 'success' : 'error'} className="mb-4">
             <div className="text-sm font-normal">
-                <div>{sessionSummary?.session_outcome?.description}</div>
+                <strong>Session outcome:</strong> {sessionSummary?.session_outcome?.description}
             </div>
         </LemonBanner>
     )

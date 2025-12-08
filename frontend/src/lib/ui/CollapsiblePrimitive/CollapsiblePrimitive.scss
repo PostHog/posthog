@@ -1,0 +1,31 @@
+.primitive-collapsible-content {
+    overflow: hidden;
+}
+
+.primitive-collapsible-content[data-state='open'] {
+    animation: primitive-collapsible-content__open 200ms ease-in-out;
+}
+
+.primitive-collapsible-content[data-state='closed'] {
+    animation: primitive-collapsible-content__closed 200ms ease-in-out;
+}
+
+@keyframes primitive-collapsible-content__open {
+    from {
+        height: 0;
+    }
+
+    to {
+        height: var(--radix-collapsible-content-height);
+    }
+}
+
+@keyframes primitive-collapsible-content__closed {
+    from {
+        height: var(--radix-collapsible-content-height);
+    }
+
+    to {
+        height: 0;
+    }
+}

@@ -12,8 +12,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 
-from dags.sdk_doctor.github_sdk_versions import SDK_TYPES
-from dags.sdk_doctor.team_sdk_versions import get_and_cache_team_sdk_versions
+from products.growth.dags.github_sdk_versions import SDK_TYPES
+from products.growth.dags.team_sdk_versions import get_and_cache_team_sdk_versions
 
 logger = structlog.get_logger(__name__)
 
