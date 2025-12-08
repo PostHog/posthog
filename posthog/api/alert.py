@@ -285,7 +285,7 @@ class AlertSerializer(serializers.ModelSerializer):
 
 
 class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "alert"
     queryset = AlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = AlertSerializer
 
@@ -326,7 +326,7 @@ class ThresholdWithAlertSerializer(ThresholdSerializer):
 
 
 class ThresholdViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
+    scope_object = "alert"
     queryset = Threshold.objects.all()
     serializer_class = ThresholdWithAlertSerializer
 

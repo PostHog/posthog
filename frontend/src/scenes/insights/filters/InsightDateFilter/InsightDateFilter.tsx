@@ -20,7 +20,7 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
     const { insightData } = useValues(insightVizDataLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.DATE_PICKER_EXPLICIT_DATE_TOGGLE]
+    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
 
     return (
         <DateFilter

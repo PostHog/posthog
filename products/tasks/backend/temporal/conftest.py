@@ -21,7 +21,7 @@ def activity_environment():
     return ActivityEnvironment()
 
 
-@pytest.fixture
+@pytest.fixture(autouse=True)
 def array_oauth_app():
     """Create the Array OAuth application for tests."""
     app, _ = OAuthApplication.objects.get_or_create(
@@ -99,7 +99,7 @@ def github_integration(team):
 
 
 @pytest.fixture
-def test_task(team, user, github_integration, array_oauth_app):
+def test_task(team, user, github_integration):
     """Create a test task."""
 
     task = Task.objects.create(
