@@ -75,7 +75,7 @@ export function IntegrationView({
                                     <>
                                         <LemonDivider vertical />
                                         <div className="flex items-center gap-1 text-xs">
-                                            Last refreshed <TZLabel time={refreshedAtTimestamp} />
+                                            Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
                                         </div>
                                     </>
                                 )}
