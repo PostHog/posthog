@@ -268,10 +268,21 @@ export class PostgresPersonRepository
             return []
         }
 
+        // Deduplicate inputs to avoid duplicate rows in results
+        const seen = new Set<string>()
+        const uniqueTeamPersons = teamPersons.filter((p) => {
+            const key = `${p.teamId}:${p.distinctId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+
         // Use UNNEST with two arrays to keep query structure constant for prepared statement reuse.
         // This avoids creating different query plans for different batch sizes.
-        const teamIds = teamPersons.map((p) => p.teamId)
-        const distinctIds = teamPersons.map((p) => p.distinctId)
+        const teamIds = uniqueTeamPersons.map((p) => p.teamId)
+        const distinctIds = uniqueTeamPersons.map((p) => p.distinctId)
 
         const queryString = `SELECT
                 posthog_person.id,
