@@ -1,8 +1,10 @@
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import DatabaseField
 
+from posthog.hogql_queries.insights.query_context import QueryContextProtocol
 
-class DataWarehouseSchemaMixin:
+
+class DataWarehouseSchemaMixin(QueryContextProtocol):
     _hogql_database: Database | None = None
 
     @property
