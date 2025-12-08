@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
     -- Time at which the LTS data expires, if any
     lts_expires SimpleAggregateFunction(max, Nullable(DateTime)),
     -- Has the recording been soft deleted?
-    is_deleted SimpleAggregateFunction(sum, UInt8)
+    is_deleted SimpleAggregateFunction(sum, Int64)
 ) ENGINE = {engine}
 """
 
@@ -166,7 +166,7 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 {'`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64)),' if 'retention_period_days' not in exclude_columns else ''}
 `lts_uri` Nullable(String),
 `lts_expires` Nullable(DateTime),
-`is_deleted` UInt8
+`is_deleted` Int64
 )"""
 
     return f"""
