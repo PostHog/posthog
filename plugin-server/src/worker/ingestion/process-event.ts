@@ -244,11 +244,6 @@ export class EventsProcessor {
             personMode = 'propertyless'
         }
 
-        // TODOdin: Remove this log, it's for local testing
-        logger.info(
-            'info',
-            `Event captured at: ${now ? castTimestampToClickhouseFormat(DateTime.fromJSDate(now), TimestampFormat.ClickHouse) : null}`
-        )
         const rawEvent: RawKafkaEvent = {
             uuid,
             event: safeClickhouseString(event),
@@ -259,8 +254,6 @@ export class EventsProcessor {
             distinct_id: safeClickhouseString(distinctId),
             elements_chain: safeClickhouseString(elementsChain),
             created_at: castTimestampOrNow(null, TimestampFormat.ClickHouse),
-            // TODOdin: Reconcile the issue of "renaming properties along the pipeline is confusing" and "'now' is not an accurate name anymore"
-            // Can we just call it "captured_at" from the very beginning?
             captured_at: now
                 ? castTimestampToClickhouseFormat(DateTime.fromJSDate(now), TimestampFormat.ClickHouse)
                 : null,

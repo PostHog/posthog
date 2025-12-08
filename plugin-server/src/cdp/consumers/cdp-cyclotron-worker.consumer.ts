@@ -1,5 +1,4 @@
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { workflowE2eLagGauge, workflowE2eLagSummary } from '~/main/ingestion-queues/metrics'
 
 import { HealthCheckResult, Hub } from '../../types'
 import { logger } from '../../utils/logger'
@@ -38,40 +37,17 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
     public async processInvocations(invocations: CyclotronJobInvocation[]): Promise<CyclotronJobInvocationResult[]> {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
-        const trackE2eLag = (result: CyclotronJobInvocationResult) => {
-            if (!result.finished) {
-                return
-            }
-            const capturedAt = (result.invocation as CyclotronJobInvocationHogFunction).state?.globals?.event
-                ?.captured_at
-            if (capturedAt) {
-                const e2eLag = Date.now() - new Date(capturedAt).getTime()
-                workflowE2eLagSummary.observe(e2eLag)
-                workflowE2eLagGauge
-                    .labels({
-                        team_id: result.invocation.teamId.toString(),
-                        hog_function_id: result.invocation.functionId,
-                    })
-                    .set(e2eLag)
-            }
-        }
-
         return await Promise.all(
-            loadedInvocations.map((item) => {
-                let executePromise: Promise<CyclotronJobInvocationResult>
+            loadedInvocations.map(async (item) => {
                 if (isNativeHogFunction(item.hogFunction)) {
-                    executePromise = this.nativeDestinationExecutorService.execute(item)
+                    return this.nativeDestinationExecutorService.execute(item)
                 } else if (isLegacyPluginHogFunction(item.hogFunction)) {
-                    executePromise = this.pluginDestinationExecutorService.execute(item)
+                    return this.pluginDestinationExecutorService.execute(item)
                 } else if (isSegmentPluginHogFunction(item.hogFunction)) {
-                    executePromise = this.segmentDestinationExecutorService.execute(item)
+                    return this.segmentDestinationExecutorService.execute(item)
                 } else {
-                    executePromise = this.hogExecutor.executeWithAsyncFunctions(item)
+                    return this.hogExecutor.executeWithAsyncFunctions(item)
                 }
-                return executePromise.then((result) => {
-                    trackE2eLag(result)
-                    return result
-                })
             })
         )
     }
