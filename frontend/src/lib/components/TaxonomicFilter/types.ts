@@ -177,6 +177,7 @@ export enum TaxonomicFilterGroupType {
     MaxAIContext = 'max_ai_context',
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
+    Empty = 'empty',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

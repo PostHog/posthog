@@ -1,5 +1,4 @@
 import json
-import shlex
 import base64
 import datetime as dt
 from typing import cast
@@ -20,7 +19,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -55,7 +54,16 @@ def _generate_resource_attribute_filters(
     converted_exprs = []
     for filter in resource_attribute_filters:
         if is_negative_filter:
-            filter.operator = filter.operator.to_non_negative()
+            # invert the negative filter back to the positive equivalent
+            # we invert the IN logic instead
+            filter.operator = {
+                PropertyOperator.IS_NOT: PropertyOperator.EXACT,
+                PropertyOperator.NOT_ICONTAINS: PropertyOperator.ICONTAINS,
+                PropertyOperator.NOT_REGEX: PropertyOperator.REGEX,
+                PropertyOperator.IS_NOT_SET: PropertyOperator.IS_SET,
+                PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+                PropertyOperator.NOT_IN: PropertyOperator.IN_,
+            }.get(filter.operator, filter.operator)
 
         if filter.operator == PropertyOperator.IS_SET:
             converted_exprs.append(
@@ -149,7 +157,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # for now we'll just check str and float as we need a decent UI for datetime filtering.
             for property_filter in self.query.filterGroup.values[0].values:
                 # we only do the type mapping for log attributes
-                if property_filter.type != LogPropertyFilterType.ATTRIBUTE:
+                if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
                     continue
 
                 if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
@@ -174,7 +182,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                     LogPropertyFilter(
                         key=filter_key,
                         operator=PropertyOperator.IS_SET,
-                        type=LogPropertyFilterType.ATTRIBUTE,
+                        type=LogPropertyFilterType.LOG_ATTRIBUTE,
                     ),
                 )
 
@@ -302,21 +310,23 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             for property_group in self.query.filterGroup.values:
                 attribute_filters = cast(
                     list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.ATTRIBUTE],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_ATTRIBUTE],
                 )
                 log_filters = cast(
                     list[LogPropertyFilter], [f for f in property_group.values if f.type == LogPropertyFilterType.LOG]
                 )
                 resource_attribute_group_filters = cast(
                     list[LogPropertyFilter],
-                    [f for f in property_group.values if f.type == LogPropertyFilterType.RESOURCE_ATTRIBUTE],
+                    [f for f in property_group.values if f.type == LogPropertyFilterType.LOG_RESOURCE_ATTRIBUTE],
                 )
                 if resource_attribute_group_filters:
                     resource_attribute_positive_filters += [
-                        filter for filter in resource_attribute_group_filters if not filter.operator.is_negative()
+                        filter
+                        for filter in resource_attribute_group_filters
+                        if not operator_is_negative(filter.operator)
                     ]
                     resource_attribute_negative_filters += [
-                        filter for filter in resource_attribute_group_filters if filter.operator.is_negative()
+                        filter for filter in resource_attribute_group_filters if operator_is_negative(filter.operator)
                     ]
 
             negative_resource_filter = ast.Constant(value=True)

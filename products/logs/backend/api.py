@@ -220,7 +220,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         exclude_expression = "1"
         if attribute_type == "log":
             exclude_expression = """(attribute_key NOT IN (
-            SELECT attribute_key FROM posthog.log_attributes2
+            SELECT attribute_key FROM log_attributes
             WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
             AND team_id = %(team_id)s
             AND attribute_type = 'resource'
@@ -236,7 +236,7 @@ FROM (
     SELECT
         attribute_key,
         sum(attribute_count)
-    FROM posthog.log_attributes2
+    FROM log_attributes
     WHERE time_bucket >= toStartOfInterval(now() - interval 10 minutes, interval 10 minute)
     AND team_id = %(team_id)s
     AND attribute_type = %(attribute_type)s
@@ -287,7 +287,7 @@ FROM (
     SELECT
         attribute_value,
         sum(attribute_count)
-    FROM posthog.log_attributes2
+    FROM log_attributes
     WHERE time_bucket >= toStartOfInterval(now() - interval 1 hour, interval 10 minute)
     AND team_id = %(team_id)s
     AND attribute_type = %(attribute_type)s

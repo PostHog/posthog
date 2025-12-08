@@ -866,6 +866,7 @@ export enum PropertyFilterType {
     LogAttribute = 'log_attribute',
     LogResourceAttribute = 'log_resource_attribute',
     WorkflowVariable = 'workflow_variable',
+    Empty = 'empty',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -943,8 +944,13 @@ export interface GroupPropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export type LogPropertyFilterType =
+    | PropertyFilterType.Log
+    | PropertyFilterType.LogAttribute
+    | PropertyFilterType.LogResourceAttribute
+
 export interface LogPropertyFilter extends BasePropertyFilter {
-    type: PropertyFilterType.Log | PropertyFilterType.LogAttribute | PropertyFilterType.LogResourceAttribute
+    type: LogPropertyFilterType
     operator: PropertyOperator
 }
 
@@ -969,7 +975,7 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
 }
 
 export interface EmptyPropertyFilter {
-    type?: never
+    type?: PropertyFilterType.Empty
     value?: never
     operator?: never
     key?: never

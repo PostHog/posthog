@@ -11162,6 +11162,12 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "const": "empty",
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "EndpointLastExecutionTimesRequest": {
@@ -17730,8 +17736,7 @@
                     "$ref": "#/definitions/PropertyOperator"
                 },
                 "type": {
-                    "const": "log",
-                    "type": "string"
+                    "$ref": "#/definitions/LogPropertyFilterType"
                 },
                 "value": {
                     "$ref": "#/definitions/PropertyFilterValue"
@@ -17739,6 +17744,10 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "LogPropertyFilterType": {
+            "enum": ["log", "log_attribute", "log_resource_attribute"],
+            "type": "string"
         },
         "LogSeverityLevel": {
             "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
@@ -20753,7 +20762,10 @@
                 "revenue_analytics",
                 "flag",
                 "log",
-                "workflow_variable"
+                "log_attribute",
+                "log_resource_attribute",
+                "workflow_variable",
+                "empty"
             ],
             "type": "string"
         },
@@ -28944,14 +28956,17 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "logs",
                 "log_attributes",
+                "log_resource_attributes",
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
                 "max_ai_context",
-                "workflow_variables"
+                "workflow_variables",
+                "empty"
             ],
             "type": "string"
         },

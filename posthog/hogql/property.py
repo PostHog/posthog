@@ -921,3 +921,14 @@ def get_property_value(property):
 
 def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
+
+
+def operator_is_negative(operator: PropertyOperator) -> bool:
+    return operator in [
+        PropertyOperator.IS_NOT,
+        PropertyOperator.NOT_ICONTAINS,
+        PropertyOperator.NOT_REGEX,
+        PropertyOperator.IS_NOT_SET,
+        PropertyOperator.NOT_BETWEEN,
+        PropertyOperator.NOT_IN,
+    ]
