@@ -13,7 +13,12 @@ import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
-import { FragileSelectorResult, checkSelectorFragilityCached } from '../utils/selectorQuality'
+import {
+    FragileSelectorResult,
+    checkSelectorFragilityCached,
+    getSelectorDepth,
+    hasPositionSelectors,
+} from '../utils/selectorQuality'
 import type { elementsLogicType } from './elementsLogicType'
 import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
@@ -497,11 +502,8 @@ export const elementsLogic = kea<elementsLogicType>([
                 data_attributes: data_attributes,
                 attribute_length: element?.attributes.length ?? null,
                 selector_quality: selectorQuality?.isFragile ? 'fragile' : 'good',
-                selector_has_position_selectors: actionStep?.selector?.includes(':nth-') ?? false,
-                selector_depth: actionStep?.selector
-                    ? actionStep.selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~')
-                          .length
-                    : null,
+                selector_has_position_selectors: hasPositionSelectors(actionStep?.selector),
+                selector_depth: getSelectorDepth(actionStep?.selector),
             })
         },
         createAction: ({ element }) => {

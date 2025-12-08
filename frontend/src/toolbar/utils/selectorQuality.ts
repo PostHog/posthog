@@ -29,6 +29,23 @@ export function checkSelectorFragility(selector: string | null | undefined): Fra
 // Simple cache
 const cache = new Map<string, FragileSelectorResult>()
 
+/**
+ * Calculates the depth of a selector (number of element parts, excluding combinators)
+ */
+export function getSelectorDepth(selector: string | null | undefined): number | null {
+    if (!selector) {
+        return null
+    }
+    return selector.split(/\s+/).filter((part) => part !== '>' && part !== '+' && part !== '~').length
+}
+
+/**
+ * Checks if a selector has position-based pseudo-selectors like :nth-child or :nth-of-type
+ */
+export function hasPositionSelectors(selector: string | null | undefined): boolean {
+    return selector?.includes(':nth-') ?? false
+}
+
 export function checkSelectorFragilityCached(selector: string | null | undefined): FragileSelectorResult {
     const key = selector || ''
     const cached = cache.get(key)
