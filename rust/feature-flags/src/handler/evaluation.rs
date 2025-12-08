@@ -24,6 +24,7 @@ pub async fn evaluate_feature_flags(
 
     let mut matcher = FeatureFlagMatcher::new(
         context.distinct_id,
+        context.device_id,
         context.team_id,
         router,
         context.cohort_cache,
