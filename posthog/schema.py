@@ -247,6 +247,7 @@ class AssistantNavigateUrl(StrEnum):
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
     PERSONS = "persons"
 
 
@@ -311,6 +312,7 @@ class AssistantTool(StrEnum):
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
+    FILTER_SESSION_RECORDINGS = "filter_session_recordings"
     CREATE_INSIGHT = "create_insight"
     CREATE_FORM = "create_form"
 
@@ -694,16 +696,6 @@ class ConditionalFormattingRule(BaseModel):
     templateId: str
 
 
-class ContextMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    content: str
-    id: str | None = None
-    parent_tool_call_id: str | None = None
-    type: Literal["context"] = "context"
-
-
 class CountPerActorMathType(StrEnum):
     AVG_COUNT_PER_ACTOR = "avg_count_per_actor"
     MIN_COUNT_PER_ACTOR = "min_count_per_actor"
@@ -933,6 +925,12 @@ class DataWarehouseEventsModifier(BaseModel):
 
 class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
+
+
+class DataWarehouseSavedQueryOrigin(StrEnum):
+    DATA_WAREHOUSE = "data_warehouse"
+    ENDPOINT = "endpoint"
+    MANAGED_VIEWSET = "managed_viewset"
 
 
 class DataWarehouseSyncInterval(StrEnum):
@@ -1546,6 +1544,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MARKETING_ANALYTICS = "marketing_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
@@ -2008,6 +2007,8 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     CPC = "CPC"
     CTR = "CTR"
     REPORTED_CONVERSION = "Reported Conversion"
+    REPORTED_CONVERSION_VALUE = "Reported Conversion Value"
+    REPORTED_ROAS = "Reported ROAS"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -2020,6 +2021,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     IMPRESSIONS = "impressions"
     SOURCE = "source"
     REPORTED_CONVERSION = "reported_conversion"
+    REPORTED_CONVERSION_VALUE = "reported_conversion_value"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2330,6 +2332,14 @@ class MinimalHedgehogConfig(BaseModel):
     use_as_profile: bool
 
 
+class ModeContext(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    mode: AgentMode
+    type: Literal["mode"] = "mode"
+
+
 class MultiQuestionFormQuestionOption(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2445,7 +2455,6 @@ class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: float
     url: str
 
 
@@ -3089,6 +3098,13 @@ class SimpleIntervalType(StrEnum):
     MONTH = "month"
 
 
+class SlashCommandName(StrEnum):
+    FIELD_INIT = "/init"
+    FIELD_REMEMBER = "/remember"
+    FIELD_USAGE = "/usage"
+    FIELD_FEEDBACK = "/feedback"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3146,6 +3162,7 @@ class SourceMap(BaseModel):
     id: str | None = None
     impressions: str | None = None
     reported_conversion: str | None = None
+    reported_conversion_value: str | None = None
     source: str | None = None
 
 
@@ -3529,6 +3546,7 @@ class WebAnalyticsOrderByDirection(StrEnum):
 class WebAnalyticsOrderByFields(StrEnum):
     VISITORS = "Visitors"
     VIEWS = "Views"
+    AVG_TIME_ON_PAGE = "AvgTimeOnPage"
     CLICKS = "Clicks"
     BOUNCE_RATE = "BounceRate"
     AVERAGE_SCROLL_PERCENTAGE = "AverageScrollPercentage"
@@ -4962,6 +4980,29 @@ class MaxExperimentSummaryContext(BaseModel):
     variants: list[str]
 
 
+class MaxRecordingEventFilter(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    id: str = Field(..., description="Name of the event.")
+    properties: (
+        list[
+            AssistantGenericPropertyFilter1
+            | AssistantGenericPropertyFilter2
+            | AssistantGenericPropertyFilter3
+            | AssistantGenericPropertyFilter4
+            | AssistantGenericPropertyFilter5
+            | AssistantGroupPropertyFilter1
+            | AssistantGroupPropertyFilter2
+            | AssistantGroupPropertyFilter3
+            | AssistantGroupPropertyFilter4
+            | AssistantGroupPropertyFilter5
+        ]
+        | None
+    ) = Field(default=None, description="Optional property filters for this event only.")
+    type: Literal["events"] = "events"
+
+
 class MultiQuestionFormQuestion(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5725,6 +5766,7 @@ class SurveyAppearanceSchema(BaseModel):
     buttonColor: str | None = None
     buttonTextColor: str | None = None
     inputBackground: str | None = None
+    inputTextColor: str | None = None
     maxWidth: str | None = None
     placeholder: str | None = None
     position: SurveyPosition | None = None
@@ -8206,6 +8248,17 @@ class CalendarHeatmapResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class ContextMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    content: str
+    id: str | None = None
+    meta: ModeContext | None = None
+    parent_tool_call_id: str | None = None
+    type: Literal["context"] = "context"
 
 
 class ConversionGoalFilter1(BaseModel):
@@ -12368,6 +12421,7 @@ class WebStatsTableQuery(BaseModel):
     dateRange: DateRange | None = None
     doPathCleaning: bool | None = None
     filterTestAccounts: bool | None = None
+    includeAvgTimeOnPage: bool | None = None
     includeBounceRate: bool | None = None
     includeRevenue: bool | None = None
     includeScrollDepth: bool | None = None
@@ -13358,7 +13412,18 @@ class MaxInnerUniversalFiltersGroup(BaseModel):
         | SessionPropertyFilter
         | RecordingPropertyFilter
         | GroupPropertyFilter
-    ]
+        | MaxRecordingEventFilter
+    ] = Field(
+        ...,
+        description=(
+            "Filter conditions for session recordings. Possible filter types:\n- 'event' type: Filter by properties"
+            " of events in the session (e.g. `$current_url` equals X).\n- 'person' type: Filter by person properties"
+            " (e.g. `email` contains Y).\n- 'session' type: Filter by session-level properties (e.g."
+            " `$session_duration`).\n- 'recording' type: Filter by recording metadata (e.g. `console_log_level`,"
+            " `visited_page`).\n- 'group' type: Filter by group properties (e.g. company `plan` is \"enterprise\").\n-"
+            " 'events' type: Filter by whether a specific event occurred (e.g. `$pageview` was present)."
+        ),
+    )
 
 
 class MaxOuterUniversalFiltersGroup(BaseModel):
@@ -16636,6 +16701,9 @@ class SourceConfig(BaseModel):
     docsUrl: str | None = None
     existingSource: bool | None = None
     featureFlag: str | None = None
+    featured: bool | None = Field(
+        default=False, description="Whether this source should be prominently displayed in onboarding flows"
+    )
     fields: list[
         SourceFieldInputConfig
         | SourceFieldSwitchGroupConfig

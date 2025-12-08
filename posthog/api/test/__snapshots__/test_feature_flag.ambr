@@ -2886,6 +2886,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3483,6 +3484,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in"
   FROM "posthog_user"
@@ -3491,6 +3493,27 @@
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.21
+  '''
+  SELECT "posthog_cohortcalculationhistory"."id",
+         "posthog_cohortcalculationhistory"."team_id",
+         "posthog_cohortcalculationhistory"."cohort_id",
+         "posthog_cohortcalculationhistory"."filters",
+         "posthog_cohortcalculationhistory"."count",
+         "posthog_cohortcalculationhistory"."started_at",
+         "posthog_cohortcalculationhistory"."finished_at",
+         "posthog_cohortcalculationhistory"."queries",
+         "posthog_cohortcalculationhistory"."error",
+         "posthog_cohortcalculationhistory"."error_code"
+  FROM "posthog_cohortcalculationhistory"
+  WHERE ("posthog_cohortcalculationhistory"."cohort_id" = 99999
+         AND NOT ("posthog_cohortcalculationhistory"."error" IS NULL)
+         AND NOT ("posthog_cohortcalculationhistory"."error" = ''
+                  AND "posthog_cohortcalculationhistory"."error" IS NOT NULL))
+  ORDER BY "posthog_cohortcalculationhistory"."started_at" DESC
+  LIMIT 1
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.22
   '''
   SELECT "posthog_experiment"."id",
          "posthog_experiment"."name",
@@ -3523,7 +3546,7 @@
   WHERE "posthog_experiment"."exposure_cohort_id" = 99999
   '''
 # ---
-# name: TestFeatureFlag.test_creating_static_cohort.22
+# name: TestFeatureFlag.test_creating_static_cohort.23
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT id
@@ -3736,6 +3759,7 @@
          "posthog_user"."toolbar_mode",
          "posthog_user"."hedgehog_config",
          "posthog_user"."allow_sidebar_suggestions",
+         "posthog_user"."shortcut_position",
          "posthog_user"."events_column_config",
          "posthog_user"."email_opt_in",
          T5."id",
@@ -3764,6 +3788,7 @@
          T5."toolbar_mode",
          T5."hedgehog_config",
          T5."allow_sidebar_suggestions",
+         T5."shortcut_position",
          T5."events_column_config",
          T5."email_opt_in"
   FROM "posthog_featureflag"

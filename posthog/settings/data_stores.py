@@ -138,7 +138,7 @@ if direct_host:
     # Disable server-side cursors is not needed for direct connection
     DATABASES["default_direct"]["DISABLE_SERVER_SIDE_CURSORS"] = False
     # Set lock_timeout for migrations to fail fast on lock contention
-    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "2000")
+    lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
     DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL

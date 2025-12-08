@@ -41,6 +41,10 @@ from posthog.temporal.delete_recordings import (
     ACTIVITIES as DELETE_RECORDING_ACTIVITIES,
     WORKFLOWS as DELETE_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.ducklake import (
+    ACTIVITIES as DUCKLAKE_COPY_ACTIVITIES,
+    WORKFLOWS as DUCKLAKE_COPY_WORKFLOWS,
+)
 from posthog.temporal.enforce_max_replay_retention import (
     ACTIVITIES as ENFORCE_MAX_REPLAY_RETENTION_ACTIVITIES,
     WORKFLOWS as ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS,
@@ -135,6 +139,11 @@ _task_queue_specs = [
         + SALESFORCE_ENRICHMENT_ACTIVITIES
         + PRODUCT_ANALYTICS_ACTIVITIES
         + LLM_ANALYTICS_ACTIVITIES,
+    ),
+    (
+        settings.DUCKLAKE_TASK_QUEUE,
+        DUCKLAKE_COPY_WORKFLOWS,
+        DUCKLAKE_COPY_ACTIVITIES,
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,

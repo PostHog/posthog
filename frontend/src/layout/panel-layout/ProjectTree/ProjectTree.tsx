@@ -7,6 +7,7 @@ import {
     IconChevronRight,
     IconEllipsis,
     IconFolderPlus,
+    IconGear,
     IconPencil,
     IconPlusSmall,
     IconShortcut,
@@ -15,6 +16,7 @@ import {
 import { itemSelectModalLogic } from 'lib/components/FileSystem/ItemSelectModal/itemSelectModalLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useLocalStorage } from 'lib/hooks/useLocalStorage'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -28,6 +30,7 @@ import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 
+import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
@@ -115,12 +118,18 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { setPanelTreeRef, resetPanelLayout, showLayoutPanel, setActivePanelIdentifier } =
+        useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
+
+    const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
+
+    const { customProducts, customProductsLoading } = useValues(customProductsLogic)
+    const { seed } = useActions(customProductsLogic)
 
     const [shortcutHelperDismissed, setShortcutHelperDismissed] = useLocalStorage<boolean>(
         SHORTCUT_DISMISSAL_LOCAL_STORAGE_KEY,
@@ -162,32 +171,63 @@ export function ProjectTree({
             })
         }
 
-        if (root === 'custom-products://' && (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed)) {
-            treeData.push({
-                id: 'products/custom-products-helper-category',
-                name: 'Example custom products',
-                type: 'category',
-                displayName: (
-                    <div
-                        className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
-                            'mt-6': fullFileSystemFiltered.length === 0,
-                        })}
-                    >
-                        You can display your preferred apps here. You can configure what items show up in here by
-                        clicking on the{' '}
-                        <IconPencil className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
-                        above. We'll automatically suggest new apps to this list as you use them.{' '}
-                        {fullFileSystemFiltered.length > 0 && (
+        if (root === 'custom-products://') {
+            const hasRecommendedProducts = customProducts.some(
+                (item) =>
+                    item.reason === UserProductListReason.USED_BY_COLLEAGUES ||
+                    item.reason === UserProductListReason.USED_ON_SEPARATE_TEAM
+            )
+
+            if (fullFileSystemFiltered.length === 0 || !customProductHelperDismissed) {
+                const CustomIcon = isCustomProductsExperiment ? IconGear : IconPencil
+                treeData.push({
+                    id: 'products/custom-products-helper-category',
+                    name: 'Example custom products',
+                    type: 'category',
+                    displayName: (
+                        <div
+                            className={cn('border border-primary text-xs mb-2 font-normal rounded-xs p-2 -mx-1', {
+                                'mt-6': fullFileSystemFiltered.length === 0,
+                            })}
+                        >
+                            You can display your preferred apps here. You can configure what items show up in here by
+                            clicking on the{' '}
+                            <CustomIcon className="size-3 border border-[var(--color-neutral-500)] rounded-xs" /> icon
+                            above. We'll automatically suggest new apps to this list as you use them.{' '}
+                            {fullFileSystemFiltered.length > 0 && (
+                                <span
+                                    className="cursor-pointer underline"
+                                    onClick={() => setCustomProductHelperDismissed(true)}
+                                >
+                                    Dismiss.
+                                </span>
+                            )}
+                            {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
+                                <>
+                                    <br />
+                                    <br />
+                                    <span className="cursor-pointer underline" onClick={seed}>
+                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                    </span>
+                                </>
+                            )}
+                            <br />
+                            <br />
+                            You can also see all products in the{' '}
                             <span
                                 className="cursor-pointer underline"
-                                onClick={() => setCustomProductHelperDismissed(true)}
+                                onClick={() => {
+                                    showLayoutPanel(true)
+                                    setActivePanelIdentifier('Products')
+                                }}
                             >
-                                Dismiss.
-                            </span>
-                        )}
-                    </div>
-                ),
-            })
+                                All apps
+                            </span>{' '}
+                            section.
+                        </div>
+                    ),
+                })
+            }
         }
     }
 
@@ -509,31 +549,11 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (
-                    root === 'products://' ||
-                    root === 'data://' ||
-                    root === 'persons://' ||
-                    root === 'custom-products://'
-                ) {
+                if (root === 'products://' || root === 'data://' || root === 'persons://') {
                     const key = item.record?.sceneKey
-                    const reason = item.record?.reason as UserProductListReason | undefined
-                    const reasonText = item.record?.reason_text as string | null | undefined
-
-                    const suggestedProductBaseTooltipText =
-                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
-                    const tooltipText = suggestedProductBaseTooltipText ? (
-                        <>
-                            {suggestedProductBaseTooltipText}
-                            <br />
-                            You can remove this product from your sidebar on the pencil button above.
-                            <br />
-                            <br />
-                        </>
-                    ) : undefined
 
                     return (
                         <>
-                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -613,6 +633,7 @@ export function ProjectTree({
                 const createdAt = item.record?.created_at
                 const reason = item.record?.reason as UserProductListReason | undefined
                 const reasonText = item.record?.reason_text as string | null | undefined
+                const parsedReason = reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
 
                 // This indicator is shown if we detect we're looking at a custom product
                 // that's been recently added to the user's sidebar.
@@ -622,10 +643,10 @@ export function ProjectTree({
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason]))
+                    parsedReason
 
                 return (
-                    <>
+                    <Tooltip title={parsedReason} delayMs={0} placement="top-start">
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
@@ -639,7 +660,7 @@ export function ProjectTree({
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
                             )}
                         </div>
-                    </>
+                    </Tooltip>
                 )
             }}
             renderItem={(item) => {

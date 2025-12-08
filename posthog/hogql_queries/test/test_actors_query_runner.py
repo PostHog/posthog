@@ -748,3 +748,32 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             PersonsArgMaxVersion.V2,
             "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
         )
+
+    def test_person_strategy_batches_large_actor_sets(self):
+        """Verify that PersonStrategy.get_actors batches queries."""
+        from posthog.hogql_queries.actor_strategies import PersonStrategy
+        from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+
+        # Create 5 persons
+        person_uuids = []
+        for i in range(5):
+            person = _create_person(
+                properties={"email": f"batch_test_{i}@example.com"},
+                team=self.team,
+                distinct_ids=[f"batch-test-{UUIDT()}-{i}"],
+                is_identified=True,
+            )
+            person_uuids.append(str(person.uuid))
+        flush_persons_and_events()
+
+        query = ActorsQuery()
+        paginator = HogQLHasMorePaginator(limit=100, offset=0)
+        strategy = PersonStrategy(team=self.team, query=query, paginator=paginator)
+
+        # Temporarily set a small batch size to verify batching works
+        with patch.object(PersonStrategy, "BATCH_SIZE", 2):
+            result = strategy.get_actors(person_uuids)
+
+        self.assertEqual(len(result), 5)
+        for uuid in person_uuids:
+            self.assertIn(uuid, result)

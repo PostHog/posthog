@@ -51,10 +51,10 @@ describe('segmenter', () => {
         const end = dayjs('2023-01-01T00:10:00.000Z')
 
         const snapshots: RecordingSnapshot[] = [
-            { windowId: 'A', timestamp: start.valueOf(), type: 3, data: {} } as any,
-            { windowId: 'A', timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
-            { windowId: 'B', timestamp: end.valueOf() - 100, type: 3, data: {} } as any,
-            { windowId: 'B', timestamp: end.valueOf(), type: 3, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf(), type: 3, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
+            { windowId: 2, timestamp: end.valueOf() - 100, type: 3, data: {} } as any,
+            { windowId: 2, timestamp: end.valueOf(), type: 3, data: {} } as any,
         ]
 
         const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
@@ -68,11 +68,11 @@ describe('segmenter', () => {
         const end = dayjs('2023-01-01T00:10:00.000Z')
 
         const snapshots: RecordingSnapshot[] = [
-            { windowId: 'A', timestamp: start.valueOf(), type: 3, data: {} } as any,
-            { windowId: 'A', timestamp: start.valueOf() + 100, type: 6, data: {} } as any,
-            { windowId: 'A', timestamp: start.valueOf() + 4000, type: 6, data: {} } as any,
-            { windowId: 'A', timestamp: start.valueOf() + 6000, type: 3, data: {} } as any,
-            { windowId: 'A', timestamp: end.valueOf(), type: 3, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf(), type: 3, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 100, type: 6, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 4000, type: 6, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 6000, type: 3, data: {} } as any,
+            { windowId: 1, timestamp: end.valueOf(), type: 3, data: {} } as any,
         ]
 
         const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
@@ -86,10 +86,10 @@ describe('segmenter', () => {
         const end = start.add(1000, 'milliseconds')
 
         const snapshots: RecordingSnapshot[] = [
-            { windowId: 'A', timestamp: start.valueOf(), type: 2, data: {} } as any,
-            { windowId: 'A', timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
-            { windowId: 'B', timestamp: start.valueOf() + 500, type: 3, data: {} } as any,
-            { windowId: 'B', timestamp: end, type: 3, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf(), type: 2, data: {} } as any,
+            { windowId: 1, timestamp: start.valueOf() + 100, type: 3, data: {} } as any,
+            { windowId: 2, timestamp: start.valueOf() + 500, type: 3, data: {} } as any,
+            { windowId: 2, timestamp: end, type: 3, data: {} } as any,
         ]
 
         const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
