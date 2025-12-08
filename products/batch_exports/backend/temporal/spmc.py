@@ -12,7 +12,7 @@ from django.conf import settings
 import pyarrow as pa
 import temporalio.common
 
-from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
+from posthog.schema import EventPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -1011,8 +1011,6 @@ def compose_filters_clause(
                 UpdatePropertiesToPersonProperties().visit(expr)
                 exprs.append(expr)
 
-            case "hogql":
-                exprs.append(property_to_expr(HogQLPropertyFilter(**filter), team=team))
             case s:
                 raise TypeError(f"Unknown filter type: '{s}'")
 

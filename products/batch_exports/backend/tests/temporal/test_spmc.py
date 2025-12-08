@@ -329,14 +329,6 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
             """and(ifNull(greaterOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), 0.0), 0), ifNull(lessOrEquals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person_properties, %(hogql_val_1)s), \'\'), \'null\'), \'^"|"$\', \'\'), 1.0), 0))""",
             {"hogql_val_0": "$created_at", "hogql_val_1": "$created_at"},
         ),
-        # HogQL
-        (
-            [
-                {"key": "toInt(properties.$browser_version) * 10 = 1", "type": "hogql", "value": None},
-            ],
-            """ifNull(equals(multiply(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), %(hogql_val_1)s), 10), 1), 0)""",
-            {"hogql_val_0": "$browser_version", "hogql_val_1": "Int64"},
-        ),
     ],
     ids=[
         "events0",
@@ -347,7 +339,6 @@ def test_use_distributed_events_recent_table(test_data: dict[str, typing.Any]):
         "person1",
         "person2",
         "person3",
-        "hogql0",
     ],
 )
 def test_compose_filters_clause(
