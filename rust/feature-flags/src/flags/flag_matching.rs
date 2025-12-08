@@ -798,10 +798,14 @@ impl FeatureFlagMatcher {
 
             match result {
                 Ok(flag_match) => {
+                    // Always store result for dependency resolution
                     self.flag_evaluation_state
                         .add_flag_evaluation_result(flag.id, flag_match.get_flag_value());
-                    level_evaluated_flags_map
-                        .insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    // Only include active flags in the response
+                    if flag.active {
+                        level_evaluated_flags_map
+                            .insert(flag_key, FlagDetails::create(flag, &flag_match));
+                    }
                 }
                 Err(e) => {
                     errors_while_computing_flags = true;
@@ -828,8 +832,11 @@ impl FeatureFlagMatcher {
                         &[("reason".to_string(), reason)],
                         1,
                     );
-                    level_evaluated_flags_map
-                        .insert(flag_key, FlagDetails::create_error(flag, &e, None));
+                    // Only include active flags in the response
+                    if flag.active {
+                        level_evaluated_flags_map
+                            .insert(flag_key, FlagDetails::create_error(flag, &e, None));
+                    }
                 }
             }
         }

@@ -6034,18 +6034,15 @@ mod tests {
             )
             .await;
 
-        // Base flag should be disabled
-        let base_result = result.flags.get("base_flag").unwrap();
+        // Disabled base flag should NOT be in the response (only active flags are returned)
         assert!(
-            !base_result.enabled,
-            "Disabled base flag should not be enabled"
-        );
-        assert_eq!(
-            base_result.reason.code, "flag_disabled",
-            "Base flag reason should be flag_disabled"
+            !result.flags.contains_key("base_flag"),
+            "Disabled flags should not be included in the response"
         );
 
-        // Dependent flag should evaluate to false because the base flag is disabled
+        // Dependent flag should evaluate to false because its dependency is disabled
+        // This confirms that dependency resolution works even though the disabled flag
+        // is not in the response (it's evaluated internally)
         let dependent_result = result.flags.get("dependent_flag").unwrap();
         assert!(
             !dependent_result.enabled,
@@ -6053,8 +6050,100 @@ mod tests {
         );
         assert_ne!(
             dependent_result.reason.code, "flag_disabled",
-            "Dependent flag should not have flag_disabled reason"
+            "Dependent flag should not have flag_disabled reason (it's not disabled, its dependency is)"
         );
+    }
+
+    #[tokio::test]
+    async fn test_disabled_flags_not_dependencies_excluded_from_response() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team in pg");
+
+        // Create a disabled standalone flag (not a dependency of any active flag)
+        let disabled_standalone: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 1,
+                "team_id": team.id,
+                "name": "disabled_standalone",
+                "key": "disabled_standalone",
+                "active": false,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        // Create an active flag that doesn't depend on anything
+        let active_flag: FeatureFlag = serde_json::from_value(json!(
+            {
+                "id": 2,
+                "team_id": team.id,
+                "name": "active_flag",
+                "key": "active_flag",
+                "active": true,
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [],
+                            "rollout_percentage": 100
+                        }
+                    ]
+                }
+            }
+        ))
+        .unwrap();
+
+        let flags = FeatureFlagList {
+            flags: vec![disabled_standalone, active_flag],
+        };
+
+        let graph_result =
+            build_dependency_graph(&flags, team.id).expect("Should build dependency graph");
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "test_user".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache,
+            None,
+            None,
+        );
+
+        let result = matcher
+            .evaluate_flags_with_overrides(
+                Default::default(),
+                Uuid::new_v4(),
+                graph_result.graph,
+                graph_result.flags_with_missing_deps,
+            )
+            .await;
+
+        // Disabled standalone flag should NOT be in the response
+        assert!(
+            !result.flags.contains_key("disabled_standalone"),
+            "Disabled standalone flags should be excluded from response"
+        );
+
+        // Active flag should be in the response
+        let active_result = result.flags.get("active_flag").unwrap();
+        assert!(active_result.enabled, "Active flag should be enabled");
     }
 
     // ======== Integration tests for experience continuity optimization ========

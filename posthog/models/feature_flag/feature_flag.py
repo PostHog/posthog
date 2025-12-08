@@ -579,7 +579,9 @@ def get_feature_flags(
     else:
         raise ValueError("Either team or project_id must be provided")
 
-    filter_kwargs.update({"active": True, "deleted": False})
+    # Include disabled flags (active=False) so flag dependencies can reference them
+    # and evaluate them as false, rather than raising DependencyNotFound errors
+    filter_kwargs.update({"deleted": False})
 
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.
