@@ -115,12 +115,33 @@ class EventsQueryRunner(AnalyticsQueryRunner[EventsQueryResponse]):
                         where_exprs.extend(
                             property_to_expr(property, self.team) for property in self.query.fixedProperties
                         )
-                if self.query.event:
+                if self.query.event and self.query.secondEvent:
+                    with self.timings.measure("event"):
+                        where_exprs.append(
+                            parse_expr(
+                                "event = {event} OR event = {secondEvent}",
+                                {
+                                    "event": ast.Constant(value=self.query.event),
+                                    "secondEvent": ast.Constant(value=self.query.secondEvent),
+                                },
+                                timings=self.timings,
+                            )
+                        )
+                elif self.query.event:
                     with self.timings.measure("event"):
                         where_exprs.append(
                             parse_expr(
                                 "event = {event}",
                                 {"event": ast.Constant(value=self.query.event)},
+                                timings=self.timings,
+                            )
+                        )
+                elif self.query.secondEvent:
+                    with self.timings.measure("event"):
+                        where_exprs.append(
+                            parse_expr(
+                                "event = {event}",
+                                {"event": ast.Constant(value=self.query.secondEvent)},
                                 timings=self.timings,
                             )
                         )

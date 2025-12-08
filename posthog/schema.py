@@ -15832,6 +15832,9 @@ class EventsQuery(BaseModel):
     after: str | None = Field(default=None, description="Only fetch events that happened after this timestamp")
     before: str | None = Field(default=None, description="Only fetch events that happened before this timestamp")
     event: str | None = Field(default=None, description="Limit to events matching this string")
+    secondEvent: str | None = Field(
+        default=None, description="Second event filter - shows events matching either this or the primary event"
+    )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     fixedProperties: (
         list[

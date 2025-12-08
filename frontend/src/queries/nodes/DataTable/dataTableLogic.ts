@@ -220,6 +220,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? showIfFull,
                         showEventFilter: query.showEventFilter ?? showIfFull,
+                        showSecondEventFilter: query.showSecondEventFilter ?? false,
                         showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
                         showDateRange: query.showDateRange ?? showIfFull,
