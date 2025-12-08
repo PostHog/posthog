@@ -18,7 +18,11 @@ export type ExceptionRendererProps = {
 
     renderUndefinedTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
     renderResolvedTrace: StackTraceRenderer
-    renderFilteredTrace: (exception: ErrorTrackingException, knownException?: KnownException) => React.ReactNode
+    renderFilteredTrace: (
+        allFrames: ErrorTrackingStackFrame[],
+        exception: ErrorTrackingException,
+        knownException?: KnownException
+    ) => React.ReactNode
 }
 
 export function ExceptionRenderer({
@@ -43,13 +47,13 @@ export function ExceptionRenderer({
                     .when(
                         (stack) => stack!.type === 'resolved',
                         (stack) => {
-                            let frames = frameFilter ? stack!.frames.filter(frameFilter) : stack!.frames
-                            return match(frames)
+                            let filteredFrames = frameFilter ? stack!.frames.filter(frameFilter) : stack!.frames
+                            return match(filteredFrames)
                                 .when(
                                     (frames) => Array.isArray(frames) && frames.length > 0,
                                     (frames) => renderResolvedTrace(frames, exception, knownException)
                                 )
-                                .otherwise(() => renderFilteredTrace(exception, knownException))
+                                .otherwise(() => renderFilteredTrace(stack!.frames, exception, knownException))
                         }
                     )
                     .otherwise(() => null)}
