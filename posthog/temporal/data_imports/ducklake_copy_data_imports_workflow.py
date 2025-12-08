@@ -214,9 +214,8 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
     heartbeater = HeartbeaterSync(details=("ducklake_copy", inputs.model.model_label), logger=logger)
     with heartbeater:
         config = get_config()
-        conn = duckdb.connect()
         alias = "ducklake"
-        try:
+        with duckdb.connect() as conn:
             _configure_source_storage(conn, logger)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
@@ -236,8 +235,6 @@ def copy_data_imports_to_ducklake_activity(inputs: DuckLakeCopyDataImportsActivi
                 [inputs.model.source_table_uri],
             )
             logger.info("Successfully materialized DuckLake table", ducklake_table=qualified_table)
-        finally:
-            conn.close()
 
 
 def _detect_data_imports_partition_column(schema: ExternalDataSchema) -> str | None:
@@ -352,11 +349,10 @@ def verify_data_imports_ducklake_copy_activity(
     heartbeater = HeartbeaterSync(details=("ducklake_verify", inputs.model.model_label), logger=logger)
     with heartbeater:
         config = get_config()
-        conn = duckdb.connect()
         alias = "ducklake"
         results: list[DuckLakeCopyDataImportsVerificationResult] = []
 
-        try:
+        with duckdb.connect() as conn:
             _configure_source_storage(conn, logger)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -463,8 +459,6 @@ def verify_data_imports_ducklake_copy_activity(
             partition_result = _run_data_imports_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
-        finally:
-            conn.close()
 
     failed = [result for result in results if not result.passed]
     if failed:

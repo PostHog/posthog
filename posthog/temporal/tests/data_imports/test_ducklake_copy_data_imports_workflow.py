@@ -188,6 +188,8 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(
 
 def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch):
     mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
         "posthog.temporal.data_imports.ducklake_copy_data_imports_workflow.duckdb.connect",
@@ -240,7 +242,7 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
     assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
     assert any("delta_scan" in str(call) for call in execute_calls)
-    mock_conn.close.assert_called_once()
+    mock_conn.__exit__.assert_called_once()
 
 
 def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
@@ -271,6 +273,8 @@ def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_querie
 
 def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(monkeypatch):
     mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
     mock_conn.execute.return_value.fetchone.return_value = (0,)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
@@ -338,11 +342,13 @@ def test_verify_data_imports_ducklake_copy_activity_executes_configured_query(mo
     assert results[0].name == "row_count_check"
     assert results[0].passed is True
     assert results[0].observed_value == 0.0
-    mock_conn.close.assert_called_once()
+    mock_conn.__exit__.assert_called_once()
 
 
 def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkeypatch):
     mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
     mock_conn.execute.side_effect = Exception("Query execution failed")
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
@@ -410,11 +416,13 @@ def test_verify_data_imports_ducklake_copy_activity_handles_query_failure(monkey
     assert results[0].name == "failing_query"
     assert results[0].passed is False
     assert results[0].error == "Query execution failed"
-    mock_conn.close.assert_called_once()
+    mock_conn.__exit__.assert_called_once()
 
 
 def test_verify_data_imports_ducklake_copy_activity_tolerance_comparison(monkeypatch):
     mock_conn = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
     mock_conn.execute.return_value.fetchone.return_value = (5,)
     mock_duckdb_connect = MagicMock(return_value=mock_conn)
     monkeypatch.setattr(
