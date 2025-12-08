@@ -141,6 +141,7 @@
             FROM
               (SELECT actor_id AS actor_id,
                       count() AS event_count,
+                      max(timestamp) AS last_seen,
                       groupUniqArray(distinct_id) AS event_distinct_ids,
                       actor_id AS id
                FROM
@@ -188,6 +189,7 @@
             FROM
               (SELECT actor_id AS actor_id,
                       count() AS event_count,
+                      max(timestamp) AS last_seen,
                       groupUniqArray(distinct_id) AS event_distinct_ids,
                       actor_id AS id
                FROM
@@ -374,6 +376,7 @@
             FROM
               (SELECT actor_id AS actor_id,
                       count() AS event_count,
+                      max(timestamp) AS last_seen,
                       groupUniqArray(distinct_id) AS event_distinct_ids,
                       actor_id AS id
                FROM
@@ -421,6 +424,7 @@
             FROM
               (SELECT actor_id AS actor_id,
                       count() AS event_count,
+                      max(timestamp) AS last_seen,
                       groupUniqArray(distinct_id) AS event_distinct_ids,
                       actor_id AS id
                FROM

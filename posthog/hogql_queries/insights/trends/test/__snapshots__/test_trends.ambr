@@ -375,6 +375,7 @@
   FROM
     (SELECT actor_id AS actor_id,
             count() AS event_count,
+            max(timestamp) AS last_seen,
             groupUniqArray(distinct_id) AS event_distinct_ids,
             groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
      FROM
@@ -402,7 +403,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT source.actor_id AS actor_id
                                                     FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+                                                      (SELECT actor_id AS actor_id, count() AS event_count, max(timestamp) AS last_seen, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM events AS e
@@ -1658,6 +1659,7 @@
   FROM
     (SELECT actor_id AS actor_id,
             count() AS event_count,
+            max(timestamp) AS last_seen,
             groupUniqArray(distinct_id) AS event_distinct_ids,
             groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
      FROM
@@ -1693,7 +1695,7 @@
      WHERE and(equals(person.team_id, 99999), in(id,
                                                    (SELECT source.actor_id AS actor_id
                                                     FROM
-                                                      (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
+                                                      (SELECT actor_id AS actor_id, count() AS event_count, max(timestamp) AS last_seen, groupUniqArray(distinct_id) AS event_distinct_ids, groupUniqArray(100)(tuple(timestamp, uuid, `$session_id`, `$window_id`)) AS matching_events
                                                        FROM
                                                          (SELECT e.person_id AS actor_id, toTimeZone(e.timestamp, 'UTC') AS timestamp, e.uuid AS uuid, e.`$session_id` AS `$session_id`, e.`$window_id` AS `$window_id`, e.distinct_id AS distinct_id
                                                           FROM events AS e
