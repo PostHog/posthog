@@ -105,10 +105,7 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
             CHECKPOINT_SIZE_BYTES_BUCKETS,
         )
         .unwrap()
-        .set_buckets_for_metric(
-            Matcher::Suffix("unique_uuids".to_string()),
-            COUNT_BUCKETS,
-        )
+        .set_buckets_for_metric(Matcher::Suffix("unique_uuids".to_string()), COUNT_BUCKETS)
         .unwrap()
         .set_buckets_for_metric(
             Matcher::Suffix("unique_timestamps".to_string()),
