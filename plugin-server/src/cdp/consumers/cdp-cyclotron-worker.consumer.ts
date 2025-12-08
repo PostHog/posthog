@@ -38,7 +38,7 @@ export class CdpCyclotronWorker extends CdpConsumerBase {
         const loadedInvocations = await this.loadHogFunctions(invocations)
 
         return await Promise.all(
-            loadedInvocations.map(async (item) => {
+            loadedInvocations.map((item) => {
                 if (isNativeHogFunction(item.hogFunction)) {
                     return this.nativeDestinationExecutorService.execute(item)
                 } else if (isLegacyPluginHogFunction(item.hogFunction)) {

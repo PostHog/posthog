@@ -79,6 +79,9 @@ const createKafkaMessage = (event: PipelineEvent): Message => {
             {
                 uuid: Buffer.from(event.uuid || ''),
             },
+            {
+                now: Buffer.from(event.now || ''),
+            },
         ],
     }
 }
@@ -1375,6 +1378,7 @@ describe('IngestionConsumer', () => {
                     "headers": {
                       "distinct_id": "user-1",
                       "event": "$pageview",
+                      "now": "2025-01-01T00:00:00.000Z",
                       "token": "THIS IS NOT A TOKEN FOR TEAM 2",
                       "uuid": "<REPLACED-UUID-0>",
                     },
