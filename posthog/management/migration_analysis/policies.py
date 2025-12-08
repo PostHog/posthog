@@ -191,6 +191,10 @@ class AtomicFalsePolicy(MigrationPolicy):
                         sql = str(getattr(db_op, "sql", ""))
                         if "CONCURRENTLY" not in sql.upper():
                             return True
+                    # AddIndex without concurrent=True inside SeparateDatabaseAndState
+                    if db_op_type == "AddIndex":
+                        if not (hasattr(db_op, "index") and getattr(db_op.index, "concurrent", False)):
+                            return True
 
         return False
 
