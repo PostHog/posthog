@@ -199,7 +199,7 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
             if description.schedule.spec.time_zone_name and description.schedule.spec.time_zone_name != "UTC":
                 # Details is always in UTC, we must re-convert it to the schedule's timezone
-                start_at = start_at.astimezone(description.schedule.spec.time_zone_name)
+                start_at = start_at.astimezone(zoneinfo.ZoneInfo(description.schedule.spec.time_zone_name))
 
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
 
