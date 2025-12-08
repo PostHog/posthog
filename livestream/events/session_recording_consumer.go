@@ -54,6 +54,9 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 	if err := c.consumer.SubscribeTopics([]string{c.topic}, nil); err != nil {
 		log.Fatalf("Failed to subscribe to session recording topic: %v", err)
 	}
+	log.Printf("Session recording consumer subscribed to topic: %s", c.topic)
+
+	var msgCount, timeoutCount, droppedCount uint64
 
 	for {
 		select {
@@ -69,6 +72,11 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 						metrics.SessionRecordingConnectFailure.Inc()
 					} else if inErr.IsTimeout() {
 						metrics.SessionRecordingTimeoutConsume.Inc()
+						timeoutCount++
+						// Log on first timeout and then every 60th to avoid spam
+						if timeoutCount == 1 || timeoutCount%60 == 0 {
+							log.Printf("Session recording consumer: %d timeouts so far (topic: %s)", timeoutCount, c.topic)
+						}
 						continue
 					}
 				}
@@ -76,7 +84,18 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 				continue
 			}
 
+			msgCount++
 			metrics.SessionRecordingMsgConsumed.With(prometheus.Labels{"partition": strconv.Itoa(int(msg.TopicPartition.Partition))}).Inc()
+
+			// Log first few messages and periodically to help debug header issues
+			if msgCount <= 5 || msgCount%10000 == 0 {
+				headerKeys := make([]string, 0, len(msg.Headers))
+				for _, h := range msg.Headers {
+					headerKeys = append(headerKeys, h.Key)
+				}
+				log.Printf("Session recording message #%d: partition=%d, offset=%d, headers=%v",
+					msgCount, msg.TopicPartition.Partition, msg.TopicPartition.Offset, headerKeys)
+			}
 
 			token, sessionId := parseSessionRecordingHeaders(msg.Headers)
 			if token != "" && sessionId != "" {
@@ -86,7 +105,17 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 					return
 				}
 			} else {
+				droppedCount++
 				metrics.SessionRecordingDroppedMessages.Inc()
+				// Log first few dropped messages to help debug
+				if droppedCount <= 5 {
+					headerKeys := make([]string, 0, len(msg.Headers))
+					for _, h := range msg.Headers {
+						headerKeys = append(headerKeys, h.Key)
+					}
+					log.Printf("Session recording message dropped (missing headers): has_token=%t, has_session_id=%t, header_keys=%v",
+						token != "", sessionId != "", headerKeys)
+				}
 			}
 		}
 	}
