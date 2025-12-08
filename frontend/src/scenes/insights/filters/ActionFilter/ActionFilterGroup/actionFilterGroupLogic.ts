@@ -2,7 +2,7 @@ import { actions, kea, key, path, props, reducers } from 'kea'
 
 import type { actionFilterGroupLogicType } from './actionFilterGroupLogicType'
 
-interface ActionFilterGroupLogicProps {
+export interface ActionFilterGroupLogicProps {
     filterUuid: string
 }
 
