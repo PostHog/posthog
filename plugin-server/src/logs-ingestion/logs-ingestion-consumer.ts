@@ -316,8 +316,8 @@ export class LogsIngestionConsumer {
             KafkaProducerWrapper.create(this.hub).then((producer) => {
                 this.kafkaProducer = producer
             }),
-            // MSK producer for app_metrics (uses KAFKA_MSK_PRODUCER_* env vars)
-            KafkaProducerWrapper.create(this.hub, 'MSK_PRODUCER').then((producer) => {
+            // Metrics producer for app_metrics (uses KAFKA_METRICS_PRODUCER_* env vars)
+            KafkaProducerWrapper.create(this.hub, 'METRICS_PRODUCER').then((producer) => {
                 this.mskProducer = producer
             }),
         ])
