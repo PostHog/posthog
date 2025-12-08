@@ -304,8 +304,8 @@ class TestWarmCachesExpiryTracking(BaseTest):
     API tokens. This caused a mismatch between cache entries and expiry tracking.
     """
 
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    @patch("posthog.storage.cache_expiry_manager.time")
+    @patch("posthog.storage.hypercache.get_client")
+    @patch("posthog.storage.hypercache.time")
     def test_warm_caches_uses_api_token_for_token_based_cache(self, mock_time, mock_get_client):
         """
         Verify that warm_caches uses API token (not team ID) for token-based caches.

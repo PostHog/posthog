@@ -8,17 +8,13 @@ across different HyperCache types (flags, team metadata, etc.).
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
 
 import structlog
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.redis import get_client
-from posthog.storage.hypercache_manager import push_hypercache_teams_processed_metrics
-
-if TYPE_CHECKING:
-    from posthog.storage.hypercache_manager import HyperCacheManagementConfig
+from posthog.storage.hypercache_manager import HyperCacheManagementConfig, push_hypercache_teams_processed_metrics
 
 logger = structlog.get_logger(__name__)
 
