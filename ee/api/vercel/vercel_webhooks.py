@@ -34,13 +34,12 @@ def _is_valid_signature(payload: bytes, signature: str | None) -> bool:
     return hmac.compare_digest(expected, signature)
 
 
-def _extract_config_id(data: dict[str, Any], payload: dict[str, Any]) -> str | None:
-    return (
-        data.get("configurationId")
-        or payload.get("installationId")
-        or payload.get("configuration", {}).get("id")
-        or payload.get("configurationId")
-    )
+def _extract_config_id(payload: dict[str, Any]) -> str | None:
+    # Vercel marketplace webhooks include the installation ID in two places:
+    # - payload.installationId
+    # - payload.configuration.id (same value)
+    # Ref: https://vercel.com/docs/observability/webhooks-overview/webhooks-api
+    return payload.get("installationId") or payload.get("configuration", {}).get("id")
 
 
 def _is_billing_event(event_type: str | None) -> bool:
@@ -86,7 +85,7 @@ def vercel_webhook(request: Request) -> Response:
 
     event_type = request.data.get("type")
     payload = request.data.get("payload", {})
-    config_id = _extract_config_id(request.data, payload)
+    config_id = _extract_config_id(payload)
 
     logger.info("vercel_webhook_received", event_type=event_type, config_id=config_id)
 

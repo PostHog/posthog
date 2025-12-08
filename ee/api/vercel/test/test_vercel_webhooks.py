@@ -43,7 +43,7 @@ class TestVercelWebhooks(VercelTestBase):
     def test_invalid_signature_returns_401(self):
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": self.installation_id, "invoiceId": "mi_123"},
+            "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
 
         response = self._post_webhook(payload, signature="invalid_signature")
@@ -55,7 +55,7 @@ class TestVercelWebhooks(VercelTestBase):
     def test_missing_signature_returns_401(self):
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": self.installation_id, "invoiceId": "mi_123"},
+            "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
 
         response = self._post_webhook(payload, signature=None)
@@ -66,20 +66,20 @@ class TestVercelWebhooks(VercelTestBase):
     def test_missing_config_id_returns_400(self):
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"invoiceId": "mi_123"},  # Missing configurationId
+            "payload": {"invoiceId": "mi_123"},  # Missing installationId
         }
         signature = self._sign_payload(payload)
 
         response = self._post_webhook(payload, signature=signature)
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "configurationId" in response.json()["error"]
+        assert "configurationId" in response.json()["error"]  # Error message still says configurationId
 
     @override_settings(VERCEL_CLIENT_INTEGRATION_SECRET="test_webhook_secret")
     def test_unknown_config_returns_404(self):
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": "icfg_unknown", "invoiceId": "mi_123"},
+            "payload": {"installationId": "icfg_unknown", "invoiceId": "mi_123"},
         }
         signature = self._sign_payload(payload)
 
@@ -93,7 +93,7 @@ class TestVercelWebhooks(VercelTestBase):
         for event_type in ["integration.configuration-removed", "deployment.created", None]:
             payload = {
                 "type": event_type,
-                "payload": {"configurationId": self.installation_id},
+                "payload": {"installationId": self.installation_id},
             }
             signature = self._sign_payload(payload)
 
@@ -114,7 +114,7 @@ class TestVercelWebhooks(VercelTestBase):
 
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": self.installation_id, "invoiceId": "mi_123"},
+            "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
         signature = self._sign_payload(payload)
 
@@ -143,7 +143,7 @@ class TestVercelWebhooks(VercelTestBase):
 
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": self.installation_id, "invoiceId": "mi_123"},
+            "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
         signature = self._sign_payload(payload)
 
@@ -159,7 +159,7 @@ class TestVercelWebhooks(VercelTestBase):
 
         payload = {
             "type": "marketplace.invoice.paid",
-            "payload": {"configurationId": self.installation_id, "invoiceId": "mi_123"},
+            "payload": {"installationId": self.installation_id, "invoiceId": "mi_123"},
         }
         signature = self._sign_payload(payload)
 
