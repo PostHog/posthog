@@ -103,7 +103,7 @@ export function LogRow({
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
                         <span className="text-xs text-muted font-mono">
-                            <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                            <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
                         </span>
                     </div>
                 )

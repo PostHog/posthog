@@ -676,7 +676,7 @@ export const logsLogic = kea<logsLogicType>([
                         if (currentItem.time !== lastTime) {
                             labels.push(
                                 humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    showNow: false,
+                                    timestampStyle: 'absolute',
                                 })
                             )
                             dates.push(currentItem.time)
