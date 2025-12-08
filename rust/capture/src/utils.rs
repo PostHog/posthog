@@ -8,9 +8,9 @@ use uuid::Uuid;
 
 use crate::{
     api::CaptureError,
+    payload::{Compression, EventFormData, EventQuery},
     prometheus::report_dropped_events,
     token::validate_token,
-    v0_request::{Compression, EventFormData, EventQuery},
 };
 
 // used to limit test scans and extract loggable snippets from potentially large strings/buffers
