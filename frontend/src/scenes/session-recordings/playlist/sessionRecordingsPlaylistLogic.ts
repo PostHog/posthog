@@ -666,7 +666,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                             posthog.captureException(new Error('Invalid filters provided'), {
                                 filters,
                             })
-                            return getDefaultFilters(props.personUUID)
+                            return getDefaultFilters(props.personUUID, props.pinnedFilters)
                         }
 
                         // Always set pinned filters last, so they are not overwritten by the others
@@ -681,10 +681,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     } catch (e) {
                         posthog.captureException(e)
-                        return getDefaultFilters(props.personUUID)
+                        return getDefaultFilters(props.personUUID, props.pinnedFilters)
                     }
                 },
-                resetFilters: () => getDefaultFilters(props.personUUID),
+                resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
             },
         ],
         showFilters: [
@@ -1413,7 +1413,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ] => {
             const params: ReplayURLSearchParamTypes = objectClean({
                 ...router.values.searchParams,
-                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID, props.pinnedFilters))
+                    ? undefined
+                    : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
