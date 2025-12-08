@@ -52,10 +52,6 @@ export function ExceptionRenderer({
                                 .otherwise(() => renderFilteredTrace(exception, knownException))
                         }
                     )
-                    .when(
-                        (stack) => stack!.type === 'raw',
-                        () => null
-                    )
                     .otherwise(() => null)}
             </div>
         </div>
