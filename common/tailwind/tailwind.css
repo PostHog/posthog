@@ -280,7 +280,9 @@
         --color-neutral-750: hsl(0deg 0% 25%);
         --color-neutral-800: hsl(0deg 0% 20%);
         --color-neutral-850: hsl(0deg 0% 15%);
+        --color-neutral-875: hsl(0deg 0% 12.5%);
         --color-neutral-900: hsl(0deg 0% 10%);
+        --color-neutral-910: hsl(0deg 0% 8%);
         --color-neutral-950: hsl(0deg 0% 5%);
 
         /* Posthog 3000 (yellow-greys) colors */
@@ -425,6 +427,11 @@
 
         /* Shadows */
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
+
+        /* Scrollbar colors */
+        --color-scrollbar-track: var(--color-background);
+        --color-scrollbar-thumb: var(--color-neutral-300);
+        --color-scrollbar-thumb-hover: var(--color-neutral-400);
     }
 
     body[theme='dark'] {
@@ -434,7 +441,7 @@
         --color-foreground-inverse: var(--color-neutral-900);
 
         /* Card background and foreground */
-        --color-card: var(--color-neutral-850);
+        --color-card: var(--color-neutral-875);
         --color-card-foreground: var(--color-neutral-100);
 
         /* Brand color for primary actions (buttons, highlights) */
@@ -445,7 +452,7 @@
         );
 
         /* Subdued background for less important elements */
-        --color-muted: var(--color-neutral-900);
+        --color-muted: var(--color-neutral-910);
         --color-muted-foreground: var(--color-neutral-200);
 
         /* Highlight color for active or focused elements */
@@ -478,6 +485,11 @@
 
         /* Shadows */
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
+
+        /* Scrollbar colors */
+        --color-scrollbar-track: var(--color-background);
+        --color-scrollbar-thumb: var(--color-neutral-700);
+        --color-scrollbar-thumb-hover: var(--color-neutral-600);
     }
 }
 

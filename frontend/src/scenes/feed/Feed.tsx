@@ -181,7 +181,7 @@ export function Feed(): JSX.Element {
                     <Spinner />
                 </div>
             ) : !hasAnyItems ? (
-                <div className="border rounded p-6 bg-surface-primary text-center">
+                <div className="border rounded p-6 bg-card text-center">
                     <p className="text-muted-foreground">No recent updates found</p>
                     <p className="text-muted-alt text-sm mb-0 mt-1">
                         Try selecting a different time period using the filter above

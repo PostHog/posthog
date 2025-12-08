@@ -82,7 +82,7 @@ function OverallHealthBanner({
 }: OverallHealthBannerProps): JSX.Element {
     if (status === 'loading') {
         return (
-            <div className="p-4 rounded border border-primary/10 bg-surface-primary">
+            <div className="p-4 rounded border border-primary/10 bg-card">
                 <LemonSkeleton className="w-64 h-6 mb-2" />
                 <LemonSkeleton className="w-48 h-4" />
             </div>

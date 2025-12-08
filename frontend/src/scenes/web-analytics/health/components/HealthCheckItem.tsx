@@ -11,7 +11,7 @@ interface HealthCheckItemProps {
 
 export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
     return (
-        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-surface-primary">
+        <div className="flex items-start gap-3 p-3 rounded border border-primary/10 bg-card">
             <StatusIcon status={check.status} urgent={check.urgent} />
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">

@@ -32,13 +32,13 @@ export function WebAnalyticsEditorFilters({ query, embedded }: WebAnalyticsEdito
     return (
         <div className="EditorFiltersWrapper">
             <div
-                className={clsx('bg-surface-primary', {
+                className={clsx('bg-card', {
                     'p-4 rounded border': !embedded,
                 })}
             >
                 <FilterBar
                     showBorderBottom={false}
-                    className={clsx('bg-surface-primary')}
+                    className={clsx('bg-card')}
                     right={
                         <>
                             <WebConversionGoal

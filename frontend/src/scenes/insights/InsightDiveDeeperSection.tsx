@@ -20,7 +20,7 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
     const InsightIcon = QUERY_TYPES_METADATA[suggestion.targetQuery.source.kind]?.icon
 
     return (
-        <div className="border border-border rounded bg-surface-primary">
+        <div className="border border-border rounded bg-card">
             <div
                 className="flex items-center gap-3 p-3 cursor-pointer hover:bg-surface-secondary rounded-t"
                 onClick={() => setIsExpanded(!isExpanded)}
@@ -37,7 +37,7 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
                 </div>
             </div>
             {isExpanded && (
-                <div className="border-t border-border bg-surface-primary">
+                <div className="border-t border-border bg-card">
                     <div className="p-4">
                         <Query query={suggestion.targetQuery} readOnly embedded />
                     </div>

@@ -19,7 +19,7 @@ export function useChartColors(): ChartColors {
     const { isDarkModeOn } = useValues(themeLogic)
 
     return {
-        TICK_TEXT_COLOR: 'var(--color-text-tertiary)',
+        TICK_TEXT_COLOR: 'var(--color-muted-foreground)',
         BOUNDARY_LINES: 'var(--color-border)',
         ZERO_LINE: 'var(--color-border-strong)',
         BAR_NEGATIVE: isDarkModeOn ? '#c32f45' : '#f84257',
@@ -34,7 +34,7 @@ export function useChartColors(): ChartColors {
 
 // Default colors for imports that don't need the hook
 export const COLORS: ChartColors = {
-    TICK_TEXT_COLOR: 'var(--color-text-tertiary)',
+    TICK_TEXT_COLOR: 'var(--color-muted-foreground)',
     BOUNDARY_LINES: 'var(--color-border)',
     ZERO_LINE: 'var(--color-border-strong)',
     BAR_NEGATIVE: '#f84257',
