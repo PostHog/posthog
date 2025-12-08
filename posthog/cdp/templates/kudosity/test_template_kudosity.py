@@ -50,7 +50,6 @@ class TestTemplateKudosity(BaseHogFunctionTemplateTest):
                         "sender": "Alerts",
                         "recipient": "+15555551234",
                         "message_ref": "alert_alert-123",
-                        "track_links": False,
                     },
                 },
             )
