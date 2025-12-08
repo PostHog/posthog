@@ -6,7 +6,7 @@ export function RawFrame({
     record,
 }: {
     frame: ErrorTrackingStackFrame
-    record: ErrorTrackingStackFrameRecord
+    record?: ErrorTrackingStackFrameRecord
 }): JSX.Element {
     const resolvedName = formatResolvedName(frame)
     return (
