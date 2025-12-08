@@ -114,20 +114,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
                 return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
-            # if we're live tailing don't do the runner slicing optimisations
-            # we're always only looking at the most recent 1 or 2 minutes of observed data
-            # which should cut things down more than the slicing anyway
-            if live_logs_checkpoint:
+            # Skip time-slicing optimization when:
+            # - live tailing: we're always only looking at the most recent 1-2 minutes
+            # - cursor pagination: the cursor marks a continuation point in a single query
+            if live_logs_checkpoint or after_cursor:
                 response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
                 yield from response.results
                 return
 
-            # if we have a cursor, skip the time slicing optimization
-            # the cursor marks a continuation point in a single query, not across time slices
-            if after_cursor:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-                yield from response.results
-                return
             # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
             if date_range_length > dt.timedelta(minutes=20):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
