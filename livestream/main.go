@@ -1,8 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo-contrib/echoprometheus"
@@ -33,6 +37,19 @@ func main() {
 		log.Fatalf("Failed to open MMDB: %v", err)
 	}
 
+	// Setup context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Handle shutdown signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigChan
+		log.Println("Shutdown signal received, stopping consumers...")
+		cancel()
+	}()
+
 	stats := events.NewStatsKeeper()
 	sessionStats := events.NewSessionStatsKeeper()
 
@@ -43,7 +60,7 @@ func main() {
 	unSubChan := make(chan events.Subscription, 10000)
 
 	go stats.KeepStats(statsChan)
-	go sessionStats.KeepStats(sessionStatsChan)
+	go sessionStats.KeepStats(ctx, sessionStatsChan)
 
 	kafkaSecurityProtocol := "SSL"
 	if config.Debug {
@@ -57,7 +74,7 @@ func main() {
 	defer consumer.Close()
 	go consumer.Consume()
 
-	if config.Kafka.SessionRecordingTopic != "" {
+	if config.Kafka.SessionRecordingEnabled {
 		sessionConsumer, err := events.NewSessionRecordingKafkaConsumer(
 			config.Kafka.SessionRecordingBrokers, kafkaSecurityProtocol, config.Kafka.GroupID,
 			config.Kafka.SessionRecordingTopic, sessionStatsChan)
@@ -65,7 +82,7 @@ func main() {
 			log.Printf("Failed to create session recording Kafka consumer: %v", err)
 		} else {
 			defer sessionConsumer.Close()
-			go sessionConsumer.Consume()
+			go sessionConsumer.Consume(ctx)
 			log.Printf("Session recording consumer started for topic: %s", config.Kafka.SessionRecordingTopic)
 		}
 	}

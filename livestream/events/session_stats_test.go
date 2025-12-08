@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -102,15 +103,17 @@ func TestSessionStats_Count(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ss := NewSessionStatsKeeper()
 			statsChan := make(chan SessionRecordingEvent, 100)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-			go ss.KeepStats(statsChan)
+			go ss.KeepStats(ctx, statsChan)
 
 			for _, event := range tt.events {
 				statsChan <- event
 			}
 
 			time.Sleep(50 * time.Millisecond)
-			close(statsChan)
+			cancel()
 			time.Sleep(10 * time.Millisecond)
 
 			if tt.wantToken1Count > 0 {
@@ -131,8 +134,10 @@ func TestSessionStats_Count(t *testing.T) {
 func TestSessionStats_Concurrency(t *testing.T) {
 	ss := NewSessionStatsKeeper()
 	statsChan := make(chan SessionRecordingEvent, 1000)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	go ss.KeepStats(statsChan)
+	go ss.KeepStats(ctx, statsChan)
 
 	iterations := 100
 	var wg sync.WaitGroup
@@ -150,7 +155,7 @@ func TestSessionStats_Concurrency(t *testing.T) {
 
 	wg.Wait()
 	time.Sleep(50 * time.Millisecond)
-	close(statsChan)
+	cancel()
 	time.Sleep(10 * time.Millisecond)
 
 	store := ss.GetExistingStoreForToken("token1")
