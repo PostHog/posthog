@@ -13,6 +13,7 @@ uk_ip = "31.28.64.3"
 us_ip_v6 = "2600:6c52:7a00:11c:1b6:b7b0:ea19:6365"
 localhost_ip = "127.0.0.1"
 local_network_ip = "192.168.97.2"
+cluster_network_ip = "10.95.0.17"
 mexico_ip = "187.188.10.252"
 australia_ip_2 = "13.106.122.3"
 
@@ -58,6 +59,11 @@ class TestGeoIPError(TestCase):
 
     def test_geoip_on_local_network_ip_returns_successfully(self):
         properties = get_geoip_properties(local_network_ip)
+
+        self.assertEqual(properties, {})
+
+    def test_geoip_on_cluster_network_ip_returns_successfully(self):
+        properties = get_geoip_properties(cluster_network_ip)
 
         self.assertEqual(properties, {})
 
