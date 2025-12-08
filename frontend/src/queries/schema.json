@@ -7471,17 +7471,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/DataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -15466,17 +15456,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/DataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -17669,17 +17649,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/DataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
@@ -28478,17 +28448,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/EventsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/ActionsNode"
-                            },
-                            {
-                                "$ref": "#/definitions/DataWarehouseNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },

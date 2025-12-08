@@ -1333,7 +1333,7 @@ export interface CalendarHeatmapQuery extends InsightsQueryBase<CalendarHeatmapR
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the trends insight */
     calendarHeatmapFilter?: CalendarHeatmapFilter
     /**  Whether we should be comparing against a specific conversion goal */
@@ -1418,7 +1418,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
@@ -1620,7 +1620,7 @@ export interface StickinessQuery
      */
     intervalCount?: integer
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the stickiness insight */
     stickinessFilter?: StickinessFilter
     /** Compare to date range */
@@ -1878,7 +1878,7 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[]
+    series: AnyEntityNode[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
