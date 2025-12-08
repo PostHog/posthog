@@ -136,6 +136,9 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             offset=self.query.offset,
         )
 
+        self.modifiers.convertToProjectTimezone = False
+        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
+
         def get_property_type(value):
             try:
                 value = float(value)
@@ -187,8 +190,6 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 )
 
     def _calculate(self) -> LogsQueryResponse:
-        self.modifiers.convertToProjectTimezone = False
-        self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = self.paginator.execute_hogql_query(
             query_type="LogsQuery",
             query=self.to_query(),
