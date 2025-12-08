@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
-import { RefObject, useEffect, useMemo, useRef, useState } from 'react'
+import { router } from 'kea-router'
+import { RefObject, useEffect, useRef, useState } from 'react'
 
 import {
     IconCheckbox,
@@ -29,20 +29,20 @@ import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
-import { urls } from 'scenes/urls'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { FileSystemEntry, UserProductListReason } from '~/queries/schema/schema-general'
 import { UserBasicType } from '~/types'
 
 import { PanelLayoutPanel } from '../PanelLayoutPanel'
-import { projectDragDataFromEntry, projectDroppableId } from './ProjectDragAndDropContext'
 import { TreeFiltersDropdownMenu } from './TreeFiltersDropdownMenu'
 import { TreeSearchField } from './TreeSearchField'
 import { TreeSortDropdownMenu } from './TreeSortDropdownMenu'
 import { MenuItems } from './menus/MenuItems'
 import { projectTreeLogic } from './projectTreeLogic'
+import { calculateMovePath } from './utils'
 
 export interface ProjectTreeProps {
     logicKey?: string // key override?
@@ -79,6 +79,7 @@ export function ProjectTree({
     showRecents,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
+    const { viableItems } = useValues(projectTreeDataLogic)
     const projectTreeLogicProps = { key: logicKey ?? uniqueKey, root }
     const {
         fullFileSystemFiltered,
@@ -87,6 +88,7 @@ export function ProjectTree({
         expandedFolders,
         expandedSearchFolders,
         searchTerm,
+        searchResults,
         checkedItems,
         checkedItemCountNumeric,
         scrollTargetId,
@@ -100,12 +102,14 @@ export function ProjectTree({
     const {
         createFolder,
         rename,
+        moveItem,
         toggleFolderOpen,
         setLastViewedId,
         setExpandedFolders,
         setExpandedSearchFolders,
         loadFolder,
         onItemChecked,
+        moveCheckedItems,
         clearScrollTarget,
         setEditingItemId,
         setSortMethod,
@@ -114,17 +118,12 @@ export function ProjectTree({
         setSearchTerm,
     } = useActions(projectTreeLogic(projectTreeLogicProps))
 
-    const { setPanelTreeRef, resetPanelLayout, showLayoutPanel, setActivePanelIdentifier } =
-        useActions(panelLayoutLogic)
+    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { openItemSelectModal } = useActions(itemSelectModalLogic)
-    const newTabProjectExplorerEnabled = useFeatureFlag('NEW_TAB_PROJECT_EXPLORER')
-
-    const droppableScope = useMemo(() => `project-tree-${logicKey ?? uniqueKey}` as const, [logicKey, uniqueKey])
-    const rootProtocol = root ?? 'project://'
 
     const isCustomProductsExperiment = useFeatureFlag('CUSTOM_PRODUCTS_SIDEBAR', 'test')
 
@@ -142,12 +141,6 @@ export function ProjectTree({
 
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
-
-    const getTreeItemProtocol = (item: TreeDataItem): string =>
-        ((item.record as FileSystemEntry & { protocol?: string })?.protocol as string | undefined) ?? 'project://'
-
-    const getTreeItemPath = (item: TreeDataItem): string =>
-        (item.record as FileSystemEntry | undefined)?.path || item.id
 
     const treeData: TreeDataItem[] = [...fullFileSystemFiltered]
     if (fullFileSystemFiltered.length <= 5) {
@@ -208,28 +201,13 @@ export function ProjectTree({
                                     Dismiss.
                                 </span>
                             )}
+                            <br />
+                            <br />
                             {!hasRecommendedProducts && fullFileSystemFiltered.length <= 3 && (
-                                <>
-                                    <br />
-                                    <br />
-                                    <span className="cursor-pointer underline" onClick={seed}>
-                                        {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
-                                    </span>
-                                </>
+                                <span className="cursor-pointer underline" onClick={seed}>
+                                    {customProductsLoading ? 'Adding...' : 'Add recommended products?'}
+                                </span>
                             )}
-                            <br />
-                            <br />
-                            You can also see all products in the{' '}
-                            <span
-                                className="cursor-pointer underline"
-                                onClick={() => {
-                                    showLayoutPanel(true)
-                                    setActivePanelIdentifier('Products')
-                                }}
-                            >
-                                All apps
-                            </span>{' '}
-                            section.
                         </div>
                     ),
                 })
@@ -327,31 +305,8 @@ export function ProjectTree({
                 // False, because we handle focus of content in LemonTree with mainContentRef prop
                 resetPanelLayout(false)
             }}
-            onFolderRowClick={(folder, event) => {
-                if (!newTabProjectExplorerEnabled) {
-                    return
-                }
-
-                const expandToggle = (event.target as HTMLElement | null)?.closest('[data-lemon-tree-expand-toggle]')
-
-                if (expandToggle) {
-                    return
-                }
-
-                const folderPath = folder.record?.path
-
-                if (folderPath === undefined) {
-                    return
-                }
-
-                event.preventDefault()
-                event.stopPropagation()
-
-                const searchUrl = combineUrl(urls.newTab(), { folder: folderPath }).url
-                router.actions.push(searchUrl)
-            }}
-            onFolderClick={(folder, isExpanded, event) => {
-                if (folder && !event.isPropagationStopped()) {
+            onFolderClick={(folder, isExpanded) => {
+                if (folder) {
                     toggleFolderOpen(folder?.id || '', isExpanded)
                 }
             }}
@@ -368,25 +323,37 @@ export function ProjectTree({
             expandedItemIds={searchTerm ? expandedSearchFolders : expandedFolders}
             onSetExpandedItemIds={searchTerm ? setExpandedSearchFolders : setExpandedFolders}
             enableDragAndDrop={!sortMethod || sortMethod === 'folder'}
-            useExternalDndContext
-            getItemDraggableId={(item) =>
-                projectDroppableId(getTreeItemPath(item), getTreeItemProtocol(item), droppableScope)
-            }
-            getItemDroppableId={(item) =>
-                projectDroppableId(getTreeItemPath(item), getTreeItemProtocol(item), droppableScope)
-            }
-            rootDroppableId={projectDroppableId('', rootProtocol, `${droppableScope}-root`)}
-            getItemDragData={(item) =>
-                item.record
-                    ? projectDragDataFromEntry(
-                          item.record as FileSystemEntry,
-                          logicKey ?? uniqueKey,
-                          checkedItems[item.id]
-                              ? Object.keys(checkedItems).filter((key) => checkedItems[key])
-                              : undefined
-                      )
-                    : undefined
-            }
+            onDragEnd={(dragEvent) => {
+                const itemToId = (item: FileSystemEntry): string =>
+                    item.type === 'folder' ? 'project://' + item.path : 'project/' + item.id
+                const oldId = dragEvent.active.id as string
+                const newId = dragEvent.over?.id
+                if (oldId === newId) {
+                    return false
+                }
+
+                const items = searchTerm && searchResults.results ? searchResults.results : viableItems
+                const oldItem = items.find((i) => itemToId(i) === oldId)
+                const newItem = items.find((i) => itemToId(i) === newId)
+                if (oldItem === newItem || !oldItem) {
+                    return false
+                }
+
+                const folder = newItem
+                    ? newItem.path || ''
+                    : newId && String(newId).startsWith('project://')
+                      ? String(newId).substring(10)
+                      : ''
+
+                if (checkedItems[oldId]) {
+                    moveCheckedItems(folder)
+                } else {
+                    const { newPath, isValidMove } = calculateMovePath(oldItem, folder)
+                    if (isValidMove) {
+                        moveItem(oldItem, newPath, false, logicKey ?? uniqueKey)
+                    }
+                }
+            }}
             isItemDraggable={(item) => {
                 return (item.id.startsWith('project/') || item.id.startsWith('project://')) && item.record?.path
             }}
@@ -566,11 +533,31 @@ export function ProjectTree({
                 const user = item.record?.user as UserBasicType | undefined
                 const nameNode: JSX.Element = <span className="font-semibold">{item.displayName}</span>
 
-                if (root === 'products://' || root === 'data://' || root === 'persons://') {
+                if (
+                    root === 'products://' ||
+                    root === 'data://' ||
+                    root === 'persons://' ||
+                    root === 'custom-products://'
+                ) {
                     const key = item.record?.sceneKey
+                    const reason = item.record?.reason as UserProductListReason | undefined
+                    const reasonText = item.record?.reason_text as string | null | undefined
+
+                    const suggestedProductBaseTooltipText =
+                        reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
+                    const tooltipText = suggestedProductBaseTooltipText ? (
+                        <>
+                            {suggestedProductBaseTooltipText}
+                            <br />
+                            You can remove this product from your sidebar on the pencil button above.
+                            <br />
+                            <br />
+                        </>
+                    ) : undefined
 
                     return (
                         <>
+                            {tooltipText}
                             {sceneConfigurations[key]?.description || item.name}
 
                             {item.tags?.length && (
@@ -650,7 +637,6 @@ export function ProjectTree({
                 const createdAt = item.record?.created_at
                 const reason = item.record?.reason as UserProductListReason | undefined
                 const reasonText = item.record?.reason_text as string | null | undefined
-                const parsedReason = reasonText || (reason ? USER_PRODUCT_LIST_REASON_DEFAULTS[reason] : undefined)
 
                 // This indicator is shown if we detect we're looking at a custom product
                 // that's been recently added to the user's sidebar.
@@ -660,10 +646,10 @@ export function ProjectTree({
                     root === 'custom-products://' &&
                     createdAt &&
                     dayjs().diff(dayjs(createdAt), 'days') < 7 &&
-                    parsedReason
+                    (reasonText || (reason && USER_PRODUCT_LIST_REASON_DEFAULTS[reason]))
 
                 return (
-                    <Tooltip title={parsedReason} delayMs={0} placement="top-start">
+                    <>
                         {sortMethod === 'recent' && projectTreeMode === 'tree' && item.type !== 'loading-indicator' && (
                             <ProfilePicture
                                 user={item.record?.user as UserBasicType | undefined}
@@ -677,7 +663,7 @@ export function ProjectTree({
                                 <div className="absolute top-0.5 -right-0.5 size-2 bg-success rounded-full cursor-pointer animate-pulse-5" />
                             )}
                         </div>
-                    </Tooltip>
+                    </>
                 )
             }}
             renderItem={(item) => {

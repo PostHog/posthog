@@ -75,7 +75,7 @@ const getIdentifierFromEntry = (entry: FileSystemEntry): ProjectDragIdentifier =
     ref: entry.ref,
     href: entry.href,
     path: entry.path,
-    protocol: (entry as Record<string, string | undefined>).protocol ?? 'project://',
+    protocol: (entry as unknown as Record<string, string | undefined>).protocol ?? 'project://',
 })
 
 export function useProjectDragState(): DragContextValue {
@@ -188,7 +188,7 @@ export function ProjectDragAndDropProvider({ children }: { children: React.React
                                 {iconForType((activeItem.type as any) || 'default_icon_type')}
                             </span>
                             <span className="truncate font-medium text-primary">
-                                {activeItem.name || activeItem.path || 'Unnamed item'}
+                                {('name' in activeItem && activeItem.name) || activeItem.path || 'Unnamed item'}
                             </span>
                         </ButtonPrimitive>
                     ) : null}
