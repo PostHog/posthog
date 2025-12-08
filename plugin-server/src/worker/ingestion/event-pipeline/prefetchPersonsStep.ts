@@ -3,11 +3,10 @@ import { IncomingEventWithTeam } from '~/types'
 
 import { PersonsStore } from '../persons/persons-store'
 
-type prefetchPersonsStepInput = { eventWithTeam: IncomingEventWithTeam }
-type prefetchPersonsStepOutput = { eventWithTeam: IncomingEventWithTeam }
+type PrefetchPersonsStepInput = { eventWithTeam: IncomingEventWithTeam }
 
-export function prefetchPersonsStep<T extends prefetchPersonsStepInput>(personsStore: PersonsStore, enabled: boolean) {
-    return function prefetchPersonsStep(events: T[]): Promise<PipelineResult<T & prefetchPersonsStepOutput>[]> {
+export function prefetchPersonsStep<T extends PrefetchPersonsStepInput>(personsStore: PersonsStore, enabled: boolean) {
+    return function prefetchPersonsStep(events: T[]): Promise<PipelineResult<T>[]> {
         if (enabled) {
             // Fire prefetch without awaiting. fetchForChecking/fetchForUpdate will wait
             // on the pending promises if they need data that's still being fetched
