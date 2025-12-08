@@ -191,22 +191,26 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
                 a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
             )
 
-            const nodes: ModelNode[] = sortedMatviewNodes.map((node) => ({
-                id: node.id,
-                type: 'model',
-                data: {
+            const nodes: ModelNode[] = sortedMatviewNodes.map((node) => {
+                const userTag = (node.properties?.user as Record<string, unknown>)?.tag as string | undefined
+                return {
                     id: node.id,
-                    name: node.name,
-                    type: node.type,
-                    dagId: node.dag_id,
-                    handles: Object.values(handlesByNodeId[node.id] ?? {}),
-                },
-                position: { x: 0, y: 0 },
-                deletable: true,
-                selectable: true,
-                draggable: false,
-                connectable: false,
-            }))
+                    type: 'model',
+                    data: {
+                        id: node.id,
+                        name: node.name,
+                        type: node.type,
+                        dagId: node.dag_id,
+                        handles: Object.values(handlesByNodeId[node.id] ?? {}),
+                        userTag,
+                    },
+                    position: { x: 0, y: 0 },
+                    deletable: true,
+                    selectable: true,
+                    draggable: false,
+                    connectable: false,
+                }
+            })
 
             // Build edges from the API data, filtering to only include edges between matview nodes
             const edges: Edge[] = dataModelingEdges

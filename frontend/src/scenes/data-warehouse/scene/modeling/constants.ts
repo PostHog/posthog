@@ -1,5 +1,5 @@
 export const NODE_WIDTH = 180
-export const NODE_HEIGHT = 50
+export const NODE_HEIGHT = 60
 
 export const NODE_GAP = 30
 

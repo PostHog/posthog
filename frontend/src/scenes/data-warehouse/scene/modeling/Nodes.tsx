@@ -3,8 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconDatabase, IconPlus } from '@posthog/icons'
-import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { IconPlus } from '@posthog/icons'
 
 import { DataModelingNodeType } from '~/types'
 
@@ -14,10 +13,10 @@ import { DropzoneNodeProps, ModelNodeProps } from './types'
 
 export type ReactFlowNodeType = 'model' | 'dropzone'
 
-const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; type: LemonTagType; color: string }> = {
-    table: { label: 'Table', type: 'default', color: 'var(--muted)' },
-    view: { label: 'View', type: 'primary', color: 'var(--primary-3000)' },
-    matview: { label: 'Materialized view', type: 'success', color: 'var(--success)' },
+const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: string }> = {
+    table: { label: 'table', color: 'var(--muted)' },
+    view: { label: 'view', color: 'var(--primary-3000)' },
+    matview: { label: 'matview', color: 'var(--success)' },
 }
 
 function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
@@ -59,11 +58,12 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const settings = NODE_TYPE_SETTINGS[props.data.type]
     const isSelected = selectedNodeId === props.id
+    const { userTag } = props.data
 
     return (
         <div
             className={clsx(
-                'transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
+                'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
                 isSelected ? 'border-primary ring-2 ring-primary/20' : 'border-border'
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -75,20 +75,26 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             {props.data.handles?.map((handle) => (
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
-            <div className="flex items-center gap-2 p-2 h-full">
-                <div
-                    className="flex items-center justify-center w-8 h-8 rounded"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{ backgroundColor: `${settings.color}20`, color: settings.color }}
-                >
-                    <IconDatabase className="text-lg" />
-                </div>
-                <div className="flex flex-col flex-1 min-w-0">
-                    <span className="font-medium text-sm truncate">{props.data.name}</span>
-                    <LemonTag type={settings.type} size="small" className="w-fit">
+            <div className="flex flex-col justify-between p-2 h-full">
+                <div className="flex justify-between items-start">
+                    <span
+                        className="text-[10px] lowercase tracking-wide px-1 rounded"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            color: settings.color,
+                            backgroundColor: `color-mix(in srgb, ${settings.color} 15%, transparent)`,
+                            border: `1px solid color-mix(in srgb, ${settings.color} 30%, transparent)`,
+                        }}
+                    >
                         {settings.label}
-                    </LemonTag>
+                    </span>
+                    {userTag && (
+                        <span className="text-[10px] text-muted lowercase tracking-wide px-1 py-px rounded bg-primary/50">
+                            #{userTag}
+                        </span>
+                    )}
                 </div>
+                <span className="font-medium text-sm truncate">{props.data.name}</span>
             </div>
         </div>
     )
