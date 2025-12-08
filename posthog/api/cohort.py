@@ -613,7 +613,7 @@ class CohortCalculationHistorySerializer(serializers.ModelSerializer):
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
-    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
+    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id", "Person.id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     EMAIL_HEADERS = ["email", "e-mail"]
     # utf-8-sig strips the byte order mark that Excel and Google Sheets glue onto the first header
