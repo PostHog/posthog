@@ -161,18 +161,18 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                         <button
                             type="button"
                             onClick={handleRunUpstream}
-                            className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full bg-bg-light border border-border shadow-sm hover:bg-surface-primary hover:border-primary transition-all cursor-pointer z-10"
+                            className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                         >
-                            <IconRefresh className="w-3 h-3 text-muted rotate-180" />
+                            <IconRefresh className="w-3 h-3 fill-white dark:fill-gray-900 rotate-180" />
                         </button>
                     </Tooltip>
                     <Tooltip title="Run all downstream nodes including this one">
                         <button
                             type="button"
                             onClick={handleRunDownstream}
-                            className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full bg-bg-light border border-border shadow-sm hover:bg-surface-primary hover:border-primary transition-all cursor-pointer z-10"
+                            className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                         >
-                            <IconRefresh className="w-3 h-3 text-muted" />
+                            <IconRefresh className="w-3 h-3 fill-white dark:fill-gray-900" />
                         </button>
                     </Tooltip>
                 </>
