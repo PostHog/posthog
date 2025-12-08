@@ -2,11 +2,12 @@ from datetime import datetime
 from typing import cast
 
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest import skip
 
 from django.test import override_settings
+
+from parameterized import parameterized
 
 from posthog.schema import (
     Breakdown,
@@ -142,6 +143,7 @@ class TestExperimentBreakdown(ExperimentQueryRunnerBaseTest):
                 self.assertIsNotNone(variant.key)
                 self.assertIsNotNone(variant.number_of_samples)
 
+    @parameterized.expand([("new_query_builder", True)])
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
     def test_mean_metric_breakdown_with_changing_property_values(self, name, use_new_query_builder):

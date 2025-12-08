@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown
+# name: TestExperimentBreakdown.test_funnel_metric_with_breakdown_0_new_query_builder
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
@@ -182,9 +182,6 @@
                      use_hive_partitioning=0
   '''
 # ---
-<<<<<<< HEAD
-# name: TestExperimentBreakdown.test_mean_metric_with_breakdown
-=======
 # name: TestExperimentBreakdown.test_mean_metric_breakdown_with_changing_property_values_0_new_query_builder
   '''
   SELECT entity_metrics.variant AS variant,
@@ -248,8 +245,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentBreakdown.test_mean_metric_with_breakdown_0_new_query_builder
->>>>>>> 6e1963ad5b (fix(experiments): updating query builder with statistic analysis changes for ratio metrics.)
+# name: TestExperimentBreakdown.test_mean_metric_with_breakdown
   '''
   SELECT entity_metrics.variant AS variant,
          entity_metrics.breakdown_value_1 AS breakdown_value_1,
