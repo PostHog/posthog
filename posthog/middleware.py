@@ -821,7 +821,10 @@ class ActiveOrganizationMiddleware:
 
         user = cast(User, request.user)
 
-        if user.current_organization is not None and user.current_organization.is_active is not False:
+        if user.current_organization is None:
+            return self.get_response(request)
+
+        if user.current_organization.is_active is not False:
             return self.get_response(request)
 
         # attempt to automatically update the session to a new organization
@@ -829,20 +832,13 @@ class ActiveOrganizationMiddleware:
             OrganizationMembership.objects.filter(user=user).exclude(organization__is_active=False).first()
         )
 
-        if not new_org_membership:
-            logout(request)
-            return redirect(
-                "/login?error_code=no_organization&error_detail=Your account is not a member of any active organizations. Sign in with a different account."
-            )
-
-        new_org = new_org_membership.organization
+        new_org = new_org_membership.organization if new_org_membership is not None else None
         new_team = user.teams.filter(organization=new_org).first() if new_org is not None else None
 
         user.team = new_team
         user.current_team = new_team
         user.current_organization_id = new_org.id if new_org is not None else None
         user.current_organization = new_org
-
         user.save()
 
         if new_team is not None:

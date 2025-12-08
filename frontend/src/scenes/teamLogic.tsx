@@ -6,7 +6,7 @@ import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
+import { identifierToHuman, isUserLoggedIntoOrganization, resolveWebhookService } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -90,8 +90,8 @@ export const teamLogic = kea<teamLogicType>([
             null as TeamType | TeamPublicType | null,
             {
                 loadCurrentTeam: async () => {
-                    if (!isUserLoggedIn()) {
-                        // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
+                    if (!isUserLoggedIntoOrganization()) {
+                        // If user is anonymous (i.e. viewing a shared dashboard logged out), or not authed as a member of an organization, don't load authenticated stuff
                         return null
                     }
 

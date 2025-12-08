@@ -11,7 +11,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 from django.db.models.signals import post_delete, post_save
 
 import pytz
@@ -175,7 +175,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.get(api_token=token)
+            return Team.objects.get(api_token=token, organization__is_active=~Q(False))
         except Team.DoesNotExist:
             return None
 
@@ -184,10 +184,10 @@ class TeamManager(models.Manager):
             return None
         try:
             team = get_team_in_cache(token)
-            if team:
+            if team and team.organization.is_active is not False:
                 return team
 
-            team = Team.objects.get(api_token=token)
+            team = Team.objects.get(api_token=token, organization__is_active=~Q(False))
             set_team_in_cache(token, team)
             return team
 
@@ -199,10 +199,10 @@ class TeamManager(models.Manager):
             return None
         try:
             team = get_team_in_cache(secret_api_token)
-            if team:
+            if team and team.organization.is_active is not False:
                 return team
 
-            team = Team.objects.get(secret_api_token=secret_api_token)
+            team = Team.objects.get(secret_api_token=secret_api_token, organization__is_active=~Q(False))
             set_team_in_cache(secret_api_token, team)
             return team
 

@@ -159,6 +159,15 @@ class Organization(ModelActivityMixin, UUIDTModel):
         blank=True,
         help_text=_("Set this to 'No' to temporarily disable an organization."),
     )
+    is_not_active_reason = models.TextField(
+        _("de-activated reason"),
+        null=True,
+        blank=True,
+        help_text=_(
+            "(optional) reason for why the organization has been de-activated. This will be displayed to users on the web app."
+        ),
+        max_length=200,
+    )
 
     # Security / management settings
     session_cookie_age = models.IntegerField(

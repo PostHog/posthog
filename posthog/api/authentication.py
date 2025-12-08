@@ -48,7 +48,7 @@ from posthog.helpers.two_factor_session import (
     email_mfa_verifier,
     set_two_factor_verified_in_session,
 )
-from posthog.models import OrganizationDomain, OrganizationMembership, User
+from posthog.models import OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # noqa: F401
 from posthog.rate_limit import EmailMFAResendThrottle, EmailMFAThrottle, UserPasswordResetThrottle
 from posthog.tasks.email import (
@@ -225,15 +225,6 @@ class LoginSerializer(serializers.Serializer):
                 raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
-
-        # check that the user is a member of active organizations
-        active_org_memberships = (
-            OrganizationMembership.objects.filter(user=user).exclude(organization__is_active=False).count()
-        )
-        if active_org_memberships == 0:
-            raise serializers.ValidationError(
-                "Your account is not a member of any active organizations", code="no_organizations"
-            )
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
         if is_email_available() and user.is_email_verified is not True and not is_email_verification_disabled(user):

@@ -14,7 +14,7 @@ import { trackFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
+import { getRelativeNextPath, identifierToHuman, isUserLoggedIntoOrganization } from 'lib/utils'
 import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { NEW_INTERNAL_TAB } from 'lib/utils/newInternalTab'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -885,6 +885,11 @@ export const sceneLogic = kea<sceneLogicType>([
         },
         loadPinnedTabsFromBackend: async () => {
             try {
+                if (!isUserLoggedIntoOrganization()) {
+                    // If user is anonymous (i.e. viewing a shared dashboard logged out), or not authed as a member of an organization, don't load authenticated stuff
+                    return
+                }
+
                 const response = await api.get<{
                     tabs?: SceneTab[]
                     homepage?: SceneTab | null

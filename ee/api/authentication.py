@@ -85,6 +85,12 @@ class MultitenantSAMLAuth(SAMLAuth):
                 "Your organization does not have the required license to use SAML.",
             )
 
+        if organization_domain.organization.is_active is False:
+            raise AuthFailed(
+                self,
+                f"Your organization has been de-activated. {organization_domain.organization.is_not_active_reason or 'Contact us to re-activate your organization.'}",
+            )
+
         return SAMLIdentityProvider(
             str(organization_domain.id),
             entity_id=organization_domain.saml_entity_id,
@@ -502,3 +508,19 @@ def social_auth_allowed(backend, details, response, *args, **kwargs) -> None:
     else:
         # catch-all in case we missed a case above
         raise AuthFailed(backend, "sso_enforced", email)
+
+
+def check_organization_active(backend, details, response, *args, **kwargs) -> None:
+    """Check if the organization is active before allowing login via SSO."""
+    email = details.get("email")
+    if not email:
+        return
+
+    domain = email.split("@")[-1]
+    try:
+        domain_instance = OrganizationDomain.objects.get(domain__iexact=domain, is_verified=True)
+        if not domain_instance.organization.is_active:
+            raise AuthFailed(backend, "organization_inactive")
+    except OrganizationDomain.DoesNotExist:
+        # No verified domain found - user might be joining an org via invite instead
+        pass

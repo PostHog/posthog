@@ -316,10 +316,6 @@ class User(AbstractUser, UUIDTClassicModel):
                 self.save(update_fields=["current_team"])
         return self.current_team
 
-    @cached_property
-    def active_organizations(self) -> list[Organization]:
-        return self.organizations.exclude(is_active=False)
-
     def join(
         self,
         *,

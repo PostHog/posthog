@@ -130,7 +130,12 @@ export class TeamManager {
                 o.available_product_features
             FROM posthog_team t
             JOIN posthog_organization o ON o.id = t.organization_id
-            WHERE t.id = ANY($1) OR t.api_token = ANY($2)
+            WHERE
+              o.is_active <> false
+              AND (
+                t.id = ANY($1)
+                OR t.api_token = ANY($2)
+              )
             `,
             [teamIds, tokens],
             'fetch-teams-with-features'
