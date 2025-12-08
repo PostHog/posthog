@@ -27,7 +27,7 @@ from ee.hogai.chat_agent.memory.nodes import (
     MemoryOnboardingFinalizeNode,
     MemoryOnboardingNode,
 )
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.models import CoreMemory
 
@@ -143,7 +143,9 @@ class TestMemoryOnboardingNode(ClickhouseTestMixin, BaseTest):
     def test_should_run(self):
         node = MemoryOnboardingNode(team=self.team, user=self.user)
         self.assertEqual(
-            node.should_run_onboarding_at_start(AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])),
+            node.should_run_onboarding_at_start(
+                AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
+            ),
             "memory_onboarding",
         )
 
@@ -314,7 +316,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
         memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
         result = memory_onboarding.should_run_onboarding_at_start(
-            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+            AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should trigger memory onboarding flow (which includes MemoryOnboardingNode)
         self.assertEqual(result, "memory_onboarding")
@@ -326,7 +328,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
 
         memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
         result = memory_onboarding.should_run_onboarding_at_start(
-            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+            AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should trigger memory onboarding flow (which includes MemoryInitializerNode)
         self.assertEqual(result, "memory_onboarding")
@@ -336,7 +338,7 @@ class TestMemoryInitializerNode(ClickhouseTestMixin, BaseTest):
         # The core memory from setUp() is already in PENDING status, so we can use it as-is
         memory_onboarding = MemoryOnboardingNode(team=self.team, user=self.user)
         result = memory_onboarding.should_run_onboarding_at_start(
-            AssistantState(messages=[HumanMessage(content=SLASH_COMMAND_INIT)])
+            AssistantState(messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)])
         )
         # Should NOT trigger memory onboarding flow, so MemoryOnboardingNode won't run
         self.assertEqual(result, "continue")
@@ -405,7 +407,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
             model_mock.return_value = RunnableLambda(lambda _: "===What is your target market?")
 
             state = AssistantState(
-                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
+                messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)],
             )
 
             new_state = self.node.run(state, {})
@@ -444,7 +446,7 @@ class TestMemoryOnboardingEnquiryNode(ClickhouseTestMixin, BaseTest):
 
             # First run - should get interrupted with first question
             state = AssistantState(
-                messages=[HumanMessage(content=SLASH_COMMAND_INIT)],
+                messages=[HumanMessage(content=SlashCommandName.FIELD_INIT)],
             )
             new_state = self.node.run(state, {})
             self.assertEqual(new_state.onboarding_question, "What is your target market?")

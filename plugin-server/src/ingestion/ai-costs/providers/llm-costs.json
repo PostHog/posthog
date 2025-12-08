@@ -1427,6 +1427,14 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 4e-7
             },
+            "baseten-fp4": {
+                "prompt_token": 3e-7,
+                "completion_token": 4.5e-7
+            },
+            "chutes-fp8": {
+                "prompt_token": 2.7e-7,
+                "completion_token": 4.1e-7
+            },
             "deepinfra-fp4": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 4e-7,
@@ -1443,6 +1451,10 @@
             },
             "novita-fp8": {
                 "prompt_token": 2.8e-7,
+                "completion_token": 4.2e-7
+            },
+            "siliconflow-fp8": {
+                "prompt_token": 2.7e-7,
                 "completion_token": 4.2e-7
             }
         }
@@ -2007,6 +2019,10 @@
             "modelrun": {
                 "prompt_token": 0,
                 "completion_token": 0
+            },
+            "open-inference-int8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -2551,10 +2567,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 6e-7
             },
-            "gmicloud-bf16": {
-                "prompt_token": 2.5e-7,
-                "completion_token": 7.5e-7
-            },
             "google-vertex": {
                 "prompt_token": 7.2e-7,
                 "completion_token": 7.2e-7
@@ -2609,6 +2621,10 @@
                 "completion_token": 0
             },
             "modelrun": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
                 "prompt_token": 0,
                 "completion_token": 0
             },
@@ -2924,6 +2940,10 @@
                 "prompt_token": 2.8e-7,
                 "completion_token": 0.00000115
             },
+            "chutes-fp8": {
+                "prompt_token": 2.6e-7,
+                "completion_token": 0.00000102
+            },
             "deepinfra-fp8": {
                 "prompt_token": 2.7e-7,
                 "completion_token": 0.00000115
@@ -2946,20 +2966,8 @@
             },
             "novita-fp8": {
                 "prompt_token": 3e-7,
-                "completion_token": 0.0000012
-            }
-        }
-    },
-    {
-        "model": "mistralai/codestral-2501",
-        "cost": {
-            "default": {
-                "prompt_token": 3e-7,
-                "completion_token": 9e-7
-            },
-            "mistral": {
-                "prompt_token": 3e-7,
-                "completion_token": 9e-7
+                "completion_token": 0.0000012,
+                "cache_read_token": 3e-8
             }
         }
     },
@@ -3016,23 +3024,6 @@
             "deepinfra-bf16": {
                 "prompt_token": 6e-8,
                 "completion_token": 1.2e-7
-            },
-            "mistral": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7
-            }
-        }
-    },
-    {
-        "model": "mistralai/magistral-medium-2506",
-        "cost": {
-            "default": {
-                "prompt_token": 0.000002,
-                "completion_token": 0.000005
-            },
-            "mistral": {
-                "prompt_token": 0.000002,
-                "completion_token": 0.000005
             }
         }
     },
@@ -3050,15 +3041,15 @@
         }
     },
     {
-        "model": "mistralai/magistral-small-2506",
+        "model": "mistralai/ministral-14b-2512",
         "cost": {
             "default": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000015
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             },
             "mistral": {
-                "prompt_token": 5e-7,
-                "completion_token": 0.0000015
+                "prompt_token": 2e-7,
+                "completion_token": 2e-7
             }
         }
     },
@@ -3076,6 +3067,19 @@
         }
     },
     {
+        "model": "mistralai/ministral-3b-2512",
+        "cost": {
+            "default": {
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
+            },
+            "mistral": {
+                "prompt_token": 1e-7,
+                "completion_token": 1e-7
+            }
+        }
+    },
+    {
         "model": "mistralai/ministral-8b",
         "cost": {
             "default": {
@@ -3085,6 +3089,19 @@
             "mistral": {
                 "prompt_token": 1e-7,
                 "completion_token": 1e-7
+            }
+        }
+    },
+    {
+        "model": "mistralai/ministral-8b-2512",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
+            },
+            "mistral": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
             }
         }
     },
@@ -3282,36 +3299,19 @@
         }
     },
     {
-        "model": "mistralai/mistral-small",
-        "cost": {
-            "default": {
-                "prompt_token": 2e-7,
-                "completion_token": 6e-7
-            },
-            "mistral": {
-                "prompt_token": 2e-7,
-                "completion_token": 6e-7
-            }
-        }
-    },
-    {
         "model": "mistralai/mistral-small-24b-instruct-2501",
         "cost": {
             "default": {
-                "prompt_token": 5e-8,
-                "completion_token": 8e-8
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 5e-8,
-                "completion_token": 2.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 5e-8,
                 "completion_token": 8e-8
-            },
-            "mistral": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7
             },
             "together": {
                 "prompt_token": 8e-7,
@@ -3333,11 +3333,6 @@
             "cloudflare": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 5.6e-7
-            },
-            "mistral": {
-                "prompt_token": 1e-7,
-                "completion_token": 3e-7,
-                "image": 0.0009264
             }
         }
     },
@@ -4570,6 +4565,21 @@
         }
     },
     {
+        "model": "openai/gpt-5.1-codex-max",
+        "cost": {
+            "default": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            },
+            "openai": {
+                "prompt_token": 0.00000125,
+                "completion_token": 0.00001,
+                "cache_read_token": 1.25e-7
+            }
+        }
+    },
+    {
         "model": "openai/gpt-5.1-codex-mini",
         "cost": {
             "default": {
@@ -4588,8 +4598,8 @@
         "model": "openai/gpt-oss-120b",
         "cost": {
             "default": {
-                "prompt_token": 4e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "amazon-bedrock": {
                 "prompt_token": 1.5e-7,
@@ -4625,8 +4635,8 @@
                 "cache_read_token": 8e-8
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.9e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "deepinfra-turbo": {
                 "prompt_token": 1.5e-7,
@@ -4691,12 +4701,12 @@
         "model": "openai/gpt-oss-120b:exacto",
         "cost": {
             "default": {
-                "prompt_token": 4e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "deepinfra-fp4": {
-                "prompt_token": 4.9e-8,
-                "completion_token": 2e-7
+                "prompt_token": 3.9e-8,
+                "completion_token": 1.9e-7
             },
             "groq": {
                 "prompt_token": 1.5e-7,
@@ -4705,6 +4715,19 @@
             "novita-bf16": {
                 "prompt_token": 4e-8,
                 "completion_token": 2e-7
+            }
+        }
+    },
+    {
+        "model": "openai/gpt-oss-120b:free",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
+                "prompt_token": 0,
+                "completion_token": 0
             }
         }
     },
@@ -4794,6 +4817,10 @@
                 "completion_token": 0
             },
             "chutes-bf16": {
+                "prompt_token": 0,
+                "completion_token": 0
+            },
+            "open-inference-int8": {
                 "prompt_token": 0,
                 "completion_token": 0
             }
@@ -4992,17 +5019,26 @@
         "model": "opengvlab/internvl3-78b",
         "cost": {
             "default": {
-                "prompt_token": 7e-8,
-                "completion_token": 2.6e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
             },
             "chutes-bf16": {
-                "prompt_token": 7e-8,
-                "completion_token": 2.6e-7
+                "prompt_token": 1.5e-7,
+                "completion_token": 6e-7
             }
         }
     },
     {
         "model": "openrouter/auto",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
+        "model": "openrouter/bodybuilder",
         "cost": {
             "default": {
                 "prompt_token": 0,
@@ -5484,7 +5520,7 @@
                 "completion_token": 4.64e-7
             },
             "parasail-fp8": {
-                "prompt_token": 1.8e-7,
+                "prompt_token": 4e-7,
                 "completion_token": 8.5e-7
             },
             "siliconflow-fp8": {

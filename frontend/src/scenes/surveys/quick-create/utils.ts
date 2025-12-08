@@ -1,8 +1,14 @@
+import { SurveyQuestionType } from 'posthog-js'
+
 import { EventsNode } from '~/queries/schema/schema-general'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'
-import { QuickSurveyFormLogicProps } from './quickSurveyFormLogic'
+import {
+    DEFAULT_RATING_LOWER_LABEL,
+    DEFAULT_RATING_UPPER_LABEL,
+    QuickSurveyFormLogicProps,
+} from './quickSurveyFormLogic'
 import { QuickSurveyContext, QuickSurveyType } from './types'
 
 export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFormLogicProps, 'onSuccess'> => {
@@ -47,6 +53,35 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                         ...defaultSurveyAppearance,
                         surveyPopupDelaySeconds: 15,
                     },
+                },
+            }
+
+        case QuickSurveyType.EXPERIMENT:
+            return {
+                key: `experiment-${context.experiment.id}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.EXPERIMENTS,
+                defaults: {
+                    name: `${context.experiment.name} - Quick feedback ${randomId}`,
+                    question: 'This update?',
+                    questionType: SurveyQuestionType.Rating,
+                    ratingLowerBound: DEFAULT_RATING_LOWER_LABEL,
+                    ratingUpperBound: DEFAULT_RATING_UPPER_LABEL,
+                    linkedFlagId: context.experiment.feature_flag?.id,
+                },
+            }
+
+        case QuickSurveyType.ANNOUNCEMENT:
+            return {
+                key: `announcement-quick-survey-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.SURVEY_FORM,
+                defaults: {
+                    questionType: SurveyQuestionType.Link,
+                    name: `Announcement (${randomId})`,
+                    question: 'Hog mode is now available!',
+                    description: 'You can never have too many hedgehogs.',
+                    buttonText: 'Check it out 👉',
                 },
             }
     }

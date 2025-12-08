@@ -1683,6 +1683,7 @@
                 "toolbarLaunch",
                 "webAnalytics",
                 "webAnalyticsWebVitals",
+                "webAnalyticsHealth",
                 "persons"
             ],
             "type": "string"
@@ -7780,6 +7781,9 @@
                 "id": {
                     "type": "string"
                 },
+                "meta": {
+                    "$ref": "#/definitions/ContextMessageMetadata"
+                },
                 "parent_tool_call_id": {
                     "type": "string"
                 },
@@ -7790,6 +7794,16 @@
             },
             "required": ["type", "content"],
             "type": "object"
+        },
+        "ContextMessageMetadata": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ModeContext"
+                },
+                {
+                    "type": "null"
+                }
+            ]
         },
         "ConversionGoalFilter": {
             "anyOf": [
@@ -10236,6 +10250,10 @@
             },
             "required": ["key", "operator", "type"],
             "type": "object"
+        },
+        "DataWarehouseSavedQueryOrigin": {
+            "enum": ["data_warehouse", "endpoint", "managed_viewset"],
+            "type": "string"
         },
         "DataWarehouseSyncInterval": {
             "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
@@ -14492,6 +14510,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
+                "marketing_analytics",
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
@@ -19698,6 +19717,20 @@
             "required": ["use_as_profile", "color", "accessories"],
             "type": "object"
         },
+        "ModeContext": {
+            "additionalProperties": false,
+            "properties": {
+                "mode": {
+                    "$ref": "#/definitions/AgentMode"
+                },
+                "type": {
+                    "const": "mode",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "mode"],
+            "type": "object"
+        },
         "MultiQuestionForm": {
             "additionalProperties": false,
             "properties": {
@@ -19976,14 +20009,11 @@
         "PageURL": {
             "additionalProperties": false,
             "properties": {
-                "count": {
-                    "type": "number"
-                },
                 "url": {
                     "type": "string"
                 }
             },
-            "required": ["url", "count"],
+            "required": ["url"],
             "type": "object"
         },
         "PathCleaningFilter": {
@@ -27756,6 +27786,10 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SlashCommandName": {
+            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "type": "string"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
@@ -28479,6 +28513,9 @@
                     "type": "string"
                 },
                 "inputBackground": {
+                    "type": "string"
+                },
+                "inputTextColor": {
                     "type": "string"
                 },
                 "maxWidth": {
@@ -30396,6 +30433,7 @@
             "enum": [
                 "Visitors",
                 "Views",
+                "AvgTimeOnPage",
                 "Clicks",
                 "BounceRate",
                 "AverageScrollPercentage",
@@ -31123,6 +31161,9 @@
                     "type": "boolean"
                 },
                 "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "includeAvgTimeOnPage": {
                     "type": "boolean"
                 },
                 "includeBounceRate": {

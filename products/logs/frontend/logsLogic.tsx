@@ -23,7 +23,7 @@ import { JsonType, PropertyFilterType, PropertyGroupFilter, PropertyOperator, Un
 
 import { zoomDateRange } from './filters/zoom-utils'
 import type { logsLogicType } from './logsLogicType'
-import { ParsedLogMessage } from './types'
+import { LogsOrderBy, ParsedLogMessage } from './types'
 
 const DEFAULT_DATE_RANGE = { date_from: '-1h', date_to: null }
 const DEFAULT_SEVERITY_LEVELS = [] as LogsQuery['severityLevels']
@@ -223,7 +223,7 @@ export const logsLogic = kea<logsLogicType>([
             liveTailAbortController,
         }),
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
-        setOrderBy: (orderBy: LogsQuery['orderBy']) => ({ orderBy }),
+        setOrderBy: (orderBy: LogsOrderBy) => ({ orderBy }),
         setSearchTerm: (searchTerm: LogsQuery['searchTerm']) => ({ searchTerm }),
         setSeverityLevels: (severityLevels: LogsQuery['severityLevels']) => ({ severityLevels }),
         setServiceNames: (serviceNames: LogsQuery['serviceNames']) => ({ serviceNames }),
@@ -750,12 +750,14 @@ export const logsLogic = kea<logsLogicType>([
 
     listeners(({ values, actions, cache }) => ({
         fetchLogsFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load logs: ${error}`)
             }
         },
         fetchNextLogsPageFailure: ({ error }) => {
-            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE) {
+            const errorStr = String(error).toLowerCase()
+            if (error !== NEW_QUERY_STARTED_ERROR_MESSAGE && !errorStr.includes('abort')) {
                 lemonToast.error(`Failed to load more logs: ${error}`)
             }
         },
