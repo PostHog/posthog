@@ -88,7 +88,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/change_requests/{cr.id}/approve/")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already voted" in response.json()["error"]
+        assert "already voted" in response.json()["error"].lower()
 
     def test_approve_not_pending(self):
         cr = self._create_change_request(state=ChangeRequestState.APPLIED)
@@ -128,7 +128,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "already voted" in response.json()["error"]
+        assert "already voted" in response.json()["error"].lower()
 
     def test_cancel_success(self):
         cr = self._create_change_request()

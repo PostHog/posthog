@@ -57,10 +57,19 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         try:
             result = service.approve(reason=request.data.get("reason", ""))
-        except InvalidStateError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except AlreadyVotedError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidStateError:
+            return Response(
+                {"error": "This change request can no longer be approved."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except AlreadyVotedError:
+            return Response(
+                {"error": "You have already voted on this change request."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error("Unexpected error in approve: %s", str(e), exc_info=True)
+            return Response(
+                {"error": "An error occurred while processing approval."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         response_data = {
             "status": result.status,
@@ -80,12 +89,21 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         try:
             result = service.reject(reason=request.data.get("reason", ""))
-        except InvalidStateError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except ReasonRequiredError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except AlreadyVotedError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidStateError:
+            return Response(
+                {"error": "This change request can no longer be rejected."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except ReasonRequiredError:
+            return Response({"error": "A reason is required for rejection."}, status=status.HTTP_400_BAD_REQUEST)
+        except AlreadyVotedError:
+            return Response(
+                {"error": "You have already voted on this change request."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error("Unexpected error in reject: %s", str(e), exc_info=True)
+            return Response(
+                {"error": "An error occurred while processing rejection."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
         return Response(
             {
@@ -107,8 +125,16 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
 
         try:
             result = service.cancel(reason=request.data.get("reason", "Canceled by requester"))
-        except InvalidStateError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidStateError:
+            return Response(
+                {"error": "This change request can no longer be canceled."}, status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error("Unexpected error in cancel: %s", str(e), exc_info=True)
+            return Response(
+                {"error": "An error occurred while canceling the request."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         return Response(
             {
