@@ -58,6 +58,8 @@ def send_approval_decision_notification(
     Notify the requester that their change request was approved or rejected.
     """
     try:
+        if not change_request.created_by:
+            return
         decision = "approved" if approval.decision == "approved" else "rejected"
         _send_email(
             recipient=change_request.created_by,
@@ -85,6 +87,8 @@ def send_approval_expired_notification(change_request: "ChangeRequest") -> None:
     Notify the requester that their change request has expired.
     """
     try:
+        if not change_request.created_by:
+            return
         _send_email(
             recipient=change_request.created_by,
             subject=f"Your change request expired: {change_request.action_key}",
@@ -108,6 +112,8 @@ def send_approval_applied_notification(change_request: "ChangeRequest") -> None:
     Notify the requester that their change request has been successfully applied.
     """
     try:
+        if not change_request.created_by:
+            return
         _send_email(
             recipient=change_request.created_by,
             subject=f"Your change request was applied: {change_request.action_key}",

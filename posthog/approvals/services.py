@@ -26,7 +26,7 @@ class RequestContext:
         self.method = method
         self.user = user
         self.data = data
-        self.session = {}  # For impersonation checks
+        self.session: dict[str, Any] = {}
 
 
 def apply_change_request(change_request: ChangeRequest) -> Any:

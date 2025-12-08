@@ -1,4 +1,5 @@
 import logging
+from typing import cast
 
 from django.db.models import QuerySet
 
@@ -6,6 +7,7 @@ from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.approvals.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
@@ -13,6 +15,7 @@ from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.permissions import CanApprove, CanCancel
 from posthog.approvals.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
 from posthog.approvals.services import ChangeRequestService
+from posthog.models import User
 from posthog.permissions import OrganizationAdminWritePermissions, OrganizationMemberPermissions
 
 logger = logging.getLogger(__name__)
@@ -53,7 +56,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         If quorum is reached, automatically applies the change immediately.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, request.user)
+        service = ChangeRequestService(change_request, cast(User, request.user))
 
         try:
             result = service.approve(reason=request.data.get("reason", ""))
@@ -85,7 +88,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
     def reject(self, request: Request, pk=None, **kwargs) -> Response:
         """Reject a change request."""
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, request.user)
+        service = ChangeRequestService(change_request, cast(User, request.user))
 
         try:
             result = service.reject(reason=request.data.get("reason", ""))
@@ -121,7 +124,7 @@ class ChangeRequestViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet
         Only the requester can cancel their own pending change request.
         """
         change_request: ChangeRequest = self.get_object()
-        service = ChangeRequestService(change_request, request.user)
+        service = ChangeRequestService(change_request, cast(User, request.user))
 
         try:
             result = service.cancel(reason=request.data.get("reason", "Canceled by requester"))
@@ -164,7 +167,7 @@ class ApprovalPolicyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return queryset.select_related("created_by")
 
-    def perform_create(self, serializer: ApprovalPolicySerializer) -> None:
+    def perform_create(self, serializer: BaseSerializer) -> None:
         serializer.save(
             created_by=self.request.user,
             organization=self.organization,
