@@ -16,7 +16,6 @@ from two_factor.urls import urlpatterns as tf_urls
 from posthog.api import (
     api_not_found,
     authentication,
-    customerio_webhook,
     decide,
     github,
     hog_function_template,
@@ -172,7 +171,6 @@ urlpatterns = [
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
-    path("api/webhooks/customerio", customerio_webhook.CustomerIoWebhookView.as_view()),
     path("api/alerts/github", github.SecretAlert.as_view()),
     path("api/sdk_doctor/", sdk_doctor),
     opt_slash_path("api/support/ensure-zendesk-organization", csrf_exempt(ensure_zendesk_organization)),
