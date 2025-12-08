@@ -32,6 +32,7 @@ LOCAL_AGENT_PACKAGE=/path/to/array/packages/agent \
 ```
 
 This uses a two-layer Docker image approach:
+
 1. `posthog-sandbox-base` - Base image with `@posthog/agent` from npm
 2. `posthog-sandbox-base-local` - Dev image that overlays your local agent package
 
@@ -53,6 +54,7 @@ Get tokens from [modal.com](https://modal.com).
 Tests require the Array OAuth app fixture. It's created automatically via `autouse=True` in `conftest.py`.
 
 To run tests that need Modal:
+
 ```bash
 MODAL_TOKEN_ID=xxx MODAL_TOKEN_SECRET=xxx pytest products/tasks/backend/temporal/
 ```

@@ -24,7 +24,11 @@ from products.tasks.backend.temporal.process_task.activities import (
     get_task_processing_context,
     track_workflow_event,
 )
-from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput, ProcessTaskOutput, ProcessTaskWorkflow
+from products.tasks.backend.temporal.process_task.workflow import (
+    ProcessTaskInput,
+    ProcessTaskOutput,
+    ProcessTaskWorkflow,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
