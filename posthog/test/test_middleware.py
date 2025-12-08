@@ -365,6 +365,24 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert res.status_code == 302
         assert res.headers["Location"] == f"/project/{self.team.pk}/home?t=1"
 
+    def test_project_unchanged_when_accessing_project_in_inactive_org(self):
+        inactive_org = create_organization(name="Inactive Org")
+        inactive_org.is_active = False
+        inactive_org.save()
+        inactive_team = create_team(organization=inactive_org, name="Inactive Team")
+        self.user.organizations.add(inactive_org)
+
+        dashboard = Dashboard.objects.create(team=inactive_team)
+
+        response_app = self.client.get(f"/dashboard/{dashboard.id}")
+        response_users_api = self.client.get(f"/api/users/@me/")
+        response_users_api_data = response_users_api.json()
+        self.user.refresh_from_db()
+
+        self.assertEqual(response_app.status_code, 200)
+        self.assertEqual(response_users_api.status_code, 200)
+        self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+
 
 @override_settings(CLOUD_DEPLOYMENT="US")  # As PostHog Cloud
 class TestPostHogTokenCookieMiddleware(APIBaseTest):
@@ -682,3 +700,75 @@ class TestSessionAgeMiddleware(APIBaseTest):
         self.assertEqual(
             response.headers["Location"], "/login?message=Your%20session%20has%20expired.%20Please%20log%20in%20again."
         )
+
+
+class TestActiveOrganizationMiddleware(APIBaseTest):
+    def test_active_organization_allows_request(self):
+        self.organization.is_active = True
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+    def test_null_is_active_allows_request(self):
+        self.organization.is_active = None
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+    def test_inactive_organization_switches_to_active_org(self):
+        other_org = Organization.objects.create(name="Other Org", is_active=True)
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        self.user.organizations.add(other_org)
+
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = "Test deactivation"
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], f"/project/{other_team.id}")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, other_org)
+        self.assertEqual(self.user.current_team, other_team)
+
+    def test_inactive_organization_with_no_other_orgs_redirects_to_home(self):
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = "Test deactivation"
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], "/")
+
+        self.user.refresh_from_db()
+        self.assertIsNone(self.user.current_organization)
+        self.assertIsNone(self.user.current_team)
+
+    def test_inactive_organization_skips_other_inactive_orgs(self):
+        inactive_org = Organization.objects.create(name="Inactive Org", is_active=False)
+        Team.objects.create(organization=inactive_org, name="Inactive Team")
+        self.user.organizations.add(inactive_org)
+
+        active_org = Organization.objects.create(name="Active Org", is_active=True)
+        active_team = Team.objects.create(organization=active_org, name="Active Team")
+        self.user.organizations.add(active_org)
+
+        self.organization.is_active = False
+        self.organization.save()
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response.headers["Location"], f"/project/{active_team.id}")
+
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_organization, active_org)
+
+    def test_unauthenticated_user_not_affected(self):
+        self.client.logout()
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

@@ -190,3 +190,72 @@ class TestTeam(BaseTest):
         subsequent = Team.objects.increment_id_sequence()
 
         self.assertEqual(subsequent, initial + 1)
+
+
+class TestTeamManagerInactiveOrganization(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.active_org = Organization.objects.create(name="Active Org", is_active=True)
+        self.inactive_org = Organization.objects.create(name="Inactive Org", is_active=False)
+        self.null_is_active_org = Organization.objects.create(name="Null Org", is_active=None)
+
+        self.active_team = Team.objects.create(
+            organization=self.active_org, api_token="active_token", secret_api_token="active_secret"
+        )
+        self.inactive_team = Team.objects.create(
+            organization=self.inactive_org, api_token="inactive_token", secret_api_token="inactive_secret"
+        )
+        self.null_team = Team.objects.create(
+            organization=self.null_is_active_org, api_token="null_token", secret_api_token="null_secret"
+        )
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
+
+    def test_get_team_from_token_returns_team_for_active_org(self):
+        team = Team.objects.get_team_from_token("active_token")
+        self.assertEqual(team, self.active_team)
+
+    def test_get_team_from_token_returns_none_for_inactive_org(self):
+        team = Team.objects.get_team_from_token("inactive_token")
+        self.assertIsNone(team)
+
+    def test_get_team_from_token_returns_team_for_null_is_active_org(self):
+        team = Team.objects.get_team_from_token("null_token")
+        self.assertEqual(team, self.null_team)
+
+    def test_get_team_from_cache_or_token_returns_team_for_active_org(self):
+        team = Team.objects.get_team_from_cache_or_token("active_token")
+        self.assertEqual(team, self.active_team)
+
+    def test_get_team_from_cache_or_token_returns_none_for_inactive_org(self):
+        team = Team.objects.get_team_from_cache_or_token("inactive_token")
+        self.assertIsNone(team)
+
+    def test_get_team_from_cache_or_token_returns_team_for_null_is_active_org(self):
+        team = Team.objects.get_team_from_cache_or_token("null_token")
+        self.assertEqual(team, self.null_team)
+
+    def test_get_team_from_secret_api_token_returns_team_for_active_org(self):
+        team = Team.objects.get_team_from_cache_or_secret_api_token("active_secret")
+        self.assertEqual(team, self.active_team)
+
+    def test_get_team_from_secret_api_token_returns_none_for_inactive_org(self):
+        team = Team.objects.get_team_from_cache_or_secret_api_token("inactive_secret")
+        self.assertIsNone(team)
+
+    def test_get_team_from_secret_api_token_returns_team_for_null_is_active_org(self):
+        team = Team.objects.get_team_from_cache_or_secret_api_token("null_secret")
+        self.assertEqual(team, self.null_team)
+
+    def test_cached_team_invalidated_when_org_becomes_inactive(self):
+        team = Team.objects.get_team_from_cache_or_token("active_token")
+        self.assertEqual(team, self.active_team)
+
+        self.active_org.is_active = False
+        self.active_org.save()
+
+        team = Team.objects.get_team_from_cache_or_token("active_token")
+        self.assertIsNone(team)

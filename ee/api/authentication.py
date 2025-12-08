@@ -518,9 +518,11 @@ def check_organization_active(backend, details, response, *args, **kwargs) -> No
 
     domain = email.split("@")[-1]
     try:
-        domain_instance = OrganizationDomain.objects.get(domain__iexact=domain, is_verified=True)
-        if not domain_instance.organization.is_active:
+        domain_instance = OrganizationDomain.objects.exclude(sso_enforcement="").get(
+            domain__iexact=domain, verified_at__isnull=False
+        )
+        if domain_instance.organization.is_active is False:
             raise AuthFailed(backend, "organization_inactive")
     except OrganizationDomain.DoesNotExist:
-        # No verified domain found - user might be joining an org via invite instead
+        # User might be OAUTHing but not SSOing (and org doesn't require SSO), or domain is not verified
         pass
