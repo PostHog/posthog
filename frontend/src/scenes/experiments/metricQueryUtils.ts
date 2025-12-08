@@ -568,10 +568,10 @@ export const addExposureToQuery =
     (exposureEvent: EventsNode | ActionsNode) =>
     (query: FunnelsQuery | TrendsQuery | undefined): FunnelsQuery | TrendsQuery | undefined =>
         query
-            ? {
+            ? ({
                   ...query,
                   series: [exposureEvent, ...query.series],
-              }
+              } as typeof query)
             : undefined
 
 type InsightVizNodeOptions = {
