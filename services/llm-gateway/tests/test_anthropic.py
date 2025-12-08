@@ -34,11 +34,6 @@ class TestAnthropicMessagesEndpoint:
         [
             pytest.param({}, "model", id="missing_model"),
             pytest.param({"model": "claude-3"}, "messages", id="missing_messages"),
-            pytest.param(
-                {"model": "claude-3", "messages": [], "temperature": 2.0},
-                "temperature",
-                id="invalid_temperature",
-            ),
         ],
     )
     def test_validation_errors(

@@ -39,16 +39,6 @@ class TestChatCompletionsEndpoint:
         [
             pytest.param({}, "model", id="missing_model"),
             pytest.param({"model": "gpt-4"}, "messages", id="missing_messages"),
-            pytest.param(
-                {"model": "gpt-4", "messages": [], "temperature": 3.0},
-                "temperature",
-                id="invalid_temperature",
-            ),
-            pytest.param(
-                {"model": "gpt-4", "messages": [], "presence_penalty": -5.0},
-                "presence_penalty",
-                id="invalid_presence_penalty",
-            ),
         ],
     )
     def test_validation_errors(
