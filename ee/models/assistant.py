@@ -130,14 +130,14 @@ class CoreMemory(UUIDTModel):
     scraping_status = models.CharField(max_length=20, choices=ScrapingStatus.choices, blank=True, null=True)
     scraping_started_at = models.DateTimeField(null=True)
 
-    def change_status_to_pending(self):
+    async def achange_status_to_pending(self):
         self.scraping_started_at = timezone.now()
         self.scraping_status = CoreMemory.ScrapingStatus.PENDING
-        self.save()
+        await self.asave()
 
-    def change_status_to_skipped(self):
+    async def achange_status_to_skipped(self):
         self.scraping_status = CoreMemory.ScrapingStatus.SKIPPED
-        self.save()
+        await self.asave()
 
     @property
     def is_scraping_pending(self) -> bool:
@@ -150,35 +150,35 @@ class CoreMemory(UUIDTModel):
     def is_scraping_finished(self) -> bool:
         return self.scraping_status in [CoreMemory.ScrapingStatus.COMPLETED, CoreMemory.ScrapingStatus.SKIPPED]
 
-    def append_question_to_initial_text(self, text: str):
+    async def aappend_question_to_initial_text(self, text: str):
         if self.initial_text != "":
             self.initial_text += "\n"
         self.initial_text += "Question: " + text + "\nAnswer:"
         self.initial_text = self.initial_text.strip()
-        self.save()
+        await self.asave()
 
-    def append_answer_to_initial_text(self, text: str):
+    async def aappend_answer_to_initial_text(self, text: str):
         self.initial_text += " " + text
         self.initial_text = self.initial_text.strip()
-        self.save()
+        await self.asave()
 
-    def set_core_memory(self, text: str):
+    async def aset_core_memory(self, text: str):
         self.text = text
         self.scraping_status = CoreMemory.ScrapingStatus.COMPLETED
-        self.save()
+        await self.asave()
 
-    def append_core_memory(self, text: str):
+    async def aappend_core_memory(self, text: str):
         if self.text == "":
             self.text = text
         else:
             self.text = self.text + "\n" + text
-        self.save()
+        await self.asave()
 
-    def replace_core_memory(self, original_fragment: str, new_fragment: str):
+    async def areplace_core_memory(self, original_fragment: str, new_fragment: str):
         if original_fragment not in self.text:
             raise ValueError(f"Original fragment {original_fragment} not found in core memory")
         self.text = self.text.replace(original_fragment, new_fragment)
-        self.save()
+        await self.asave()
 
     @property
     def formatted_text(self) -> str:
