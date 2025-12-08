@@ -59,6 +59,9 @@ def execute_task_in_sandbox(input: ExecuteTaskInput) -> ExecuteTaskOutput:
             )
 
         if result.exit_code != 0:
+            logger.error(f"Task execution failed for task {ctx.task_id}")
+            logger.error(f"stdout:\n{result.stdout}")
+            logger.error(f"stderr:\n{result.stderr}")
             raise TaskExecutionFailedError(
                 f"Task execution failed with exit code {result.exit_code}",
                 exit_code=result.exit_code,

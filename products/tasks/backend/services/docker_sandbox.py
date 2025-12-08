@@ -106,7 +106,10 @@ class DockerSandbox:
     @staticmethod
     def _transform_url_for_docker(url: str) -> str:
         """Transform localhost URLs to be accessible from inside Docker container."""
-        return url.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
+        url = url.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
+        # Caddy (port 8010) returns empty responses from inside Docker, use 8000 directly
+        url = url.replace(":8010", ":8000")
+        return url
 
     @staticmethod
     def create(config: SandboxConfig) -> "DockerSandbox":
@@ -282,7 +285,13 @@ class DockerSandbox:
         agent_setup_command = self._get_setup_command(repo_path)
         setup_command = f"cd {repo_path} && {agent_setup_command}"
 
+        logger.info(f"Setting up repository {repository} in sandbox {self.id}")
         result = self.execute(setup_command, timeout_seconds=15 * 60)
+
+        logger.info(f"Setup completed: exit_code={result.exit_code}")
+        if result.exit_code != 0:
+            logger.warning(f"Setup stdout:\n{result.stdout}")
+            logger.warning(f"Setup stderr:\n{result.stderr}")
 
         return result
 
@@ -318,8 +327,8 @@ class DockerSandbox:
         logger.info(f"Task stdout length: {len(result.stdout)} chars")
         logger.info(f"Task stderr length: {len(result.stderr)} chars")
         if result.exit_code != 0:
-            logger.warning(f"Task stdout preview: {result.stdout[:500]}")
-            logger.warning(f"Task stderr preview: {result.stderr[:500]}")
+            logger.warning(f"Task stdout:\n{result.stdout}")
+            logger.warning(f"Task stderr:\n{result.stderr}")
 
         return result
 
