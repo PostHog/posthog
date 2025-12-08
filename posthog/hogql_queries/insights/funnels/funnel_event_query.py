@@ -131,6 +131,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
 
             field = self.get_warehouse_field(node.table_name, node.timestamp_field)
 
+            timestamp_expr: ast.Expr
             # TODO: Move validations to funnel base / series entity
             if isinstance(field, DateTimeDatabaseField):
                 timestamp_expr = ast.Field(chain=[self.EVENT_TABLE_ALIAS, node.timestamp_field])
