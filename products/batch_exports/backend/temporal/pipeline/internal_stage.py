@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from django.conf import settings
 
 import aioboto3
-from aiobotocore.config import AioConfig
+import aiobotocore.config
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -69,6 +69,12 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
+class AioConfig(aiobotocore.config.AioConfig):
+    def __init__(self, *args, socket_factory, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.connector_args["socket_factory"] = socket_factory
+
+
 def socket_factory(addr_info):
     """Socket factory for ``aiohttp.TCPConnector``."""
     family, type_, proto, _, _ = addr_info
@@ -101,7 +107,8 @@ async def get_s3_client():
         config=AioConfig(
             connect_timeout=60,
             read_timeout=300,
-            connector_args={"keepalive_timeout": 300, "socket_factory": socket_factory},
+            connector_args={"keepalive_timeout": 300},
+            socket_factory=socket_factory,
         ),
     ) as s3_client:
         yield s3_client
