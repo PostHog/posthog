@@ -42,7 +42,7 @@ class TestTemplateKudosity(BaseHogFunctionTemplateTest):
                 {
                     "method": "POST",
                     "headers": {
-                        "Authorization": "Bearer test_api_key_123",
+                        "x-api-key": "test_api_key_123",
                         "Content-Type": "application/json",
                     },
                     "body": {
