@@ -57,23 +57,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.get_presigned_url")
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     def test_snapshots_source_parameter_validation(
         self,
         source,
         expected_status,
-        mock_list_objects,
-        mock_presigned_url,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
         session_id = str(uuid7())
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-
-        # Basic mocking for successful cases
-        mock_list_objects.return_value = []
-        mock_presigned_url.return_value = None
 
         if source is not None:
             url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source={source}"
@@ -164,7 +156,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "Must provide both start_blob_key and end_blob_key" in response.json()["detail"]
+        assert "Must provide both start blob key and end blob key" in response.json()["detail"]
 
     @parameterized.expand(
         [(0, "a"), ("a", 1)],
@@ -188,7 +180,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key={start_key}&end_blob_key={end_key}"
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Blob key must be an integer" in response.json()["detail"]
+        assert "Blob keys must be integers" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -261,7 +253,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         # Attempting to provide both blob_key and start_blob_key
         response = self.client.get(url)
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Must provide a single blob key or start and end blob keys, not both" in response.json()["detail"]
+        assert "Must provide both start blob key and end blob key" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
@@ -304,12 +296,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch("posthog.session_recordings.session_recording_api.object_storage.list_objects")
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_snapshot_sources_blobby_v2_from_lts(
         self,
         _mock_feature_enabled: MagicMock,
-        mock_list_objects: MagicMock,
         _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
     ) -> None:
@@ -323,22 +313,14 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             full_recording_v2_path="s3://the_bucket/the_lts_path/the_session_uuid?range=0-3456",
         )
 
-        def list_objects_func(path: str) -> list[str]:
-            # we're not expecting to call this, since we know all the data in the stored path
-            raise Exception("we should not call list_objects for the LTS path")
-
-        mock_list_objects.side_effect = list_objects_func
-
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots")
         assert response.status_code == status.HTTP_200_OK, response.json()
         response_data = response.json()
 
         assert response_data == {
             "sources": [
                 {
-                    "source": "blob_v2",
+                    "source": "blob_v2_lts",
                     "blob_key": "the_lts_path/the_session_uuid",
                     # it's ok for these to be None, since we don't use the data anyway
                     # and this key is the whole session
@@ -360,17 +342,10 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
-    @patch(
-        "posthog.session_recordings.session_recording_api.object_storage.list_objects",
-        side_effect=Exception(
-            "if the LTS loading works then we'll not call list_objects, we throw in the mock to enforce this"
-        ),
-    )
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_get_snapshot_for_lts_source_blobby_v2(
         self,
         _mock_feature_enabled: MagicMock,
-        _mock_list_objects: MagicMock,
         _mock_exists: MagicMock,
         _mock_v2_list_blocks: MagicMock,
         mock_object_storage_client: MagicMock,
@@ -397,7 +372,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         )
 
         response = self.client.get(
-            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?blob_v2=true&blob_v2_lts=true&source=blob_v2&blob_key=/the_lts_path/the_session_uuid"
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/snapshots?source=blob_v2_lts&blob_key=/the_lts_path/the_session_uuid"
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert (

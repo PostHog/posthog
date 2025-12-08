@@ -24,7 +24,7 @@ import { surveyLogic } from './surveyLogic'
 
 // Only include operators supported by the SDK's property matching system
 // Exclude is_set and is_not_set as they're not supported
-const SUPPORTED_OPERATORS: PropertyOperator[] = [
+export const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'exact',
     'is_not',
     'icontains',
@@ -37,7 +37,7 @@ const SUPPORTED_OPERATORS: PropertyOperator[] = [
     'lte',
 ] as PropertyOperator[]
 
-function convertPropertyFiltersToArray(
+export function convertPropertyFiltersToArray(
     propertyFilters?: SurveyEventsWithProperties['propertyFilters']
 ): EventPropertyFilter[] {
     if (!propertyFilters) {
@@ -52,7 +52,9 @@ function convertPropertyFiltersToArray(
     }))
 }
 
-function convertArrayToPropertyFilters(filters: AnyPropertyFilter[]): SurveyEventsWithProperties['propertyFilters'] {
+export function convertArrayToPropertyFilters(
+    filters: AnyPropertyFilter[]
+): SurveyEventsWithProperties['propertyFilters'] {
     if (filters.length === 0) {
         return undefined
     }

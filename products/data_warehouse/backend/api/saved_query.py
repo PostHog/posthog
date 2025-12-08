@@ -89,6 +89,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "is_materialized",
+            "origin",
         ]
         read_only_fields = [
             "id",
@@ -101,6 +102,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_error",
             "latest_history_id",
             "is_materialized",
+            "origin",
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},

@@ -28,7 +28,7 @@ import { getLogicKey } from './utils'
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeLLMTraceAttributes>): JSX.Element | null => {
     const { expanded } = useValues(notebookNodeLogic)
     const { groupKey, groupTypeIndex, personId, tabId } = attributes
-    const group = groupKey && groupTypeIndex ? { groupKey, groupTypeIndex } : undefined
+    const group = groupKey && groupTypeIndex !== undefined ? { groupKey, groupTypeIndex } : undefined
     const logicKey = getLogicKey({ groupKey, personId, tabId })
 
     const logic = llmAnalyticsLogic({ logicKey, personId, group })
