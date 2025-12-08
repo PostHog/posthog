@@ -35,7 +35,7 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.utils import human_list
 
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT, SLASH_COMMAND_REMEMBER
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.llm import MaxChatOpenAI
@@ -124,7 +124,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
             report_user_action(
                 self._user, "Max slash command used", {"slash_command": last_message.content}, team=self._team
             )
-        if isinstance(last_message, HumanMessage) and last_message.content == SLASH_COMMAND_INIT:
+        if isinstance(last_message, HumanMessage) and last_message.content == SlashCommandName.FIELD_INIT:
             return "memory_onboarding"
         return "continue"
 
@@ -462,13 +462,13 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
         last_message = state.messages[-1] if state.messages else None
         if (
             not isinstance(last_message, HumanMessage)
-            or not last_message.content.split(" ", 1)[0] == SLASH_COMMAND_REMEMBER
+            or not last_message.content.split(" ", 1)[0] == SlashCommandName.FIELD_REMEMBER
         ):
             # Not a /remember command, skip!
             return None
 
         # Extract the content to remember (everything after "/remember ")
-        remember_content = last_message.content[len(SLASH_COMMAND_REMEMBER) :].strip()
+        remember_content = last_message.content[len(SlashCommandName.FIELD_REMEMBER) :].strip()
         if remember_content:
             # Create a direct memory append tool call
             return LangchainAIMessage(
