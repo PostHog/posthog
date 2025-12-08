@@ -267,6 +267,19 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             # For DESC (latest first): get rows where (timestamp, uuid) < cursor
             # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
             op = "<" if self.query.orderBy != "earliest" else ">"
+            ts_op = "<=" if self.query.orderBy != "earliest" else ">="
+            # The logs table is partitioned by timestamp, not (timestamp, uuid).
+            # ClickHouse only prunes partitions when the WHERE clause directly matches
+            # the partition key. A tuple comparison like (timestamp, uuid) < (x, y)
+            # won't trigger pruning even though it logically implies timestamp <= x.
+            # So we add an explicit scalar bound to guarantee partition pruning fires.
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
             exprs.append(
                 parse_expr(
                     f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
