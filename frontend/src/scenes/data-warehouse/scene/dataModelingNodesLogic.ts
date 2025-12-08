@@ -52,14 +52,14 @@ export const dataModelingNodesLogic = kea<dataModelingNodesLogicType>([
                 return nodes.filter((n) => n.name.toLowerCase().includes(searchTerm.toLowerCase()))
             },
         ],
-        materializedViewNodes: [
+        viewNodes: [
             (s) => [s.filteredNodes],
             (nodes: DataModelingNode[]): DataModelingNode[] => {
-                return nodes.filter((n) => n.type === 'matview')
+                return nodes.filter((n) => n.type === 'matview' || n.type === 'view')
             },
         ],
         visibleNodes: [
-            (s) => [s.materializedViewNodes, s.currentPage],
+            (s) => [s.viewNodes, s.currentPage],
             (nodes: DataModelingNode[], currentPage: number): DataModelingNode[] => {
                 const startIndex = (currentPage - 1) * PAGE_SIZE
                 const endIndex = startIndex + PAGE_SIZE

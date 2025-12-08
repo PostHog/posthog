@@ -45,8 +45,7 @@ function NodeProperty({ value }: { value: unknown }): JSX.Element {
 type ViewMode = 'graph' | 'list'
 
 export function DataModelingTab(): JSX.Element {
-    const { materializedViewNodes, visibleNodes, nodesLoading, searchTerm, currentPage } =
-        useValues(dataModelingNodesLogic)
+    const { viewNodes, visibleNodes, nodesLoading, searchTerm, currentPage } = useValues(dataModelingNodesLogic)
     const { setSearchTerm, setCurrentPage } = useActions(dataModelingNodesLogic)
     const [viewMode, setViewMode] = useState<ViewMode>('graph')
 
@@ -54,7 +53,7 @@ export function DataModelingTab(): JSX.Element {
         return (
             <div className="space-y-4 h-full">
                 <div className="flex gap-2 justify-between items-center">
-                    {(materializedViewNodes.length > 0 || searchTerm) && (
+                    {(viewNodes.length > 0 || searchTerm) && (
                         <LemonInput
                             type="search"
                             placeholder="Search models..."
@@ -82,7 +81,7 @@ export function DataModelingTab(): JSX.Element {
     return (
         <div className="space-y-4">
             <div className="flex gap-2 justify-between items-center">
-                {(materializedViewNodes.length > 0 || searchTerm) && (
+                {(viewNodes.length > 0 || searchTerm) && (
                     <LemonInput
                         type="search"
                         placeholder="Search models..."
@@ -101,7 +100,7 @@ export function DataModelingTab(): JSX.Element {
                 />
             </div>
 
-            {materializedViewNodes.length > 0 && (
+            {viewNodes.length > 0 && (
                 <div>
                     <h3 className="text-lg font-semibold mb-2">Models</h3>
                     <p className="text-muted mb-2">
@@ -191,7 +190,7 @@ export function DataModelingTab(): JSX.Element {
                             controlled: true,
                             pageSize: PAGE_SIZE,
                             currentPage: currentPage,
-                            entryCount: materializedViewNodes.length,
+                            entryCount: viewNodes.length,
                             onForward: () => {
                                 setCurrentPage(currentPage + 1)
                             },
@@ -203,7 +202,7 @@ export function DataModelingTab(): JSX.Element {
                 </div>
             )}
 
-            {!nodesLoading && materializedViewNodes.length === 0 && (
+            {!nodesLoading && viewNodes.length === 0 && (
                 <div className="text-center py-12">
                     <h3 className="text-xl font-semibold mb-2">No models found</h3>
                     {searchTerm ? (
