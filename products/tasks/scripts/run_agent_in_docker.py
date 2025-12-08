@@ -108,7 +108,9 @@ def create_test_task(repository=None):
 def cleanup_test_data(task_id, api_key_id):
     print(f"\nCleaning up test data...")
     with transaction.atomic():
-        Task.objects.filter(id=task_id).delete()
+        task = Task.objects.filter(id=task_id).first()
+        if task:
+            task.soft_delete()
         PersonalAPIKey.objects.filter(id=api_key_id).delete()
     print("✓ Cleanup complete")
 

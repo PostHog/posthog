@@ -1,6 +1,8 @@
 import os
 import uuid
+import shutil
 import logging
+import tempfile
 import subprocess
 from typing import Optional
 
@@ -57,12 +59,19 @@ class DockerSandbox:
         return result
 
     @staticmethod
-    def _ensure_image_exists() -> str:
-        """Build the sandbox image if it doesn't exist."""
-        result = DockerSandbox._run(["docker", "images", "-q", DEFAULT_IMAGE_NAME])
+    def _get_local_agent_package() -> str | None:
+        """Check if LOCAL_AGENT_PACKAGE env var is set or default location exists."""
+        local_path = os.environ.get("LOCAL_AGENT_PACKAGE")
+        if local_path and os.path.isdir(local_path):
+            return os.path.abspath(local_path)
+        return None
 
+    @staticmethod
+    def _build_base_image_if_needed() -> None:
+        """Build the base sandbox image if it doesn't exist."""
+        result = DockerSandbox._run(["docker", "images", "-q", DEFAULT_IMAGE_NAME])
         if result.stdout.strip():
-            return DEFAULT_IMAGE_NAME
+            return
 
         logger.info(f"Building {DEFAULT_IMAGE_NAME} image (this may take a few minutes)...")
         dockerfile_path = os.path.join(
@@ -82,6 +91,45 @@ class DockerSandbox:
             check=True,
         )
 
+    @staticmethod
+    def _build_local_image(local_agent_path: str) -> None:
+        """Build the local sandbox image with the local agent package."""
+        logger.info("Building posthog-sandbox-base-local image with local agent package...")
+        dockerfile_path = os.path.join(
+            settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            shutil.copytree(
+                local_agent_path,
+                os.path.join(tmpdir, "local-agent"),
+                ignore=shutil.ignore_patterns("node_modules"),
+            )
+
+            DockerSandbox._run(
+                [
+                    "docker",
+                    "build",
+                    "-f",
+                    dockerfile_path,
+                    "-t",
+                    "posthog-sandbox-base-local",
+                    tmpdir,
+                ],
+                check=True,
+            )
+
+    @staticmethod
+    def _ensure_image_exists() -> str:
+        """Build the sandbox image, using local agent if LOCAL_AGENT_PACKAGE is set."""
+        local_agent = DockerSandbox._get_local_agent_package()
+
+        if local_agent:
+            DockerSandbox._build_base_image_if_needed()
+            DockerSandbox._build_local_image(local_agent)
+            return "posthog-sandbox-base-local"
+
+        DockerSandbox._build_base_image_if_needed()
         return DEFAULT_IMAGE_NAME
 
     @staticmethod
@@ -307,14 +355,14 @@ class DockerSandbox:
 
         return is_clean, result.stdout
 
-    def execute_task(self, task_id: str, run_id: str, repository: str) -> ExecutionResult:
+    def execute_task(self, task_id: str, run_id: str, repository: str, create_pr: bool = True) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
 
         org, repo = repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
 
-        task_command = self._get_task_command(task_id, run_id, repo_path)
+        task_command = self._get_task_command(task_id, run_id, repo_path, create_pr)
         command = f"cd {repo_path} && {task_command}"
 
         logger.info(f"Executing task {task_id} for run {run_id} in {repo_path} in sandbox {self.id}")
@@ -332,8 +380,9 @@ class DockerSandbox:
 
         return result
 
-    def _get_task_command(self, task_id: str, run_id: str, repo_path: str) -> str:
-        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path}"
+    def _get_task_command(self, task_id: str, run_id: str, repo_path: str, create_pr: bool = True) -> str:
+        create_pr_flag = "true" if create_pr else "false"
+        return f"git reset --hard HEAD && IS_SANDBOX=True node /scripts/runAgent.mjs --taskId {task_id} --runId {run_id} --repositoryPath {repo_path} --createPR {create_pr_flag}"
 
     def _get_setup_command(self, repo_path: str) -> str:
         return f"git reset --hard HEAD && IS_SANDBOX=True && node /scripts/runAgent.mjs --repositoryPath {repo_path} --prompt '{SETUP_REPOSITORY_PROMPT.format(cwd=repo_path, repository=repo_path)}' --max-turns 20"
