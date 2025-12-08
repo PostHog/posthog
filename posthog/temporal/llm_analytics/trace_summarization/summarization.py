@@ -22,6 +22,9 @@ from products.llm_analytics.backend.text_repr.formatters import (
     llm_trace_to_formatter_format,
 )
 
+from ee.hogai.llm_traces_summaries.constants import LLM_TRACES_SUMMARIES_DOCUMENT_TYPE, LLM_TRACES_SUMMARIES_PRODUCT
+from ee.hogai.llm_traces_summaries.tools.embed_summaries import LLMTracesSummarizerEmbedder
+
 logger = structlog.get_logger(__name__)
 
 
@@ -105,6 +108,33 @@ async def generate_and_save_summary_activity(
             properties=properties,
         )
 
+    def _embed_summary(summary_result: SummarizationResponse, team: Team) -> None:
+        """Generate embedding for the summary and send to Kafka."""
+        # Format summary text for embedding
+        parts = []
+        if summary_result.title:
+            parts.append(f"Title: {summary_result.title}")
+        if summary_result.flow_diagram:
+            parts.append(f"\nFlow:\n{summary_result.flow_diagram}")
+        if summary_result.summary_bullets:
+            bullets_text = "\n".join(f"- {b.text}" for b in summary_result.summary_bullets)
+            parts.append(f"\nSummary:\n{bullets_text}")
+        if summary_result.interesting_notes:
+            notes_text = "\n".join(f"- {n.text}" for n in summary_result.interesting_notes)
+            parts.append(f"\nInteresting Notes:\n{notes_text}")
+
+        summary_text = "\n".join(parts)
+        rendering = f"llma_trace_{mode}"
+
+        embedder = LLMTracesSummarizerEmbedder(team=team)
+        embedder._embed_document(
+            content=summary_text,
+            document_id=trace_id,
+            document_type=LLM_TRACES_SUMMARIES_DOCUMENT_TYPE,
+            rendering=rendering,
+            product=LLM_TRACES_SUMMARIES_PRODUCT,
+        )
+
     # Fetch trace data and format text representation
     result = await database_sync_to_async(_fetch_trace_and_format, thread_sensitive=False)(
         trace_id, team_id, window_start, window_end
@@ -157,9 +187,25 @@ async def generate_and_save_summary_activity(
         summary_result, hierarchy, text_repr, team
     )
 
+    # Generate embedding immediately after saving summary
+    embedding_success = False
+    embedding_error = None
+    try:
+        await database_sync_to_async(_embed_summary, thread_sensitive=False)(summary_result, team)
+        embedding_success = True
+    except Exception as e:
+        embedding_error = str(e)
+        logger.exception(
+            "Failed to generate embedding for trace summary",
+            trace_id=trace_id,
+            error=embedding_error,
+        )
+
     return SummarizationActivityResult(
         trace_id=trace_id,
         success=True,
         text_repr_length=len(text_repr),
         event_count=len(hierarchy),
+        embedding_success=embedding_success,
+        embedding_error=embedding_error,
     )

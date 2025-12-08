@@ -18,12 +18,6 @@ MAX_TEXT_REPR_LENGTH = 2_000_000
 # Timeout configuration (in seconds)
 SAMPLE_TIMEOUT_SECONDS = 300  # 5 minutes for sampling query
 GENERATE_SUMMARY_TIMEOUT_SECONDS = 300  # 5 minutes per summary generation (increased for LLM API latency/rate limits)
-EMBED_TIMEOUT_SECONDS = 60  # 1 minute for batch embedding (Kafka is async)
-EVENT_PROCESSING_DELAY_SECONDS = 5  # Delay after summarization to allow events to be processed before embedding
-
-# Embedding timestamp query buffer (minutes)
-EMBEDDING_QUERY_BUFFER_BEFORE_MINUTES = 5  # Buffer before workflow start for timestamp filtering
-EMBEDDING_QUERY_BUFFER_AFTER_MINUTES = 10  # Buffer after workflow timeout for timestamp filtering
 
 # Workflow-level timeouts (in minutes)
 WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (increased with longer activity timeouts)
@@ -31,7 +25,6 @@ WORKFLOW_EXECUTION_TIMEOUT_MINUTES = 120  # Max time for single team workflow (i
 # Retry policies
 SAMPLE_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 SUMMARIZE_RETRY_POLICY = RetryPolicy(maximum_attempts=2)  # Fewer retries due to LLM cost
-EMBED_RETRY_POLICY = RetryPolicy(maximum_attempts=3)
 COORDINATOR_CHILD_WORKFLOW_RETRY_POLICY = RetryPolicy(maximum_attempts=2)
 
 # Event schema

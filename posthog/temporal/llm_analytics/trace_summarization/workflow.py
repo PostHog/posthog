@@ -25,13 +25,10 @@ from posthog.temporal.llm_analytics.trace_summarization.constants import (
     DEFAULT_MAX_TRACES_PER_WINDOW,
     DEFAULT_MODE,
     DEFAULT_WINDOW_MINUTES,
-    EMBED_TIMEOUT_SECONDS,
-    EVENT_PROCESSING_DELAY_SECONDS,
     GENERATE_SUMMARY_TIMEOUT_SECONDS,
     SAMPLE_TIMEOUT_SECONDS,
     WORKFLOW_NAME,
 )
-from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import (
     BatchSummarizationInputs,
     BatchSummarizationMetrics,
@@ -159,33 +156,22 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        successful_trace_ids = []
         for result in results:
             if isinstance(result, BaseException):
                 # Activity failed with an exception - count as failed but don't crash workflow
                 metrics.summaries_failed += 1
             elif result.success:
-                successful_trace_ids.append(result.trace_id)
+                metrics.summaries_generated += 1
+                # Track embedding results (embedding happens inline during summarization)
+                if result.embedding_success:
+                    metrics.embeddings_succeeded += 1
+                else:
+                    metrics.embeddings_failed += 1
             elif result.skipped:
                 metrics.summaries_skipped += 1
             else:
                 # Activity returned but wasn't successful or skipped
                 metrics.summaries_failed += 1
-
-        metrics.summaries_generated = len(successful_trace_ids)
-
-        # Add a delay to allow events to be processed
-        await temporalio.workflow.sleep(EVENT_PROCESSING_DELAY_SECONDS)
-
-        # Embed summaries
-        embedding_result = await temporalio.workflow.execute_activity(
-            embed_summaries_activity,
-            args=[successful_trace_ids, inputs.team_id, inputs.mode, start_time.isoformat()],
-            schedule_to_close_timeout=timedelta(seconds=EMBED_TIMEOUT_SECONDS),
-            retry_policy=constants.EMBED_RETRY_POLICY,
-        )
-        metrics.embeddings_requested = embedding_result.embeddings_requested
-        metrics.embeddings_failed = embedding_result.embeddings_failed
 
         end_time = temporalio.workflow.now()
         metrics.duration_seconds = (end_time - start_time).total_seconds()

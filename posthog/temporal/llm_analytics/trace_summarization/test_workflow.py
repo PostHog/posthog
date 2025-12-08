@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.llm_analytics.trace_summarization.embedding import embed_summaries_activity
 from posthog.temporal.llm_analytics.trace_summarization.models import BatchSummarizationInputs
 from posthog.temporal.llm_analytics.trace_summarization.sampling import query_traces_in_window_activity
 from posthog.temporal.llm_analytics.trace_summarization.summarization import generate_and_save_summary_activity
@@ -207,75 +206,6 @@ class TestGenerateSummaryActivity:
             call_kwargs = mock_create_event.call_args.kwargs
             assert call_kwargs["properties"]["$ai_trace_id"] == sample_trace_data["trace_id"]
             assert call_kwargs["properties"]["$ai_summary_title"] == "Test Summary"
-
-
-class TestEmbedSummariesActivity:
-    """Tests for embed_summaries_activity."""
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_embed_summaries_success(self, mock_team):
-        """Test successful embedding of summaries fetched via HogQL."""
-        trace_ids = ["trace_1", "trace_2"]
-
-        with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"
-            ) as mock_embedder_class,
-        ):
-            mock_execute.return_value.results = [
-                ("trace_1", "Summary 1", "A -> B", "Bullet 1", "Note 1"),
-                ("trace_2", "Summary 2", "C -> D", "Bullet 2", ""),
-            ]
-            mock_embedder = mock_embedder_class.return_value
-
-            result = await embed_summaries_activity(trace_ids, mock_team.id, "detailed", "2025-01-01T00:00:00Z")
-
-            assert result.embeddings_requested == 2
-            assert result.embeddings_failed == 0
-            assert mock_embedder._embed_document.call_count == 2
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_embed_summaries_empty_results(self, mock_team):
-        """Test embedding when no summaries found via HogQL."""
-        trace_ids = ["trace_1"]
-
-        with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"),
-        ):
-            mock_execute.return_value.results = []
-
-            result = await embed_summaries_activity(trace_ids, mock_team.id, "minimal", "2025-01-01T00:00:00Z")
-
-            assert result.embeddings_requested == 0
-            assert result.embeddings_failed == 0
-
-    @pytest.mark.django_db(transaction=True)
-    @pytest.mark.asyncio
-    async def test_embed_summaries_partial_failure(self, mock_team):
-        """Test embedding with some failures."""
-        trace_ids = ["trace_1", "trace_2"]
-
-        with (
-            patch("posthog.temporal.llm_analytics.trace_summarization.embedding.execute_hogql_query") as mock_execute,
-            patch(
-                "posthog.temporal.llm_analytics.trace_summarization.embedding.LLMTracesSummarizerEmbedder"
-            ) as mock_embedder_class,
-        ):
-            mock_execute.return_value.results = [
-                ("trace_1", "Summary 1", "A -> B", "", ""),
-                ("trace_2", "Summary 2", "C -> D", "", ""),
-            ]
-            mock_embedder = mock_embedder_class.return_value
-            mock_embedder._embed_document.side_effect = [None, Exception("Embedding failed")]
-
-            result = await embed_summaries_activity(trace_ids, mock_team.id, "detailed", "2025-01-01T00:00:00Z")
-
-            assert result.embeddings_requested == 2
-            assert result.embeddings_failed == 1
 
 
 class TestBatchTraceSummarizationWorkflow:
