@@ -122,8 +122,8 @@ class AlertSerializer(serializers.ModelSerializer):
         queryset=User.objects.filter(is_active=True),
         many=True,
         required=True,
-        write_only=True,
         allow_empty=True,
+        help_text="User IDs to subscribe to this alert. Response returns full user objects (`UserBasicSerializer`) in 'subscribed_users' field.",
     )
     snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
 
