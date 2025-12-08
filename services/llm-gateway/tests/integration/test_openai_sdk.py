@@ -9,7 +9,7 @@ import json
 import os
 
 import pytest
-from openai import OpenAI
+from openai import BadRequestError, OpenAI
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
@@ -260,3 +260,34 @@ class TestOpenAIJSONMode:
         content = response.choices[0].message.content
         parsed = json.loads(content)
         assert "greeting" in parsed
+
+
+class TestOpenAIValidationErrors:
+    @pytest.mark.parametrize(
+        "invalid_param,value,expected_error",
+        [
+            pytest.param("temperature", 5.0, "temperature", id="temperature_out_of_range"),
+            pytest.param("presence_penalty", -3.0, "presence_penalty", id="presence_penalty_out_of_range"),
+            pytest.param("frequency_penalty", 5.0, "frequency_penalty", id="frequency_penalty_out_of_range"),
+        ],
+    )
+    def test_invalid_parameters_rejected(
+        self, openai_client: OpenAI, invalid_param: str, value: float, expected_error: str
+    ):
+        with pytest.raises(BadRequestError) as exc_info:
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                **{invalid_param: value},
+            )
+        assert expected_error in str(exc_info.value).lower()
+
+    def test_empty_messages_rejected(self, openai_client: OpenAI):
+        with pytest.raises(BadRequestError) as exc_info:
+            openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[],
+                max_tokens=10,
+            )
+        assert "messages" in str(exc_info.value).lower()

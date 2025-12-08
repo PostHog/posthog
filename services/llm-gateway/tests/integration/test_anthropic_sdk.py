@@ -10,7 +10,7 @@ import os
 from urllib.request import urlopen
 
 import pytest
-from anthropic import Anthropic
+from anthropic import Anthropic, BadRequestError
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -241,3 +241,33 @@ class TestAnthropicMultiTurn:
         assert response is not None
         content = response.content[0].text.lower()
         assert "alice" in content
+
+
+class TestAnthropicValidationErrors:
+    @pytest.mark.parametrize(
+        "invalid_param,value,expected_error",
+        [
+            pytest.param("temperature", 5.0, "temperature", id="temperature_out_of_range"),
+            pytest.param("top_p", 5.0, "top_p", id="top_p_out_of_range"),
+        ],
+    )
+    def test_invalid_parameters_rejected(
+        self, anthropic_client: Anthropic, invalid_param: str, value: float, expected_error: str
+    ):
+        with pytest.raises(BadRequestError) as exc_info:
+            anthropic_client.messages.create(
+                model="claude-3-haiku-20240307",
+                messages=[{"role": "user", "content": "Hi"}],
+                max_tokens=10,
+                **{invalid_param: value},
+            )
+        assert expected_error in str(exc_info.value).lower()
+
+    def test_empty_messages_rejected(self, anthropic_client: Anthropic):
+        with pytest.raises(BadRequestError) as exc_info:
+            anthropic_client.messages.create(
+                model="claude-3-haiku-20240307",
+                messages=[],
+                max_tokens=10,
+            )
+        assert "messages" in str(exc_info.value).lower()
