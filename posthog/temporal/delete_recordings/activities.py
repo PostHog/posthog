@@ -17,6 +17,8 @@ from temporalio import activity
 from posthog.schema import RecordingsQuery
 
 from posthog.models import Team
+from posthog.session_recordings.models.session_recording import SessionRecording
+from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_v2_service import (
@@ -36,6 +38,7 @@ from posthog.temporal.delete_recordings.metrics import (
 )
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingError,
+    DeleteRecordingMetadataInput,
     GroupRecordingError,
     LoadRecordingError,
     Recording,
@@ -289,7 +292,7 @@ async def schedule_recording_metadata_deletion(input: Recording) -> None:
 
 
 @activity.defn(name="perform-recording-metadata-deletion")
-async def perform_recording_metadata_deletion() -> int:
+async def perform_recording_metadata_deletion(input: DeleteRecordingMetadataInput) -> None:
     logger = LOGGER.bind()
     logger.info("Performing recording metadata deletion")
 
@@ -298,31 +301,48 @@ async def perform_recording_metadata_deletion() -> int:
 
     if not session_ids:
         logger.info("No session IDs to delete")
-        return 0
+        return
 
     session_id_list = [sid.decode("utf-8") for sid in session_ids]
     logger.info(f"Found {len(session_id_list)} session IDs to delete")
 
+    # Delete from ClickHouse
     query = """
         ALTER TABLE session_replay_events
         DELETE WHERE session_id IN %(session_ids)s
     """
 
-    ch_query_id = str(uuid4())
-    logger.info(f"Executing ClickHouse DELETE with query_id: {ch_query_id}")
+    if input.dry_run:
+        logger.info("DRY RUN: Skipping ClickHouse DELETE")
+    else:
+        ch_query_id = str(uuid4())
+        logger.info(f"Executing ClickHouse DELETE with query_id: {ch_query_id}")
 
-    async with get_client() as client:
-        await client.execute_query(
-            query,
-            query_parameters={"session_ids": session_id_list},
-            query_id=ch_query_id,
-        )
+        async with get_client() as client:
+            await client.execute_query(
+                query,
+                query_parameters={"session_ids": session_id_list},
+                query_id=ch_query_id,
+            )
 
-    async with redis.from_url(settings.REDIS_URL) as r:
-        await r.srem(RECORDING_METADATA_DELETION_REDIS_KEY, *session_ids)
+    if input.dry_run:
+        postgres_to_delete_count = await SessionRecording.objects.filter(session_id__in=session_id_list).acount()
+        logger.info(f"DRY RUN: Would delete {postgres_to_delete_count} SessionRecording rows from Postgres")
+
+        viewed_to_delete_count = await SessionRecordingViewed.objects.filter(session_id__in=session_id_list).acount()
+        logger.info(f"DRY RUN: Would delete {viewed_to_delete_count} SessionRecordingViewed rows from Postgres")
+    else:
+        # Delete from Postgres (SessionRecordingPlaylistItem is cascade deleted via FK)
+        postgres_deleted_count, _ = await SessionRecording.objects.filter(session_id__in=session_id_list).adelete()
+        logger.info(f"Deleted {postgres_deleted_count} SessionRecording rows from Postgres")
+
+        viewed_deleted_count, _ = await SessionRecordingViewed.objects.filter(session_id__in=session_id_list).adelete()
+        logger.info(f"Deleted {viewed_deleted_count} SessionRecordingViewed rows from Postgres")
+
+        async with redis.from_url(settings.REDIS_URL) as r:
+            await r.srem(RECORDING_METADATA_DELETION_REDIS_KEY, *session_ids)
 
     logger.info(f"Successfully deleted metadata for {len(session_id_list)} sessions")
-    return len(session_id_list)
 
 
 @activity.defn(name="load-recordings-with-query")

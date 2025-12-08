@@ -17,6 +17,7 @@ from posthog.temporal.delete_recordings.activities import (
     perform_recording_metadata_deletion,
 )
 from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingMetadataInput,
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
@@ -202,14 +203,16 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
 @workflow.defn(name="delete-recording-metadata")
 class DeleteRecordingMetadataWorkflow(PostHogWorkflow):
     @staticmethod
-    def parse_inputs(input: list[str]) -> None:
+    def parse_inputs(input: list[str]) -> DeleteRecordingMetadataInput:
         """Parse input from the management command CLI."""
-        return None
+        loaded = json.loads(input[0])
+        return DeleteRecordingMetadataInput(**loaded)
 
     @workflow.run
-    async def run(self, input: None = None) -> int:
+    async def run(self, input: DeleteRecordingMetadataInput) -> None:
         return await workflow.execute_activity(
             perform_recording_metadata_deletion,
+            input,
             start_to_close_timeout=timedelta(hours=1),
             schedule_to_close_timeout=timedelta(hours=3),
             retry_policy=common.RetryPolicy(

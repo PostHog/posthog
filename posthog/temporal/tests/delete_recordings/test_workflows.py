@@ -12,6 +12,7 @@ from temporalio.worker import Worker
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.delete_recordings.activities import group_recording_blocks
 from posthog.temporal.delete_recordings.types import (
+    DeleteRecordingMetadataInput,
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
@@ -19,6 +20,7 @@ from posthog.temporal.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 from posthog.temporal.delete_recordings.workflows import (
+    DeleteRecordingMetadataWorkflow,
     DeleteRecordingsWithPersonWorkflow,
     DeleteRecordingsWithQueryWorkflow,
     DeleteRecordingsWithTeamWorkflow,
@@ -521,3 +523,72 @@ async def test_delete_recordings_with_query_workflow_dry_run():
         TEST_SESSIONS["8e5f6g7h-9i0j-1k2l-3m4n-5o6p7q8r9s0t"][0].url
         == "s3://test_bucket/session_recordings/90d/1756117747546-97a0b1e81d492d3a?range=bytes=81788204-81793010"
     )
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_metadata_workflow():
+    activity_called = False
+
+    @activity.defn(name="perform-recording-metadata-deletion")
+    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
+        nonlocal activity_called
+        activity_called = True
+        assert input.dry_run is False
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingMetadataWorkflow],
+            activities=[perform_recording_metadata_deletion_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteRecordingMetadataWorkflow.run,
+                DeleteRecordingMetadataInput(dry_run=False),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert activity_called is True
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_metadata_workflow_dry_run():
+    activity_called = False
+
+    @activity.defn(name="perform-recording-metadata-deletion")
+    async def perform_recording_metadata_deletion_mocked(input: DeleteRecordingMetadataInput) -> None:
+        nonlocal activity_called
+        activity_called = True
+        assert input.dry_run is True
+
+    task_queue_name = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=task_queue_name,
+            workflows=[DeleteRecordingMetadataWorkflow],
+            activities=[perform_recording_metadata_deletion_mocked],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DeleteRecordingMetadataWorkflow.run,
+                DeleteRecordingMetadataInput(dry_run=True),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue_name,
+            )
+
+    assert activity_called is True
+
+
+def test_delete_recording_metadata_workflow_parse_inputs():
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": true}'])
+    assert result.dry_run is True
+
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(['{"dry_run": false}'])
+    assert result.dry_run is False
+
+    result = DeleteRecordingMetadataWorkflow.parse_inputs(["{}"])
+    assert result.dry_run is False
