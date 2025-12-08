@@ -82,7 +82,7 @@ def test_clickhouse_memory_limit_exceeded_error(clickhouse_client):
                 pass
 
 
-async def test_acancel_query(clickhouse_client):
+async def test_acancel_query(clickhouse_client, django_db_setup):
     """Test that acancel_query successfully cancels a long-running query."""
     long_running_query_id = f"test-long-running-query-{uuid.uuid4()}"
     long_running_query = "SELECT sleep(300)"
