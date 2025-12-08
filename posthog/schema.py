@@ -13718,6 +13718,59 @@ class RetentionQueryResponse(BaseModel):
     )
 
 
+class StickinessQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False, description="Exclude internal and test users by applying the respective filters"
+    )
+    interval: IntervalType | None = Field(
+        default=IntervalType.DAY,
+        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
+    )
+    intervalCount: int | None = Field(
+        default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
+    )
+    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | PropertyGroupFilter
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    response: StickinessQueryResponse | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
+    stickinessFilter: StickinessFilter | None = Field(
+        default=None, description="Properties specific to the stickiness insight"
+    )
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TeamTaxonomyQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13901,9 +13954,7 @@ class CalendarHeatmapQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: CalendarHeatmapResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14208,9 +14259,7 @@ class FunnelsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14528,9 +14577,7 @@ class LifecycleQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: LifecycleQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
+    series: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(..., description="Events and actions to include")
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14759,58 +14806,20 @@ class SessionsQuery(BaseModel):
     where: list[str] | None = Field(default=None, description="HogQL filters to apply on returned data")
 
 
-class StickinessQuery(BaseModel):
+class StickinessActorsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    compareFilter: CompareFilter | None = Field(default=None, description="Compare to date range")
-    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
-    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
-    filterTestAccounts: bool | None = Field(
-        default=False, description="Exclude internal and test users by applying the respective filters"
-    )
-    interval: IntervalType | None = Field(
-        default=IntervalType.DAY,
-        description="Granularity of the response. Can be one of `hour`, `day`, `week` or `month`",
-    )
-    intervalCount: int | None = Field(
-        default=None, description="How many intervals comprise a period. Only used for cohorts, otherwise default 1."
-    )
-    kind: Literal["StickinessQuery"] = "StickinessQuery"
+    compare: Compare | None = None
+    day: str | int | None = None
+    includeRecordings: bool | None = None
+    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | PropertyGroupFilter
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    response: StickinessQueryResponse | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
-        ..., description="Events and actions to include"
-    )
-    stickinessFilter: StickinessFilter | None = Field(
-        default=None, description="Properties specific to the stickiness insight"
-    )
-    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    operator: StickinessOperator | None = None
+    response: ActorsQueryResponse | None = None
+    series: int | None = None
+    source: StickinessQuery
+    tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -14861,7 +14870,7 @@ class TrendsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: TrendsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
+    series: list[EventsNode | ActionsNode | DataWarehouseNode | GroupNode] = Field(
         ..., description="Events and actions to include"
     )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -15393,23 +15402,6 @@ class QueryResponseAlternative(
     )
 
 
-class StickinessActorsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    compare: Compare | None = None
-    day: str | int | None = None
-    includeRecordings: bool | None = None
-    kind: Literal["StickinessActorsQuery"] = "StickinessActorsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    operator: StickinessOperator | None = None
-    response: ActorsQueryResponse | None = None
-    series: int | None = None
-    source: StickinessQuery
-    tags: QueryLogTags | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class VisualizationArtifactContent(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15700,7 +15692,7 @@ class FunnelCorrelationActorsQuery(BaseModel):
         extra="forbid",
     )
     funnelCorrelationPersonConverted: bool | None = None
-    funnelCorrelationPersonEntity: EventsNode | ActionsNode | DataWarehouseNode | GroupNode | None = None
+    funnelCorrelationPersonEntity: EventsNode | ActionsNode | DataWarehouseNode | None = None
     funnelCorrelationPropertyValues: (
         list[
             EventPropertyFilter

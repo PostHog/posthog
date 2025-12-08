@@ -7470,7 +7470,17 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/DataWarehouseNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -14725,7 +14735,17 @@
                     "type": "boolean"
                 },
                 "funnelCorrelationPersonEntity": {
-                    "$ref": "#/definitions/AnyEntityNode"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/ActionsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/DataWarehouseNode"
+                        }
+                    ]
                 },
                 "funnelCorrelationPropertyValues": {
                     "items": {
@@ -15443,7 +15463,17 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/DataWarehouseNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -17646,7 +17676,17 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/DataWarehouseNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -28433,7 +28473,17 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/DataWarehouseNode"
+                            }
+                        ]
                     },
                     "type": "array"
                 },
@@ -29867,14 +29917,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "anyOf": [
-                            {
-                                "$ref": "#/definitions/AnyEntityNode"
-                            },
-                            {
-                                "$ref": "#/definitions/GroupNode"
-                            }
-                        ]
+                        "$ref": "#/definitions/AnyEntityNode"
                     },
                     "type": "array"
                 },
