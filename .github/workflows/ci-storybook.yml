@@ -8,9 +8,9 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs when new commits are pushed
+    # Cancel in-progress runs on PRs when new commits are pushed
     # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
     contents: write
