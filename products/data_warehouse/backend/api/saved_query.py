@@ -40,6 +40,8 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.temporal.common.client import sync_connect
 
+from products.data_modeling.backend.api.node import _get_downstream_nodes, _get_upstream_nodes
+from products.data_modeling.backend.models import Node
 from products.data_warehouse.backend.data_load.saved_query_service import (
     pause_saved_query_schedule,
     trigger_saved_query_schedule,
@@ -657,38 +659,19 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
     @action(methods=["GET"], detail=True)
     def dependencies(self, request: request.Request, *args, **kwargs) -> response.Response:
-        """Return the count of immediate upstream and downstream dependencies for this saved query."""
+        """Return the count of all upstream and downstream dependencies for this saved query."""
         saved_query = self.get_object()
-        saved_query_id = saved_query.id.hex
 
-        # Count immediate upstream (parents) - get unique parents from all paths to this node
-        upstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}"
-        )
-        upstream_ids: set[str] = set()
-        for path in upstream_paths:
-            if len(path.path) >= 2:
-                # Get the immediate parent (second to last in path)
-                parent_id = path.path[-2]
-                upstream_ids.add(parent_id)
+        # Find the Node associated with this saved query
+        try:
+            node = Node.objects.get(saved_query=saved_query, team=saved_query.team)
+            upstream_count = len(_get_upstream_nodes(node))
+            downstream_count = len(_get_downstream_nodes(node))
+        except Node.DoesNotExist:
+            upstream_count = 0
+            downstream_count = 0
 
-        # Count immediate downstream (children) - get unique children that reference this node
-        downstream_paths = DataWarehouseModelPath.objects.filter(
-            team=saved_query.team, path__lquery=f"*.{saved_query_id}.*"
-        )
-        downstream_ids: set[str] = set()
-        for path in downstream_paths:
-            # Find position of current view in path
-            try:
-                idx = path.path.index(saved_query_id)
-                if idx + 1 < len(path.path):
-                    # Get immediate child (next node after current)
-                    child_id = path.path[idx + 1]
-                    downstream_ids.add(child_id)
-            except ValueError:
-                continue
-
-        return response.Response({"upstream_count": len(upstream_ids), "downstream_count": len(downstream_ids)})
+        return response.Response({"upstream_count": upstream_count, "downstream_count": downstream_count})
 
     @action(methods=["GET"], detail=True)
     def run_history(self, request: request.Request, *args, **kwargs) -> response.Response:

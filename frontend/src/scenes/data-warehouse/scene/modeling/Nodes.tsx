@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCheck, IconPlay, IconPlus, IconRefresh, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconPlay, IconPlayFilled, IconPlus, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -163,7 +163,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                             onClick={handleRunUpstream}
                             className="absolute left-1/2 -translate-x-1/2 -top-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                         >
-                            <IconRefresh className="w-3 h-3 fill-white dark:fill-gray-900 rotate-180" />
+                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 -rotate-90" />
                         </button>
                     </Tooltip>
                     <Tooltip title="Run all downstream nodes including this one">
@@ -172,7 +172,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                             onClick={handleRunDownstream}
                             className="absolute left-1/2 -translate-x-1/2 -bottom-3 w-5 h-5 flex items-center justify-center rounded-full shadow-sm hover:scale-110 transition-all cursor-pointer z-10 bg-gray-600 dark:bg-gray-400"
                         >
-                            <IconRefresh className="w-3 h-3 fill-white dark:fill-gray-900" />
+                            <IconPlayFilled className="w-2.5 h-2.5 text-white dark:text-gray-900 rotate-90" />
                         </button>
                     </Tooltip>
                 </>

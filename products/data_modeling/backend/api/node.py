@@ -49,10 +49,10 @@ class NodeSerializer(serializers.ModelSerializer):
         ]
 
     def get_upstream_count(self, node: Node) -> int:
-        return Edge.objects.filter(target=node, team_id=node.team.id).count()
+        return len(_get_upstream_nodes(node))
 
     def get_downstream_count(self, node: Node) -> int:
-        return Edge.objects.filter(source=node, team_id=node.team.id).count()
+        return len(_get_downstream_nodes(node))
 
     def get_last_run_at(self, node: Node) -> str:
         return node.properties.get("system", {}).get("last_run_at")

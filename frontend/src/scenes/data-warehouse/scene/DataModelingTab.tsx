@@ -135,7 +135,7 @@ export function DataModelingTab(): JSX.Element {
                             {
                                 title: 'Upstream',
                                 key: 'upstream_count',
-                                tooltip: 'Number of immediate parent nodes',
+                                tooltip: 'Total number of upstream nodes',
                                 render: (_, node: DataModelingNode) => (
                                     <DependencyCount count={node.upstream_count} loading={nodesLoading} />
                                 ),
@@ -143,7 +143,7 @@ export function DataModelingTab(): JSX.Element {
                             {
                                 title: 'Downstream',
                                 key: 'downstream_count',
-                                tooltip: 'Number of immediate children nodes',
+                                tooltip: 'Total number of downstream nodes',
                                 render: (_, node: DataModelingNode) => (
                                     <DependencyCount count={node.downstream_count} loading={nodesLoading} />
                                 ),

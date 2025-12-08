@@ -193,7 +193,7 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Upstream',
                                 key: 'upstream_count',
-                                tooltip: 'Number of immediate upstream dependencies',
+                                tooltip: 'Total number of upstream nodes',
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.upstream_dependency_count}
@@ -204,7 +204,7 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Downstream',
                                 key: 'downstream_count',
-                                tooltip: 'Number of immediate downstream dependencies',
+                                tooltip: 'Total number of downstream nodes',
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.downstream_dependency_count}
@@ -308,7 +308,7 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Upstream',
                                 key: 'upstream_count',
-                                tooltip: 'Number of immediate upstream dependencies',
+                                tooltip: 'Total number of upstream nodes',
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.upstream_dependency_count}
@@ -319,7 +319,7 @@ export function ViewsTab(): JSX.Element {
                             {
                                 title: 'Downstream',
                                 key: 'downstream_count',
-                                tooltip: 'Number of immediate downstream dependencies',
+                                tooltip: 'Total number of downstream nodes',
                                 render: (_, view) => (
                                     <DependencyCount
                                         count={view.downstream_dependency_count}
