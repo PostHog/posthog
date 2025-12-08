@@ -15,7 +15,7 @@ import type { DragEvent, RefObject } from 'react'
 
 import api from 'lib/api'
 
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
 import { getFormattedNodes } from './autolayout'
 import { BOTTOM_HANDLE_POSITION, TOP_HANDLE_POSITION } from './constants'
@@ -44,6 +44,7 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
         onDrop: (event: DragEvent) => ({ event }),
         setNewDraggingNode: (newDraggingNode: CreateModelNodeType | null) => ({ newDraggingNode }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
+        setHighlightedNodeType: (highlightedNodeType: DataModelingNodeType | null) => ({ highlightedNodeType }),
         resetGraph: (dataModelingNodes: DataModelingNode[], dataModelingEdges: DataModelingEdge[]) => ({
             dataModelingNodes,
             dataModelingEdges,
@@ -86,6 +87,12 @@ export const dataModelingEditorLogic = kea<dataModelingEditorLogicType>([
             null as string | null,
             {
                 setHighlightedDropzoneNodeId: (_, { highlightedDropzoneNodeId }) => highlightedDropzoneNodeId,
+            },
+        ],
+        highlightedNodeType: [
+            null as DataModelingNodeType | null,
+            {
+                setHighlightedNodeType: (_, { highlightedNodeType }) => highlightedNodeType,
             },
         ],
         edges: [

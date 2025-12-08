@@ -51,7 +51,7 @@ function DropzoneNode({ id }: DropzoneNodeProps): JSX.Element {
 
 function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
     const updateNodeInternals = useUpdateNodeInternals()
-    const { selectedNodeId } = useValues(dataModelingEditorLogic)
+    const { selectedNodeId, highlightedNodeType } = useValues(dataModelingEditorLogic)
     const { searchTerm } = useValues(dataModelingNodesLogic)
 
     useEffect(() => {
@@ -60,9 +60,10 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
 
     const settings = NODE_TYPE_SETTINGS[props.data.type]
     const isSelected = selectedNodeId === props.id
-    const { userTag, name } = props.data
+    const { userTag, name, type } = props.data
 
     const isSearchMatch = searchTerm.length > 0 && name.toLowerCase().includes(searchTerm.toLowerCase())
+    const isTypeHighlighted = highlightedNodeType !== null && highlightedNodeType === type
 
     return (
         <div
@@ -70,9 +71,11 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
                 isSearchMatch
                     ? 'border-link ring-2 ring-link/30'
-                    : isSelected
-                      ? 'border-primary ring-2 ring-primary/50'
-                      : 'border-border'
+                    : isTypeHighlighted
+                      ? 'border-link ring-2 ring-link/30'
+                      : isSelected
+                        ? 'border-primary ring-2 ring-primary/50'
+                        : 'border-border'
             )}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
