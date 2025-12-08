@@ -88,14 +88,21 @@ func main() {
 	}
 
 	go func() {
+		ticker := time.NewTicker(7127 * time.Millisecond)
+		defer ticker.Stop()
 		for {
-			metrics.IncomingQueue.Set(consumer.IncomingRatio())
-			metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
-			metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
-			metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
-			metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
-			metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
-			time.Sleep(7127 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				log.Println("metrics collection shutting down...")
+				return
+			case <-ticker.C:
+				metrics.IncomingQueue.Set(consumer.IncomingRatio())
+				metrics.EventQueue.Set(float64(len(phEventChan)) / float64(cap(phEventChan)))
+				metrics.StatsQueue.Set(float64(len(statsChan)) / float64(cap(statsChan)))
+				metrics.SessionRecordingStatsQueue.Set(float64(len(sessionStatsChan)) / float64(cap(sessionStatsChan)))
+				metrics.SubQueue.Set(float64(len(subChan)) / float64(cap(subChan)))
+				metrics.UnSubQueue.Set(float64(len(unSubChan)) / float64(cap(unSubChan)))
+			}
 		}
 	}()
 

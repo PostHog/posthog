@@ -80,7 +80,11 @@ func (c *SessionRecordingKafkaConsumer) Consume(ctx context.Context) {
 
 			token, sessionId := parseSessionRecordingHeaders(msg.Headers)
 			if token != "" && sessionId != "" {
-				c.statsChan <- SessionRecordingEvent{Token: token, SessionId: sessionId}
+				select {
+				case c.statsChan <- SessionRecordingEvent{Token: token, SessionId: sessionId}:
+				case <-ctx.Done():
+					return
+				}
 			} else {
 				metrics.SessionRecordingDroppedMessages.Inc()
 			}
