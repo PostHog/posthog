@@ -4668,6 +4668,10 @@
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
                 },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
@@ -17743,6 +17747,10 @@
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
+                "after": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17825,6 +17833,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
@@ -24532,6 +24544,10 @@
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
