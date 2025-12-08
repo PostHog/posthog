@@ -1302,7 +1302,7 @@ def get_teams_with_exceptions_captured_in_period(
         team_totals[team_id] += total
 
     team_totals_list = [[team_id, total] for team_id, total in team_totals.items()]
-    return dict(library_totals), team_totals_list
+    return library_totals, team_totals_list
 
 
 @timed_log()
