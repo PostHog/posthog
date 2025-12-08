@@ -301,8 +301,8 @@ ADD_RETENTION_PERIOD_DAYS_AGGREGATE_TYPE_SESSION_REPLAY_EVENTS_TABLE_SQL = (
 # migration to add lts_uri, lts_expiration and is_deleted columns
 ALTER_SESSION_REPLAY_ADD_LTS_COLUMNS = """
     ALTER TABLE {table_name}
-        ADD COLUMN IF NOT EXISTS lts_uri SimpleAggregateFunction(max, Nullable(Int64))
-        ADD COLUMN IF NOT EXISTS lts_expiration SimpleAggregateFunction(max, Nullable(Int64))
+        ADD COLUMN IF NOT EXISTS lts_uri SimpleAggregateFunction(max, Nullable(Int64)),
+        ADD COLUMN IF NOT EXISTS lts_expiration SimpleAggregateFunction(max, Nullable(Int64)),
         ADD COLUMN IF NOT EXISTS is_deleted SimpleAggregateFunction(max, Nullable(Int64))
 """
 
