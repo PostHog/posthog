@@ -46,7 +46,7 @@ func InitConfigs(filename, configPath string) {
 	viper.AddConfigPath(configPath)
 
 	viper.SetDefault("kafka.group_id", "livestream")
-	viper.SetDefault("kafka.session_recording_enabled", false)
+	viper.SetDefault("kafka.session_recording_enabled", true)
 
 	err := viper.ReadInConfig()
 	if err != nil {
