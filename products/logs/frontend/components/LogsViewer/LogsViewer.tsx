@@ -89,7 +89,7 @@ function LogsViewerContent({
             setCursorToLogId(linkToLogId, logs)
             containerRef.current?.focus()
         }
-    }, [linkToLogId, logsCount, setCursorToLogId])
+    }, [linkToLogId, logsCount, logs, setCursorToLogId])
 
     const tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'> = {
         formatDate: 'YYYY-MM-DD',
