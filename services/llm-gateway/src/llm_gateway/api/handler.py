@@ -123,9 +123,8 @@ async def _handle_streaming_request(
     start_time: float,
     timeout: float,
 ) -> StreamingResponse:
-    ACTIVE_STREAMS.labels(provider=provider_config.name).inc()
-
     async def stream_generator() -> AsyncGenerator[bytes, None]:
+        ACTIVE_STREAMS.labels(provider=provider_config.name).inc()
         status_code = "200"
         provider_start = time.monotonic()
         first_chunk_received = False
