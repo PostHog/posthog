@@ -429,12 +429,12 @@
 
     body[theme='dark'] {
         /* Main application background and foreground */
-        --color-background: var(--color-neutral-900);
+        --color-background: var(--color-neutral-950);
         --color-foreground: var(--color-neutral-100);
         --color-foreground-inverse: var(--color-neutral-900);
 
         /* Card background and foreground */
-        --color-card: var(--color-neutral-900);
+        --color-card: var(--color-neutral-850);
         --color-card-foreground: var(--color-neutral-100);
 
         /* Brand color for primary actions (buttons, highlights) */
@@ -445,7 +445,7 @@
         );
 
         /* Subdued background for less important elements */
-        --color-muted: var(--color-neutral-850);
+        --color-muted: var(--color-neutral-900);
         --color-muted-foreground: var(--color-neutral-200);
 
         /* Highlight color for active or focused elements */
