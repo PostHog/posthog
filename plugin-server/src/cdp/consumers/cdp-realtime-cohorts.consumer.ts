@@ -160,8 +160,8 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
     // This consumer parses events from kafka and evaluates both behavioral and person property filters
     @instrumented('cdpRealtimeCohortsConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<{
-        behavioralEvents: ProducedEvent[]
-        personPropertyEvents: ProducedPersonPropertiesEvent[]
+        precalculatedEvents: ProducedEvent[]
+        precalculatedPersonProperties: ProducedPersonPropertiesEvent[]
     }> {
         return await this.runWithHeartbeat(async () => {
             const behavioralEvents: ProducedEvent[] = []
@@ -289,7 +289,7 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
                     logger.error('Error processing team events', { teamId, error: e })
                 }
             }
-            return { behavioralEvents, personPropertyEvents }
+            return { precalculatedEvents: behavioralEvents, precalculatedPersonProperties: personPropertyEvents }
         })
     }
 
@@ -302,14 +302,14 @@ export class CdpRealtimeCohortsConsumer extends CdpConsumerBase {
             })
 
             return await instrumentFn('cdpRealtimeCohortsConsumer.handleEventBatch', async () => {
-                const { behavioralEvents, personPropertyEvents } = await this._parseKafkaBatch(messages)
+                const { precalculatedEvents, precalculatedPersonProperties } = await this._parseKafkaBatch(messages)
 
                 // Publish both types of events in parallel
                 const backgroundTask = Promise.all([
-                    this.publishBehavioralEvents(behavioralEvents).catch((error) => {
+                    this.publishBehavioralEvents(precalculatedEvents).catch((error) => {
                         throw new Error(`Failed to publish behavioral events: ${error.message}`)
                     }),
-                    this.publishPersonPropertyEvents(personPropertyEvents).catch((error) => {
+                    this.publishPersonPropertyEvents(precalculatedPersonProperties).catch((error) => {
                         throw new Error(`Failed to publish person property events: ${error.message}`)
                     }),
                 ])
