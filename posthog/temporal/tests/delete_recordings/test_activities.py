@@ -11,6 +11,7 @@ from posthog.temporal.delete_recordings.activities import (
     _parse_session_recording_list_response,
     delete_recording_blocks,
     delete_recording_lts_data,
+    group_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
     load_recordings_with_query,
@@ -21,12 +22,14 @@ from posthog.temporal.delete_recordings.activities import (
 from posthog.temporal.delete_recordings.types import (
     DeleteRecordingError,
     DeleteRecordingMetadataInput,
+    GroupRecordingError,
     LoadRecordingError,
     Recording,
     RecordingBlockGroup,
     RecordingsWithPersonInput,
     RecordingsWithQueryInput,
     RecordingsWithTeamInput,
+    RecordingWithBlocks,
 )
 
 
@@ -701,3 +704,170 @@ async def test_delete_recording_lts_data_handles_delete_error():
         await delete_recording_lts_data(Recording(session_id="session-delete-error", team_id=456))
 
     mock_storage.delete_file.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_group_recording_blocks_single_file():
+    TEST_SESSION_ID = "test-session-123"
+    TEST_TEAM_ID = 12345
+
+    blocks = [
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 0, 0),
+            end_time=datetime(2025, 1, 1, 10, 15, 0),
+            url="s3://bucket/session_recordings/90d/file1?range=bytes=0-1000",
+        ),
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 16, 0),
+            end_time=datetime(2025, 1, 1, 10, 30, 0),
+            url="s3://bucket/session_recordings/90d/file1?range=bytes=1001-2000",
+        ),
+    ]
+
+    result = await group_recording_blocks(
+        RecordingWithBlocks(
+            recording=Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+            blocks=blocks,
+        )
+    )
+
+    assert len(result) == 1
+    assert result[0].path == "session_recordings/90d/file1"
+    assert result[0].ranges == [(0, 1000), (1001, 2000)]
+    assert result[0].recording.session_id == TEST_SESSION_ID
+    assert result[0].recording.team_id == TEST_TEAM_ID
+
+
+@pytest.mark.asyncio
+async def test_group_recording_blocks_multiple_files():
+    TEST_SESSION_ID = "test-session-456"
+    TEST_TEAM_ID = 67890
+
+    blocks = [
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 0, 0),
+            end_time=datetime(2025, 1, 1, 10, 15, 0),
+            url="s3://bucket/session_recordings/90d/file1?range=bytes=0-1000",
+        ),
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 16, 0),
+            end_time=datetime(2025, 1, 1, 10, 30, 0),
+            url="s3://bucket/session_recordings/1y/file2?range=bytes=500-1500",
+        ),
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 31, 0),
+            end_time=datetime(2025, 1, 1, 10, 45, 0),
+            url="s3://bucket/session_recordings/90d/file1?range=bytes=2000-3000",
+        ),
+    ]
+
+    result = await group_recording_blocks(
+        RecordingWithBlocks(
+            recording=Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+            blocks=blocks,
+        )
+    )
+
+    assert len(result) == 2
+
+    file1_group = next(g for g in result if g.path == "session_recordings/90d/file1")
+    file2_group = next(g for g in result if g.path == "session_recordings/1y/file2")
+
+    assert file1_group.ranges == [(0, 1000), (2000, 3000)]
+    assert file2_group.ranges == [(500, 1500)]
+
+
+@pytest.mark.asyncio
+async def test_group_recording_blocks_malformed_url():
+    TEST_SESSION_ID = "test-session-error"
+    TEST_TEAM_ID = 99999
+
+    blocks = [
+        RecordingBlock(
+            start_time=datetime(2025, 1, 1, 10, 0, 0),
+            end_time=datetime(2025, 1, 1, 10, 15, 0),
+            url="s3://bucket/session_recordings/90d/file1?invalid=query",
+        ),
+    ]
+
+    with pytest.raises(GroupRecordingError, match="Got malformed byte range in block URL"):
+        await group_recording_blocks(
+            RecordingWithBlocks(
+                recording=Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+                blocks=blocks,
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_group_recording_blocks_empty_blocks():
+    TEST_SESSION_ID = "test-session-empty"
+    TEST_TEAM_ID = 11111
+
+    result = await group_recording_blocks(
+        RecordingWithBlocks(
+            recording=Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+            blocks=[],
+        )
+    )
+
+    assert result == []
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_blocks_upload_error():
+    from posthog.storage import session_recording_v2_object_storage
+
+    TEST_SESSION_ID = "session-upload-error"
+    TEST_TEAM_ID = 77777
+    TEST_PATH = "session_recordings/error/test-file"
+    TEST_RANGES = [(0, 99)]
+
+    mock_storage = MagicMock()
+    mock_storage.download_file = AsyncMock()
+    mock_storage.upload_file = AsyncMock(side_effect=session_recording_v2_object_storage.FileUploadError("Failed"))
+    mock_storage.__aenter__ = AsyncMock(return_value=mock_storage)
+    mock_storage.__aexit__ = AsyncMock(return_value=None)
+
+    mock_deleted_counter = MagicMock()
+    mock_error_counter = MagicMock()
+
+    with (
+        patch(
+            "posthog.temporal.delete_recordings.activities.session_recording_v2_object_storage.async_client"
+        ) as mock_client,
+        patch("posthog.temporal.delete_recordings.activities.mkstemp") as mock_mkstemp,
+        patch("posthog.temporal.delete_recordings.activities.os.remove") as mock_remove,
+        patch("posthog.temporal.delete_recordings.activities.get_block_deleted_counter") as mock_get_deleted,
+        patch("posthog.temporal.delete_recordings.activities.get_block_deleted_error_counter") as mock_get_error,
+        patch("posthog.temporal.delete_recordings.activities.overwrite_block"),
+        patch("posthog.temporal.delete_recordings.activities.Path") as mock_path,
+    ):
+        mock_client.return_value = mock_storage
+        tmpfile = "/tmp/test-temp-file-upload"
+        mock_mkstemp.return_value = (0, tmpfile)
+        mock_get_deleted.return_value = mock_deleted_counter
+        mock_get_error.return_value = mock_error_counter
+        mock_path.return_value.stat.return_value.st_size = 100
+
+        input = RecordingBlockGroup(
+            recording=Recording(session_id=TEST_SESSION_ID, team_id=TEST_TEAM_ID),
+            path=TEST_PATH,
+            ranges=TEST_RANGES,
+        )
+
+        # Should not raise an exception, just log a warning
+        await delete_recording_blocks(input)
+
+        # Verify download was called
+        mock_storage.download_file.assert_called_once()
+
+        # Verify upload was attempted
+        mock_storage.upload_file.assert_called_once()
+
+        # Verify cleanup happened
+        mock_remove.assert_called_once_with(tmpfile)
+
+        # Verify metrics show the block was counted but overall operation may not complete
+        mock_deleted_counter.add.assert_called_once()
+        mock_error_counter.add.assert_called_once()
