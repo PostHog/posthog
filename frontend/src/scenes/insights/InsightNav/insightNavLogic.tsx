@@ -15,6 +15,7 @@ import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryN
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     ActionsNode,
+    AnyEntityNode,
     CalendarHeatmapFilter,
     DataWarehouseNode,
     EventsNode,
@@ -91,10 +92,7 @@ export interface QueryPropertyCache
     calendarHeatmapFilter?: Partial<CalendarHeatmapFilter>
 }
 
-const cleanSeriesEntityMath = (
-    entity: EventsNode | ActionsNode | DataWarehouseNode,
-    mathAvailability: MathAvailability
-): EventsNode | ActionsNode | DataWarehouseNode => {
+const cleanSeriesEntityMath = (entity: AnyEntityNode, mathAvailability: MathAvailability): AnyEntityNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -111,10 +109,7 @@ const cleanSeriesEntityMath = (
     return baseEntity
 }
 
-const cleanSeriesMath = (
-    series: (EventsNode | ActionsNode | DataWarehouseNode)[],
-    mathAvailability: MathAvailability
-): (EventsNode | ActionsNode | DataWarehouseNode)[] => {
+const cleanSeriesMath = (series: AnyEntityNode[], mathAvailability: MathAvailability): AnyEntityNode[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -347,7 +342,11 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
             const seriesList = isTrendsQuery(mergedQuery) ? cache.series : expandGroupNodes(cache.series)
 
             if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None)
+                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None) as (
+                    | EventsNode
+                    | ActionsNode
+                    | DataWarehouseNode
+                )[]
             } else {
                 const mathAvailability = isTrendsQuery(mergedQuery)
                     ? MathAvailability.All
