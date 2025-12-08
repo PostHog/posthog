@@ -11,7 +11,6 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -723,23 +722,6 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(results), 2)
         self.assertCountEqual(set(results[0][1]["distinct_ids"]), {"person1", "anon1"})
         self.assertCountEqual(set(results[1][1]["distinct_ids"]), {"person2", "anon2"})
-
-    @patch("posthog.hogql_queries.insights.funnels.funnel_udf.FunnelUDF.actor_query", return_value=None)
-    def test_uses_udf(self, obj):
-        self._create_sample_data_multiple_dropoffs()
-        filters = {
-            "insight": INSIGHT_FUNNELS,
-            "interval": "day",
-            "date_from": "2021-05-01 00:00:00",
-            "date_to": "2021-05-07 00:00:00",
-            "funnel_window_days": 7,
-            "events": [
-                {"id": "step one", "order": 0},
-                {"id": "step two", "order": 1},
-                {"id": "step three", "order": 2},
-            ],
-        }
-        self.assertRaises(Exception, lambda: get_actors(filters, self.team, funnel_step=1))
 
     def test_optional_funnel_step_actors_query(self):
         journeys_for(

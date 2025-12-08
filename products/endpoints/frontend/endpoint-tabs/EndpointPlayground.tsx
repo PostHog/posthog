@@ -280,7 +280,10 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
         >
             <div className="flex gap-4">
                 <div className="flex-1 flex flex-col gap-2">
-                    <LemonField.Pure label="Request payload" info="Edit the JSON payload to send to the endpoint" />
+                    <LemonField.Pure
+                        label="Request payload"
+                        info="JSON payload sent with the request. Use 'variables' to pass query parameters."
+                    />
 
                     <CodeEditorInline
                         embedded
@@ -292,7 +295,10 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
                 </div>
 
                 <div className="flex-3 flex flex-col gap-2">
-                    <LemonField.Pure label="API response" />
+                    <LemonField.Pure
+                        label="API response"
+                        info="Live response from the endpoint. Press Cmd/Ctrl + Enter to execute."
+                    />
                     <CodeEditorInline
                         embedded
                         language="json"
@@ -306,7 +312,9 @@ export function EndpointPlayground({ tabId }: EndpointPlaygroundProps): JSX.Elem
             <LemonDivider className="my-4" />
 
             <div className="flex flex-col gap-4">
-                <LemonLabel>Example usage</LemonLabel>
+                <LemonLabel info="Copy-paste code examples to call this endpoint from your application">
+                    Example usage
+                </LemonLabel>
                 <div className="flex gap-2">
                     <LemonSelect
                         options={versionOptions}

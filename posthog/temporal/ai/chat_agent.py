@@ -83,9 +83,12 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     team, user, conversation = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
-        User.objects.aget(id=inputs.user_id),
+        User.objects.filter(id=inputs.user_id).select_related("current_organization").afirst(),
         Conversation.objects.aget(id=inputs.conversation_id),
     )
+
+    if not user:
+        raise ValueError(f"User with id {inputs.user_id} not found")
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
 

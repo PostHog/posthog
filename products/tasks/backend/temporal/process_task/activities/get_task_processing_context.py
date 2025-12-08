@@ -12,6 +12,12 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_wi
 
 
 @dataclass
+class GetTaskProcessingContextInput:
+    run_id: str
+    create_pr: bool = True
+
+
+@dataclass
 class TaskProcessingContext:
     """
     Serializable context object passed to all activities in the task processing workflow.
@@ -24,6 +30,7 @@ class TaskProcessingContext:
     github_integration_id: int
     repository: str
     distinct_id: str
+    create_pr: bool = True
 
     def to_log_context(self) -> dict:
         """Return a dict suitable for structured logging."""
@@ -38,8 +45,9 @@ class TaskProcessingContext:
 
 @activity.defn
 @asyncify
-def get_task_processing_context(run_id: str) -> TaskProcessingContext:
+def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskProcessingContext:
     """Fetch task details and create the processing context for the workflow."""
+    run_id = input.run_id
     log_with_activity_context("Fetching task processing context", run_id=run_id)
 
     try:
@@ -100,4 +108,5 @@ def get_task_processing_context(run_id: str) -> TaskProcessingContext:
         github_integration_id=task.github_integration_id,
         repository=repository_full_name,
         distinct_id=distinct_id,
+        create_pr=input.create_pr,
     )
