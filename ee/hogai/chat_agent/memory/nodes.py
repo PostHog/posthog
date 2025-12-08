@@ -128,7 +128,7 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
         last_message = state.messages[-1]
         if isinstance(last_message, HumanMessage) and last_message.content.startswith("/"):
-            report_user_action(
+            await database_sync_to_async(report_user_action)(
                 self._user, "Max slash command used", {"slash_command": last_message.content}, team=self._team
             )
         if isinstance(last_message, HumanMessage) and last_message.content == SlashCommandName.FIELD_INIT:
@@ -142,9 +142,9 @@ class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShould
         await core_memory.achange_status_to_pending()
 
         # The team has a product description, initialize the memory with it.
-        if self._team.project.product_description:
+        if product_description := await database_sync_to_async(lambda: self._team.project.product_description)():
             await core_memory.aappend_question_to_initial_text("What does the company do?")
-            await core_memory.aappend_answer_to_initial_text(self._team.project.product_description)
+            await core_memory.aappend_answer_to_initial_text(product_description)
             return PartialAssistantState(
                 messages=[
                     AssistantMessage(
@@ -208,7 +208,7 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
             ).partial(bundle_ids=", ".join(retrieved_prop.sample_values))
 
         chain = prompt | self._model() | StrOutputParser()
-        answer = chain.invoke({}, config=config)
+        answer = await chain.ainvoke({}, config=config)
         # The model has failed to scrape the data, continue.
         if answer == SCRAPING_TERMINATION_MESSAGE:
             return PartialAssistantState(messages=[AssistantMessage(content=answer, id=str(uuid4()))])
@@ -289,7 +289,7 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
             ).partial(core_memory=core_memory.initial_text, questions_left=answers_left)
 
             chain = prompt | self._model | StrOutputParser()
-            response = chain.invoke({}, config=config)
+            response = await chain.ainvoke({}, config=config)
 
             if "[Done]" not in response and "===" in response:
                 question = self._format_question(response)
