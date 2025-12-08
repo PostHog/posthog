@@ -873,6 +873,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return None
 
     def _get_event_expr(self, series: EventsNode) -> ast.Expr | None:
+        if series.event is None:
+            return None
         return parse_expr(
             "event = {event}",
             placeholders={"event": ast.Constant(value=series.event)},
