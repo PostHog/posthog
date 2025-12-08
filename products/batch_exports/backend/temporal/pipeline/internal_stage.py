@@ -1,9 +1,9 @@
+import sys
 import uuid
 import socket
 import typing
 import asyncio
 import datetime as dt
-import platform
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 
@@ -76,14 +76,16 @@ def socket_factory(addr_info):
     sock = socket.socket(family=family, type=type_, proto=proto)
     # Enable keepalive in the socket
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
-    if platform.system() == "Linux":
-        # Start sending keepalive probes after 30s
-        # Ensure that any idle timeouts allow at least 30s
+
+    if sys.platform == "linux":
+        # Start sending keepalive probes after 60s
+        # Ensure that any idle timeouts allow at least 60s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
-        # Start sending keepalive probes every 10s
+        # Send keepalive probes every 10s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
         # Give up after 5 failed probes
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+
     return sock
 
 
