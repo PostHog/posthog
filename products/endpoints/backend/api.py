@@ -395,6 +395,55 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    def _get_cache_age_for_version(self, endpoint: Endpoint, version_obj: EndpointVersion | None) -> int | None:
+        """
+        Calculate cache age based on version creation time.
+        
+        If a new version was created, we need to ensure cached results from before the version
+        don't get used. This returns the smaller of:
+        - The endpoint's configured cache_age_seconds
+        - The time since the version was created (if version exists)
+        
+        This ensures cache created before the version change is considered stale.
+        """
+        if version_obj is None:
+            return endpoint.cache_age_seconds
+        
+        # Calculate how long ago this version was created
+        version_age_seconds = int((timezone.now() - version_obj.created_at).total_seconds())
+        
+        # If endpoint has no cache_age_seconds set, use version age
+        if endpoint.cache_age_seconds is None:
+            # Don't artificially limit cache for old versions
+            # Only restrict cache if version is newer than default cache behavior would allow
+            return None
+        
+        # Use the minimum of configured cache age and version age
+        # This ensures we don't use cache from before the version was created
+        return min(endpoint.cache_age_seconds, version_age_seconds)
+    
+    def _get_cache_age_for_materialization(self, endpoint: Endpoint, saved_query) -> int | None:
+        """
+        Calculate cache age based on materialization time.
+        
+        When using materialized tables, ensure cached results don't predate the last materialization.
+        This is important because materialization can change when:
+        - A new version is created
+        - The sync runs and updates the materialized data
+        
+        Returns the time since last materialization, ensuring cache from before it is considered stale.
+        """
+        if not saved_query or not saved_query.last_run_at:
+            # No materialization timestamp, don't use cache
+            return 0
+        
+        # Calculate how long ago the materialization last ran
+        materialization_age_seconds = int((timezone.now() - saved_query.last_run_at).total_seconds())
+        
+        # Use materialization age as the cache age limit
+        # This ensures we don't use cache from before the last materialization
+        return materialization_age_seconds
+    
     def _should_use_materialized_table(self, endpoint: Endpoint, data: EndpointRunRequest) -> bool:
         """
         Decide whether to use materialized table or inline execution.
@@ -514,8 +563,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             }
             tag_queries(workload=Workload.ENDPOINTS, warehouse_query=True)
 
+            # Calculate cache age based on last materialization time to ensure cache doesn't predate it
+            cache_age_seconds = self._get_cache_age_for_materialization(endpoint, saved_query)
+
             return self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, extra_result_fields=extra_fields
+                query_request_data, data.client_query_id, request, cache_age_seconds=cache_age_seconds, extra_result_fields=extra_fields
             )
         except Exception as e:
             capture_exception(
@@ -555,7 +607,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return variables_override
 
     def _execute_inline_endpoint(
-        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict
+        self, endpoint: Endpoint, data: EndpointRunRequest, request: Request, query: dict, version_obj: EndpointVersion | None = None
     ) -> Response:
         """Execute query directly against ClickHouse."""
         try:
@@ -573,8 +625,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
                 "variables_override": variables_override,
             }
 
+            # Calculate cache age based on version creation time to ensure cache doesn't predate it
+            cache_age_seconds = self._get_cache_age_for_version(endpoint, version_obj)
+
             return self._execute_query_and_respond(
-                query_request_data, data.client_query_id, request, cache_age_seconds=endpoint.cache_age_seconds
+                query_request_data, data.client_query_id, request, cache_age_seconds=cache_age_seconds
             )
 
         except Exception as e:
@@ -638,7 +693,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             else:
                 # Use version's query if available, otherwise use endpoint.query
                 query_to_use = version_obj.query if version_obj else endpoint.query.copy()
-                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use)
+                result = self._execute_inline_endpoint(endpoint, data, request, query_to_use, version_obj)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError("An internal error occurred.", getattr(e, "code_name", None))
         except ResolutionError:

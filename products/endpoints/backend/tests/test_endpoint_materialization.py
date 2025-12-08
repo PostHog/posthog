@@ -541,3 +541,202 @@ class TestEndpointMaterializationTemporal:
         schedule = get_saved_query_schedule(saved_query)
         assert schedule.spec.intervals[0].every == timedelta(hours=24)
         assert schedule.spec.jitter == timedelta(hours=1)
+
+
+class TestEndpointCacheInvalidation(ClickhouseTestMixin, APIBaseTest):
+    """Test suite for cache invalidation on version changes and materialization updates."""
+
+    def setUp(self):
+        super().setUp()
+        self.sample_hogql_query = {
+            "kind": "HogQLQuery",
+            "query": "SELECT 1 as result",
+        }
+        # Mock sync_saved_query_workflow to avoid Temporal connection
+        self.sync_workflow_patcher = mock.patch(
+            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+        )
+        self.mock_sync_workflow = self.sync_workflow_patcher.start()
+
+    def tearDown(self):
+        self.sync_workflow_patcher.stop()
+        super().tearDown()
+
+    def test_cache_invalidated_on_version_change(self):
+        """Test that cache is invalidated when a new version is created."""
+        from freezegun import freeze_time
+
+        # Create endpoint with cache age of 1 hour
+        endpoint = Endpoint.objects.create(
+            name="cache_version_test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            cache_age_seconds=3600,  # 1 hour
+        )
+
+        with freeze_time("2025-01-01 12:00:00"):
+            # First execution - should calculate fresh and cache
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            cache_key = response.json().get("cache_key")
+            self.assertIsNotNone(cache_key)
+
+        # Move forward 10 minutes - cache should still be valid
+        with freeze_time("2025-01-01 12:10:00"):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertTrue(response.json().get("is_cached", False))
+            self.assertEqual(response.json().get("cache_key"), cache_key)
+
+        # Move forward another 5 minutes and update the query (creating new version)
+        with freeze_time("2025-01-01 12:15:00"):
+            updated_query = {
+                "kind": "HogQLQuery",
+                "query": "SELECT 2 as result",
+            }
+            update_response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": updated_query},
+                format="json",
+            )
+            self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+            self.assertEqual(update_response.json()["current_version"], 2)
+
+        # Move forward 5 more minutes - version is now 20 min old, but cache would be 30 min old
+        # Cache should be invalidated because it predates the version change
+        with freeze_time("2025-01-01 12:20:00"):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Should get new results (cache from before version change is invalid)
+            self.assertFalse(response.json().get("is_cached", False), "Cache should be invalidated after version change")
+
+    def test_cache_invalidated_on_materialization_update(self):
+        """Test that cache is invalidated when materialization is updated."""
+        from freezegun import freeze_time
+
+        now = timezone.now()
+
+        # Create a materialized endpoint with fresh data
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="cache_mat_test",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=timedelta(hours=1),
+            last_run_at=now - timedelta(minutes=10),  # Last materialized 10 min ago
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="cache_mat_test",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = Endpoint.objects.create(
+            name="cache_mat_test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            saved_query=saved_query,
+        )
+
+        with freeze_time(now + timedelta(minutes=11)):
+            # First execution using materialized table
+            with mock.patch.object(
+                EndpointViewSet, "_execute_query_and_respond", return_value=Response({"result": 1})
+            ) as mock_exec:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                # Check that cache_age_seconds was set to materialization age (~11 minutes = 660 seconds)
+                call_kwargs = mock_exec.call_args[1]
+                cache_age = call_kwargs.get("cache_age_seconds")
+                self.assertIsNotNone(cache_age)
+                # Should be around 11 minutes (660 seconds) ± a few seconds
+                self.assertGreater(cache_age, 650)
+                self.assertLess(cache_age, 670)
+
+        # Simulate materialization update
+        saved_query.last_run_at = now + timedelta(minutes=15)
+        saved_query.save()
+
+        with freeze_time(now + timedelta(minutes=16)):
+            # Execute again - cache age should now be based on new materialization time (~1 minute)
+            with mock.patch.object(
+                EndpointViewSet, "_execute_query_and_respond", return_value=Response({"result": 2})
+            ) as mock_exec:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                # Check that cache_age_seconds was updated to new materialization age (~1 minute = 60 seconds)
+                call_kwargs = mock_exec.call_args[1]
+                cache_age = call_kwargs.get("cache_age_seconds")
+                self.assertIsNotNone(cache_age)
+                # Should be around 1 minute (60 seconds) ± a few seconds
+                self.assertGreater(cache_age, 50)
+                self.assertLess(cache_age, 70)
+
+    def test_version_cache_age_respects_endpoint_cache_setting(self):
+        """Test that version-based cache age doesn't exceed endpoint's configured cache_age_seconds."""
+        from freezegun import freeze_time
+
+        # Create endpoint with 5-minute cache
+        endpoint = Endpoint.objects.create(
+            name="cache_limit_test",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            cache_age_seconds=300,  # 5 minutes
+        )
+
+        # Create a version 1 hour ago
+        with freeze_time("2025-01-01 11:00:00"):
+            EndpointVersion.objects.create(
+                endpoint=endpoint,
+                version=1,
+                query=self.sample_hogql_query,
+                created_by=self.user,
+            )
+
+        # Execute now - version is 1 hour old, but cache should be limited to 5 minutes
+        with freeze_time("2025-01-01 12:00:00"):
+            with mock.patch.object(
+                EndpointViewSet, "_execute_query_and_respond", return_value=Response({"result": 1})
+            ) as mock_exec:
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                    {},
+                    format="json",
+                )
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                # Check that cache_age_seconds is limited to endpoint's setting (5 min = 300 sec)
+                call_kwargs = mock_exec.call_args[1]
+                cache_age = call_kwargs.get("cache_age_seconds")
+                self.assertEqual(cache_age, 300, "Cache age should be limited to endpoint's cache_age_seconds setting")
