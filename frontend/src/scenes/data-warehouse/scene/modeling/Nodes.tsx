@@ -69,7 +69,7 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
             className={clsx(
                 'relative transition-all hover:translate-y-[-2px] rounded-lg border shadow-sm bg-bg-light',
                 isSearchMatch
-                    ? 'border-warning ring-2 ring-warning/50'
+                    ? 'border-link ring-2 ring-link/30'
                     : isSelected
                       ? 'border-primary ring-2 ring-primary/50'
                       : 'border-border'
