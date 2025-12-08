@@ -486,7 +486,7 @@ async def execute_and_format_query(
     team: Team,
     query_model: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
     execution_mode: Optional[ExecutionMode] = None,
-    insight_id: Optional[str] = None,
+    insight_id: Optional[int] = None,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:

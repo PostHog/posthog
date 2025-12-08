@@ -6,7 +6,7 @@ from uuid import uuid4
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, PrivateAttr, create_model
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantToolCallMessage
+from posthog.schema import ArtifactContentType, AssistantToolCallMessage
 
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -14,6 +14,7 @@ from posthog.hogql.database.database import Database
 from posthog.models import Dashboard, DashboardTile, Team, User
 from posthog.sync import database_sync_to_async
 
+from ee.hogai.artifacts.manager import ModelArtifactResult
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.query_executor.query_executor import execute_and_format_query
 from ee.hogai.chat_agent.sql.mixins import HogQLDatabaseMixin
@@ -84,7 +85,14 @@ class ReadArtifacts(BaseModel):
     kind: Literal["artifacts"] = "artifacts"
 
 
-ReadDataQuery = ReadDataWarehouseSchema | ReadDataWarehouseTableSchema | ReadInsight | ReadBillingInfo | ReadArtifacts
+ReadDataQuery = (
+    ReadDataWarehouseSchema
+    | ReadDataWarehouseTableSchema
+    | ReadInsight
+    | ReadDashboard
+    | ReadBillingInfo
+    | ReadArtifacts
+)
 
 
 class _InternalReadDataToolArgs(BaseModel):
@@ -195,18 +203,17 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         if result is None:
             raise MaxToolRetryableError(INSIGHT_NOT_FOUND_PROMPT.format(short_id=artifact_or_insight_id))
 
-        content, source = result
-        query_type = content.query.kind
-        insight_name = content.name or f"Insight {artifact_or_insight_id}"
+        query_type = result.content.query.kind
+        insight_name = result.content.name or f"Insight {artifact_or_insight_id}"
 
         # The agent wants to read the schema, just return it
         if not execute:
-            query_schema = content.query.model_dump_json(exclude_none=True)
+            query_schema = result.content.query.model_dump_json(exclude_none=True)
             text_result = format_prompt_string(
                 INSIGHT_SCHEMA_TEMPLATE,
                 insight_name=insight_name,
                 insight_id=artifact_or_insight_id,
-                description=content.description,
+                description=result.content.description,
                 query_type=query_type,
                 query_schema=query_schema,
             )
@@ -216,19 +223,21 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         artifact_message = ArtifactRefMessage(
             content_type=ArtifactContentType.VISUALIZATION,
             artifact_id=artifact_or_insight_id,
-            source=source,
+            source=result.source,
             id=str(uuid4()),
         )
 
         # Execute the query and return the results
         results = await execute_and_format_query(
-            self._team, content.query, insight_id=artifact_or_insight_id if source == ArtifactSource.INSIGHT else None
+            self._team,
+            result.content.query,
+            insight_id=result.model.id if isinstance(result, ModelArtifactResult) else None,
         )
         text_result = format_prompt_string(
             INSIGHT_RESULT_TEMPLATE,
             insight_name=insight_name,
             insight_id=artifact_or_insight_id,
-            description=content.description,
+            description=result.content.description,
             query_type=query_type,
             results=results,
         )
@@ -336,7 +345,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         dashboard_name = dashboard.name or f"Dashboard {dashboard_id}"
         tiles = [
             tile
-            async for tile in dashboard.tiles.filter(insight__isnull=False, deleted=False).select_related("insight")
+            async for tile in dashboard.tiles.exclude(insight__deleted=True, deleted=True).select_related("insight")
         ]
 
         if not execute:
@@ -395,17 +404,12 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
             if not insight or not insight.query:
                 return None
 
-            result = await self._context_manager.artifacts.aget_insight_with_source(
-                self._state.messages, insight.short_id
-            )
-            if result is None:
-                return None
-
-            content, _ = result
-            insight_name = content.name or f"Insight {insight.short_id}"
+            insight_name = tile.insight.name or tile.insight.derived_name or f"Insight {tile.insight.short_id}"
+            # TODO:
+            result = None
 
             try:
-                results = await execute_and_format_query(self._team, content.query, insight_id=insight.short_id)
+                results = await execute_and_format_query(self._team, result.content.query, insight_id=insight.id)
             except Exception as e:
                 results = f"Error executing query: {e}"
 
@@ -413,7 +417,7 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
                 INSIGHT_RESULT_TEMPLATE,
                 insight_name=insight_name,
                 insight_id=insight.short_id,
-                description=content.description,
+                description=result.content.description,
                 results=results,
             )
 
