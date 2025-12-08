@@ -105,7 +105,7 @@
     --toolbar-button-x: 0;
     --toolbar-button-y: 0;
     --toolbar-width-minimized: 40px;
-    --toolbar-width-expanded: 334px;
+    --toolbar-width-expanded: 376px; // add 42px for every new button, i think... - adboio
     --toolbar-translate: translate(calc(var(--toolbar-button-x) - 50%), calc(var(--toolbar-button-y) - 50%));
 
     position: fixed;

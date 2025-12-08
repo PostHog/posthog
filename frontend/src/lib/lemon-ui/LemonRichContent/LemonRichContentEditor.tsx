@@ -1,9 +1,10 @@
 import './LemonRichContentEditor.scss'
 
-import { JSONContent, TextSerializer } from '@tiptap/core'
+import { Extensions, JSONContent, TextSerializer } from '@tiptap/core'
 import ExtensionDocument from '@tiptap/extension-document'
 import { Placeholder } from '@tiptap/extensions'
 import { EditorContent } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
@@ -25,6 +26,7 @@ import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconBold, IconItalic } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -37,6 +39,15 @@ export type LemonRichContentEditorProps = {
     onPressCmdEnter?: () => void
     disabled?: boolean
     minRows?: number
+    /** Enable rich text formatting (bold, italic, links, lists). Shows a bubble menu on text selection. */
+    enableRichFormatting?: boolean
+    /** Enable heading formatting (H1, H2). Requires enableRichFormatting. */
+    enableHeadings?: boolean
+    /** Disable @mentions. */
+    disableMentions?: boolean
+    /** Disable the emoji picker. */
+    disableEmoji?: boolean
+    classNames?: string
 }
 
 const DEFAULT_INITIAL_CONTENT: JSONContent = {
@@ -75,6 +86,80 @@ export const DEFAULT_EXTENSIONS = [
     }),
 ]
 
+type ExtensionOptions = {
+    enableRichFormatting?: boolean
+    enableHeadings?: boolean
+    disableMentions?: boolean
+    placeholder?: string
+    onPressCmdEnter?: () => void
+}
+
+const HeadingIcon = ({ level }: { level: number }): JSX.Element => (
+    <div className="text-xs font-semibold">
+        H<span className="text-[10px] font-bold">{level}</span>
+    </div>
+)
+
+function buildExtensions({
+    enableRichFormatting,
+    enableHeadings,
+    disableMentions,
+    placeholder,
+    onPressCmdEnter,
+}: ExtensionOptions): Extensions {
+    const extensions: Extensions = [ExtensionDocument]
+
+    if (!disableMentions) {
+        extensions.push(MentionsExtension, RichContentNodeMention)
+    }
+
+    if (enableRichFormatting) {
+        extensions.push(
+            StarterKit.configure({
+                document: false,
+                blockquote: false,
+                code: false,
+                codeBlock: false,
+                horizontalRule: false,
+                heading: enableHeadings ? { levels: [1, 2] } : false,
+            })
+        )
+    } else {
+        extensions.push(
+            StarterKit.configure({
+                document: false,
+                link: false,
+                heading: false,
+                blockquote: false,
+                bold: false,
+                bulletList: false,
+                code: false,
+                codeBlock: false,
+                hardBreak: false,
+                dropcursor: false,
+                gapcursor: false,
+                horizontalRule: false,
+                italic: false,
+                listItem: false,
+                listKeymap: false,
+                orderedList: false,
+                strike: false,
+                underline: false,
+            })
+        )
+    }
+
+    if (placeholder) {
+        extensions.push(Placeholder.configure({ placeholder }))
+    }
+
+    if (onPressCmdEnter) {
+        extensions.push(CommandEnterExtension.configure({ onPressCmdEnter }))
+    }
+
+    return extensions
+}
+
 export const serializationOptions: { textSerializers?: Record<string, TextSerializer> } = {
     textSerializers: { [RichContentNodeType.Mention]: ({ node }) => `@member:${node.attrs.id}` },
 }
@@ -101,19 +186,25 @@ export function LemonRichContentEditor({
     onCreate,
     onUpdate,
     onPressCmdEnter,
+    classNames,
     disabled = false,
     minRows,
+    enableRichFormatting = false,
+    enableHeadings = false,
+    disableMentions = false,
 }: LemonRichContentEditorProps): JSX.Element {
     const [isPreviewShown, setIsPreviewShown] = useState<boolean>(false)
     const [ttEditor, setTTEditor] = useState<TTEditor | null>(null)
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
     const editor = useRichContentEditor({
-        extensions: [
-            ...DEFAULT_EXTENSIONS,
-            Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
-        ],
+        extensions: buildExtensions({
+            enableRichFormatting,
+            enableHeadings,
+            disableMentions,
+            placeholder,
+            onPressCmdEnter,
+        }),
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
         onCreate: (editor) => {
@@ -145,16 +236,61 @@ export function LemonRichContentEditor({
     })
 
     return (
-        <div ref={dropRef} className="LemonRichContentEditor flex flex-col border rounded divide-y mt-4">
+        <div
+            ref={dropRef}
+            className={cn('LemonRichContentEditor flex flex-col border rounded divide-y mt-4', classNames)}
+        >
             {isPreviewShown && ttEditor ? (
                 <RichContent editor={ttEditor} className="bg-fill-input" />
             ) : (
-                <EditorContent
-                    editor={editor}
-                    className="RichContentEditor p-2"
-                    autoFocus
-                    style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
-                />
+                <>
+                    <EditorContent
+                        editor={editor}
+                        className="RichContentEditor p-2"
+                        autoFocus
+                        style={minRows ? { minHeight: `${minRows * 1.5}em` } : undefined}
+                    />
+                    {enableRichFormatting && editor && (
+                        <BubbleMenu
+                            editor={editor}
+                            options={{ placement: 'top-start' }}
+                            shouldShow={({ editor: ed, state, from, to }) => {
+                                return ed.isEditable && state.doc.textBetween(from, to).length > 0
+                            }}
+                        >
+                            <div className="flex bg-surface-primary rounded border items-center p-0.5 gap-0.5 shadow-lg">
+                                {enableHeadings && (
+                                    <>
+                                        <LemonButton
+                                            size="xsmall"
+                                            active={editor.isActive('heading', { level: 1 })}
+                                            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+                                            icon={<HeadingIcon level={1} />}
+                                        />
+                                        <LemonButton
+                                            size="xsmall"
+                                            active={editor.isActive('heading', { level: 2 })}
+                                            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+                                            icon={<HeadingIcon level={2} />}
+                                        />
+                                    </>
+                                )}
+                                <LemonButton
+                                    size="xsmall"
+                                    active={editor.isActive('bold')}
+                                    onClick={() => editor.chain().focus().toggleBold().run()}
+                                    icon={<IconBold />}
+                                />
+                                <LemonButton
+                                    size="xsmall"
+                                    active={editor.isActive('italic')}
+                                    onClick={() => editor.chain().focus().toggleItalic().run()}
+                                    icon={<IconItalic />}
+                                />
+                            </div>
+                        </BubbleMenu>
+                    )}
+                </>
             )}
             <div className="flex justify-between p-0.5">
                 <div className="flex">
@@ -168,6 +304,11 @@ export function LemonRichContentEditor({
                             loading={uploading}
                             value={filesToUpload}
                             showUploadedFiles={false}
+                            disabledReason={
+                                objectStorageAvailable
+                                    ? undefined
+                                    : 'Enable object storage to add images by dragging and dropping'
+                            }
                             callToAction={
                                 <LemonButton
                                     size="small"
@@ -177,11 +318,6 @@ export function LemonRichContentEditor({
                                         ) : (
                                             <IconImage className="text-lg" />
                                         )
-                                    }
-                                    disabledReason={
-                                        objectStorageAvailable
-                                            ? undefined
-                                            : 'Enable object storage to add images by dragging and dropping'
                                     }
                                     tooltip={
                                         objectStorageAvailable ? 'Click here or drag and drop to upload images' : null
