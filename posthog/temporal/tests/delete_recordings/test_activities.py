@@ -10,6 +10,7 @@ from posthog.temporal.delete_recordings.activities import (
     _parse_block_listing_response,
     _parse_session_recording_list_response,
     delete_recording_blocks,
+    delete_recording_lts_data,
     load_recording_blocks,
     load_recordings_with_person,
     load_recordings_with_query,
@@ -610,3 +611,93 @@ async def test_perform_recording_metadata_deletion_dry_run():
 
     # Redis should not be cleared in dry_run mode
     assert mock_redis.sets[METADATA_DELETION_KEY] == {b"session-1", b"session-2"}
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_lts_data_recording_not_found():
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value.afirst = AsyncMock(return_value=None)
+
+    with patch("posthog.temporal.delete_recordings.activities.SessionRecording.objects", mock_qs):
+        await delete_recording_lts_data(Recording(session_id="nonexistent-session", team_id=12345))
+
+    mock_qs.filter.assert_called_once_with(session_id="nonexistent-session", team_id=12345)
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_lts_data_no_lts_path():
+    mock_recording = MagicMock()
+    mock_recording.full_recording_v2_path = None
+
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value.afirst = AsyncMock(return_value=mock_recording)
+
+    with patch("posthog.temporal.delete_recordings.activities.SessionRecording.objects", mock_qs):
+        await delete_recording_lts_data(Recording(session_id="session-no-lts", team_id=12345))
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_lts_data_empty_lts_path():
+    mock_recording = MagicMock()
+    mock_recording.full_recording_v2_path = ""
+
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value.afirst = AsyncMock(return_value=mock_recording)
+
+    with patch("posthog.temporal.delete_recordings.activities.SessionRecording.objects", mock_qs):
+        await delete_recording_lts_data(Recording(session_id="session-empty-lts", team_id=12345))
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_lts_data_deletes_file():
+    mock_recording = MagicMock()
+    mock_recording.full_recording_v2_path = "session_recordings_lts/team_id/123/session_id/abc123/data"
+
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value.afirst = AsyncMock(return_value=mock_recording)
+
+    mock_storage = MagicMock()
+    mock_storage.delete_file = AsyncMock()
+    mock_storage.__aenter__ = AsyncMock(return_value=mock_storage)
+    mock_storage.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("posthog.temporal.delete_recordings.activities.SessionRecording.objects", mock_qs),
+        patch(
+            "posthog.temporal.delete_recordings.activities.session_recording_v2_object_storage.async_client"
+        ) as mock_client,
+    ):
+        mock_client.return_value = mock_storage
+
+        await delete_recording_lts_data(Recording(session_id="session-with-lts", team_id=123))
+
+    mock_storage.delete_file.assert_called_once_with("session_recordings_lts/team_id/123/session_id/abc123/data")
+
+
+@pytest.mark.asyncio
+async def test_delete_recording_lts_data_handles_delete_error():
+    from posthog.storage.session_recording_v2_object_storage import FileDeleteError
+
+    mock_recording = MagicMock()
+    mock_recording.full_recording_v2_path = "session_recordings_lts/team_id/456/session_id/def456/data"
+
+    mock_qs = MagicMock()
+    mock_qs.filter.return_value.afirst = AsyncMock(return_value=mock_recording)
+
+    mock_storage = MagicMock()
+    mock_storage.delete_file = AsyncMock(side_effect=FileDeleteError("File not found"))
+    mock_storage.__aenter__ = AsyncMock(return_value=mock_storage)
+    mock_storage.__aexit__ = AsyncMock(return_value=None)
+
+    with (
+        patch("posthog.temporal.delete_recordings.activities.SessionRecording.objects", mock_qs),
+        patch(
+            "posthog.temporal.delete_recordings.activities.session_recording_v2_object_storage.async_client"
+        ) as mock_client,
+    ):
+        mock_client.return_value = mock_storage
+
+        # Should not raise, just log warning
+        await delete_recording_lts_data(Recording(session_id="session-delete-error", team_id=456))
+
+    mock_storage.delete_file.assert_called_once()

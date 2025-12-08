@@ -28,6 +28,7 @@ from posthog.session_recordings.session_recording_v2_service import (
 )
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.storage import session_recording_v2_object_storage
+from posthog.storage.session_recording_v2_object_storage import FileDeleteError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -289,6 +290,32 @@ async def schedule_recording_metadata_deletion(input: Recording) -> None:
         await r.sadd(METADATA_DELETION_KEY, input.session_id)
 
     logger.info("Scheduled recording metadata deletion")
+
+
+@activity.defn(name="delete-recording-lts-data")
+async def delete_recording_lts_data(input: Recording) -> None:
+    bind_contextvars(session_id=input.session_id, team_id=input.team_id)
+    logger = LOGGER.bind()
+    logger.info("Deleting recording LTS data")
+
+    recording = await SessionRecording.objects.filter(session_id=input.session_id, team_id=input.team_id).afirst()
+
+    if recording is None:
+        logger.info("Recording not found in Postgres, skipping LTS deletion")
+        return
+
+    if not recording.full_recording_v2_path:
+        logger.info("Recording has no LTS path, skipping LTS deletion")
+        return
+
+    logger.info(f"Deleting LTS file at path: {recording.full_recording_v2_path}")
+
+    try:
+        async with session_recording_v2_object_storage.async_client() as storage:
+            await storage.delete_file(recording.full_recording_v2_path)
+        logger.info("Successfully deleted LTS file")
+    except FileDeleteError:
+        logger.warning(f"Failed to delete LTS file at {recording.full_recording_v2_path}, skipping...")
 
 
 @activity.defn(name="perform-recording-metadata-deletion")

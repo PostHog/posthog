@@ -1,5 +1,6 @@
 from posthog.temporal.delete_recordings.activities import (
     delete_recording_blocks,
+    delete_recording_lts_data,
     group_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
@@ -27,6 +28,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     load_recording_blocks,
     delete_recording_blocks,
+    delete_recording_lts_data,
     load_recordings_with_person,
     group_recording_blocks,
     load_recordings_with_query,

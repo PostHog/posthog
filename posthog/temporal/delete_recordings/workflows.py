@@ -9,6 +9,7 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
     delete_recording_blocks,
+    delete_recording_lts_data,
     group_recording_blocks,
     load_recording_blocks,
     load_recordings_with_person,
@@ -78,16 +79,31 @@ class DeleteRecordingWorkflow(PostHogWorkflow):
                         )
                     )
 
-        await workflow.execute_activity(
-            schedule_recording_metadata_deletion,
-            input,
-            start_to_close_timeout=timedelta(minutes=5),
-            schedule_to_close_timeout=timedelta(hours=3),
-            retry_policy=common.RetryPolicy(
-                maximum_attempts=2,
-                initial_interval=timedelta(minutes=1),
-            ),
-        )
+        async with asyncio.TaskGroup() as cleanup_tasks:
+            cleanup_tasks.create_task(
+                workflow.execute_activity(
+                    delete_recording_lts_data,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    schedule_to_close_timeout=timedelta(hours=3),
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+            )
+            cleanup_tasks.create_task(
+                workflow.execute_activity(
+                    schedule_recording_metadata_deletion,
+                    input,
+                    start_to_close_timeout=timedelta(minutes=5),
+                    schedule_to_close_timeout=timedelta(hours=3),
+                    retry_policy=common.RetryPolicy(
+                        maximum_attempts=2,
+                        initial_interval=timedelta(minutes=1),
+                    ),
+                )
+            )
 
 
 @workflow.defn(name="delete-recordings-with-person")
