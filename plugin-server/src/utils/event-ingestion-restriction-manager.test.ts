@@ -252,9 +252,9 @@ describe('EventIngestionRestrictionManager', () => {
             await eventIngestionRestrictionManager.forceRefresh()
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1')).toContain(Restriction.DROP_EVENT)
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2', 'user1')).toContain(
-                Restriction.DROP_EVENT
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+            ).toContain(Restriction.DROP_EVENT)
             expect(eventIngestionRestrictionManager.getAppliedRestrictions('token3')).toEqual(new Set())
         })
 
@@ -349,9 +349,9 @@ describe('EventIngestionRestrictionManager', () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticDropEventTokens: ['static-drop-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token', '123')).toContain(
-                Restriction.DROP_EVENT
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-drop-token', { distinct_id: '123' })
+            ).toContain(Restriction.DROP_EVENT)
         })
 
         it('returns empty array if dynamic config is disabled', () => {
@@ -381,7 +381,7 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 dropTokens: ['token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).toContain(
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
                 Restriction.DROP_EVENT
             )
         })
@@ -390,9 +390,9 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 dropTokens: ['other-token', 'token:distinct_id:789'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).not.toContain(
-                Restriction.DROP_EVENT
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.DROP_EVENT)
         })
     })
 
@@ -414,9 +414,9 @@ describe('EventIngestionRestrictionManager', () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticSkipPersonTokens: ['static-skip-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token', '123')).toContain(
-                Restriction.SKIP_PERSON_PROCESSING
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-skip-token', { distinct_id: '123' })
+            ).toContain(Restriction.SKIP_PERSON_PROCESSING)
         })
 
         it('returns empty array if dynamic config is disabled', () => {
@@ -448,7 +448,7 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 skipPersonTokens: ['token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).toContain(
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
                 Restriction.SKIP_PERSON_PROCESSING
             )
         })
@@ -457,9 +457,9 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 skipPersonTokens: ['other-token', 'token:distinct_id:789'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).not.toContain(
-                Restriction.SKIP_PERSON_PROCESSING
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
         })
     })
 
@@ -481,9 +481,9 @@ describe('EventIngestionRestrictionManager', () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticForceOverflowTokens: ['static-overflow-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token', '123')).toContain(
-                Restriction.FORCE_OVERFLOW
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-overflow-token', { distinct_id: '123' })
+            ).toContain(Restriction.FORCE_OVERFLOW)
         })
 
         it('returns empty array if dynamic config is disabled', () => {
@@ -515,7 +515,7 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 forceOverflowTokens: ['token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).toContain(
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
                 Restriction.FORCE_OVERFLOW
             )
         })
@@ -524,9 +524,9 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 forceOverflowTokens: ['other-token', 'token:distinct_id:789'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).not.toContain(
-                Restriction.FORCE_OVERFLOW
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.FORCE_OVERFLOW)
         })
     })
 
@@ -548,9 +548,9 @@ describe('EventIngestionRestrictionManager', () => {
             eventIngestionRestrictionManager = new EventIngestionRestrictionManager(hub, {
                 staticRedirectToDlqTokens: ['static-dlq-token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token', '123')).toContain(
-                Restriction.REDIRECT_TO_DLQ
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('static-dlq-token', { distinct_id: '123' })
+            ).toContain(Restriction.REDIRECT_TO_DLQ)
         })
 
         it('returns empty array if dynamic config is disabled', () => {
@@ -582,7 +582,7 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 redirectToDlqTokens: ['token:distinct_id:123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).toContain(
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })).toContain(
                 Restriction.REDIRECT_TO_DLQ
             )
         })
@@ -591,42 +591,36 @@ describe('EventIngestionRestrictionManager', () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 redirectToDlqTokens: ['other-token', 'token:distinct_id:789'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', '123')).not.toContain(
-                Restriction.REDIRECT_TO_DLQ
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { distinct_id: '123' })
+            ).not.toContain(Restriction.REDIRECT_TO_DLQ)
         })
 
         it('includes REDIRECT_TO_DLQ if session_id is in the dynamic config list', async () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 redirectToDlqTokens: ['token:session_id:session123'],
             })
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, 'session123')).toContain(
-                Restriction.REDIRECT_TO_DLQ
-            )
+            expect(
+                eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
+            ).toContain(Restriction.REDIRECT_TO_DLQ)
         })
 
         it('includes REDIRECT_TO_DLQ if event_name is in the dynamic config list', async () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 redirectToDlqTokens: ['token:event_name:$pageview'],
             })
-            expect(
-                eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, undefined, '$pageview')
-            ).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
         })
 
         it('includes REDIRECT_TO_DLQ if event_uuid is in the dynamic config list', async () => {
             await setupDynamicConfig(pipelineMock, eventIngestionRestrictionManager, {
                 redirectToDlqTokens: ['token:event_uuid:uuid-123'],
             })
-            expect(
-                eventIngestionRestrictionManager.getAppliedRestrictions(
-                    'token',
-                    undefined,
-                    undefined,
-                    undefined,
-                    'uuid-123'
-                )
-            ).toContain(Restriction.REDIRECT_TO_DLQ)
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })).toContain(
+                Restriction.REDIRECT_TO_DLQ
+            )
         })
     })
 
@@ -649,11 +643,11 @@ describe('EventIngestionRestrictionManager', () => {
                 await eventIngestionRestrictionManager.forceRefresh()
 
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
                 ).toContain(Restriction.DROP_EVENT)
-                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2', 'user1')).toContain(
-                    Restriction.DROP_EVENT
-                )
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
             })
 
             it('handles mixed distinct_id and session_id entries', async () => {
@@ -673,11 +667,11 @@ describe('EventIngestionRestrictionManager', () => {
 
                 await eventIngestionRestrictionManager.forceRefresh()
 
-                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1', 'user1')).toContain(
-                    Restriction.DROP_EVENT
-                )
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
                     Restriction.DROP_EVENT
@@ -691,7 +685,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
                 ).toContain(Restriction.DROP_EVENT)
             })
 
@@ -700,13 +694,22 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'user1', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
 
@@ -715,7 +718,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'other-session' })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
         })
@@ -726,7 +729,7 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
 
@@ -735,13 +738,22 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'user1', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
                 ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
         })
@@ -752,7 +764,7 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { session_id: 'session123' })
                 ).toContain(Restriction.FORCE_OVERFLOW)
             })
 
@@ -761,13 +773,22 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:distinct_id:user1', 'token:session_id:session123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'user1', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', 'other-user', 'other-session')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                    })
                 ).not.toContain(Restriction.FORCE_OVERFLOW)
             })
         })
@@ -780,7 +801,7 @@ describe('EventIngestionRestrictionManager', () => {
                     [
                         null,
                         JSON.stringify([
-                            { token: 'token1', event_name: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token1', event: '$pageview', pipelines: ['analytics'] },
                             { token: 'token2', distinct_id: 'user1', pipelines: ['analytics'] },
                         ]),
                     ],
@@ -792,11 +813,11 @@ describe('EventIngestionRestrictionManager', () => {
                 await eventIngestionRestrictionManager.forceRefresh()
 
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, undefined, '$pageview')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { event: '$pageview' })
                 ).toContain(Restriction.DROP_EVENT)
-                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2', 'user1')).toContain(
-                    Restriction.DROP_EVENT
-                )
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token2', { distinct_id: 'user1' })
+                ).toContain(Restriction.DROP_EVENT)
             })
 
             it('handles mixed distinct_id, session_id, and event_name entries', async () => {
@@ -806,7 +827,7 @@ describe('EventIngestionRestrictionManager', () => {
                         JSON.stringify([
                             { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
                             { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
-                            { token: 'token1', event_name: '$pageview', pipelines: ['analytics'] },
+                            { token: 'token1', event: '$pageview', pipelines: ['analytics'] },
                             { token: 'token2', pipelines: ['analytics'] },
                         ]),
                     ],
@@ -817,14 +838,14 @@ describe('EventIngestionRestrictionManager', () => {
 
                 await eventIngestionRestrictionManager.forceRefresh()
 
-                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1', 'user1')).toContain(
-                    Restriction.DROP_EVENT
-                )
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, undefined, '$pageview')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { event: '$pageview' })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
                     Restriction.DROP_EVENT
@@ -838,7 +859,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, undefined, '$pageview')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
                 ).toContain(Restriction.DROP_EVENT)
             })
 
@@ -852,39 +873,35 @@ describe('EventIngestionRestrictionManager', () => {
                 })
                 // Match by distinct_id
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // Match by session_id
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'session123',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                        event: 'other-event',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // Match by event_name
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        '$pageview'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // No match
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
 
@@ -893,12 +910,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        undefined,
-                        undefined,
-                        '$autocapture'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$autocapture' })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
         })
@@ -909,7 +921,7 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, undefined, '$pageview')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
 
@@ -918,28 +930,25 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:distinct_id:user1', 'token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        '$pageview'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
         })
@@ -950,7 +959,7 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token', undefined, undefined, '$pageview')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { event: '$pageview' })
                 ).toContain(Restriction.FORCE_OVERFLOW)
             })
 
@@ -959,28 +968,25 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:distinct_id:user1', 'token:event_name:$pageview'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        '$pageview'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: '$pageview',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        'other-event'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        event: 'other-event',
+                    })
                 ).not.toContain(Restriction.FORCE_OVERFLOW)
             })
         })
@@ -995,7 +1001,7 @@ describe('EventIngestionRestrictionManager', () => {
                         JSON.stringify([
                             {
                                 token: 'token1',
-                                event_uuid: '550e8400-e29b-41d4-a716-446655440000',
+                                uuid: '550e8400-e29b-41d4-a716-446655440000',
                                 pipelines: ['analytics'],
                             },
                             { token: 'token2', pipelines: ['analytics'] },
@@ -1009,13 +1015,9 @@ describe('EventIngestionRestrictionManager', () => {
                 await eventIngestionRestrictionManager.forceRefresh()
 
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token1',
-                        undefined,
-                        undefined,
-                        undefined,
-                        '550e8400-e29b-41d4-a716-446655440000'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', {
+                        uuid: '550e8400-e29b-41d4-a716-446655440000',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
                     Restriction.DROP_EVENT
@@ -1029,7 +1031,7 @@ describe('EventIngestionRestrictionManager', () => {
                         JSON.stringify([
                             { token: 'token1', distinct_id: 'user1', pipelines: ['analytics'] },
                             { token: 'token1', session_id: 'session123', pipelines: ['analytics'] },
-                            { token: 'token1', event_uuid: 'uuid-123', pipelines: ['analytics'] },
+                            { token: 'token1', uuid: 'uuid-123', pipelines: ['analytics'] },
                             { token: 'token2', pipelines: ['analytics'] },
                         ]),
                     ],
@@ -1040,20 +1042,14 @@ describe('EventIngestionRestrictionManager', () => {
 
                 await eventIngestionRestrictionManager.forceRefresh()
 
-                expect(eventIngestionRestrictionManager.getAppliedRestrictions('token1', 'user1')).toContain(
-                    Restriction.DROP_EVENT
-                )
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', undefined, 'session123')
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { distinct_id: 'user1' })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token1',
-                        undefined,
-                        undefined,
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { session_id: 'session123' })
+                ).toContain(Restriction.DROP_EVENT)
+                expect(
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token1', { uuid: 'uuid-123' })
                 ).toContain(Restriction.DROP_EVENT)
                 expect(eventIngestionRestrictionManager.getAppliedRestrictions('token2')).toContain(
                     Restriction.DROP_EVENT
@@ -1067,13 +1063,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        undefined,
-                        undefined,
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
                 ).toContain(Restriction.DROP_EVENT)
             })
 
@@ -1083,43 +1073,35 @@ describe('EventIngestionRestrictionManager', () => {
                 })
                 // Match by distinct_id
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // Match by session_id
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'session123',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'session123',
+                        uuid: 'other-uuid',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // Match by event_uuid
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
                 ).toContain(Restriction.DROP_EVENT)
                 // No match
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
 
@@ -1128,13 +1110,7 @@ describe('EventIngestionRestrictionManager', () => {
                     dropTokens: ['token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        undefined,
-                        undefined,
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'other-uuid' })
                 ).not.toContain(Restriction.DROP_EVENT)
             })
         })
@@ -1145,13 +1121,7 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        undefined,
-                        undefined,
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
 
@@ -1160,31 +1130,25 @@ describe('EventIngestionRestrictionManager', () => {
                     skipPersonTokens: ['token:distinct_id:user1', 'token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
                 ).toContain(Restriction.SKIP_PERSON_PROCESSING)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
             })
         })
@@ -1195,13 +1159,7 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        undefined,
-                        undefined,
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', { uuid: 'uuid-123' })
                 ).toContain(Restriction.FORCE_OVERFLOW)
             })
 
@@ -1210,31 +1168,25 @@ describe('EventIngestionRestrictionManager', () => {
                     forceOverflowTokens: ['token:distinct_id:user1', 'token:event_uuid:uuid-123'],
                 })
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'user1',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'user1',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'uuid-123'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'uuid-123',
+                    })
                 ).toContain(Restriction.FORCE_OVERFLOW)
                 expect(
-                    eventIngestionRestrictionManager.getAppliedRestrictions(
-                        'token',
-                        'other-user',
-                        'other-session',
-                        undefined,
-                        'other-uuid'
-                    )
+                    eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                        distinct_id: 'other-user',
+                        session_id: 'other-session',
+                        uuid: 'other-uuid',
+                    })
                 ).not.toContain(Restriction.FORCE_OVERFLOW)
             })
         })
@@ -1276,7 +1228,9 @@ describe('EventIngestionRestrictionManager', () => {
                 dropTokens: ['token:distinct_id:user1'],
                 skipPersonTokens: ['token:distinct_id:user1'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', 'user1')
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+            })
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
             expect(restrictions).not.toContain(Restriction.FORCE_OVERFLOW)
@@ -1289,11 +1243,9 @@ describe('EventIngestionRestrictionManager', () => {
                 forceOverflowTokens: ['token:session_id:session123'],
                 redirectToDlqTokens: ['token:session_id:session123'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-                'token',
-                undefined,
-                'session123'
-            )
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                session_id: 'session123',
+            })
             expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
             expect(restrictions).toContain(Restriction.REDIRECT_TO_DLQ)
             expect(restrictions).not.toContain(Restriction.DROP_EVENT)
@@ -1327,13 +1279,12 @@ describe('EventIngestionRestrictionManager', () => {
                 forceOverflowTokens: ['token:event_name:$pageview'],
                 redirectToDlqTokens: ['token:event_uuid:uuid-abc'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-                'token',
-                'user1',
-                'session123',
-                '$pageview',
-                'uuid-abc'
-            )
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+                uuid: 'uuid-abc',
+            })
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
             expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
@@ -1348,13 +1299,12 @@ describe('EventIngestionRestrictionManager', () => {
                 forceOverflowTokens: ['token:event_name:$pageview'],
                 redirectToDlqTokens: ['token:event_uuid:other-uuid'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-                'token',
-                'user1',
-                'session123',
-                '$pageview',
-                'uuid-abc'
-            )
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+                uuid: 'uuid-abc',
+            })
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).not.toContain(Restriction.SKIP_PERSON_PROCESSING)
             expect(restrictions).toContain(Restriction.FORCE_OVERFLOW)
@@ -1369,12 +1319,11 @@ describe('EventIngestionRestrictionManager', () => {
                 forceOverflowTokens: ['token:session_id:other-session'],
                 redirectToDlqTokens: ['token:event_name:other-event'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-                'token',
-                'user1',
-                'session123',
-                '$pageview'
-            )
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'user1',
+                session_id: 'session123',
+                event: '$pageview',
+            })
             expect(restrictions.size).toBe(0)
         })
 
@@ -1383,13 +1332,12 @@ describe('EventIngestionRestrictionManager', () => {
                 dropTokens: ['token'],
                 skipPersonTokens: ['token'],
             })
-            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-                'token',
-                'any-user',
-                'any-session',
-                'any-event',
-                'any-uuid'
-            )
+            const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions('token', {
+                distinct_id: 'any-user',
+                session_id: 'any-session',
+                event: 'any-event',
+                uuid: 'any-uuid',
+            })
             expect(restrictions).toContain(Restriction.DROP_EVENT)
             expect(restrictions).toContain(Restriction.SKIP_PERSON_PROCESSING)
             expect(restrictions.size).toBe(2)

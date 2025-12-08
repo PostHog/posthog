@@ -16,15 +16,9 @@ export function createApplyEventRestrictionsStep<T extends { headers: EventHeade
 ): ProcessingStep<T, T> {
     return async function applyEventRestrictionsStep(input) {
         const { headers } = input
-        const {
-            distinct_id: distinctId,
-            session_id: sessionId,
-            event: eventName,
-            uuid: eventUuid,
-            token,
-        } = headers ?? {}
+        const { token } = headers ?? {}
 
-        const restrictions = manager.getAppliedRestrictions(token, distinctId, sessionId, eventName, eventUuid)
+        const restrictions = manager.getAppliedRestrictions(token, headers)
 
         if (restrictions.size === 0) {
             return Promise.resolve(ok(input))

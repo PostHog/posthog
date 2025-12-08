@@ -30,12 +30,12 @@ export const REDIS_KEY_PREFIX = 'event_ingestion_restriction_dynamic_config'
 
 const EMPTY_RESTRICTIONS: ReadonlySet<Restriction> = new Set()
 
-type RestrictionIdentifier =
-    | { type: 'all' }
-    | { type: 'distinct_id'; value: string }
-    | { type: 'session_id'; value: string }
-    | { type: 'event_name'; value: string }
-    | { type: 'event_uuid'; value: string }
+const IDENTIFIER_TYPES = ['distinct_id', 'session_id', 'event', 'uuid'] as const
+type IdentifierType = (typeof IDENTIFIER_TYPES)[number]
+
+export type RestrictionLookup = Partial<Record<IdentifierType, string>>
+
+type RestrictionIdentifier = { type: 'all' } | { type: IdentifierType; value: string }
 
 const RedisRestrictionItemSchema = z
     .object({
@@ -47,19 +47,35 @@ const RedisRestrictionItemSchema = z
         event_uuid: z.string().optional(),
     })
     .transform((item): { token: string; pipelines?: IngestionPipeline[]; identifier: RestrictionIdentifier } => {
-        let identifier: RestrictionIdentifier
         if (item.distinct_id) {
-            identifier = { type: 'distinct_id', value: item.distinct_id }
-        } else if (item.session_id) {
-            identifier = { type: 'session_id', value: item.session_id }
-        } else if (item.event_name) {
-            identifier = { type: 'event_name', value: item.event_name }
-        } else if (item.event_uuid) {
-            identifier = { type: 'event_uuid', value: item.event_uuid }
-        } else {
-            identifier = { type: 'all' }
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'distinct_id', value: item.distinct_id },
+            }
         }
-        return { token: item.token, pipelines: item.pipelines, identifier }
+        if (item.session_id) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'session_id', value: item.session_id },
+            }
+        }
+        if (item.event_name) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'event', value: item.event_name },
+            }
+        }
+        if (item.event_uuid) {
+            return {
+                token: item.token,
+                pipelines: item.pipelines,
+                identifier: { type: 'uuid', value: item.event_uuid },
+            }
+        }
+        return { token: item.token, pipelines: item.pipelines, identifier: { type: 'all' } }
     })
 
 const RedisRestrictionArraySchema = z.array(RedisRestrictionItemSchema)
@@ -68,8 +84,8 @@ type TokenRestrictions = {
     all: Set<Restriction>
     distinct_id: Map<string, Set<Restriction>>
     session_id: Map<string, Set<Restriction>>
-    event_name: Map<string, Set<Restriction>>
-    event_uuid: Map<string, Set<Restriction>>
+    event: Map<string, Set<Restriction>>
+    uuid: Map<string, Set<Restriction>>
 }
 
 class RestrictionMap {
@@ -82,8 +98,8 @@ class RestrictionMap {
                 all: new Set(),
                 distinct_id: new Map(),
                 session_id: new Map(),
-                event_name: new Map(),
-                event_uuid: new Map(),
+                event: new Map(),
+                uuid: new Map(),
             }
             this.tokens.set(token, tokenEntry)
         }
@@ -101,13 +117,7 @@ class RestrictionMap {
         restrictionSet.add(restriction)
     }
 
-    getRestrictions(
-        token: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): ReadonlySet<Restriction> {
+    getRestrictions(token: string, lookup: RestrictionLookup): ReadonlySet<Restriction> {
         const tokenEntry = this.tokens.get(token)
         if (!tokenEntry) {
             return EMPTY_RESTRICTIONS
@@ -115,38 +125,14 @@ class RestrictionMap {
 
         const restrictions = new Set(tokenEntry.all)
 
-        if (distinctId) {
-            const r = tokenEntry.distinct_id.get(distinctId)
-            if (r) {
-                for (const restriction of r) {
-                    restrictions.add(restriction)
-                }
-            }
-        }
-
-        if (sessionId) {
-            const r = tokenEntry.session_id.get(sessionId)
-            if (r) {
-                for (const restriction of r) {
-                    restrictions.add(restriction)
-                }
-            }
-        }
-
-        if (eventName) {
-            const r = tokenEntry.event_name.get(eventName)
-            if (r) {
-                for (const restriction of r) {
-                    restrictions.add(restriction)
-                }
-            }
-        }
-
-        if (eventUuid) {
-            const r = tokenEntry.event_uuid.get(eventUuid)
-            if (r) {
-                for (const restriction of r) {
-                    restrictions.add(restriction)
+        for (const type of IDENTIFIER_TYPES) {
+            const value = lookup[type]
+            if (value) {
+                const r = tokenEntry[type].get(value)
+                if (r) {
+                    for (const restriction of r) {
+                        restrictions.add(restriction)
+                    }
                 }
             }
         }
@@ -228,13 +214,7 @@ export class EventIngestionRestrictionManager {
         }
     }
 
-    getAppliedRestrictions(
-        token?: string,
-        distinctId?: string,
-        sessionId?: string,
-        eventName?: string,
-        eventUuid?: string
-    ): ReadonlySet<Restriction> {
+    getAppliedRestrictions(token?: string, lookup: RestrictionLookup = {}): ReadonlySet<Restriction> {
         if (!token) {
             return EMPTY_RESTRICTIONS
         }
@@ -245,7 +225,7 @@ export class EventIngestionRestrictionManager {
             })
         }
 
-        return this.restrictionMap.getRestrictions(token, distinctId, sessionId, eventName, eventUuid)
+        return this.restrictionMap.getRestrictions(token, lookup)
     }
 
     private addStaticRestrictions(restriction: Restriction, entries: string[]): void {

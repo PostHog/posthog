@@ -79,7 +79,10 @@ describe('SessionRecordingRestrictionHandler', () => {
             const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
-            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', 'user-1', undefined)
+            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                distinct_id: 'user-1',
+                session_id: undefined,
+            })
             expect(SessionRecordingIngesterMetrics.observeDroppedByRestrictions).not.toHaveBeenCalled()
             expect(SessionRecordingIngesterMetrics.observeOverflowedByRestrictions).not.toHaveBeenCalled()
         })
@@ -286,7 +289,10 @@ describe('SessionRecordingRestrictionHandler', () => {
             const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
-            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', 'user-1', 'session-123')
+            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                distinct_id: 'user-1',
+                session_id: 'session-123',
+            })
         })
 
         it('drops messages when session_id matches drop restriction', () => {
@@ -303,9 +309,8 @@ describe('SessionRecordingRestrictionHandler', () => {
                 }),
             ]
 
-            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation(
-                (_token, _distinctId, sessionId) =>
-                    sessionId === 'drop-session' ? new Set([Restriction.DROP_EVENT]) : new Set()
+            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, lookup) =>
+                lookup?.session_id === 'drop-session' ? new Set([Restriction.DROP_EVENT]) : new Set()
             )
 
             const result = handler.applyRestrictions(messages)
@@ -322,9 +327,8 @@ describe('SessionRecordingRestrictionHandler', () => {
                 }),
             ]
 
-            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation(
-                (_token, _distinctId, sessionId) =>
-                    sessionId === 'overflow-session' ? new Set([Restriction.FORCE_OVERFLOW]) : new Set()
+            jest.mocked(restrictionManager.getAppliedRestrictions).mockImplementation((_token, lookup) =>
+                lookup?.session_id === 'overflow-session' ? new Set([Restriction.FORCE_OVERFLOW]) : new Set()
             )
 
             const result = handler.applyRestrictions(messages)
@@ -344,7 +348,10 @@ describe('SessionRecordingRestrictionHandler', () => {
             const result = handler.applyRestrictions(messages)
 
             expect(result).toEqual(messages)
-            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', undefined, 'session-123')
+            expect(restrictionManager.getAppliedRestrictions).toHaveBeenCalledWith('token-1', {
+                distinct_id: undefined,
+                session_id: 'session-123',
+            })
         })
 
         it('throws error when overflow producer is undefined and message should overflow', () => {

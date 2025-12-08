@@ -63,10 +63,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties).toEqual({ defaultProp: 'defaultValue' })
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'user-123',
+            })
         )
     })
 
@@ -86,10 +85,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'restricted-token-def',
-            'restricted-user-456',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'restricted-user-456',
+            })
         )
     })
 
@@ -106,10 +104,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'opt-out-token-ghi',
-            'opt-out-user-789',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'opt-out-user-789',
+            })
         )
     })
 
@@ -135,10 +132,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         })
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'preserve-token-jkl',
-            'preserve-user-012',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'preserve-user-012',
+            })
         )
     })
 
@@ -157,10 +153,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             undefined,
-            'undefined-token-user-999',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'undefined-token-user-999',
+            })
         )
     })
 
@@ -185,10 +180,9 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         })
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             undefined,
-            'undefined-token-user-888',
-            undefined,
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'undefined-token-user-888',
+            })
         )
     })
 
@@ -209,10 +203,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            'session-456',
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                session_id: 'session-456',
+            })
         )
     })
 
@@ -233,10 +227,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            undefined,
-            '$pageview',
-            undefined
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                event: '$pageview',
+            })
         )
     })
 
@@ -257,10 +251,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(result).toEqual(ok(input))
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            undefined,
-            undefined,
-            'event-uuid-789'
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                uuid: 'event-uuid-789',
+            })
         )
     })
 
@@ -285,10 +279,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            'restricted-session',
-            undefined,
-            undefined
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                session_id: 'restricted-session',
+            })
         )
     })
 
@@ -313,10 +307,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            undefined,
-            '$restricted_event',
-            undefined
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                event: '$restricted_event',
+            })
         )
     })
 
@@ -341,10 +335,10 @@ describe('createApplyPersonProcessingRestrictionsStep', () => {
         expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
             'valid-token-abc',
-            'user-123',
-            undefined,
-            undefined,
-            'restricted-uuid-789'
+            expect.objectContaining({
+                distinct_id: 'user-123',
+                uuid: 'restricted-uuid-789',
+            })
         )
     })
 })

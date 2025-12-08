@@ -26,13 +26,7 @@ export function createApplyPersonProcessingRestrictionsStep<
 >(eventIngestionRestrictionManager: EventIngestionRestrictionManager): ProcessingStep<T, T> {
     return async function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam, headers } = input
-        const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(
-            headers.token,
-            headers.distinct_id,
-            headers.session_id,
-            headers.event,
-            headers.uuid
-        )
+        const restrictions = eventIngestionRestrictionManager.getAppliedRestrictions(headers.token, headers)
         applyPersonProcessingRestrictions(
             eventWithTeam,
             restrictions,

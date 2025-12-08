@@ -37,10 +37,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                undefined
+                expect.objectContaining({ distinct_id: 'test-user' })
             )
         })
 
@@ -58,14 +55,11 @@ describe('createApplyEventRestrictionsStep', () => {
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 'test-token',
-                'test-user',
-                'session-123',
-                undefined,
-                undefined
+                expect.objectContaining({ distinct_id: 'test-user', session_id: 'session-123' })
             )
         })
 
-        it('passes event_name correctly', async () => {
+        it('passes event correctly', async () => {
             const input = {
                 message: {} as any,
                 headers: createTestEventHeaders({
@@ -79,10 +73,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 'test-token',
-                'test-user',
-                undefined,
-                '$pageview',
-                undefined
+                expect.objectContaining({ distinct_id: 'test-user', event: '$pageview' })
             )
         })
 
@@ -100,10 +91,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 'test-token',
-                'test-user',
-                undefined,
-                undefined,
-                'event-uuid-123'
+                expect.objectContaining({ distinct_id: 'test-user', uuid: 'event-uuid-123' })
             )
         })
 
@@ -123,10 +111,12 @@ describe('createApplyEventRestrictionsStep', () => {
 
             expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
                 'test-token',
-                'test-user',
-                'session-123',
-                '$pageview',
-                'event-uuid-123'
+                expect.objectContaining({
+                    distinct_id: 'test-user',
+                    session_id: 'session-123',
+                    event: '$pageview',
+                    uuid: 'event-uuid-123',
+                })
             )
         })
     })
@@ -417,13 +407,7 @@ describe('createApplyEventRestrictionsStep', () => {
             const result = await step(input)
 
             expect(result).toEqual(ok(input))
-            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(
-                undefined,
-                undefined,
-                undefined,
-                undefined,
-                undefined
-            )
+            expect(eventIngestionRestrictionManager.getAppliedRestrictions).toHaveBeenCalledWith(undefined, {})
         })
 
         it('handles empty headers', async () => {

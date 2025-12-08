@@ -684,7 +684,7 @@ export class IngestionConsumer {
     }
 
     private getAppliedRestrictions(token?: string, distinctId?: string): ReadonlySet<Restriction> {
-        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, distinctId)
+        return this.eventIngestionRestrictionManager.getAppliedRestrictions(token, { distinct_id: distinctId })
     }
 
     private overflowEnabled(): boolean {
