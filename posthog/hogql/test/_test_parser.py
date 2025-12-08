@@ -573,6 +573,180 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_between_simple(self):
+            self.assertEqual(
+                self._expr("x BETWEEN 1 AND 10"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                    negated=False,
+                ),
+            )
+            self.assertEqual(
+                self._expr("timestamp BETWEEN '2024-01-01' AND '2024-01-02'"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["timestamp"]),
+                    low=ast.Constant(value="2024-01-01"),
+                    high=ast.Constant(value="2024-01-02"),
+                    negated=False,
+                ),
+            )
+
+        def test_between_not(self):
+            self.assertEqual(
+                self._expr("x NOT BETWEEN 1 AND 10"),
+                ast.BetweenExpr(
+                    expr=ast.Field(chain=["x"]),
+                    low=ast.Constant(value=1),
+                    high=ast.Constant(value=10),
+                    negated=True,
+                ),
+            )
+
+        def test_between_with_and_after(self):
+            # This is the bug: BETWEEN greedily consumes the AND from "AND event = 'pageview'"
+            # Expected: (timestamp BETWEEN '2024-01-01' AND '2024-01-02') AND (event = 'pageview')
+            # Bug produces: timestamp BETWEEN '2024-01-01' AND ('2024-01-02' AND event = 'pageview')
+            self.assertEqual(
+                self._expr("timestamp BETWEEN '2024-01-01' AND '2024-01-02' AND event = 'pageview'"),
+                ast.And(
+                    exprs=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            low=ast.Constant(value="2024-01-01"),
+                            high=ast.Constant(value="2024-01-02"),
+                            negated=False,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="pageview"),
+                        ),
+                    ]
+                ),
+            )
+
+        def test_between_with_and_before(self):
+            # Test backward direction of the bug
+            # Expected: (event = 'pageview') AND (timestamp BETWEEN '2024-01-01' AND '2024-01-02')
+            # Bug may produce: (event = 'pageview' AND timestamp) BETWEEN '2024-01-01' AND '2024-01-02'
+            self.assertEqual(
+                self._expr("event = 'pageview' AND timestamp BETWEEN '2024-01-01' AND '2024-01-02'"),
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="pageview"),
+                        ),
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            low=ast.Constant(value="2024-01-01"),
+                            high=ast.Constant(value="2024-01-02"),
+                            negated=False,
+                        ),
+                    ]
+                ),
+            )
+
+        def test_between_with_multiple_ands(self):
+            # More complex case with multiple AND operators
+            # Expected: (x BETWEEN 1 AND 5) AND (y = 10) AND (z = 20)
+            self.assertEqual(
+                self._expr("x BETWEEN 1 AND 5 AND y = 10 AND z = 20"),
+                ast.And(
+                    exprs=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["x"]),
+                            low=ast.Constant(value=1),
+                            high=ast.Constant(value=5),
+                            negated=False,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["y"]),
+                            right=ast.Constant(value=10),
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["z"]),
+                            right=ast.Constant(value=20),
+                        ),
+                    ]
+                ),
+            )
+
+        def test_between_with_or(self):
+            # Test OR operator precedence with BETWEEN
+            # Expected: (timestamp BETWEEN '2024-01-01' AND '2024-01-02') OR (event = 'signup')
+            self.assertEqual(
+                self._expr("timestamp BETWEEN '2024-01-01' AND '2024-01-02' OR event = 'signup'"),
+                ast.Or(
+                    exprs=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            low=ast.Constant(value="2024-01-01"),
+                            high=ast.Constant(value="2024-01-02"),
+                            negated=False,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="signup"),
+                        ),
+                    ]
+                ),
+            )
+
+        def test_between_with_parentheses(self):
+            # Parentheses should work as escape hatch
+            self.assertEqual(
+                self._expr("(timestamp BETWEEN '2024-01-01' AND '2024-01-02') AND event = 'pageview'"),
+                ast.And(
+                    exprs=[
+                        ast.BetweenExpr(
+                            expr=ast.Field(chain=["timestamp"]),
+                            low=ast.Constant(value="2024-01-01"),
+                            high=ast.Constant(value="2024-01-02"),
+                            negated=False,
+                        ),
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["event"]),
+                            right=ast.Constant(value="pageview"),
+                        ),
+                    ]
+                ),
+            )
+
+        def test_between_in_select_query(self):
+            # Test BETWEEN in a complete SELECT query
+            self.assertEqual(
+                self._select(
+                    "SELECT event, timestamp FROM events WHERE timestamp BETWEEN '2024-01-01' AND '2024-01-02' AND event = 'pageview'"
+                ),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["event"]), ast.Field(chain=["timestamp"])],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    where=ast.And(
+                        exprs=[
+                            ast.BetweenExpr(
+                                expr=ast.Field(chain=["timestamp"]),
+                                low=ast.Constant(value="2024-01-01"),
+                                high=ast.Constant(value="2024-01-02"),
+                                negated=False,
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.Eq,
+                                left=ast.Field(chain=["event"]),
+                                right=ast.Constant(value="pageview"),
+                            ),
+                        ]
+                    ),
+                ),
+            )
+
         def test_and_or(self):
             self.assertEqual(
                 self._expr("true or false"),

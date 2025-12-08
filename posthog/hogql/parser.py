@@ -914,9 +914,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.ArrayAccess(array=object, property=property, nullish=True)
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
-        expr = self.visit(ctx.columnExpr(0))
-        low = self.visit(ctx.columnExpr(1))
-        high = self.visit(ctx.columnExpr(2))
+        # Updated to use columnExprNoLogical children to prevent greedy AND/OR consumption
+        expr_children = [child for child in ctx.getChildren() if hasattr(child, 'getRuleIndex')]
+        expr = self.visit(expr_children[0])
+        low = self.visit(expr_children[1])
+        high = self.visit(expr_children[2])
         return ast.BetweenExpr(expr=expr, low=low, high=high, negated=bool(ctx.NOT()))
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
@@ -1275,3 +1277,119 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.columnExpr():
             return self.visit(ctx.columnExpr())
         return ast.Constant(value="")
+
+    # Delegation methods for columnExprNoLogical alternatives
+    # These delegate to existing visitor methods since AST nodes are identical
+    def visitColumnExprNoLogicalCase(self, ctx):
+        return self.visitColumnExprCase(ctx)
+
+    def visitColumnExprNoLogicalCast(self, ctx):
+        return self.visitColumnExprCast(ctx)
+
+    def visitColumnExprNoLogicalDate(self, ctx):
+        return self.visitColumnExprDate(ctx)
+
+    def visitColumnExprNoLogicalIntervalString(self, ctx):
+        return self.visitColumnExprIntervalString(ctx)
+
+    def visitColumnExprNoLogicalInterval(self, ctx):
+        return self.visitColumnExprInterval(ctx)
+
+    def visitColumnExprNoLogicalSubstring(self, ctx):
+        return self.visitColumnExprSubstring(ctx)
+
+    def visitColumnExprNoLogicalTimestamp(self, ctx):
+        return self.visitColumnExprTimestamp(ctx)
+
+    def visitColumnExprNoLogicalTrim(self, ctx):
+        return self.visitColumnExprTrim(ctx)
+
+    def visitColumnExprNoLogicalWinFunction(self, ctx):
+        return self.visitColumnExprWinFunction(ctx)
+
+    def visitColumnExprNoLogicalWinFunctionTarget(self, ctx):
+        return self.visitColumnExprWinFunctionTarget(ctx)
+
+    def visitColumnExprNoLogicalFunction(self, ctx):
+        return self.visitColumnExprFunction(ctx)
+
+    def visitColumnExprNoLogicalCallSelect(self, ctx):
+        return self.visitColumnExprCallSelect(ctx)
+
+    def visitColumnExprNoLogicalCall(self, ctx):
+        return self.visitColumnExprCall(ctx)
+
+    def visitColumnExprNoLogicalTagElement(self, ctx):
+        return self.visitColumnExprTagElement(ctx)
+
+    def visitColumnExprNoLogicalTemplateString(self, ctx):
+        return self.visitColumnExprTemplateString(ctx)
+
+    def visitColumnExprNoLogicalLiteral(self, ctx):
+        return self.visitColumnExprLiteral(ctx)
+
+    def visitColumnExprNoLogicalArrayAccess(self, ctx):
+        return self.visitColumnExprArrayAccess(ctx)
+
+    def visitColumnExprNoLogicalTupleAccess(self, ctx):
+        return self.visitColumnExprTupleAccess(ctx)
+
+    def visitColumnExprNoLogicalPropertyAccess(self, ctx):
+        return self.visitColumnExprPropertyAccess(ctx)
+
+    def visitColumnExprNoLogicalNullArrayAccess(self, ctx):
+        return self.visitColumnExprNullArrayAccess(ctx)
+
+    def visitColumnExprNoLogicalNullTupleAccess(self, ctx):
+        return self.visitColumnExprNullTupleAccess(ctx)
+
+    def visitColumnExprNoLogicalNullPropertyAccess(self, ctx):
+        return self.visitColumnExprNullPropertyAccess(ctx)
+
+    def visitColumnExprNoLogicalNegate(self, ctx):
+        return self.visitColumnExprNegate(ctx)
+
+    def visitColumnExprNoLogicalPrecedence1(self, ctx):
+        return self.visitColumnExprPrecedence1(ctx)
+
+    def visitColumnExprNoLogicalPrecedence2(self, ctx):
+        return self.visitColumnExprPrecedence2(ctx)
+
+    def visitColumnExprNoLogicalPrecedence3(self, ctx):
+        return self.visitColumnExprPrecedence3(ctx)
+
+    def visitColumnExprNoLogicalIsNull(self, ctx):
+        return self.visitColumnExprIsNull(ctx)
+
+    def visitColumnExprNoLogicalNullish(self, ctx):
+        return self.visitColumnExprNullish(ctx)
+
+    def visitColumnExprNoLogicalTernaryOp(self, ctx):
+        return self.visitColumnExprTernaryOp(ctx)
+
+    def visitColumnExprNoLogicalAlias(self, ctx):
+        return self.visitColumnExprAlias(ctx)
+
+    def visitColumnExprNoLogicalAsterisk(self, ctx):
+        return self.visitColumnExprAsterisk(ctx)
+
+    def visitColumnExprNoLogicalSubquery(self, ctx):
+        return self.visitColumnExprSubquery(ctx)
+
+    def visitColumnExprNoLogicalParens(self, ctx):
+        return self.visitColumnExprParens(ctx)
+
+    def visitColumnExprNoLogicalTuple(self, ctx):
+        return self.visitColumnExprTuple(ctx)
+
+    def visitColumnExprNoLogicalArray(self, ctx):
+        return self.visitColumnExprArray(ctx)
+
+    def visitColumnExprNoLogicalDict(self, ctx):
+        return self.visitColumnExprDict(ctx)
+
+    def visitColumnExprNoLogicalLambda(self, ctx):
+        return self.visitColumnExprLambda(ctx)
+
+    def visitColumnExprNoLogicalIdentifier(self, ctx):
+        return self.visitColumnExprIdentifier(ctx)
