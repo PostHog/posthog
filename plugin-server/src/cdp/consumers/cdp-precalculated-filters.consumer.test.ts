@@ -6,7 +6,7 @@ import { buildInlineFiltersForCohorts, createCohort, getFirstTeam, resetTestData
 import { KAFKA_CDP_CLICKHOUSE_PREFILTERED_EVENTS } from '../../config/kafka-topics'
 import { Hub, RawClickHouseEvent, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
-import { CdpRealtimeCohortsConsumer } from './cdp-realtime-cohorts.consumer'
+import { CdpPrecalculatedFiltersConsumer } from './cdp-precalculated-filters.consumer'
 
 jest.setTimeout(20_000)
 
@@ -149,8 +149,8 @@ const TEST_FILTERS = {
     isOrgFirstUser: ['_H', 1, 29, 32, 'is_organization_first_user', 32, 'properties', 32, 'person', 1, 3, 11],
 }
 
-describe('CdpRealtimeCohortsConsumer', () => {
-    let processor: CdpRealtimeCohortsConsumer
+describe('CdpPrecalculatedFiltersConsumer', () => {
+    let processor: CdpPrecalculatedFiltersConsumer
     let hub: Hub
     let team: Team
 
@@ -162,7 +162,7 @@ describe('CdpRealtimeCohortsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub)
 
-        processor = new CdpRealtimeCohortsConsumer(hub)
+        processor = new CdpPrecalculatedFiltersConsumer(hub)
         await processor.start()
     })
 

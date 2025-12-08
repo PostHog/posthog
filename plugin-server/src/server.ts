@@ -18,7 +18,7 @@ import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
 import { CdpInternalEventsConsumer } from './cdp/consumers/cdp-internal-event.consumer'
 import { CdpLegacyEventsConsumer } from './cdp/consumers/cdp-legacy-event.consumer'
 import { CdpPersonUpdatesConsumer } from './cdp/consumers/cdp-person-updates-consumer'
-import { CdpRealtimeCohortsConsumer } from './cdp/consumers/cdp-realtime-cohorts.consumer'
+import { CdpPrecalculatedFiltersConsumer } from './cdp/consumers/cdp-precalculated-filters.consumer'
 import { defaultConfig } from './config/config'
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -272,9 +272,9 @@ export class PluginServer {
                 return Promise.resolve(serverCommands.service)
             })
 
-            if (capabilities.cdpRealtimeCohorts) {
+            if (capabilities.cdpPrecalculatedFilters) {
                 serviceLoaders.push(async () => {
-                    const worker = new CdpRealtimeCohortsConsumer(hub)
+                    const worker = new CdpPrecalculatedFiltersConsumer(hub)
                     await worker.start()
                     return worker.service
                 })
