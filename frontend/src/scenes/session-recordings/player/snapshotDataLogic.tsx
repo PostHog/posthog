@@ -127,7 +127,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSource: async ({ sources }, breakpoint) => {
                     let params: SessionRecordingSnapshotParams
 
-                    if (sources.length > 1) {
+                    const source = sources[0]
+
+                    if (source.source === SnapshotSourceType.blob_v2_lts) {
+                        if (!source.blob_key) {
+                            throw new Error('Missing key')
+                        }
+                        params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
+                    } else if (source.source === SnapshotSourceType.blob_v2) {
                         // they all have to be blob_v2
                         if (sources.some((s) => s.source !== SnapshotSourceType.blob_v2)) {
                             throw new Error('Unsupported source for multiple sources')
@@ -138,22 +145,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                             start_blob_key: sources[0].blob_key,
                             end_blob_key: sources[sources.length - 1].blob_key,
                         }
+                    } else if (source.source === SnapshotSourceType.file) {
+                        // no need to load a file source, it is already loaded
+                        return { source }
                     } else {
-                        const source = sources[0]
-
-                        if (source.source === SnapshotSourceType.blob_v2_lts) {
-                            if (!source.blob_key) {
-                                throw new Error('Missing key')
-                            }
-                            params = { blob_key: source.blob_key, source: 'blob_v2_lts' }
-                        } else if (source.source === SnapshotSourceType.blob_v2) {
-                            params = { source: 'blob_v2', blob_key: source.blob_key }
-                        } else if (source.source === SnapshotSourceType.file) {
-                            // no need to load a file source, it is already loaded
-                            return { source }
-                        } else {
-                            throw new Error(`Unsupported source: ${source.source}`)
-                        }
+                        throw new Error(`Unsupported source: ${source.source}`)
                     }
 
                     await breakpoint(1)
