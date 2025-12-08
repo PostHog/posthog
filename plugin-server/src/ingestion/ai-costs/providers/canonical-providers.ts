@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2025-12-05 20:02:10 UTC
+// Generated at: 2025-12-08 10:03:27 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -20,7 +20,6 @@ export type CanonicalProvider =
     | 'azure'
     | 'baseten-fp4'
     | 'baseten-fp8'
-    | 'byteplus'
     | 'cerebras'
     | 'cerebras-fp16'
     | 'chutes'

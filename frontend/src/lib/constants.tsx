@@ -179,7 +179,6 @@ export const FEATURE_FLAGS = {
     CALENDAR_HEATMAP_INSIGHT: 'calendar-heatmap-insight', // owner: @jabahamondes #team-web-analytics
     COOKIELESS_SERVER_HASH_MODE_SETTING: 'cookieless-server-hash-mode-setting', // owner: #team-web-analytics
     CSP_REPORTING: 'mexicspo', // owner @pauldambra @lricoy @robbiec
-    DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     ENVIRONMENTS_ROLLBACK: 'environments-rollback', // owner: @yasen-posthog #team-platform-features
     ENVIRONMENTS: 'environments', // owner: #team-platform-features
     ERROR_TRACKING_ALERT_ROUTING: 'error-tracking-alert-routing', // owner: #team-error-tracking
@@ -187,7 +186,6 @@ export const FEATURE_FLAGS = {
     FEATURE_FLAG_COHORT_CREATION: 'feature-flag-cohort-creation', // owner: #team-feature-flags
     FF_DASHBOARD_TEMPLATES: 'ff-dashboard-templates', // owner: #team-feature-flags
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: #team-web-analytics
-    INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     LINEAGE_DEPENDENCY_VIEW: 'lineage-dependency-view', // owner: #team-data-stack
     MEMBERS_CAN_USE_PERSONAL_API_KEYS: 'members-can-use-personal-api-keys', // owner: @yasen-posthog #team-platform-features
     PERSONLESS_EVENTS_NOT_SUPPORTED: 'personless-events-not-supported', // owner: #team-analytics-platform
@@ -199,7 +197,7 @@ export const FEATURE_FLAGS = {
     SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE: 'settings-bounce-rate-page-view-mode', // owner: #team-web-analytics
     SETTINGS_PERSONS_JOIN_MODE: 'settings-persons-join-mode', // owner: #team-analytics-platform
     SETTINGS_SESSION_TABLE_VERSION: 'settings-session-table-version', // owner: #team-analytics-platform
-    SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-product-analytics
+    SETTINGS_SESSIONS_V2_JOIN: 'settings-sessions-v2-join', // owner: @robbie-c #team-web-analytics
     SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES: 'web-analytics-pre-aggregated-tables', // owner: @lricoy #team-web-analytics
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
@@ -230,9 +228,7 @@ export const FEATURE_FLAGS = {
     CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
     CUSTOM_PRODUCTS_SIDEBAR: 'custom-products-sidebar', // owner: @rafaeelaudibert #team-growth
     CUSTOMER_ANALYTICS: 'customer-analytics-roadmap', // owner: @arthurdedeus #team-customer-analytics
-    DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     DATA_WAREHOUSE_SCENE: 'data-warehouse-scene', // owner: #team-data-stack
-    DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
     DEFAULT_EVALUATION_ENVIRONMENTS: 'default-evaluation-environments', // owner: @dmarticus #team-feature-flags
     DWH_FREE_SYNCS: 'dwh-free-syncs', // owner: @Gilbert09  #team-data-stack
     DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
@@ -247,12 +243,10 @@ export const FEATURE_FLAGS = {
     EXPERIMENTS_NEW_CALCULATOR: 'experiments-new-calculator', // owner: @jurajmajerik #team-experiments
     EXPERIMENTS_RETENTION_METRICS: 'experiments-retention-metrics', // owner: @rodrigoi #team-experiments
     EXPERIMENTS_SHOW_SQL: 'experiments-show-sql', // owner: @jurajmajerik #team-experiments
-    EXPERIMENTS_USE_NEW_QUERY_BUILDER: 'experiments-use-new-query-builder', // owner: @andehen #team-experiments
     EXTERNAL_SURVEYS: 'external-surveys', // owner: #team-surveys
     FLAG_EVALUATION_RUNTIMES: 'flag-evaluation-runtimes', // owner: @dmarticus #team-feature-flags
     FLAG_EVALUATION_TAGS: 'flag-evaluation-tags', // owner: @dmarticus #team-feature-flags
     FLAGGED_FEATURE_INDICATOR: 'flagged-feature-indicator', // owner: @benjackwhite
-    FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
     HOME_FEED_TAB: 'home-feed-tab', // owner: @ksvat #team-replay
     INCIDENT_IO_STATUS_PAGE: 'incident-io-status-page', // owner: @benjackwhite
     LINKS: 'links', // owner: @marconlp #team-link (team doesn't exist for now, maybe will come back in the future)
@@ -279,11 +273,16 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-posthog-ai
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
+    PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
+    PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
+    PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT: 'funnel-dwh-support', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
+    PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     ONBOARDING_AI_CONSENT_STEP: 'onboarding-ai-consent-step', // owner: @mattbro #team-growth
     ONBOARDING_TELL_US_MORE_STEP: 'onboarding-tell-us-more-step', // owner: @rafaeelaudibert #team-growth
     ONBOARDING_USE_CASE_SELECTION: 'onboarding-use-case-selection', // owner: @mattbro #team-growth
     PASSWORD_PROTECTED_SHARES: 'password-protected-shares', // owner: @aspicer
-    PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
     POSTHOG_AI_BILLING_DISPLAY: 'posthog-ai-billing-display', // owner: #team-posthog-ai
     POSTHOG_AI_BILLING_USAGE_COMMAND: 'posthog-ai-billing-usage-command', // owner: #team-posthog-ai
     POSTHOG_AI_BILLING_USAGE_REPORT: 'posthog-ai-billing-usage-report', // owner: #team-posthog-ai
@@ -306,7 +305,7 @@ export const FEATURE_FLAGS = {
     SESSIONS_EXPLORER: 'sessions-explorer', // owner: @jabahamondes #team-web-analytics
     SHOPIFY_DWH: 'shopify-dwh', // owner: @andrew #team-data-stack
     SHOW_REFERRER_FAVICON: 'show-referrer-favicon', // owner: @jordanm-posthog #team-web-analytics
-    SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-product-analytics
+    SSE_DASHBOARDS: 'sse-dashboards', // owner: @aspicer #team-analytics-platform
     SURVEY_ANALYSIS_MAX_TOOL: 'survey-analysis-max-tool', // owner: #team-surveys
     SURVEYS_EXPERIMENTS_CROSS_SELL: 'surveys-experiments-cross-sell', // owner: @adboio #team-surveys
     SURVEYS_FF_CROSS_SELL: 'surveys-ff-cross-sell', // owner: @adboio #team-surveys
@@ -316,7 +315,7 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASKS: 'tasks', // owner: #team-llm-analytics
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
-    USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-product-analytics
+    USE_TEMPORAL_SUBSCRIPTIONS: 'use-temporal-subscriptions', // owner: @aspicer #team-analytics-platform
     USER_INTERVIEWS: 'user-interviews', // owner: @Twixes @jurajmajerik
     WEB_ANALYTICS_CONVERSION_GOAL_PREAGG: 'web-analytics-conversion-goal-preagg', // owner: @lricoy #team-web-analytics
     WEB_ANALYTICS_EMPTY_ONBOARDING: 'web-analytics-empty-onboarding', // owner: @jordanm-posthog #team-web-analytics
@@ -331,6 +330,7 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_HEALTH_TAB: 'web_analytics_health_tab', // owner: @jordanm-posthog #team-web-analytics
     AVERAGE_PAGE_VIEW_COLUMN: 'average-page-view-column', // owner: @jordanm-posthog #team-web-analytics
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
+    SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

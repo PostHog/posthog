@@ -261,7 +261,8 @@ export class PostgresPersonRepository
     }
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
@@ -299,7 +300,7 @@ export class PostgresPersonRepository
         const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
-            PostgresUse.PERSONS_READ,
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
             params,
             'fetchPersonsByDistinctIds'
