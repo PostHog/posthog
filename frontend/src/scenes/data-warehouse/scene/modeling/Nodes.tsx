@@ -26,12 +26,12 @@ const NODE_TYPE_SETTINGS: Record<DataModelingNodeType, { label: string; color: s
 
 const JOB_STATUS_CONFIG: Record<
     DataModelingJobStatus,
-    { icon: React.ComponentType<{ className?: string }>; color: string; label: string }
+    { icon: React.ComponentType<{ className?: string }>; bgColor: string; iconColor: string; label: string }
 > = {
-    Completed: { icon: IconCheck, color: 'text-success', label: 'Last run completed' },
-    Failed: { icon: IconX, color: 'text-danger', label: 'Last run failed' },
-    Running: { icon: Spinner, color: 'text-warning', label: 'Running' },
-    Cancelled: { icon: IconWarning, color: 'text-muted', label: 'Last run cancelled' },
+    Completed: { icon: IconCheck, bgColor: 'bg-success', iconColor: 'text-white', label: 'Last run completed' },
+    Failed: { icon: IconX, bgColor: 'bg-danger', iconColor: 'text-white', label: 'Last run failed' },
+    Running: { icon: Spinner, bgColor: 'bg-warning', iconColor: 'text-white', label: 'Running' },
+    Cancelled: { icon: IconWarning, bgColor: 'bg-muted', iconColor: 'text-white', label: 'Last run cancelled' },
 }
 
 function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Element {
@@ -39,13 +39,8 @@ function JobStatusBadge({ status }: { status: DataModelingJobStatus }): JSX.Elem
     const Icon = config.icon
     return (
         <Tooltip title={config.label}>
-            <div
-                className={clsx(
-                    'flex items-center justify-center w-4 h-4 rounded-full bg-bg-light border border-border shadow-sm',
-                    config.color
-                )}
-            >
-                <Icon className="w-2.5 h-2.5" />
+            <div className={clsx('flex items-center justify-center w-5 h-5 rounded-full shadow-sm', config.bgColor)}>
+                <Icon className={clsx('w-3 h-3', config.iconColor)} />
             </div>
         </Tooltip>
     )
@@ -154,6 +149,12 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
 
+            {lastJobStatus && !isRunning && (
+                <div className="absolute -top-1.5 -right-1.5 z-10">
+                    <JobStatusBadge status={lastJobStatus} />
+                </div>
+            )}
+
             {canRun && isHovered && !isRunning && (
                 <>
                     <Tooltip title="Run all upstream nodes including this one">
@@ -190,14 +191,11 @@ function ModelNodeComponent(props: ModelNodeProps): JSX.Element | null {
                     >
                         {settings.label}
                     </span>
-                    <div className="flex items-center gap-1">
-                        {userTag && (
-                            <span className="text-[10px] text-muted lowercase tracking-wide px-1 py-px rounded bg-primary/50">
-                                #{userTag}
-                            </span>
-                        )}
-                        {lastJobStatus && !isRunning && <JobStatusBadge status={lastJobStatus} />}
-                    </div>
+                    {userTag && (
+                        <span className="text-[10px] text-muted lowercase tracking-wide px-1 py-px rounded bg-primary/50">
+                            #{userTag}
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center justify-between gap-1">
                     <span className="font-medium text-sm truncate">{name}</span>
