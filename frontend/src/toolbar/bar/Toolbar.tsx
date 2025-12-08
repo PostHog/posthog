@@ -17,6 +17,7 @@ import {
     IconPieChart,
     IconQuestion,
     IconSearch,
+    IconSpotlight,
     IconStethoscope,
     IconTestTube,
     IconToggle,
@@ -38,6 +39,9 @@ import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { EventDebugMenu } from '~/toolbar/debug/EventDebugMenu'
 import { ExperimentsToolbarMenu } from '~/toolbar/experiments/ExperimentsToolbarMenu'
 import { FlagsToolbarMenu } from '~/toolbar/flags/FlagsToolbarMenu'
+import { ProductToursEditingBar } from '~/toolbar/product-tours/ProductToursEditingBar'
+import { ProductToursToolbarMenu } from '~/toolbar/product-tours/ProductToursToolbarMenu'
+import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { HeatmapToolbarMenu } from '~/toolbar/stats/HeatmapToolbarMenu'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/toolbarPosthogJS'
@@ -292,6 +296,8 @@ export function ToolbarInfoMenu(): JSX.Element | null {
         <WebVitalsToolbarMenu />
     ) : visibleMenu === 'experiments' && showExperiments ? (
         <ExperimentsToolbarMenu />
+    ) : visibleMenu === 'product-tours' ? (
+        <ProductToursToolbarMenu />
     ) : null
 
     useEffect(() => {
@@ -337,6 +343,7 @@ export function Toolbar(): JSX.Element | null {
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
+    const { selectedTourId } = useValues(productToursLogic)
 
     const showExperimentsFlag = useToolbarFeatureFlag('web-experiments')
     const showExperiments = inStorybook() || inStorybookTestRunner() || showExperimentsFlag
@@ -373,6 +380,7 @@ export function Toolbar(): JSX.Element | null {
 
     return (
         <>
+            {selectedTourId !== null && <ProductToursEditingBar />}
             <ToolbarInfoMenu />
             <div
                 ref={ref}
@@ -419,6 +427,9 @@ export function Toolbar(): JSX.Element | null {
                         </ToolbarButton>
                         <ToolbarButton menuId="web-vitals" title="Web vitals">
                             <IconPieChart />
+                        </ToolbarButton>
+                        <ToolbarButton menuId="product-tours" title="Product tours">
+                            <IconSpotlight />
                         </ToolbarButton>
                         {showExperiments && (
                             <ToolbarButton menuId="experiments" title="Experiments">

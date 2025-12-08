@@ -25,14 +25,14 @@ export function ToolbarContainer(): JSX.Element {
 
     return (
         <Fade visible={buttonVisible} className="toolbar-global-fade-container ph-no-capture">
-            <Elements />
-            <ToolbarFixedZones />
-            <div id="button-toolbar" ref={ref} className="ph-no-capture" {...themeProps}>
-                <FloatingContainerContext.Provider value={ref}>
+            <FloatingContainerContext.Provider value={ref}>
+                <Elements />
+                <ToolbarFixedZones />
+                <div id="button-toolbar" ref={ref} className="ph-no-capture" {...themeProps}>
                     <Toolbar />
-                </FloatingContainerContext.Provider>
-            </div>
-            <HedgehogButton />
+                </div>
+                <HedgehogButton />
+            </FloatingContainerContext.Provider>
         </Fade>
     )
 }

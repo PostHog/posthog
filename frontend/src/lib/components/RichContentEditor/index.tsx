@@ -36,7 +36,9 @@ export const RichContentEditor = ({
     const editor = useRichContentEditor(editorProps)
 
     useEffect(() => {
-        editor.setOptions({ editable: !disabled })
+        if (editor) {
+            editor.setOptions({ editable: !disabled })
+        }
     }, [editor, disabled])
 
     return (
@@ -74,7 +76,9 @@ export const useRichContentEditor = ({
     })
 
     useEffect(() => {
-        editor.setOptions({ editable: !disabled })
+        if (editor) {
+            editor.setOptions({ editable: !disabled })
+        }
     }, [editor, disabled])
 
     return editor

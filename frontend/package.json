@@ -42,6 +42,8 @@
         "visualize-toolbar-bundle": "pnpm exec esbuild-visualizer --metadata ./toolbar-esbuild-meta.json --filename=toolbar-esbuild-bundle-visualization.html",
         "check-toolbar-csp-eval": "node ./bin/check-toolbar-csp-eval.mjs",
         "start-vite": "pnpm build:products && concurrently -n VITE,TAILWIND -c green,yellow \"vite --host 0.0.0.0\" \"pnpm watch:tailwind\"",
+        "build:vite": "vite build",
+        "build:vite:watch": "vite build --watch",
         "mobile-replay:web:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path 'node_modules/@posthog/rrweb-types/dist/index.d.ts' --type 'eventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/web/rr-web-schema.json",
         "mobile-replay:mobile:schema:build:json": "ts-json-schema-generator -f ./tsconfig.json --path './src/scenes/session-recordings/mobile-replay/mobile.types.ts' --type 'mobileEventWithTime' --expose all --no-top-ref --out ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json && prettier --write ./src/scenes/session-recordings/mobile-replay/schema/mobile/rr-mobile-schema.json",
         "mobile-replay:schema:build:json": "pnpm mobile-replay:web:schema:build:json && pnpm mobile-replay:mobile:schema:build:json"
@@ -193,7 +195,7 @@
         "openai": "^4.81.0",
         "papaparse": "^5.4.1",
         "pmtiles": "^2.11.0",
-        "posthog-js": "1.302.2",
+        "posthog-js": "file:/Users/adambowker/posthog-js/target/posthog-js.tgz",
         "posthog-js-lite": "4.2.1",
         "prettier": "^3.6.2",
         "prop-types": "^15.7.2",

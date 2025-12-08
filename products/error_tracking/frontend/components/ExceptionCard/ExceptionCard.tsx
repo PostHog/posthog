@@ -44,7 +44,7 @@ export function ExceptionCard({ issueId, event, loading, ...contentProps }: Exce
                 properties: event?.properties,
                 id: event?.uuid ?? issueId ?? 'error',
             }) as ErrorPropertiesLogicProps,
-        [event?.uuid ?? issueId]
+        [event?.uuid ?? issueId, issueId, event.properties, event.uuid]
     )
 
     return (
