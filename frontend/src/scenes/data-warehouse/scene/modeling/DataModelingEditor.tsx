@@ -87,6 +87,7 @@ function DataModelingEditorContent(): JSX.Element {
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 onPaneClick={() => setSelectedNodeId(null)}
                 fitViewOptions={FIT_VIEW_OPTIONS}
+                proOptions={{ hideAttribution: true }}
             >
                 <Background gap={36} variant={BackgroundVariant.Dots} />
                 <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />

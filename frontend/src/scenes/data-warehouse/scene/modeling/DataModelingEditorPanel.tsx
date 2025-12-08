@@ -48,7 +48,7 @@ function DraggableNodeButton({ node }: { node: CreateModelNodeType }): JSX.Eleme
 
 export function DataModelingEditorPanel(): JSX.Element {
     return (
-        <div className="absolute right-4 top-4 bottom-4 w-64 bg-surface-light border rounded-lg shadow-lg overflow-hidden z-10">
+        <div className="absolute right-4 top-4 bottom-4 w-64 bg-primary border rounded-lg shadow-lg overflow-hidden z-10">
             <div className="flex flex-col gap-1 p-2">
                 <span className="flex gap-2 text-xs font-semibold mt-2 items-center text-muted">Node types</span>
                 {NODES_TO_SHOW.map((node, index) => (
