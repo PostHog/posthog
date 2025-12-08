@@ -658,7 +658,7 @@ class Producer:
         destination_default_fields: list[BatchExportField] | None = None,
         max_record_batch_size_bytes: int = 0,
         min_records_per_batch: int = 100,
-        filters: list[dict[str, str | list[str]]] | None = None,
+        filters: list[dict[str, str | list[str] | None]] | None = None,
         order_columns: collections.abc.Iterable[str] | None = ("_inserted_at", "event"),
         **parameters,
     ) -> asyncio.Task:
@@ -961,7 +961,7 @@ class UpdatePropertiesToPersonProperties(TraversingVisitor):
 
 
 def compose_filters_clause(
-    filters: list[dict[str, str | list[str]]],
+    filters: list[dict[str, str | list[str] | None]],
     team_id: int,
     values: dict[str, str] | None = None,
 ) -> tuple[str, dict[str, str]]:

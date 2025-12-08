@@ -77,7 +77,7 @@ async def assert_clickhouse_records_in_mock_server(
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     backfill_details: BackfillDetails | None = None,
-    filters: list[dict[str, str | list[str]]] | None = None,
+    filters: list[dict[str, str | list[str] | None]] | None = None,
 ):
     """Assert expected records are written to a MockServer instance."""
     posted_records = mock_server.records
