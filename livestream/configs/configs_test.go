@@ -30,6 +30,7 @@ func TestLoadConfig(t *testing.T) {
 				Kafka: KafkaConfig{
 					Brokers:                 "localhost:9092,localhost:9093",
 					Topic:                   "topic",
+					SessionRecordingEnabled: true,
 					SessionRecordingTopic:   "session_recording_snapshot_item_events",
 					SessionRecordingBrokers: "localhost:9092,localhost:9093",
 					GroupID:                 "livestream-dev",
