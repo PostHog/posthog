@@ -30,21 +30,13 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PerDistinctIdPipelineInput, createPerDistinctIdPipeline } from './analytics'
 import {
-    createApplyCookielessProcessingStep,
-    createApplyDropRestrictionsStep,
-    createApplyForceOverflowRestrictionsStep,
-    createApplyPersonProcessingRestrictionsStep,
-    createDropExceptionEventsStep,
-    createParseHeadersStep,
-    createParseKafkaMessageStep,
-    createResolveTeamStep,
-    createValidateEventMetadataStep,
-    createValidateEventPropertiesStep,
-    createValidateEventUuidStep,
-    createValidateHistoricalMigrationStep,
-} from './event-preprocessing'
+    PerDistinctIdPipelineInput,
+    createPerDistinctIdPipeline,
+    createPostTeamPreprocessingSubpipeline,
+    createPreTeamPreprocessingSubpipeline,
+} from './analytics'
+import { createApplyCookielessProcessingStep } from './event-preprocessing'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
@@ -249,24 +241,17 @@ export class IngestionConsumer {
         }
 
         const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-            .messageAware((builder) =>
+            .messageAware((b) =>
                 // All of these steps are synchronous, so we can process the messages sequentially
                 // to avoid buffering due to reordering.
-                builder.sequentially((b) =>
-                    b
-                        .pipe(createParseHeadersStep())
-                        .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
-                        .pipe(
-                            createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
-                                overflowEnabled: this.overflowEnabled(),
-                                overflowTopic: this.overflowTopic || '',
-                                preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                            })
-                        )
-                        .pipe(createParseKafkaMessageStep())
-                        .pipe(createDropExceptionEventsStep())
-                        .pipe(createResolveTeamStep(this.hub))
-                        .pipe(createValidateHistoricalMigrationStep())
+                b.sequentially((b) =>
+                    createPreTeamPreprocessingSubpipeline(b, {
+                        hub: this.hub,
+                        eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                        overflowEnabled: this.overflowEnabled(),
+                        overflowTopic: this.overflowTopic || '',
+                        preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                    })
                 )
             )
             // We want to handle the first batch of rejected events, so that the remaining ones
@@ -292,16 +277,10 @@ export class IngestionConsumer {
                     .teamAware((b) =>
                         // These steps are also synchronous, so we can process events sequentially.
                         b
-                            .sequentially((c) =>
-                                c
-                                    .pipe(createValidateEventMetadataStep())
-                                    .pipe(createValidateEventPropertiesStep())
-                                    .pipe(
-                                        createApplyPersonProcessingRestrictionsStep(
-                                            this.eventIngestionRestrictionManager
-                                        )
-                                    )
-                                    .pipe(createValidateEventUuidStep())
+                            .sequentially((b) =>
+                                createPostTeamPreprocessingSubpipeline(b, {
+                                    eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                                })
                             )
                             // We want to call cookieless with the whole batch at once.
                             // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
