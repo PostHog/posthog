@@ -1,7 +1,7 @@
 import { ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
-    name: 'Tasks',
+    name: 'AI Visibility',
     scenes: {
         Viz: {
             name: 'Viz',
@@ -11,7 +11,7 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/viz': ['Viz', 'viz'],
+        '/viz/:domain': ['Viz', 'viz'],
     },
     redirects: {},
     urls: {},
