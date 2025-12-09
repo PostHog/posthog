@@ -441,8 +441,7 @@
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
 
         /* Scrollbar colors */
-        --color-scrollbar-track: var(--color-background);
-        --color-scrollbar-thumb: var(--color-neutral-300);
+        --color-scrollbar-thumb: var(--xcolor-neutral-300);
         --color-scrollbar-thumb-hover: var(--color-neutral-400);
     }
 
@@ -508,7 +507,6 @@
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
 
         /* Scrollbar colors */
-        --color-scrollbar-track: var(--color-background);
         --color-scrollbar-thumb: var(--color-neutral-700);
         --color-scrollbar-thumb-hover: var(--color-neutral-600);
     }

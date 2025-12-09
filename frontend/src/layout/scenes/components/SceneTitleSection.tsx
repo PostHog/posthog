@@ -184,7 +184,7 @@ export function SceneTitleSection({
                 className={cn(
                     'bg-[var(--scene-layout-background)] @2xl/main-content:sticky top-[var(--scene-layout-header-height)] z-30 -mx-4 px-4 -mt-4 duration-300',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent'
+                    isScrolled && '@2xl/main-content:border-border [body.storybook-test-runner_&]:border-transparent'
                 )}
             >
                 <div
