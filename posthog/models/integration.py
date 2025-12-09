@@ -2116,8 +2116,6 @@ class ShopifyIntegration:
             },
         )
         if not access_res.ok:
-            raise requests.HTTPError(
-                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.text}",
-                response=access_res,
+            raise ValueError(
+                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.text}"
             )
-        return access_res.json().get("access_token")
