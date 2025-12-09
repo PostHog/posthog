@@ -99,7 +99,7 @@ export default defineConfig(({ mode }) => {
             host: process.argv.includes('--host') ? '0.0.0.0' : 'localhost',
             // this is just used in dev
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
-            cors: true,
+            cors: true, // This disables CORS in dev, key for using ngrok (e.g. for testing Slack integration)
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
         },
