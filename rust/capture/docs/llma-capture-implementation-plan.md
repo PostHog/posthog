@@ -11,7 +11,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 #### 0.1 Routing Configuration
 
 - [x] Create new `/i/v0/ai` endpoint in capture service
-- [ ] Set up routing for `/i/v0/ai` endpoint to capture service
+- [x] Set up routing for `/i/v0/ai` endpoint to capture service (Caddy routes in docker-compose, capture-ai service on port 3308)
 
 #### 0.2 End-to-End Integration Tests
 
@@ -50,9 +50,9 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 2.1 Simple S3 Upload (per blob)
 
-- [ ] Upload individual blobs to S3 as separate objects
-- [ ] Generate S3 URLs for blobs (including byte range parameters)
-- [ ] Store S3 blob metadata
+- [x] Upload individual blobs to S3 as separate objects (concatenated into single file per event)
+- [x] Generate S3 URLs for blobs (format: `s3://{bucket}/{prefix}{token}/{uuid}?range={start}-{end}`)
+- [x] Store S3 blob metadata (URLs stored in event properties)
 - [ ] Track S3 upload success/failure rates
 - [ ] Monitor blob size distributions
 
@@ -60,19 +60,21 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 
 #### 3.1 S3 Bucket Configuration
 
-- [ ] Set up S3 buckets for dev and production environments
-- [ ] Set up bucket structure with `llma/` prefix
+- [x] Set up S3 buckets for local dev (MinIO: `ai-blobs` bucket via docker-compose)
+- [x] Set up bucket structure with `llma/` prefix
+- [ ] Set up S3 buckets for production environment
 - [ ] Configure S3 lifecycle policies for retention (30d default)
 - [ ] Set up S3 access policies for capture service
 - [ ] Create service accounts with appropriate S3 permissions
 
 #### 3.2 Capture S3 Configuration
 
+- [x] Configure capture-ai service for local dev with S3 (bin/start-rust-service, mprocs.yaml)
+- [x] Test S3 connectivity and uploads (acceptance tests pass)
 - [ ] Deploy capture-ai service to dev environment with S3 configuration
 - [ ] Deploy capture-ai service to production environment with S3 configuration
 - [ ] Set up IAM roles and permissions for capture-ai service
 - [ ] Configure S3 read/write permissions
-- [ ] Test S3 connectivity and uploads
 
 ### Phase 4: Multipart File Processing
 
@@ -142,7 +144,7 @@ This document outlines the implementation steps for the LLM Analytics capture pi
 - [x] Implement total parts size limit (25MB default, configurable)
 - [x] Implement request body size limit (110% of total parts limit)
 - [x] Return 413 Payload Too Large for size violations
-- [ ] Add request rate limiting per team
+- [x] Add quota limiting per team (via `quota_limiter.check_and_filter()`, returns `BillingLimit` error when exceeded)
 - [ ] Implement per-team payload size limits
 
 ### Phase 10: Data Deletion (Optional)
