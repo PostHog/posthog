@@ -334,7 +334,6 @@ describe('create-event-step', () => {
                     expect(result.value.eventToEmit.historical_migration).toBeUndefined()
                 }
             })
-
         })
 
         describe('person modes', () => {
