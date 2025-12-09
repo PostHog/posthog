@@ -6,7 +6,7 @@ from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from django.conf import settings
+from django.conf import settings as django_settings
 
 from posthog.schema import (
     HogQLQueryModifiers,
@@ -76,7 +76,7 @@ from posthog.models.utils import UUIDT
 def get_channel_definition_dict():
     """Get the channel definition dictionary name with the correct database.
     Evaluated at call time to work with test databases in Python 3.12."""
-    return f"{settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
+    return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -214,8 +214,13 @@ def print_prepared_ast(
     pretty: bool = False,
 ) -> str:
     with context.timings.measure("printer"):
-        # _Printer also adds a team_id guard if printing clickhouse
-        return _Printer(
+        if dialect == "clickhouse":
+            printer_class: type[_Printer] = ClickHousePrinter
+        elif dialect == "hogql":
+            printer_class: type[_Printer] = _Printer
+        else:
+            raise InternalHogQLError(f"Invalid SQL dialect: {dialect}")
+        return printer_class(
             context=context,
             dialect=dialect,
             stack=stack or [],
@@ -306,13 +311,6 @@ class _Printer(Visitor[str]):
         self._indent -= 1
         self.stack.pop()
 
-        if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
-            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
-                raise QueryError("Settings can only be applied to SELECT queries")
-            settings = self._print_settings(self.settings)
-            if settings is not None:
-                response += " " + settings
-
         return response
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
@@ -336,12 +334,6 @@ class _Printer(Visitor[str]):
         return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
-        if self.dialect == "clickhouse":
-            if not self.context.enable_select_queries:
-                raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
-            if not self.context.team_id:
-                raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
-
         # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
         part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
@@ -1147,29 +1139,8 @@ class _Printer(Visitor[str]):
         return f"ifNull({op}, 0)"
 
     def visit_constant(self, node: ast.Constant):
-        if self.dialect == "hogql":
-            # Inline everything in HogQL
-            return self._print_escaped_string(node.value)
-        elif (
-            node.value is None
-            or isinstance(node.value, bool)
-            or isinstance(node.value, int)
-            or isinstance(node.value, float)
-            or isinstance(node.value, UUID)
-            or isinstance(node.value, UUIDT)
-            or isinstance(node.value, datetime)
-            or isinstance(node.value, date)
-        ):
-            # Inline some permitted types in ClickHouse
-            value = self._print_escaped_string(node.value)
-            if "%" in value:
-                # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
-                # Ban % to be on the safe side. Who knows how it can end up in a UUID or datetime for example.
-                raise QueryError(f"Invalid character '%' in constant: {value}")
-            return value
-        else:
-            # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
-            return self.context.add_value(node.value)
+        # Inline everything in HogQL
+        return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
         if node.type is None and self.dialect != "hogql":
@@ -1525,7 +1496,7 @@ class _Printer(Visitor[str]):
                     # convertCurrency(from_currency, to_currency, amount, timestamp?)
                     from_currency, to_currency, amount, *_rest = args
                     date = args[3] if len(args) > 3 and args[3] else "today()"
-                    db = settings.CLICKHOUSE_DATABASE
+                    db = django_settings.CLICKHOUSE_DATABASE
                     return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{db}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
                 elif node.name == "getSurveyResponse":
                     question_index_obj = node.args[0]
@@ -1590,10 +1561,7 @@ class _Printer(Visitor[str]):
         return f"{inside} AS {alias}"
 
     def visit_table_type(self, type: ast.TableType):
-        if self.dialect == "clickhouse":
-            return type.table.to_printed_clickhouse(self.context)
-        else:
-            return type.table.to_printed_hogql()
+        return type.table.to_printed_hogql()
 
     def visit_table_alias_type(self, type: ast.TableAliasType):
         return self._print_identifier(type.alias)
@@ -1823,8 +1791,6 @@ class _Printer(Visitor[str]):
         raise ImpossibleASTError("Unexpected ast.FieldTraverserType. This should have been resolved.")
 
     def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
-        if self.dialect == "clickhouse":
-            raise QueryError(f"Unable to resolve field: {type.name}")
         return self._print_identifier(type.name)
 
     def visit_unknown(self, node: AST):
@@ -1980,8 +1946,6 @@ class _Printer(Visitor[str]):
         return None
 
     def _print_identifier(self, name: str) -> str:
-        if self.dialect == "clickhouse":
-            return escape_clickhouse_identifier(name)
         return escape_hogql_identifier(name)
 
     def _print_hogql_identifier_or_index(self, name: str | int) -> str:
@@ -1993,8 +1957,6 @@ class _Printer(Visitor[str]):
     def _print_escaped_string(
         self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
     ) -> str:
-        if self.dialect == "clickhouse":
-            return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field: str, unsafe_args: list[str]) -> str:
@@ -2080,3 +2042,73 @@ class _Printer(Visitor[str]):
             frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
             frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
         )
+
+
+class ClickHousePrinter(_Printer):
+    def __init__(
+        self,
+        context: HogQLContext,
+        dialect: Literal["hogql", "clickhouse"],
+        stack: list[AST] | None = None,
+        settings: HogQLGlobalSettings | None = None,
+        pretty: bool = False,
+    ):
+        super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+
+    def visit(self, node: AST | None):
+        if node is None:
+            return ""
+        response = super().visit(node)
+
+        if len(self.stack) == 0 and self.settings:
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
+                raise QueryError("Settings can only be applied to SELECT queries")
+            settings = self._print_settings(self.settings)
+            if settings is not None:
+                response += " " + settings
+
+        return response
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        if not self.context.enable_select_queries:
+            raise InternalHogQLError("Full SELECT queries are disabled if context.enable_select_queries is False")
+        if not self.context.team_id:
+            raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
+
+        return super().visit_select_query(node)
+
+    def visit_constant(self, node: ast.Constant):
+        if (
+            node.value is None
+            or isinstance(node.value, bool)
+            or isinstance(node.value, int)
+            or isinstance(node.value, float)
+            or isinstance(node.value, UUID)
+            or isinstance(node.value, UUIDT)
+            or isinstance(node.value, datetime)
+            or isinstance(node.value, date)
+        ):
+            # Inline some permitted types in ClickHouse
+            value = self._print_escaped_string(node.value)
+            if "%" in value:
+                # We don't know if this will be passed on as part of a legacy ClickHouse query or not.
+                # Ban % to be on the safe side. Who knows how it can end up in a UUID or datetime for example.
+                raise QueryError(f"Invalid character '%' in constant: {value}")
+            return value
+        else:
+            # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
+            return self.context.add_value(node.value)
+
+    def visit_table_type(self, type: ast.TableType):
+        return type.table.to_printed_clickhouse(self.context)
+
+    def visit_unresolved_field_type(self, type: ast.UnresolvedFieldType):
+        raise QueryError(f"Unable to resolve field: {type.name}")
+
+    def _print_identifier(self, name: str) -> str:
+        return escape_clickhouse_identifier(name)
+
+    def _print_escaped_string(
+        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
+        return escape_clickhouse_string(name, timezone=self._get_timezone())
