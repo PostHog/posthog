@@ -11,6 +11,7 @@ from psycopg.rows import dict_row
 @dataclass
 class QueryResult:
     columns: list[str]
+    types: list[str]
     rows: list[dict[str, Any]]
     row_count: int
     execution_time_ms: float
@@ -119,8 +120,10 @@ class DirectQueryExecutor:
             with connection.cursor(row_factory=dict_row) as cursor:
                 cursor.execute(sql)
 
-                # Get column names from description
+                # Get column names and types from description
                 columns = [desc.name for desc in cursor.description] if cursor.description else []
+                # type_code is the OID of the type, we convert to string representation
+                types = [str(desc.type_code) for desc in cursor.description] if cursor.description else []
 
                 # Fetch rows up to max_rows
                 rows = cursor.fetchmany(max_rows)
@@ -143,6 +146,7 @@ class DirectQueryExecutor:
 
             return QueryResult(
                 columns=columns,
+                types=types,
                 rows=serializable_rows,
                 row_count=row_count,
                 execution_time_ms=execution_time_ms,
@@ -152,6 +156,7 @@ class DirectQueryExecutor:
             execution_time_ms = (time.time() - start_time) * 1000
             return QueryResult(
                 columns=[],
+                types=[],
                 rows=[],
                 row_count=0,
                 execution_time_ms=execution_time_ms,

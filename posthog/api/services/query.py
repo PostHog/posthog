@@ -10,6 +10,8 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
+    DirectQuery,
+    DirectQueryResponse,
     HogQLAutocomplete,
     HogQLMetadata,
     HogQLVariable,
@@ -163,6 +165,30 @@ def process_query_model(
             metadata_query = HogQLMetadata.model_validate(query)
             metadata_response = get_hogql_metadata(query=metadata_query, team=team)
             result = metadata_response
+        elif isinstance(query, DirectQuery):
+            from products.data_warehouse.backend.models import ExternalDataSource
+            from products.data_warehouse.backend.services import DirectQueryExecutor
+
+            try:
+                source = ExternalDataSource.objects.get(
+                    pk=query.sourceId,
+                    team_id=team.pk,
+                    query_only=True,
+                )
+            except ExternalDataSource.DoesNotExist:
+                raise ValidationError(f"Query-only data source not found: {query.sourceId}")
+
+            executor = DirectQueryExecutor.from_source(source)
+            query_result = executor.execute_query(query.query, max_rows=query.limit or 1000)
+
+            result = DirectQueryResponse(
+                results=query_result.rows,
+                columns=query_result.columns,
+                types=query_result.types,
+                hasMore=query_result.row_count >= (query.limit or 1000),
+                executionTimeMs=query_result.execution_time_ms,
+                error=query_result.error,
+            )
         elif isinstance(query, DatabaseSchemaQuery):
             joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
             database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team))
