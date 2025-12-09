@@ -65,7 +65,6 @@ impl From<&RawAppleFrame> for Frame {
             context: None,
             suspicious: false,
             module: raw.module.clone(),
-            exception_type: None,
             code_variables: None,
         };
 
