@@ -8,6 +8,8 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { Handler, viewportResizeDimension } from '@posthog/rrweb-types'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 export const PlayerFrame = (): JSX.Element => {
@@ -18,6 +20,9 @@ export const PlayerFrame = (): JSX.Element => {
     const frameRef = useRef<HTMLDivElement | null>(null)
     const containerRef = useRef<HTMLDivElement | null>(null)
     const containerDimensions = useSize(containerRef)
+
+    // Feature flag to enable UI resizing fixes (killswitch to disable if needed)
+    const enableResizingFix = useFeatureFlag(FEATURE_FLAGS.REPLAY_KILLSWITCH_UI_RESIZING)
 
     // Define callbacks before they're used in effects
     const updatePlayerDimensions = useCallback(
@@ -35,6 +40,11 @@ export const PlayerFrame = (): JSX.Element => {
 
             const parentDimensions = frameRef.current.parentElement.getBoundingClientRect()
 
+            // Skip calculation if parent dimensions aren't ready yet (can happen during initial layout)
+            if (enableResizingFix && (parentDimensions.width === 0 || parentDimensions.height === 0)) {
+                return
+            }
+
             const scale = Math.min(
                 parentDimensions.width / replayDimensions.width,
                 parentDimensions.height / replayDimensions.height,
@@ -45,7 +55,7 @@ export const PlayerFrame = (): JSX.Element => {
 
             setScale(scale)
         },
-        [player, setScale]
+        [player, setScale, enableResizingFix]
     )
 
     const windowResize = useCallback((): void => {
@@ -68,11 +78,23 @@ export const PlayerFrame = (): JSX.Element => {
         player.replayer.on('resize', updatePlayerDimensions as Handler)
         window.addEventListener('resize', windowResize)
 
+        // Force an initial resize calculation after the browser has completed layout
+        // This fixes a race condition where dimensions are calculated before CSS layout is complete
+        let rafId: number | undefined
+        if (enableResizingFix) {
+            rafId = requestAnimationFrame(() => {
+                windowResize()
+            })
+        }
+
         return () => {
             player.replayer.off('resize', updatePlayerDimensions as Handler)
             window.removeEventListener('resize', windowResize)
+            if (rafId !== undefined) {
+                cancelAnimationFrame(rafId)
+            }
         }
-    }, [player, updatePlayerDimensions, windowResize])
+    }, [player, updatePlayerDimensions, windowResize, enableResizingFix])
 
     // Recalculate the player size when the player changes dimensions
     useEffect(() => {
