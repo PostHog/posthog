@@ -668,40 +668,45 @@ Get schema information for a source.
 
 ### Unit Tests
 
-**File**: `posthog/warehouse/direct_query/test_executor.py`
+**File**: `products/data_warehouse/backend/api/test/test_direct_query.py`
 
-```python
-import pytest
-from unittest.mock import MagicMock, patch
+16 tests covering:
 
-from posthog.warehouse.direct_query.executor import DirectQueryExecutor, DirectQueryResult
+**API Tests (TestDirectQueryAPI):**
 
+- `test_list_sources_returns_only_query_only_sources` - Filter non-query-only sources
+- `test_execute_requires_source_id` - Validation
+- `test_execute_requires_sql` - Validation
+- `test_execute_returns_404_for_nonexistent_source` - Team isolation
+- `test_execute_returns_404_for_non_query_only_source` - Access control
+- `test_execute_returns_query_results` - Happy path
+- `test_execute_returns_error_on_query_failure` - Error handling
+- `test_get_schema_returns_404_for_nonexistent_source` - Access control
+- `test_get_schema_returns_table_schema` - Happy path
+- `test_get_schema_handles_connection_errors` - Error sanitization
+- `test_execute_respects_team_isolation` - Multi-tenant security
 
-class TestDirectQueryExecutor:
-    def test_execute_simple_query(self):
-        # TODO: Add tests with mocked psycopg connection
-        pass
+**Executor Tests (TestDirectQueryExecutor):**
 
-    def test_execute_with_timeout(self):
-        pass
+- `test_from_source_extracts_connection_params` - Config parsing
+- `test_from_source_uses_defaults_for_missing_params` - Default values
+- `test_execute_query_sets_timeout_and_readonly` - Security enforcement
+- `test_execute_query_sanitizes_password_errors` - No credential leaks
+- `test_execute_query_sanitizes_timeout_errors` - User-friendly errors
 
-    def test_execute_with_row_limit(self):
-        pass
-
-    def test_get_schema(self):
-        pass
-```
+Run with: `pytest products/data_warehouse/backend/api/test/test_direct_query.py -v`
 
 ---
 
 ## Security Considerations
 
-- [ ] Queries execute with stored credentials (already encrypted)
-- [ ] Statement timeout prevents long-running queries
-- [ ] Row limit prevents memory issues
-- [ ] Consider read-only mode (SET TRANSACTION READ ONLY)
-- [ ] Audit logging for executed queries
-- [ ] Rate limiting on API endpoint
+- [x] Queries execute with stored credentials (already encrypted)
+- [x] Statement timeout prevents long-running queries (30s default)
+- [x] Row limit prevents memory issues (1000 rows default)
+- [x] Read-only mode enforced (`SET default_transaction_read_only = ON`)
+- [x] Error message sanitization (no credential leaks in error responses)
+- [x] Structured logging with structlog for audit trail
+- [ ] Rate limiting on API endpoint (future enhancement)
 
 ---
 
