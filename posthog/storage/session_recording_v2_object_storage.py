@@ -36,6 +36,10 @@ class FileUploadError(Exception):
     pass
 
 
+class FileDeleteError(Exception):
+    pass
+
+
 class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -86,6 +90,10 @@ class SessionRecordingV2ObjectStorageBase(metaclass=abc.ABCMeta):
     def upload_file(self, key: str, filename: str) -> None:
         pass
 
+    @abc.abstractmethod
+    def delete_file(self, key: str) -> None:
+        pass
+
 
 class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
     def read_bytes(self, key: str, first_byte: int, last_byte: int) -> bytes | None:
@@ -126,6 +134,9 @@ class UnavailableSessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorage
 
     def upload_file(self, key: str, filename: str) -> None:
         raise FileUploadError("Storage not available")
+
+    def delete_file(self, key: str) -> None:
+        raise FileDeleteError("Storage not available")
 
 
 class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
@@ -368,6 +379,22 @@ class SessionRecordingV2ObjectStorage(SessionRecordingV2ObjectStorageBase):
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
 
+    def delete_file(self, key: str) -> None:
+        try:
+            self.aws_client.delete_object(
+                Bucket=self.bucket,
+                Key=key,
+            )
+        except Exception as e:
+            logger.exception(
+                "session_recording_v2_object_storage.delete_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+                exc_info=False,
+            )
+            raise FileDeleteError(f"Failed to delete file: {str(e)}")
+
 
 class AsyncSessionRecordingV2ObjectStorage:
     def __init__(self, aws_client, bucket: str) -> None:
@@ -607,6 +634,22 @@ class AsyncSessionRecordingV2ObjectStorage:
                 exc_info=False,
             )
             raise FileUploadError(f"Failed to upload file: {str(e)}")
+
+    async def delete_file(self, key: str) -> None:
+        try:
+            await self.aws_client.delete_object(
+                Bucket=self.bucket,
+                Key=key,
+            )
+        except Exception as e:
+            logger.exception(
+                "async_session_recording_v2_object_storage.delete_file_failed",
+                bucket=self.bucket,
+                key=key,
+                error=e,
+                exc_info=False,
+            )
+            raise FileDeleteError(f"Failed to delete file: {str(e)}")
 
 
 _client: SessionRecordingV2ObjectStorageBase = UnavailableSessionRecordingV2ObjectStorage()
