@@ -177,7 +177,7 @@ def copy_data_modeling_model_to_ducklake_activity(inputs: DuckLakeCopyActivityIn
         conn = duckdb.connect()
         alias = "ducklake_dev"
         try:
-            _configure_source_storage(conn, logger)
+            _configure_s3_secrets(conn)
             configure_connection(conn, config, install_extension=True)
             _ensure_ducklake_bucket_exists(config)
             _attach_ducklake_catalog(conn, config, alias=alias)
@@ -218,7 +218,7 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
         results: list[DuckLakeCopyVerificationResult] = []
 
         try:
-            _configure_source_storage(conn, logger)
+            _configure_s3_secrets(conn)
             configure_connection(conn, config, install_extension=True)
             _attach_ducklake_catalog(conn, config, alias=alias)
 
@@ -439,7 +439,7 @@ def _get_source_credentials() -> tuple[str, str, str, str]:
     )
 
 
-def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
+def _configure_s3_secrets(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute("INSTALL httpfs")
     conn.execute("LOAD httpfs")
     conn.execute("INSTALL delta")
@@ -465,6 +465,35 @@ def _configure_source_storage(conn: duckdb.DuckDBPyConnection, logger) -> None:
     secret_parts.append("URL_STYLE 'path'")
     secret_parts.append(f"SCOPE '{ducklake_escape(settings.BUCKET_URL)}'")
     conn.execute(f"CREATE OR REPLACE SECRET ducklake_source ({', '.join(secret_parts)})")
+
+    # Destination bucket secret
+    config = get_config()
+    dest_bucket = f"s3://{config['DUCKLAKE_BUCKET']}/"
+    if settings.USE_LOCAL_SETUP:
+        # Local dev: same MinIO creds, scoped to destination bucket
+        dest_parts = ["TYPE S3"]
+        if access_key:
+            dest_parts.append(f"KEY_ID '{ducklake_escape(access_key)}'")
+        if secret_key:
+            dest_parts.append(f"SECRET '{ducklake_escape(secret_key)}'")
+        if region:
+            dest_parts.append(f"REGION '{ducklake_escape(region)}'")
+        if normalized_endpoint:
+            dest_parts.append(f"ENDPOINT '{ducklake_escape(normalized_endpoint)}'")
+        dest_parts.append(f"USE_SSL {'true' if use_ssl else 'false'}")
+        dest_parts.append("URL_STYLE 'path'")
+        dest_parts.append(f"SCOPE '{ducklake_escape(dest_bucket)}'")
+        conn.execute(f"CREATE OR REPLACE SECRET ducklake_dest ({', '.join(dest_parts)})")
+    else:
+        # Production: credential chain (IRSA), scoped to destination bucket
+        conn.execute(f"""
+            CREATE OR REPLACE SECRET ducklake_dest (
+                TYPE S3,
+                PROVIDER CREDENTIAL_CHAIN,
+                REGION '{ducklake_escape(region)}',
+                SCOPE '{ducklake_escape(dest_bucket)}'
+            )
+        """)
 
 
 def _normalize_object_storage_endpoint(endpoint: str) -> tuple[str, bool]:
