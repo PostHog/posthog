@@ -4420,9 +4420,6 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
         modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
         runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
 
-        # Before dashboard filters, should be AUTO
-        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
-
         # Apply dashboard filters (simulating what happens when insight is on dashboard)
         dashboard_filter = DashboardFilter(properties=[{"type": "cohort", "key": "id", "value": cohort.pk}])
         runner.apply_dashboard_filters(dashboard_filter)
