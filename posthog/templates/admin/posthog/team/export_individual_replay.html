@@ -1,0 +1,21 @@
+{% load i18n %}
+
+<div style="margin: 10px 0;">
+    <p>Prepares an export of an individual session so that you can test locally</p>
+    <p><strong>With great power comes great responsibility</strong></p>
+
+    <form method="post" action="{% url 'admin:posthog_team_export_replay' team.pk %}">
+        {% csrf_token %}
+        <div style="margin: 12px 0;">
+            <label for="session_id_input">Session id:</label>
+            <input type="text" id="session_id_input" name="session_id" required style="margin-left: 8px; width: 300px;" />
+        </div>
+        <div style="margin: 12px 0;">
+            <label for="reason_input">Reason:</label>
+            <input type="text" id="reason_input" name="reason" required style="margin-left: 8px; width: 400px;" placeholder="e.g. Customer support ticket #1234" />
+        </div>
+        <div style="margin-top: 12px;">
+            <button type="submit" class="button">Generate export</button>
+        </div>
+    </form>
+</div>

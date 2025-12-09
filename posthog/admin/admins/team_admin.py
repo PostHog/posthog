@@ -1,15 +1,20 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.core.cache import cache
 from django.http import HttpResponseNotAllowed, JsonResponse
 from django.shortcuts import redirect
+from django.template.loader import render_to_string
 from django.urls import path, reverse
-from django.utils.html import escapejs, format_html
+from django.utils.html import escapejs, format_html, mark_safe
+
+from structlog import get_logger
 
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.models import Team
 from posthog.models.remote_config import cache_key_for_team_token
 from posthog.models.team.team import DEPRECATED_ATTRS
+
+logger = get_logger()
 
 
 class TeamAdmin(admin.ModelAdmin):
@@ -45,6 +50,7 @@ class TeamAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "internal_properties",
+        "export_individual_replay",
         "remote_config_cache_actions",
     ]
 
@@ -61,6 +67,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "organization",
                     "project",
                     "internal_properties",
+                    "export_individual_replay",
                     "remote_config_cache_actions",
                 ],
             },
@@ -176,29 +183,32 @@ class TeamAdmin(admin.ModelAdmin):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
 
+    @admin.display(description="Export individual session replay data")
+    def export_individual_replay(self, team: Team):
+        if not team.pk:
+            return "-"
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/export_individual_replay.html",
+                {"team": team},
+            )
+        )
+
     @admin.display(description="Remote config cache actions")
     def remote_config_cache_actions(self, team: Team):
         if not team.pk:
             return "-"
 
-        view_url = reverse("admin:posthog_team_view_cache", args=[team.pk])
-        delete_url = reverse("admin:posthog_team_delete_cache", args=[team.pk])
-
-        return format_html(
-            '<div style="margin: 10px 0;">'
-            '<a class="button" href="{}" target="_blank" style="margin-right: 10px;">View cached config JSON</a>'
-            '<button type="submit" name="_delete_cache" class="button" '
-            'formmethod="post" formaction="{}" formnovalidate '
-            "onclick=\"return confirm('Delete cache for team {}? This will force a rebuild on next request.');\">"
-            "Delete cache</button>"
-            '<p style="margin-top: 8px; color: #666; font-size: 12px;">'
-            "Cache key: <code>{}</code>"
-            "</p>"
-            "</div>",
-            view_url,
-            delete_url,
-            escapejs(team.name),
-            cache_key_for_team_token(team.api_token),
+        return mark_safe(
+            render_to_string(
+                "admin/posthog/team/remote_config_cache_actions.html",
+                {
+                    "view_url": reverse("admin:posthog_team_view_cache", args=[team.pk]),
+                    "delete_url": reverse("admin:posthog_team_delete_cache", args=[team.pk]),
+                    "team_name_escaped": escapejs(team.name),
+                    "cache_key": cache_key_for_team_token(team.api_token),
+                },
+            )
         )
 
     def get_urls(self):
@@ -214,8 +224,42 @@ class TeamAdmin(admin.ModelAdmin):
                 self.admin_site.admin_view(self.delete_cache),
                 name="posthog_team_delete_cache",
             ),
+            path(
+                "<path:object_id>/export-replay/",
+                self.admin_site.admin_view(self.export_replay_view),
+                name="posthog_team_export_replay",
+            ),
         ]
         return custom_urls + urls
+
+    def export_replay_view(self, request, object_id):
+        if request.method != "POST":
+            return HttpResponseNotAllowed(["POST"])
+
+        team = Team.objects.get(pk=object_id)
+        session_id = request.POST.get("session_id", "").strip()
+        reason = request.POST.get("reason", "").strip()
+
+        if not session_id:
+            messages.error(request, "Session ID is required")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+        if not reason:
+            messages.error(request, "Reason is required")
+            return redirect(reverse("admin:posthog_team_change", args=[object_id]))
+
+        logger.info(
+            "export_replay_triggered",
+            team_id=team.id,
+            session_id=session_id,
+            reason=reason,
+            triggered_by=request.user.email,
+        )
+
+        messages.success(
+            request, f"Export triggered for session '{session_id}' on team '{team.name}' by {request.user.email}"
+        )
+        return redirect(reverse("admin:posthog_team_change", args=[object_id]))
 
     def view_cache(self, request, object_id):
         team = Team.objects.get(pk=object_id)
