@@ -21,16 +21,19 @@ operations = [
         ADD_LTS_COLUMNS_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
         sharded=True,
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         ADD_LTS_COLUMNS_WRITABLE_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
         sharded=True,
+        is_alter_on_replicated_table=True,
     ),
     run_sql_with_exceptions(
         ADD_LTS_COLUMNS_DISTRIBUTED_SESSION_REPLAY_EVENTS_TABLE_SQL(),
         node_roles=[NodeRole.DATA],
         sharded=True,
+        is_alter_on_replicated_table=True,
     ),
     # and then recreate the materialized views and kafka tables
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
