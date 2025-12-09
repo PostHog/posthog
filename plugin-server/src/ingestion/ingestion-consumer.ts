@@ -3,7 +3,6 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
-import { prefetchPersonsStep } from '~/worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -30,18 +29,11 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
-import {
-    PerDistinctIdPipelineInput,
-    createPerDistinctIdPipeline,
-    createPostTeamPreprocessingSubpipeline,
-    createPreTeamPreprocessingSubpipeline,
-} from './analytics'
-import { createApplyCookielessProcessingStep } from './event-preprocessing'
+import { PerDistinctIdPipelineInput, createPerDistinctIdPipeline, createPreprocessingPipeline } from './analytics'
 import { BatchPipelineUnwrapper } from './pipelines/batch-pipeline-unwrapper'
 import { BatchPipeline } from './pipelines/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from './pipelines/builders'
 import { createBatch, createContext, createUnwrapper } from './pipelines/helpers'
-import { PipelineConfig } from './pipelines/result-handling-pipeline'
 import { ok } from './pipelines/results'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
@@ -206,7 +198,18 @@ export class IngestionConsumer {
         ])
 
         // Initialize batch preprocessing pipeline after kafka producer is available
-        this.initializePreprocessingPipeline()
+        this.preprocessingPipeline = createUnwrapper(
+            createPreprocessingPipeline(newBatchPipelineBuilder<{ message: Message }, { message: Message }>(), {
+                hub: this.hub,
+                kafkaProducer: this.kafkaProducer!,
+                personsStore: this.personsStore,
+                eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
+                overflowEnabled: this.overflowEnabled(),
+                overflowTopic: this.overflowTopic || '',
+                dlqTopic: this.dlqTopic,
+                promiseScheduler: this.promiseScheduler,
+            }).build()
+        )
 
         // Initialize main event pipeline
         this.perDistinctIdPipeline = createPerDistinctIdPipeline(
@@ -231,75 +234,6 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
-    }
-
-    private initializePreprocessingPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
-        }
-
-        const pipeline = newBatchPipelineBuilder<{ message: Message }, { message: Message }>()
-            .messageAware((b) =>
-                // All of these steps are synchronous, so we can process the messages sequentially
-                // to avoid buffering due to reordering.
-                b.sequentially((b) =>
-                    createPreTeamPreprocessingSubpipeline(b, {
-                        hub: this.hub,
-                        eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-                        overflowEnabled: this.overflowEnabled(),
-                        overflowTopic: this.overflowTopic || '',
-                        preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                    })
-                )
-            )
-            // We want to handle the first batch of rejected events, so that the remaining ones
-            // can be processed in the team context.
-            .handleResults(pipelineConfig)
-            // We don't need to block the pipeline with side effects at this stage.
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // This is the first synchronization point, where we gather all events.
-            // We need to gather here because the pipeline consumer only calls next once.
-            // Once we transition to a continuous consumer, we can remove this gather.
-            .gather()
-            .filterOk()
-            // Now we know all messages are in the team context.
-            .map((element) => ({
-                result: element.result,
-                context: {
-                    ...element.context,
-                    team: element.result.value.eventWithTeam.team,
-                },
-            }))
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) =>
-                        // These steps are also synchronous, so we can process events sequentially.
-                        b
-                            .sequentially((b) =>
-                                createPostTeamPreprocessingSubpipeline(b, {
-                                    eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-                                })
-                            )
-                            // We want to call cookieless with the whole batch at once.
-                            // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
-                            // are captured with $posthog_cookieless distinct ID and rewritten here).
-                            // Any steps that depend on the final distinct ID must run after this step.
-                            .gather()
-                            .pipeBatch(createApplyCookielessProcessingStep(this.hub.cookielessManager))
-                            // Prefetch must run after cookieless, as cookieless changes distinct IDs
-                            .pipeBatch(prefetchPersonsStep(this.personsStore, this.hub.PERSONS_PREFETCH_ENABLED))
-                    )
-                    .handleIngestionWarnings(this.kafkaProducer!)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
-            .build()
-
-        this.preprocessingPipeline = createUnwrapper(pipeline)
     }
 
     public async stop(): Promise<void> {

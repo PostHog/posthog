@@ -13,6 +13,8 @@ export {
     PerDistinctIdPipelineInput,
 } from './per-distinct-id-pipeline'
 
+export { createPreprocessingPipeline, PreprocessingPipelineConfig } from './preprocessing-pipeline'
+
 export {
     createPostTeamPreprocessingSubpipeline,
     PostTeamPreprocessingSubpipelineConfig,
