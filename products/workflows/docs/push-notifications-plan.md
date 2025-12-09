@@ -177,6 +177,8 @@ func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: Str
 4. Go to Project Settings → Service accounts → "Generate new private key"
 5. Save the JSON file - this is what you'll upload to PostHog
 
+**Test credentials**: [Firebase service account in 1Password](https://start.1password.com/open/i?a=VYI5XOSPGVCMNAOIJ2AKYWOXUA&v=o2cmwvhcovs3sn3zrvpunfkq74&i=ojhte5e6nf7pmh4vs2b7aaba3u&h=posthog.1password.com)
+
 ### Get an FCM Token (Test App)
 
 You need a simple iOS/Android app to get a device token:
