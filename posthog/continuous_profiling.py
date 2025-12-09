@@ -1,11 +1,5 @@
+import os
 import logging
-
-from posthog.settings.continuous_profiling import (
-    CONTINUOUS_PROFILING_ENABLED,
-    PYROSCOPE_APPLICATION_NAME,
-    PYROSCOPE_SAMPLE_RATE,
-    PYROSCOPE_SERVER_ADDRESS,
-)
 
 logger = logging.getLogger(__name__)
 
@@ -23,28 +17,34 @@ def start_continuous_profiling() -> None:
         PYROSCOPE_APPLICATION_NAME: Application name to report to Pyroscope
         PYROSCOPE_SAMPLE_RATE: Sampling rate in Hz (default: 100)
     """
-    if not CONTINUOUS_PROFILING_ENABLED:
-        logger.info("Continuous profiling is disabled")
-        return
-
-    if not PYROSCOPE_SERVER_ADDRESS:
-        logger.warning("Continuous profiling is enabled but PYROSCOPE_SERVER_ADDRESS is empty, skipping")
-        return
-
     try:
+        # Read directly from environment to avoid Django settings import issues
+        # This module is imported before Django is fully initialized
+        enabled = os.getenv("CONTINUOUS_PROFILING_ENABLED", "").lower() in ("true", "1", "yes")
+        if not enabled:
+            return
+
+        server_address = os.getenv("PYROSCOPE_SERVER_ADDRESS", "")
+        if not server_address:
+            logger.warning("Continuous profiling is enabled but PYROSCOPE_SERVER_ADDRESS is empty, skipping")
+            return
+
+        application_name = os.getenv("PYROSCOPE_APPLICATION_NAME", "")
+        sample_rate = int(os.getenv("PYROSCOPE_SAMPLE_RATE", "100"))
+
         import pyroscope
 
         pyroscope.configure(
-            application_name=PYROSCOPE_APPLICATION_NAME,
-            server_address=PYROSCOPE_SERVER_ADDRESS,
-            sample_rate=PYROSCOPE_SAMPLE_RATE,
+            application_name=application_name,
+            server_address=server_address,
+            sample_rate=sample_rate,
         )
         logger.info(
             "Continuous profiling started",
             extra={
-                "server_address": PYROSCOPE_SERVER_ADDRESS,
-                "application_name": PYROSCOPE_APPLICATION_NAME,
-                "sample_rate": PYROSCOPE_SAMPLE_RATE,
+                "server_address": server_address,
+                "application_name": application_name,
+                "sample_rate": sample_rate,
             },
         )
     except ImportError:
