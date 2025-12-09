@@ -1,5 +1,7 @@
 """LLM Analytics capture tests - tests multipart blob upload and S3 storage."""
 
+import os
+import re
 import gzip
 import json
 import uuid
@@ -7,10 +9,94 @@ import logging
 
 import pytest
 
+import boto3
 import requests
+from botocore.config import Config as BotoConfig
 from requests_toolbelt import MultipartEncoder
 
 logger = logging.getLogger(__name__)
+
+
+def parse_s3_url(s3_url: str) -> tuple[str, str, int, int]:
+    """Parse an S3 URL with range parameter.
+
+    Args:
+        s3_url: URL in format s3://bucket/key?range=start-end
+
+    Returns:
+        Tuple of (bucket, key, range_start, range_end)
+    """
+    # Parse s3://bucket/key?range=start-end
+    match = re.match(r"s3://([^/]+)/(.+)\?range=(\d+)-(\d+)", s3_url)
+    if not match:
+        raise ValueError(f"Invalid S3 URL format: {s3_url}")
+
+    bucket = match.group(1)
+    key = match.group(2)
+    range_start = int(match.group(3))
+    range_end = int(match.group(4))
+
+    return bucket, key, range_start, range_end
+
+
+def get_s3_client():
+    """Create an S3 client using environment variables.
+
+    Required environment variables:
+        AI_S3_ENDPOINT: S3 endpoint URL (e.g., http://localhost:19000)
+        AI_S3_ACCESS_KEY_ID: S3 access key
+        AI_S3_SECRET_ACCESS_KEY: S3 secret key
+        AI_S3_REGION: S3 region (optional, defaults to us-east-1)
+
+    Raises:
+        ValueError: If required environment variables are not set.
+    """
+    endpoint_url = os.environ.get("AI_S3_ENDPOINT")
+    access_key = os.environ.get("AI_S3_ACCESS_KEY_ID")
+    secret_key = os.environ.get("AI_S3_SECRET_ACCESS_KEY")
+    region = os.environ.get("AI_S3_REGION", "us-east-1")
+
+    missing = []
+    if not endpoint_url:
+        missing.append("AI_S3_ENDPOINT")
+    if not access_key:
+        missing.append("AI_S3_ACCESS_KEY_ID")
+    if not secret_key:
+        missing.append("AI_S3_SECRET_ACCESS_KEY")
+
+    if missing:
+        raise ValueError(f"Missing required S3 environment variables: {', '.join(missing)}")
+
+    return boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+        config=BotoConfig(signature_version="s3v4"),
+    )
+
+
+def fetch_blob_from_s3(s3_url: str) -> bytes:
+    """Fetch blob data from S3 using the URL with range parameter.
+
+    Args:
+        s3_url: URL in format s3://bucket/key?range=start-end
+
+    Returns:
+        The blob data as bytes
+
+    Raises:
+        ValueError: If S3 credentials are not configured.
+    """
+    bucket, key, range_start, range_end = parse_s3_url(s3_url)
+
+    s3_client = get_s3_client()
+
+    # Fetch the object with byte range
+    response = s3_client.get_object(Bucket=bucket, Key=key, Range=f"bytes={range_start}-{range_end}")
+
+    return response["Body"].read()
 
 
 def assert_part_details(part, expected_name, expected_length, expected_content_type, expected_content_encoding=None):
@@ -632,7 +718,153 @@ class TestLLMAnalytics:
 
         logger.info("All three content type events verified successfully")
 
-        # TODO: Verify blob properties have S3 URLs once S3 upload is implemented
+        # Verify blob properties have S3 URLs
+        # Event 1: $ai_input should be an S3 URL
+        ai_input_url = event_json["properties"].get("$ai_input")
+        assert ai_input_url is not None, "Event 1 should have $ai_input property"
+        assert ai_input_url.startswith("s3://"), f"$ai_input should be an S3 URL, got: {ai_input_url}"
+        assert "?range=" in ai_input_url, f"$ai_input URL should have range parameter, got: {ai_input_url}"
+        logger.info(f"Event 1 $ai_input S3 URL verified: {ai_input_url}")
+
+        # Event 2: $ai_output should be an S3 URL
+        ai_output_url = event_text["properties"].get("$ai_output")
+        assert ai_output_url is not None, "Event 2 should have $ai_output property"
+        assert ai_output_url.startswith("s3://"), f"$ai_output should be an S3 URL, got: {ai_output_url}"
+        assert "?range=" in ai_output_url, f"$ai_output URL should have range parameter, got: {ai_output_url}"
+        logger.info(f"Event 2 $ai_output S3 URL verified: {ai_output_url}")
+
+        # Event 3: $ai_embedding_vector should be an S3 URL
+        ai_embedding_url = event_binary["properties"].get("$ai_embedding_vector")
+        assert ai_embedding_url is not None, "Event 3 should have $ai_embedding_vector property"
+        assert ai_embedding_url.startswith(
+            "s3://"
+        ), f"$ai_embedding_vector should be an S3 URL, got: {ai_embedding_url}"
+        assert (
+            "?range=" in ai_embedding_url
+        ), f"$ai_embedding_vector URL should have range parameter, got: {ai_embedding_url}"
+        logger.info(f"Event 3 $ai_embedding_vector S3 URL verified: {ai_embedding_url}")
+
+    def test_ai_blob_data_stored_correctly_in_s3(self, shared_org_project):
+        """Test that blob data is correctly stored in S3 and can be retrieved."""
+        client = shared_org_project["client"]
+        project_id = shared_org_project["project_id"]
+        api_key = shared_org_project["api_key"]
+
+        logger.info("Sending event with multiple blobs to verify S3 storage")
+
+        distinct_id = f"s3_storage_test_{uuid.uuid4().hex[:8]}"
+        event_uuid = str(uuid.uuid4())
+
+        # Create distinct blob data that we can verify
+        json_blob_data = {"test_key": "test_value", "number": 42, "nested": {"a": 1}}
+        text_blob_data = "This is test text blob data for S3 verification.\nLine 2."
+        binary_blob_data = bytes([0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01, 0x02, 0x03])
+
+        event_data = {
+            "uuid": event_uuid,
+            "event": "$ai_generation",
+            "distinct_id": distinct_id,
+        }
+
+        properties_data = {
+            "$ai_model": "test-s3-storage",
+        }
+
+        fields = {
+            "event": ("event", json.dumps(event_data), "application/json"),
+            "event.properties": ("event.properties", json.dumps(properties_data), "application/json"),
+            "event.properties.$ai_input": ("json_blob", json.dumps(json_blob_data), "application/json"),
+            "event.properties.$ai_output": ("text_blob", text_blob_data, "text/plain"),
+            "event.properties.$ai_embedding_vector": ("binary_blob", binary_blob_data, "application/octet-stream"),
+        }
+
+        multipart_data = MultipartEncoder(fields=fields)
+        response = requests.post(
+            f"{client.base_url}/i/v0/ai",
+            data=multipart_data,
+            headers={"Content-Type": multipart_data.content_type, "Authorization": f"Bearer {api_key}"},
+        )
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.text}"
+
+        # Wait for event to be stored
+        event = client.wait_for_event(project_id, "$ai_generation", distinct_id)
+        assert event is not None, "Event not found"
+
+        # Get and verify the S3 URLs from properties
+        ai_input_url = event["properties"].get("$ai_input")
+        ai_output_url = event["properties"].get("$ai_output")
+        ai_embedding_url = event["properties"].get("$ai_embedding_vector")
+
+        # Verify URLs exist and have correct format
+        assert ai_input_url is not None, "$ai_input property not found"
+        assert ai_output_url is not None, "$ai_output property not found"
+        assert ai_embedding_url is not None, "$ai_embedding_vector property not found"
+
+        assert ai_input_url.startswith("s3://"), f"$ai_input should be S3 URL, got: {ai_input_url}"
+        assert ai_output_url.startswith("s3://"), f"$ai_output should be S3 URL, got: {ai_output_url}"
+        assert ai_embedding_url.startswith("s3://"), f"$ai_embedding_vector should be S3 URL, got: {ai_embedding_url}"
+
+        assert "?range=" in ai_input_url, f"$ai_input should have range param, got: {ai_input_url}"
+        assert "?range=" in ai_output_url, f"$ai_output should have range param, got: {ai_output_url}"
+        assert "?range=" in ai_embedding_url, f"$ai_embedding_vector should have range param, got: {ai_embedding_url}"
+
+        logger.info("S3 URLs verified:")
+        logger.info(f"  $ai_input: {ai_input_url}")
+        logger.info(f"  $ai_output: {ai_output_url}")
+        logger.info(f"  $ai_embedding_vector: {ai_embedding_url}")
+
+        logger.info("Fetching blob data from S3...")
+
+        # Fetch and verify JSON blob
+        fetched_json_bytes = fetch_blob_from_s3(ai_input_url)
+        fetched_json_data = json.loads(fetched_json_bytes.decode("utf-8"))
+        assert (
+            fetched_json_data == json_blob_data
+        ), f"JSON blob mismatch: expected {json_blob_data}, got {fetched_json_data}"
+        logger.info("JSON blob verified successfully")
+
+        # Fetch and verify text blob
+        fetched_text_bytes = fetch_blob_from_s3(ai_output_url)
+        fetched_text_data = fetched_text_bytes.decode("utf-8")
+        assert (
+            fetched_text_data == text_blob_data
+        ), f"Text blob mismatch: expected {text_blob_data!r}, got {fetched_text_data!r}"
+        logger.info("Text blob verified successfully")
+
+        # Fetch and verify binary blob
+        fetched_binary_data = fetch_blob_from_s3(ai_embedding_url)
+        assert (
+            fetched_binary_data == binary_blob_data
+        ), f"Binary blob mismatch: expected {binary_blob_data!r}, got {fetched_binary_data!r}"
+        logger.info("Binary blob verified successfully")
+
+        # Verify all blobs are stored in the same S3 object (same base URL, different ranges)
+        base_url_input = ai_input_url.split("?")[0]
+        base_url_output = ai_output_url.split("?")[0]
+        base_url_embedding = ai_embedding_url.split("?")[0]
+
+        assert base_url_input == base_url_output == base_url_embedding, (
+            f"All blobs should be in same S3 object. Got:\n"
+            f"  input: {base_url_input}\n"
+            f"  output: {base_url_output}\n"
+            f"  embedding: {base_url_embedding}"
+        )
+        logger.info(f"All blobs stored in same S3 object: {base_url_input}")
+
+        # Verify ranges are sequential and non-overlapping
+        _, _, input_start, input_end = parse_s3_url(ai_input_url)
+        _, _, output_start, output_end = parse_s3_url(ai_output_url)
+        _, _, embedding_start, embedding_end = parse_s3_url(ai_embedding_url)
+
+        # Ranges should be sequential (each starts where previous ends + 1)
+        assert input_start == 0, f"First blob should start at 0, got {input_start}"
+        assert output_start == input_end + 1, f"Second blob should start at {input_end + 1}, got {output_start}"
+        assert embedding_start == output_end + 1, f"Third blob should start at {output_end + 1}, got {embedding_start}"
+
+        logger.info(
+            f"Byte ranges verified: 0-{input_end}, {output_start}-{output_end}, {embedding_start}-{embedding_end}"
+        )
+        logger.info("S3 blob storage verification complete")
 
     # ============================================================================
     # PHASE 5: AUTHORIZATION
