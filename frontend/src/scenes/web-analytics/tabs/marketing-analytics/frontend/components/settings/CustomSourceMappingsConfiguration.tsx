@@ -131,7 +131,7 @@ export function CustomSourceMappingsConfiguration({
             <div className="border rounded overflow-hidden">
                 <table className="w-full">
                     <thead>
-                        <tr className="bg-bg-light border-b">
+                        <tr className="bg-card border-b">
                             {!sourceFilter && (
                                 <th className="text-left text-xs font-semibold p-2 text-muted-foreground w-32">
                                     Integration

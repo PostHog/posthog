@@ -31,7 +31,7 @@ export function IntegrationSettingsCard({ integrationName }: IntegrationSettings
     return (
         <>
             <div
-                className="group relative border rounded-lg p-4 flex flex-col items-center gap-3 bg-bg-light hover:border-[var(--primary-3000-button-border-hover)] transition-colors cursor-pointer"
+                className="group relative border rounded-lg p-4 flex flex-col items-center gap-3 bg-card hover:border-[var(--primary-3000-button-border-hover)] transition-colors cursor-pointer"
                 onClick={() => setIsModalOpen(true)}
             >
                 <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">

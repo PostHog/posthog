@@ -168,7 +168,7 @@ const LemonTableLogs = (): JSX.Element => {
                     <DisplayOptions />
                 </div>
                 {pinnedParsedLogs.length > 0 && (
-                    <div className="border rounded-t bg-bg-light shadow-sm">
+                    <div className="border rounded-t bg-card shadow-sm">
                         <LogsTable
                             dataSource={pinnedParsedLogs}
                             loading={false}
@@ -180,7 +180,7 @@ const LemonTableLogs = (): JSX.Element => {
                     </div>
                 )}
             </div>
-            <div className={cn('flex-1 border bg-bg-light', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
+            <div className={cn('flex-1 border bg-card', pinnedParsedLogs.length > 0 ? 'rounded-b' : 'rounded')}>
                 <LogsTable
                     showHeader={!pinnedParsedLogs.length}
                     dataSource={parsedLogs}

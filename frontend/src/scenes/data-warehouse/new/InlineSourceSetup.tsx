@@ -92,7 +92,7 @@ function InternalInlineSourceSetup({
                             {sourceItems.map((source) => (
                                 <div
                                     key={source.id}
-                                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-bg-light cursor-pointer"
+                                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card cursor-pointer"
                                     onClick={() => handleSourceSelect(source.id)}
                                 >
                                     <DataWarehouseSourceIcon type={source.id} size="small" disableTooltip />

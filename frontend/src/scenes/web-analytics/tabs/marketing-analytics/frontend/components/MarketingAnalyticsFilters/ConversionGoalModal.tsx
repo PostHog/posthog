@@ -132,7 +132,7 @@ export function ConversionGoalModal(): JSX.Element {
                                 {conversion_goals.map((goal) => (
                                     <div
                                         key={goal.conversion_goal_id}
-                                        className="flex items-center justify-between px-3 py-2 hover:bg-bg-light cursor-pointer border-b last:border-b-0"
+                                        className="flex items-center justify-between px-3 py-2 hover:bg-card cursor-pointer border-b last:border-b-0"
                                         onClick={() => loadConversionGoal(goal)}
                                     >
                                         <div className="flex flex-col">

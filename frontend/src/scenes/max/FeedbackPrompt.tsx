@@ -196,7 +196,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
                         Here's a draft of your support ticket. Please review and submit it to get help from PostHog
                         support.
                     </p>
-                    <div className="bg-bg-light border rounded p-3">
+                    <div className="bg-card border rounded p-3">
                         <div className="text-xs font-medium text-muted-foreground uppercase mb-1">
                             Ticket description
                         </div>

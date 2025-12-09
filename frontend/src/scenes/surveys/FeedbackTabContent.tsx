@@ -39,7 +39,7 @@ export function FeedbackTabContent({
                     <LemonBanner type="info" className="mb-6">
                         {emptyStateBannerMessage}
                     </LemonBanner>
-                    <div className="border rounded p-6 bg-bg-light">
+                    <div className="border rounded p-6 bg-card">
                         <QuickSurveyForm context={context} />
                     </div>
                 </div>

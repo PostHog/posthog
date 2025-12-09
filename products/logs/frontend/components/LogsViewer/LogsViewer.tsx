@@ -152,7 +152,7 @@ function LogsViewerContent({
                 />
             </div>
             {pinnedLogsArray.length > 0 && (
-                <div className="border rounded-t bg-bg-light shadow-sm">
+                <div className="border rounded-t bg-card shadow-sm">
                     <VirtualizedLogsList
                         dataSource={pinnedLogsArray}
                         loading={false}
@@ -165,12 +165,7 @@ function LogsViewerContent({
                     />
                 </div>
             )}
-            <div
-                className={cn(
-                    'border bg-bg-light flex-1 min-h-0',
-                    pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded'
-                )}
-            >
+            <div className={cn('border bg-card flex-1 min-h-0', pinnedLogsArray.length > 0 ? 'rounded-b' : 'rounded')}>
                 <VirtualizedLogsList
                     dataSource={logs}
                     loading={loading}

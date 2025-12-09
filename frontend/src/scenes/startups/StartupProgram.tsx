@@ -454,7 +454,7 @@ export function StartupProgram(): JSX.Element {
                                                     name="raised"
                                                     label="How much in total funding have you raised (USD)"
                                                 >
-                                                    <LemonSelect options={RAISED_OPTIONS} className="bg-bg-light" />
+                                                    <LemonSelect options={RAISED_OPTIONS} className="bg-card" />
                                                 </LemonField>
 
                                                 <LemonField
@@ -475,7 +475,7 @@ export function StartupProgram(): JSX.Element {
                                         {isYC && (
                                             <>
                                                 <LemonField name="yc_batch" label="Which YC batch are you?">
-                                                    <LemonSelect options={ycBatchOptions} className="bg-bg-light" />
+                                                    <LemonSelect options={ycBatchOptions} className="bg-card" />
                                                 </LemonField>
 
                                                 <LemonField
@@ -526,7 +526,7 @@ export function StartupProgram(): JSX.Element {
                                                                                     )
                                                                                 }}
                                                                                 tooltip="Remove screenshot"
-                                                                                className="absolute -top-1 -right-1 p-0.5 !bg-bg-light rounded-full"
+                                                                                className="absolute -top-1 -right-1 p-0.5 !bg-card rounded-full"
                                                                                 noPadding
                                                                             />
                                                                         </div>

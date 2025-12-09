@@ -159,7 +159,7 @@ export function TasksList(): JSX.Element {
                     rowKey="id"
                     onRow={(task) => ({
                         onClick: () => openTask(task.id),
-                        className: 'cursor-pointer hover:bg-bg-light',
+                        className: 'cursor-pointer hover:bg-card',
                     })}
                     emptyState={
                         <div className="text-center py-8">

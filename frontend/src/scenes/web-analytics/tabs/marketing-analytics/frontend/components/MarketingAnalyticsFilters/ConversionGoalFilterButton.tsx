@@ -18,7 +18,7 @@ export function ConversionGoalFilterButton(): JSX.Element {
     }
 
     return (
-        <div className="flex items-center gap-1 border rounded px-2 py-1 bg-bg-light">
+        <div className="flex items-center gap-1 border rounded px-2 py-1 bg-card">
             <span
                 onClick={showConversionGoalModal}
                 className="cursor-pointer hover:text-primary text-sm font-medium flex items-center gap-1"

@@ -35,7 +35,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
 
     if (integrationsLoading) {
         return (
-            <div className="flex items-center gap-2 p-4 border rounded bg-bg-light">
+            <div className="flex items-center gap-2 p-4 border rounded bg-card">
                 <Spinner /> Loading GitHub integrations...
             </div>
         )

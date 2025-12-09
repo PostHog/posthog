@@ -17,7 +17,7 @@ export function TaskRunItem({ run, isSelected, onClick }: TaskRunItemProps): JSX
     return (
         <button
             onClick={onClick}
-            className={`w-full text-left px-3 py-2 rounded hover:bg-bg-light transition-colors ${
+            className={`w-full text-left px-3 py-2 rounded hover:bg-card transition-colors ${
                 isSelected ? 'bg-primary-highlight border border-primary' : 'border border-transparent'
             }`}
         >
