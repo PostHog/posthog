@@ -2071,19 +2071,17 @@ class ShopifyIntegration:
         )
         if not access_res.ok:
             if access_res.status_code == 404:
-                raise requests.HTTPError(
-                    f"Shopify store '{shop}' not found. Please verify the store name is correct.",
-                    response=access_res,
+            if access_res.status_code == 404:
+                raise ValueError(
+                    f"Shopify store '{shop}' not found. Please verify the store name is correct."
                 )
             elif "application is not installed" in access_res.text:
-                raise requests.HTTPError(
-                    f"The PostHog app is not installed on the Shopify store '{shop}'. Please install the app first.",
-                    response=access_res,
+                raise ValueError(
+                    f"The PostHog app is not installed on the Shopify store '{shop}'. Please install the app first."
                 )
             else:
-                raise requests.HTTPError(
-                    f"Could not connect to Shopify store '{shop}': {access_res.text}",
-                    response=access_res,
+                raise ValueError(
+                    f"Could not connect to Shopify store '{shop}': {access_res.text}"
                 )
 
         integration, _ = Integration.objects.update_or_create(
