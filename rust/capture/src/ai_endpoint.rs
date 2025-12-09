@@ -73,12 +73,13 @@ struct RetrievedMultipartParts {
 #[derive(Debug)]
 struct ParsedMultipartData {
     accepted_parts: Vec<PartInfo>,
-    event_with_placeholders: Value,
+    event: Value,
     event_name: String,
     distinct_id: String,
     event_uuid: Uuid,
     timestamp: Option<String>,
     sent_at: Option<OffsetDateTime>,
+    blob_parts: Vec<BlobPart>,
 }
 
 pub async fn ai_handler(
@@ -190,10 +191,50 @@ pub async fn ai_handler(
     )
     .await?;
 
-    // Step 5: Parse the parts and build event with blob placeholders
-    let parsed = parse_multipart_data(parts)?;
+    // Step 5: Parse the parts
+    let mut parsed = parse_multipart_data(parts)?;
 
-    // Step 6: Build Kafka event
+    // Step 6: Upload blobs to S3 and insert URLs into event properties
+    if !parsed.blob_parts.is_empty() {
+        let blob_storage = state.ai_blob_storage.as_ref().ok_or_else(|| {
+            warn!("AI endpoint received blobs but S3 is not configured");
+            CaptureError::ServiceUnavailable("blob storage not configured".to_string())
+        })?;
+
+        // Convert blob_parts to format expected by AiBlobStorage
+        let blobs: Vec<(String, Bytes)> = parsed
+            .blob_parts
+            .iter()
+            .filter_map(|bp| {
+                bp.name
+                    .strip_prefix("event.properties.")
+                    .map(|prop_name| (prop_name.to_string(), bp.data.clone()))
+            })
+            .collect();
+
+        // Upload blobs and get URLs
+        // TODO: Replace token with team_id once secret key signing is implemented
+        // and we can resolve tokens to team IDs in capture
+        let uploaded = blob_storage
+            .upload_blobs(token, &parsed.event_uuid.to_string(), blobs)
+            .await
+            .map_err(|e| {
+                warn!("Failed to upload blobs to S3: {:?}", e);
+                CaptureError::NonRetryableSinkError
+            })?;
+
+        // Insert S3 URLs into event properties
+        if let Some(properties) = parsed
+            .event
+            .as_object_mut()
+            .and_then(|obj| obj.get_mut("properties"))
+            .and_then(|p| p.as_object_mut())
+        {
+            uploaded.insert_urls_into_properties(properties);
+        }
+    }
+
+    // Step 7: Build Kafka event
     // Extract IP address, defaulting to 127.0.0.1 if not available (e.g., in tests)
     let client_ip = ip
         .map(|InsecureClientIp(addr)| addr.to_string())
@@ -352,7 +393,7 @@ fn build_kafka_event(
 
     // Extract $ignore_sent_at from event properties
     let ignore_sent_at = parsed
-        .event_with_placeholders
+        .event
         .as_object()
         .and_then(|obj| obj.get("properties"))
         .and_then(|props| props.as_object())
@@ -370,14 +411,14 @@ fn build_kafka_event(
     );
 
     // Serialize the event to JSON (this is what goes in the "data" field)
-    let data = serde_json::to_string(&parsed.event_with_placeholders).map_err(|e| {
+    let data = serde_json::to_string(&parsed.event).map_err(|e| {
         warn!("Failed to serialize AI event: {}", e);
         CaptureError::NonRetryableSinkError
     })?;
 
     // Redact the IP address of internally-generated events when tagged as such
     let resolved_ip = if parsed
-        .event_with_placeholders
+        .event
         .as_object()
         .and_then(|obj| obj.get("properties"))
         .and_then(|props| props.as_object())
@@ -706,7 +747,8 @@ async fn retrieve_multipart_parts(
     })
 }
 
-/// Parse retrieved multipart parts and build event with blob placeholders
+/// Parse retrieved multipart parts and validate event structure.
+/// Returns parsed data with blob_parts for later S3 upload.
 fn parse_multipart_data(
     parts: RetrievedMultipartParts,
 ) -> Result<ParsedMultipartData, CaptureError> {
@@ -764,54 +806,20 @@ fn parse_multipart_data(
         .and_then(|v| v.as_str())
         .and_then(|sent_at_str| OffsetDateTime::parse(sent_at_str, &Iso8601::DEFAULT).ok());
 
-    // Insert S3 placeholder URLs for all blob parts
-    // All blobs for an event point to the same S3 file with different byte ranges
-    // Format: s3://PLACEHOLDER/team_id/event_id?range=start-end
-    // For now, use "TEAM_ID" as placeholder since we don't have team resolution yet
-    if let Some(event_obj) = event.as_object_mut() {
-        if let Some(properties) = event_obj
-            .get_mut("properties")
-            .and_then(|p| p.as_object_mut())
-        {
-            // Track cumulative byte offset as if blobs were concatenated in one file
-            let mut current_offset: usize = 0;
-
-            for blob_part in &parts.blob_parts {
-                // Extract property name from "event.properties.PROPERTY_NAME"
-                if let Some(property_name) = blob_part.name.strip_prefix("event.properties.") {
-                    let blob_size = blob_part.data.len();
-                    let range_start = current_offset;
-                    let range_end = current_offset + blob_size - 1;
-
-                    // Calculate byte range for this blob
-                    // HTTP byte ranges are inclusive on both ends: range=0-149 means bytes 0-149 (150 bytes total)
-                    // Note: blob_size is guaranteed to be > 0 due to validation in process_blob_part
-                    let placeholder_url = format!(
-                        "s3://PLACEHOLDER/TEAM_ID/{event_uuid}?range={range_start}-{range_end}"
-                    );
-
-                    properties.insert(property_name.to_string(), Value::String(placeholder_url));
-
-                    // Advance offset for next blob
-                    current_offset += blob_size;
-                }
-            }
-        }
-    }
-
     debug!(
-        "Multipart parsing completed: {} blob placeholders inserted",
+        "Multipart parsing completed: {} blob parts",
         parts.blob_parts.len()
     );
 
     Ok(ParsedMultipartData {
         accepted_parts: parts.accepted_parts,
-        event_with_placeholders: event,
+        event,
         event_name,
         distinct_id,
         event_uuid,
         timestamp,
         sent_at,
+        blob_parts: parts.blob_parts,
     })
 }
 

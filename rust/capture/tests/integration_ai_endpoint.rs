@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use axum::http::StatusCode;
 use axum::Router;
 use axum_test_helper::TestClient;
+use capture::ai_s3::{BlobStorage, MockBlobStorage};
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
 use capture::limiters::CaptureQuotaLimiter;
@@ -23,6 +24,17 @@ use serde_json::{json, Value};
 use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
+
+// Test constants for mock blob storage
+const TEST_BLOB_BUCKET: &str = "test-bucket";
+const TEST_BLOB_PREFIX: &str = "llma/";
+
+fn create_mock_blob_storage() -> Arc<dyn BlobStorage> {
+    Arc::new(MockBlobStorage::new(
+        TEST_BLOB_BUCKET.to_string(),
+        TEST_BLOB_PREFIX.to_string(),
+    ))
+}
 
 // Fixed time source for tests
 struct FixedTime {
@@ -168,9 +180,9 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400, // 25MB default for AI endpoint
-        None,       // ai_blob_storage - not configured for tests
-        Some(10),   // request_timeout_seconds
+        26_214_400,                    // 25MB default for AI endpoint
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                      // request_timeout_seconds
     )
 }
 
@@ -1491,9 +1503,9 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         1_i64,
         false,
         0.0_f32,
-        26_214_400, // 25MB default for AI endpoint
-        None,       // ai_blob_storage
-        Some(10),   // request_timeout_seconds
+        26_214_400,                       // 25MB default for AI endpoint
+        Some(create_mock_blob_storage()), // ai_blob_storage
+        Some(10),                         // request_timeout_seconds
     );
 
     (router, sink_clone)
@@ -1622,29 +1634,46 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     let event = &events[0];
     let event_json: serde_json::Value = serde_json::from_str(&event.event.data).unwrap();
 
-    // Verify properties contain S3 placeholder URLs
+    // Verify properties contain S3 URLs from mock blob storage
     let props = event_json["properties"].as_object().unwrap();
 
-    // Both blobs should have S3 placeholder URLs
+    // Both blobs should have S3 URLs
     let input_url = props["$ai_input"].as_str().unwrap();
     let output_url = props["$ai_output"].as_str().unwrap();
 
     // Verify S3 URLs point to same file with different ranges
-    assert!(input_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
-    assert!(output_url.starts_with("s3://PLACEHOLDER/TEAM_ID/"));
+    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
+    let expected_prefix = format!(
+        "s3://{}/{}{}/",
+        TEST_BLOB_BUCKET,
+        TEST_BLOB_PREFIX,
+        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
+    );
+    assert!(
+        input_url.starts_with(&expected_prefix),
+        "Input URL should start with {}, got {}",
+        expected_prefix,
+        input_url
+    );
+    assert!(
+        output_url.starts_with(&expected_prefix),
+        "Output URL should start with {}, got {}",
+        expected_prefix,
+        output_url
+    );
 
     // Extract UUIDs from both URLs (should be the same)
-    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
+    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
     let input_uuid = input_url
         .split('/')
-        .nth(4)
+        .nth(5)
         .unwrap()
         .split('?')
         .next()
         .unwrap();
     let output_uuid = output_url
         .split('/')
-        .nth(4)
+        .nth(5)
         .unwrap()
         .split('?')
         .next()
@@ -1754,10 +1783,10 @@ async fn test_ai_event_with_multiple_blobs_sequential_ranges() {
     let url3 = props["$ai_blob3"].as_str().unwrap();
 
     // Verify all point to same file
-    // URL format: s3://PLACEHOLDER/TEAM_ID/{uuid}?range=...
-    let uuid1 = url1.split('/').nth(4).unwrap().split('?').next().unwrap();
-    let uuid2 = url2.split('/').nth(4).unwrap().split('?').next().unwrap();
-    let uuid3 = url3.split('/').nth(4).unwrap().split('?').next().unwrap();
+    // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
+    let uuid1 = url1.split('/').nth(5).unwrap().split('?').next().unwrap();
+    let uuid2 = url2.split('/').nth(5).unwrap().split('?').next().unwrap();
+    let uuid3 = url3.split('/').nth(5).unwrap().split('?').next().unwrap();
     assert_eq!(uuid1, uuid2);
     assert_eq!(uuid2, uuid3);
     assert_eq!(uuid1, event_uuid);
@@ -2367,7 +2396,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,
         0.0_f32,
         26_214_400,
-        None, // ai_blob_storage
+        Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),
     );
 
@@ -2564,7 +2593,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
-        None, // ai_blob_storage
+        Some(create_mock_blob_storage()), // ai_blob_storage
         Some(10),
     );
 

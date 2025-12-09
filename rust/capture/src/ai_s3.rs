@@ -1,3 +1,4 @@
+use async_trait::async_trait;
 use bytes::{BufMut, Bytes, BytesMut};
 use serde_json::{Map, Value};
 
@@ -31,8 +32,21 @@ impl UploadedBlobs {
     }
 }
 
+/// Trait for blob storage implementations.
+/// Allows mocking in tests via dynamic dispatch.
+#[async_trait]
+pub trait BlobStorage: Send + Sync {
+    /// Upload multiple blobs as a single concatenated file.
+    /// Returns metadata for generating S3 URLs with byte ranges.
+    async fn upload_blobs(
+        &self,
+        token: &str,
+        event_uuid: &str,
+        blobs: Vec<(String, Bytes)>,
+    ) -> Result<UploadedBlobs, S3Error>;
+}
+
 /// AI-specific blob storage that handles concatenation and URL generation.
-#[derive(Clone)]
 pub struct AiBlobStorage {
     s3_client: S3Client,
     prefix: String,
@@ -42,17 +56,22 @@ impl AiBlobStorage {
     pub fn new(s3_client: S3Client, prefix: String) -> Self {
         Self { s3_client, prefix }
     }
+}
 
+#[async_trait]
+impl BlobStorage for AiBlobStorage {
     /// Upload multiple blobs as a single concatenated file.
     /// Returns metadata for generating S3 URLs with byte ranges.
-    pub async fn upload_blobs(
+    ///
+    /// `token` is used as the partition key in the S3 path.
+    /// TODO: Replace with team_id once secret key signing is implemented.
+    async fn upload_blobs(
         &self,
-        team_id: u32,
+        token: &str,
         event_uuid: &str,
-        blobs: Vec<(String, Bytes)>, // (property_name, data)
+        blobs: Vec<(String, Bytes)>,
     ) -> Result<UploadedBlobs, S3Error> {
         if blobs.is_empty() {
-            // No blobs to upload, return empty result
             return Ok(UploadedBlobs {
                 base_url: String::new(),
                 parts: vec![],
@@ -76,7 +95,7 @@ impl AiBlobStorage {
         }
 
         // Upload concatenated data
-        let key = format!("{}{}/{}", self.prefix, team_id, event_uuid);
+        let key = format!("{}{}/{}", self.prefix, token, event_uuid);
         self.s3_client
             .put_object(&key, concatenated.freeze(), "application/octet-stream")
             .await?;
@@ -85,10 +104,56 @@ impl AiBlobStorage {
 
         Ok(UploadedBlobs { base_url, parts })
     }
+}
 
-    /// Check S3 connectivity.
-    pub async fn check_health(&self) -> bool {
-        self.s3_client.check_health().await
+/// Mock blob storage for testing.
+/// Returns predictable S3 URLs without actually uploading.
+pub struct MockBlobStorage {
+    bucket: String,
+    prefix: String,
+}
+
+impl MockBlobStorage {
+    pub fn new(bucket: String, prefix: String) -> Self {
+        Self { bucket, prefix }
+    }
+}
+
+#[async_trait]
+impl BlobStorage for MockBlobStorage {
+    async fn upload_blobs(
+        &self,
+        token: &str,
+        event_uuid: &str,
+        blobs: Vec<(String, Bytes)>,
+    ) -> Result<UploadedBlobs, S3Error> {
+        if blobs.is_empty() {
+            return Ok(UploadedBlobs {
+                base_url: String::new(),
+                parts: vec![],
+            });
+        }
+
+        // Calculate byte ranges without actually uploading
+        let mut offset = 0;
+        let mut parts = Vec::with_capacity(blobs.len());
+
+        for (property_name, data) in blobs {
+            let range_start = offset;
+            let range_end = offset + data.len() - 1;
+            offset += data.len();
+
+            parts.push(BlobPartRange {
+                property_name,
+                range_start,
+                range_end,
+            });
+        }
+
+        let key = format!("{}{}/{}", self.prefix, token, event_uuid);
+        let base_url = format!("s3://{}/{}", self.bucket, key);
+
+        Ok(UploadedBlobs { base_url, parts })
     }
 }
 
@@ -99,7 +164,7 @@ mod tests {
     #[test]
     fn test_blob_part_range_url_generation() {
         let uploaded = UploadedBlobs {
-            base_url: "s3://capture/llma/123/abc-def".to_string(),
+            base_url: "s3://capture/llma/phc_test_token/abc-def".to_string(),
             parts: vec![
                 BlobPartRange {
                     property_name: "$ai_input".to_string(),
@@ -119,11 +184,11 @@ mod tests {
 
         assert_eq!(
             properties.get("$ai_input").unwrap().as_str().unwrap(),
-            "s3://capture/llma/123/abc-def?range=0-99"
+            "s3://capture/llma/phc_test_token/abc-def?range=0-99"
         );
         assert_eq!(
             properties.get("$ai_output").unwrap().as_str().unwrap(),
-            "s3://capture/llma/123/abc-def?range=100-249"
+            "s3://capture/llma/phc_test_token/abc-def?range=100-249"
         );
     }
 
@@ -131,15 +196,15 @@ mod tests {
     fn test_s3_url_format() {
         let bucket = "capture";
         let prefix = "llma/";
-        let team_id = 123u32;
+        let token = "phc_test_token";
         let event_uuid = "550e8400-e29b-41d4-a716-446655440000";
 
-        let key = format!("{}{}/{}", prefix, team_id, event_uuid);
+        let key = format!("{}{}/{}", prefix, token, event_uuid);
         let url = format!("s3://{}/{}", bucket, key);
 
         assert_eq!(
             url,
-            "s3://capture/llma/123/550e8400-e29b-41d4-a716-446655440000"
+            "s3://capture/llma/phc_test_token/550e8400-e29b-41d4-a716-446655440000"
         );
     }
 }

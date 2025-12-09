@@ -186,19 +186,23 @@ where
         .expect("failed to create sink");
 
     // Create AI blob storage if S3 is configured
-    let ai_blob_storage = if let Some(bucket) = &config.ai_s3_bucket {
-        let s3_config = S3Config {
-            bucket: bucket.clone(),
-            region: config.ai_s3_region.clone(),
-            endpoint: config.ai_s3_endpoint.clone(),
-            access_key_id: config.ai_s3_access_key_id.clone(),
-            secret_access_key: config.ai_s3_secret_access_key.clone(),
+    let ai_blob_storage: Option<Arc<dyn crate::ai_s3::BlobStorage>> =
+        if let Some(bucket) = &config.ai_s3_bucket {
+            let s3_config = S3Config {
+                bucket: bucket.clone(),
+                region: config.ai_s3_region.clone(),
+                endpoint: config.ai_s3_endpoint.clone(),
+                access_key_id: config.ai_s3_access_key_id.clone(),
+                secret_access_key: config.ai_s3_secret_access_key.clone(),
+            };
+            let s3_client = S3Client::new(s3_config).await;
+            Some(Arc::new(AiBlobStorage::new(
+                s3_client,
+                config.ai_s3_prefix.clone(),
+            )))
+        } else {
+            None
         };
-        let s3_client = S3Client::new(s3_config).await;
-        Some(AiBlobStorage::new(s3_client, config.ai_s3_prefix.clone()))
-    } else {
-        None
-    };
 
     let app = router::router(
         crate::time::SystemTime {},
