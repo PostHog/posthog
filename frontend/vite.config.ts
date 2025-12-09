@@ -101,7 +101,9 @@ export default defineConfig(({ mode }) => {
             // nosemgrep: trailofbits.javascript.apollo-graphql.v3-cors-audit.v3-potentially-bad-cors
             cors: {
                 // Allow Django backend to access Vite dev server
-                origin: ['http://localhost:8000', 'http://localhost:8010'],
+                origin: process.env.SITE_URL
+                    ? [process.env.SITE_URL]
+                    : ['http://localhost:8000', 'http://localhost:8010'],
             },
             // Configure origin for proper asset URL generation
             origin: 'http://localhost:8234',
