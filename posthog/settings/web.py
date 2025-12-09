@@ -49,6 +49,7 @@ PRODUCTS_APPS = [
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.slack_app.backend.apps.SlackAppConfig",
 ]
 
 INSTALLED_APPS = [
