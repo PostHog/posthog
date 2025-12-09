@@ -317,10 +317,12 @@ export class HogExecutorService {
             }
         }
 
-        const capturedAt = invocation.state.globals.event?.captured_at
-        if (capturedAt) {
-            const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
-            destinationE2eLagMsSummary.observe(e2eLagMs)
+        if (result.finished) {
+            const capturedAt = invocation.state.globals.event?.captured_at
+            if (capturedAt) {
+                const e2eLagMs = Date.now() - new Date(capturedAt).getTime()
+                destinationE2eLagMsSummary.observe(e2eLagMs)
+            }
         }
 
         result.logs = logs
