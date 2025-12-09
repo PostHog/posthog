@@ -50,6 +50,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'bing-ads': IconBingAds,
     vercel: IconVercel,
     'azure-blob': IconAzureBlob,
+    firebase: IconGoogleCloud,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -74,6 +75,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'firebase':
+            return 'Firebase'
         default:
             return capitalizeFirstLetter(kind)
     }
