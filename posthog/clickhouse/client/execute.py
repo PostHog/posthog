@@ -203,7 +203,7 @@ def sync_execute(
         ch_user = ClickHouseUser.ENDPOINTS
 
     while True:
-        settings: dict[str, Any] = {
+        settings = {
             **core_settings,
             "log_comment": tags.to_json(),
         }
