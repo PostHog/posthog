@@ -117,6 +117,13 @@
             "intents": ["revenue_analytics"]
         },
         { "path": "Surveys", "category": "Behavior", "iconType": "survey", "type": "survey", "intents": ["surveys"] },
+        {
+            "path": "Synthetic users",
+            "category": "Unreleased",
+            "iconType": "persons",
+            "type": null,
+            "intents": ["synthetic_users"]
+        },
         { "path": "Tasks", "category": "Unreleased", "iconType": "task", "type": "task", "intents": [] },
         {
             "path": "User interviews",

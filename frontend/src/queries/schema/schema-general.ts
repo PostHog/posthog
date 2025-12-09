@@ -4923,6 +4923,7 @@ export enum ProductKey {
     SESSION_REPLAY = 'session_replay',
     SITE_APPS = 'site_apps',
     SURVEYS = 'surveys',
+    SYNTHETIC_USERS = 'synthetic_users',
     USER_INTERVIEWS = 'user_interviews',
     TEAMS = 'teams',
     WEB_ANALYTICS = 'web_analytics',
