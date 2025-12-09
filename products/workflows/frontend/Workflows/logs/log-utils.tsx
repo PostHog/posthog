@@ -47,7 +47,9 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             const personId = matchesPersonRegex[1]
             const personName = matchesPersonRegex[2]
 
-            elements.push(<PersonDisplay key={part} person={{ id: personId }} displayName={personName} withIcon />)
+            elements.push(
+                <PersonDisplay key={part} person={{ id: personId }} displayName={personName} withIcon inline />
+            )
             continue
         }
 
