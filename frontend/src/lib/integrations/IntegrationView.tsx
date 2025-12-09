@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -61,7 +61,20 @@ export function IntegrationView({
                     <div>
                         <div className="flex gap-2">
                             <span>
-                                Connected to <strong>{integration.display_name}</strong>
+                                {refreshedAtTimestamp ? (
+                                    <Tooltip
+                                        title={
+                                            <div className="flex gap-1 items-baseline">
+                                                Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
+                                            </div>
+                                        }
+                                    >
+                                        <strong className="cursor-pointer underline">Connected</strong>
+                                    </Tooltip>
+                                ) : (
+                                    <>Connected</>
+                                )}{' '}
+                                to <strong>{integration.display_name}</strong>
                             </span>
                         </div>
                         {integration.created_by ? (
@@ -72,14 +85,6 @@ export function IntegrationView({
                                     prefix="Created"
                                     className="text-secondary"
                                 />
-                                {refreshedAtTimestamp && (
-                                    <>
-                                        <LemonDivider vertical />
-                                        <div className="flex items-baseline gap-1 text-xs text-secondary">
-                                            Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
-                                        </div>
-                                    </>
-                                )}
                             </div>
                         ) : null}
                         {isGitHub && (
