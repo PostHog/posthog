@@ -10,7 +10,7 @@ const plugin = require('tailwindcss/plugin')
 // 'accent-hover': 'var(--color-accent-hover)',
 // 'accent-active': 'var(--color-accent-active)',
 // 'accent-highlight-primary': 'var(--color-accent-highlight-primary)',
-// 'accent-highlight-secondary': 'var(--color-accent-highlight-secondary)',
+// 'accent-highlight-secondary': 'var(--color-primary-muted)',
 // }
 
 // const deprecatedColors = {

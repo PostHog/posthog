@@ -1,6 +1,6 @@
 @keyframes LemonTable__row__highlight__animation {
     0% {
-        background-color: var(--color-accent-highlight-secondary);
+        background-color: var(--color-primary-muted);
     }
 
     100% {
@@ -169,7 +169,7 @@
                 color: var(--color-foreground);
 
                 > td:not(.LemonTable__cell--sticky) {
-                    background: var(--color-accent-highlight-secondary);
+                    background: var(--color-primary-muted);
                 }
             }
 
@@ -315,7 +315,7 @@
     background: var(--lemon-table-background-color);
 
     .LemonTable__row--status-highlighted &::before {
-        background: var(--color-accent-highlight-secondary);
+        background: var(--color-primary-muted);
     }
 }
 

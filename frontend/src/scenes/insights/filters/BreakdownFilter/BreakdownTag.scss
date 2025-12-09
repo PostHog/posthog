@@ -10,8 +10,8 @@
     color: var(--primary-alt);
     white-space: nowrap;
     vertical-align: bottom;
-    background-color: var(--color-accent-highlight-secondary);
-    border: 1px solid var(--color-accent-highlight-secondary-border);
+    background-color: var(--color-primary-muted);
+    border: 1px solid var(--color-border-primary-muted);
     border-radius: 9999px;
     outline: 0;
 
@@ -22,7 +22,7 @@
 
     &:hover,
     &:focus {
-        border-color: var(--color-accent-highlight-secondary-hover-border);
+        border-color: var(--color-primary-muted-hover-border);
     }
 
     &:not(.BreakdownTag--clickable) {

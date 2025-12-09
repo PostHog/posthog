@@ -51,7 +51,7 @@ export function DataSourceTable<T extends Record<string, any>>({
             return {
                 // onClick handler adds style to row we don't want
                 onClick: (event: MouseEvent) => onRowClick(record, event),
-                className: 'hover:bg-color-accent-highlight-secondary',
+                className: 'hover:bg-color-primary-muted',
             }
         },
         [onRowClick]

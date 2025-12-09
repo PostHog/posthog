@@ -110,8 +110,8 @@
     line-height: 1rem;
     color: var(--color-text-muted-foreground);
     vertical-align: middle;
-    background: var(--color-accent-highlight-secondary);
-    border: 1px solid var(--color-accent-highlight-secondary-border);
+    background: var(--color-primary-muted);
+    border: 1px solid var(--color-border-primary-muted);
     border-radius: var(--radius-sm);
 
     &.SeriesDisplay__raw-name--event::before,

@@ -82,9 +82,7 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
             <div
                 className={cn(
                     'w-1 min-h-[84px]',
-                    isEventSelected(record)
-                        ? 'bg-primary-3000 hover:bg-primary-3000'
-                        : 'hover:bg-color-accent-highlight-secondary'
+                    isEventSelected(record) ? 'bg-primary-3000 hover:bg-primary-3000' : 'hover:bg-color-primary-muted'
                 )}
             />
         )

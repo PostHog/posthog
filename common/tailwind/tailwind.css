@@ -393,6 +393,14 @@
             var(--color-brand-primary-lightness)
         );
 
+        /* Brand color for subtle highlights (tags, pills) */
+        --color-primary-muted: hsla(
+            var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            10%
+        );
+
         /* Subdued background for less important elements */
         --color-muted: var(--color-posthog-3000-50);
         --color-muted-foreground: var(--color-neutral-700);
@@ -417,6 +425,12 @@
 
         /* Border colors */
         --color-border: var(--color-posthog-3000-200);
+        --color-border-primary-muted: hsla(
+            var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            35%
+        );
         --color-border-muted: var(--color-posthog-3000-100);
         --color-border-strong: var(--color-posthog-3000-300);
         --color-border-success: var(--color-green-500);
@@ -449,6 +463,14 @@
             var(--color-brand-primary-lightness)
         );
 
+        /* Brand color for subtle highlights (tags, pills) */
+        --color-primary-muted: hsla(
+            var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            10%
+        );
+
         /* Subdued background for less important elements */
         --color-muted: var(--color-neutral-910);
         --color-muted-foreground: var(--color-neutral-200);
@@ -470,6 +492,12 @@
 
         /* Border colors */
         --color-border: var(--color-neutral-800);
+        --color-border-primary-muted: hsla(
+            var(--color-brand-primary-hue),
+            var(--color-brand-primary-saturation),
+            var(--color-brand-primary-lightness),
+            14%
+        );
         --color-border-muted: var(--color-posthog-3000-850);
         --color-border-strong: var(--color-neutral-700);
         --color-border-success: var(--color-green-900);

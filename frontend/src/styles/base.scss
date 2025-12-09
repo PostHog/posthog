@@ -1359,10 +1359,6 @@
                 height: 0.5rem;
             }
 
-            ::-webkit-scrollbar-track {
-                background: var(--color-scrollbar-track);
-            }
-
             ::-webkit-scrollbar-thumb {
                 background: var(--color-scrollbar-thumb);
                 border-radius: var(--radius);
