@@ -9,8 +9,8 @@ use crate::{
     error::UnhandledError,
     fingerprinting::{FingerprintBuilder, FingerprintComponent, FingerprintRecordPart},
     langs::{
-        custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame, hermes::RawHermesFrame,
-        java::RawJavaFrame, apple::RawAppleFrame, js::RawJSFrame, node::RawNodeFrame,
+        apple::RawAppleFrame, custom::CustomFrame, dart::RawDartFrame, go::RawGoFrame,
+        hermes::RawHermesFrame, java::RawJavaFrame, js::RawJSFrame, node::RawNodeFrame,
         python::RawPythonFrame, ruby::RawRubyFrame,
     },
     metric_consts::{LEGACY_JS_FRAME_RESOLVED, PER_FRAME_TIME},

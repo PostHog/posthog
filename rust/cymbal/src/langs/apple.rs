@@ -44,7 +44,6 @@ impl RawAppleFrame {
 
         format!("{:x}", hasher.finalize())
     }
-
 }
 
 impl From<&RawAppleFrame> for Frame {
@@ -56,7 +55,7 @@ impl From<&RawAppleFrame> for Frame {
             column: raw.colno,
             source: raw.filename.clone(),
             in_app: raw.meta.in_app,
-            resolved_name: raw.function.clone(), 
+            resolved_name: raw.function.clone(),
             lang: "apple".to_string(),
             resolved: raw.function.is_some(),
             resolve_failure: None,
@@ -75,4 +74,3 @@ impl From<&RawAppleFrame> for Frame {
         f
     }
 }
-
