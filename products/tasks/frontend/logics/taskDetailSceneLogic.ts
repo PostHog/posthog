@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 import { TaskRun, TaskRunStatus } from '../types'
 import type { taskDetailSceneLogicType } from './taskDetailSceneLogicType'
 import { TaskLogicProps, taskLogic } from './taskLogic'
+import { tasksLogic } from './tasksLogic'
 
 const LOG_POLL_INTERVAL_MS = 1000
 
@@ -41,8 +42,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     actions({
         setSelectedRunId: (runId: TaskRun['id'] | null) => ({ runId }),
         selectLatestRun: true,
-        startLogPolling: true,
-        stopLogPolling: true,
+        startPolling: true,
+        stopPolling: true,
         setLogs: (logs: string) => ({ logs }),
     }),
 
@@ -76,7 +77,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         ],
     }),
 
-    loaders(({ props, values }) => ({
+    loaders(({ props, values, actions }) => ({
         runs: [
             [] as TaskRun[],
             {
@@ -86,15 +87,31 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 },
             },
         ],
+        selectedRunData: [
+            null as TaskRun | null,
+            {
+                loadSelectedRun: async () => {
+                    if (!values.selectedRunId) {
+                        return null
+                    }
+                    const run = await api.tasks.runs.get(props.taskId, values.selectedRunId)
+                    if (run.log_url) {
+                        actions.loadLogs({ url: run.log_url })
+                    }
+                    return run
+                },
+            },
+        ],
         rawLogs: [
             '' as string,
             {
-                loadLogs: async ({ noCache }: { noCache?: boolean } = {}) => {
-                    if (!values.selectedRunId) {
-                        return ''
-                    }
+                loadLogs: async ({ url }: { url: string }) => {
                     try {
-                        return await api.tasks.runs.getLogs(props.taskId, values.selectedRunId, noCache ?? false)
+                        const response = await fetch(url, {
+                            cache: 'no-store',
+                            headers: { 'Cache-Control': 'no-cache' },
+                        })
+                        return await response.text()
                     } catch (error) {
                         console.error('Failed to load logs:', error)
                         return ''
@@ -107,8 +124,11 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     selectors({
         taskId: [() => [(_, props) => props.taskId], (taskId) => taskId],
         selectedRun: [
-            (s) => [s.runs, s.selectedRunId],
-            (runs, selectedRunId): TaskRun | null => {
+            (s) => [s.selectedRunData, s.runs, s.selectedRunId],
+            (selectedRunData, runs, selectedRunId): TaskRun | null => {
+                if (selectedRunData) {
+                    return selectedRunData
+                }
                 if (!selectedRunId) {
                     return null
                 }
@@ -121,7 +141,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return runs.length === 0
             },
         ],
-        shouldPollLogs: [
+        shouldPoll: [
             (s) => [s.selectedRun],
             (selectedRun): boolean => {
                 if (!selectedRun) {
@@ -144,11 +164,8 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
 
     listeners(({ actions, values }) => ({
         setSelectedRunId: () => {
-            actions.stopLogPolling()
-            actions.loadLogs()
-            if (values.shouldPollLogs) {
-                actions.startLogPolling()
-            }
+            actions.stopPolling()
+            actions.loadSelectedRun()
         },
         runTaskSuccess: () => {
             actions.selectLatestRun()
@@ -157,14 +174,18 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         loadRunsSuccess: ({ runs }) => {
             if (values.shouldSelectLatestRun && runs.length > 0) {
                 actions.setSelectedRunId(runs[0].id)
+            } else if (values.selectedRunId) {
+                actions.loadSelectedRun()
             }
-            if (values.selectedRunId) {
-                actions.loadLogs()
+        },
+        loadSelectedRunSuccess: ({ selectedRunData }) => {
+            if (selectedRunData) {
+                tasksLogic.findMounted()?.actions.updateTaskRun(props.taskId, selectedRunData)
             }
-            if (values.shouldPollLogs) {
-                actions.startLogPolling()
+            if (values.shouldPoll) {
+                actions.startPolling()
             } else {
-                actions.stopLogPolling()
+                actions.stopPolling()
             }
         },
         loadLogsSuccess: ({ rawLogs }) => {
@@ -172,15 +193,15 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 actions.setLogs(rawLogs)
             }
         },
-        startLogPolling: () => {
+        startPolling: () => {
             if (logPollingInterval) {
                 clearInterval(logPollingInterval)
             }
             logPollingInterval = window.setInterval(() => {
-                actions.loadLogs({ noCache: true })
+                actions.loadSelectedRun()
             }, LOG_POLL_INTERVAL_MS)
         },
-        stopLogPolling: () => {
+        stopPolling: () => {
             if (logPollingInterval) {
                 clearInterval(logPollingInterval)
                 logPollingInterval = null
@@ -194,12 +215,12 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
     }),
 
     beforeUnmount(({ actions }) => {
-        actions.stopLogPolling()
+        actions.stopPolling()
     }),
 
     propsChanged(({ actions, props }, oldProps) => {
         if (props.taskId !== oldProps.taskId) {
-            actions.stopLogPolling()
+            actions.stopPolling()
             actions.loadTask()
             actions.loadRuns()
         }

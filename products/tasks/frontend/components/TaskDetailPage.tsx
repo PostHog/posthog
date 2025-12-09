@@ -25,7 +25,7 @@ export interface TaskDetailPageProps {
 
 export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
     const sceneLogic = taskDetailSceneLogic({ taskId })
-    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, logsLoading, shouldPollLogs } =
+    const { task, taskLoading, runs, selectedRunId, selectedRun, runsLoading, logs, logsLoading, shouldPoll } =
         useValues(sceneLogic)
     const { setSelectedRunId, runTask, deleteTask } = useActions(sceneLogic)
 
@@ -141,7 +141,7 @@ export function TaskDetailPage({ taskId }: TaskDetailPageProps): JSX.Element {
                 </div>
             ) : selectedRun ? (
                 <div className="flex-1 overflow-hidden">
-                    <TaskSessionView logs={logs} loading={logsLoading} isPolling={shouldPollLogs} run={selectedRun} />
+                    <TaskSessionView logs={logs} loading={logsLoading} isPolling={shouldPoll} run={selectedRun} />
                 </div>
             ) : null}
         </SceneContent>

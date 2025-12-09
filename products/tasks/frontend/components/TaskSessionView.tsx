@@ -1,6 +1,6 @@
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
@@ -9,6 +9,42 @@ import { TaskRun } from '../types'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 import { ToolCallEntry } from './session/ToolCallEntry'
+
+const HEDGEHOG_STATUSES = [
+    'Spiking...',
+    'Hedgehogging...',
+    'Snuffling...',
+    'Curling up...',
+    'Foraging...',
+    'Quilling...',
+    'Hibernating...',
+    'Scurrying...',
+    'Bristling...',
+    'Noodling...',
+    'Hogwatching...',
+    'Prickling...',
+    'Burrowing...',
+    'Snoot booping...',
+    'Uncurling...',
+]
+
+function HedgehogStatus(): JSX.Element {
+    const [statusIndex, setStatusIndex] = useState(() => Math.floor(Math.random() * HEDGEHOG_STATUSES.length))
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setStatusIndex((prev) => (prev + 1) % HEDGEHOG_STATUSES.length)
+        }, 2000)
+        return () => clearInterval(interval)
+    }, [])
+
+    return (
+        <div className="flex items-center gap-2 py-2 text-muted">
+            <Spinner className="text-xs" />
+            <span className="text-xs">{HEDGEHOG_STATUSES[statusIndex]}</span>
+        </div>
+    )
+}
 
 interface TaskSessionViewProps {
     logs: string
@@ -109,12 +145,7 @@ export function TaskSessionView({ logs, loading, isPolling, run }: TaskSessionVi
                 {entries.map((entry) => (
                     <LogEntryRenderer key={entry.id} entry={entry} />
                 ))}
-                {isPolling && (
-                    <div className="flex items-center gap-2 py-2 text-muted">
-                        <Spinner className="text-xs" />
-                        <span className="text-xs">Loading more...</span>
-                    </div>
-                )}
+                {isPolling && <HedgehogStatus />}
             </div>
         </div>
     )
