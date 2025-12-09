@@ -4,6 +4,7 @@ use std::{
 };
 
 use aws_config::{BehaviorVersion, Region};
+use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use envconfig::Envconfig;
 use tracing::{info, warn};
@@ -13,6 +14,9 @@ pub static FRAME_CONTEXT_LINES: AtomicUsize = AtomicUsize::new(15);
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     #[envconfig(from = "BIND_HOST", default = "::")]
     pub host: String,
 
