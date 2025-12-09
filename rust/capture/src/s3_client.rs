@@ -17,7 +17,6 @@ pub struct S3Client {
 /// Configuration for creating an S3 client.
 pub struct S3Config {
     pub bucket: String,
-    pub prefix: String,
     pub region: String,
     pub endpoint: Option<String>,
     pub access_key_id: Option<String>,

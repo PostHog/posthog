@@ -8,9 +8,11 @@ use health::{ComponentStatus, HealthRegistry};
 use limiters::redis::ServiceName;
 use tokio::net::TcpListener;
 
+use crate::ai_s3::AiBlobStorage;
 use crate::config::CaptureMode;
 use crate::config::Config;
 use crate::limiters::{is_exception_event, is_llm_event, is_survey_event};
+use crate::s3_client::{S3Client, S3Config};
 
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, OVERFLOW_LIMITER_CACHE_KEY};
@@ -183,6 +185,21 @@ where
         .await
         .expect("failed to create sink");
 
+    // Create AI blob storage if S3 is configured
+    let ai_blob_storage = if let Some(bucket) = &config.ai_s3_bucket {
+        let s3_config = S3Config {
+            bucket: bucket.clone(),
+            region: config.ai_s3_region.clone(),
+            endpoint: config.ai_s3_endpoint.clone(),
+            access_key_id: config.ai_s3_access_key_id.clone(),
+            secret_access_key: config.ai_s3_secret_access_key.clone(),
+        };
+        let s3_client = S3Client::new(s3_config).await;
+        Some(AiBlobStorage::new(s3_client, config.ai_s3_prefix.clone()))
+    } else {
+        None
+    };
+
     let app = router::router(
         crate::time::SystemTime {},
         liveness,
@@ -199,6 +216,7 @@ where
         config.is_mirror_deploy,
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
+        ai_blob_storage,
         config.request_timeout_seconds,
     );
 

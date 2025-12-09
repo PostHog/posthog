@@ -13,6 +13,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::ai_s3::AiBlobStorage;
 use crate::test_endpoint;
 use crate::v0_request::DataType;
 use crate::{ai_endpoint, sinks, time::TimeSource, v0_endpoint};
@@ -41,6 +42,7 @@ pub struct State {
     pub is_mirror_deploy: bool,
     pub verbose_sample_percent: f32,
     pub ai_max_sum_of_parts_bytes: usize,
+    pub ai_blob_storage: Option<Arc<AiBlobStorage>>,
 }
 
 #[derive(Clone)]
@@ -100,6 +102,7 @@ pub fn router<
     is_mirror_deploy: bool,
     verbose_sample_percent: f32,
     ai_max_sum_of_parts_bytes: usize,
+    ai_blob_storage: Option<AiBlobStorage>,
     request_timeout_seconds: Option<u64>,
 ) -> Router {
     let state = State {
@@ -117,6 +120,7 @@ pub fn router<
         is_mirror_deploy,
         verbose_sample_percent,
         ai_max_sum_of_parts_bytes,
+        ai_blob_storage: ai_blob_storage.map(Arc::new),
     };
 
     // Very permissive CORS policy, as old SDK versions

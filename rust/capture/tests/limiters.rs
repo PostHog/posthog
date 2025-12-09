@@ -137,6 +137,7 @@ async fn setup_router_with_limits(
         false,       // is_mirror_deploy
         0.0,         // verbose_sample_percent
         26_214_400,  // ai_max_sum_of_parts_bytes (25MB)
+        None,        // ai_blob_storage
         Some(10),    // request_timeout_seconds
     );
 
@@ -1136,6 +1137,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1212,6 +1214,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1292,6 +1295,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 
@@ -1709,6 +1713,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         false,
         0.0,
         26_214_400,
+        None,     // ai_blob_storage
         Some(10), // request_timeout_seconds
     );
 

@@ -993,6 +993,7 @@ fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
             is_mirror_deploy,
             verbose_sample_percent,
             26_214_400, // 25MB default for AI endpoint
+            None,       // ai_blob_storage
             Some(10),   // request_timeout_seconds
         ),
         sink,

@@ -169,6 +169,7 @@ fn setup_ai_test_router() -> Router {
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
+        None,       // ai_blob_storage - not configured for tests
         Some(10),   // request_timeout_seconds
     )
 }
@@ -1491,6 +1492,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         false,
         0.0_f32,
         26_214_400, // 25MB default for AI endpoint
+        None,       // ai_blob_storage
         Some(10),   // request_timeout_seconds
     );
 
@@ -2365,6 +2367,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         false,
         0.0_f32,
         26_214_400,
+        None, // ai_blob_storage
         Some(10),
     );
 
@@ -2561,6 +2564,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         false,
         0.0_f32,
         26_214_400,
+        None, // ai_blob_storage
         Some(10),
     );
 
