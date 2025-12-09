@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db.models import Case, Count, IntegerField, Value, When
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.text import slugify
@@ -17,6 +18,7 @@ from posthog.api.utils import get_token
 from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.exceptions import generate_exception_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.person import Person
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
 from posthog.settings import EE_AVAILABLE
@@ -66,6 +68,7 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
     documentationUrl = serializers.URLField(source="documentation_url")
     flagKey = serializers.CharField(source="feature_flag.key", allow_null=True)
     payload = serializers.SerializerMethodField()
+    optedInCount = serializers.SerializerMethodField()
 
     class Meta:
         model = EarlyAccessFeature
@@ -77,11 +80,18 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentationUrl",
             "flagKey",
             "payload",
+            "optedInCount",
         ]
         read_only_fields = fields
 
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
+
+    def get_optedInCount(self, obj):
+        opted_in_counts = self.context.get("opted_in_counts", {})
+        if obj.feature_flag:
+            return opted_in_counts.get(obj.feature_flag.key, 0)
+        return 0
 
 
 class MinimalEarlyAccessFeatureSerializerForParent(serializers.ModelSerializer):
@@ -381,6 +391,30 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 
+def get_opted_in_counts(team_id: int, flag_keys: list[str]) -> dict[str, int]:
+    """
+    Batch query to count persons opted into each feature flag.
+    Returns a dict mapping flag_key -> count of opted-in persons.
+    Uses a single SQL query with conditional aggregation.
+    """
+    if not flag_keys:
+        return {}
+
+    aggregations = {}
+    for flag_key in flag_keys:
+        enrollment_key = f"$feature_enrollment/{flag_key}"
+        aggregations[flag_key] = Count(
+            Case(
+                When(properties__contains={enrollment_key: True}, then=Value(1)),
+                output_field=IntegerField(),
+            )
+        )
+
+    result = Person.objects.filter(team_id=team_id).aggregate(**aggregations)
+    return {key: value or 0 for key, value in result.items()}
+
+
+# TODO: not super happy about having opt in counts available via a public API endpoint - rethink later?
 @csrf_exempt
 def early_access_features(request: Request):
     token = get_token(None, request)
@@ -411,11 +445,17 @@ def early_access_features(request: Request):
             ),
         )
 
+    features = EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
+        "feature_flag"
+    )
+
+    flag_keys = [f.feature_flag.key for f in features if f.feature_flag]
+    opted_in_counts = get_opted_in_counts(team.id, flag_keys)
+
     early_access_features = MinimalEarlyAccessFeatureSerializer(
-        EarlyAccessFeature.objects.filter(team__project_id=team.project_id, stage__in=stages).select_related(
-            "feature_flag"
-        ),
+        features,
         many=True,
+        context={"opted_in_counts": opted_in_counts},
     ).data
 
     return cors_response(request, JsonResponse({"earlyAccessFeatures": early_access_features}))
