@@ -40,6 +40,7 @@ class AgentMode(StrEnum):
     SESSION_REPLAY = "session_replay"
     PLAN = "plan"
     RESEARCH = "research"
+    BROWSER_USE = "browser_use"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -311,6 +312,12 @@ class AssistantTool(StrEnum):
     FILTER_WEB_ANALYTICS = "filter_web_analytics"
     CREATE_FEATURE_FLAG = "create_feature_flag"
     CREATE_EXPERIMENT = "create_experiment"
+    CREATE_TASK = "create_task"
+    RUN_TASK = "run_task"
+    GET_TASK_RUN = "get_task_run"
+    GET_TASK_RUN_LOGS = "get_task_run_logs"
+    LIST_TASKS = "list_tasks"
+    LIST_TASK_RUNS = "list_task_runs"
     EXECUTE_SQL = "execute_sql"
     SWITCH_MODE = "switch_mode"
     SUMMARIZE_SESSIONS = "summarize_sessions"
@@ -319,6 +326,8 @@ class AssistantTool(StrEnum):
     CREATE_FORM = "create_form"
     TASK = "task"
     CREATE_NOTEBOOK = "create_notebook"
+    BROWSER_NAVIGATE = "browser_navigate"
+    COMPUTER = "computer"
 
 
 class AssistantToolCall(BaseModel):

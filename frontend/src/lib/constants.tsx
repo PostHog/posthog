@@ -278,6 +278,7 @@ export const FEATURE_FLAGS = {
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-posthog-ai
     MESSAGING_SES: 'messaging-ses', // owner #team-workflows
     NOTEBOOKS_COLLAPSIBLE_SECTIONS: 'notebooks-collapsible-sections', // owner: @daibhin @benjackwhite
+    PHAI_TASKS: 'phai-tasks', // owner: #team-array
     PRODUCT_ANALYTICS_DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     PRODUCT_ANALYTICS_DASHBOARD_COLORS: 'dashboard-colors', // owner: @thmsobrmlr #team-product-analytics
     PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE: 'date-picker-explicit-date-toggle', // owner: @gesh #team-product-analytics
@@ -340,6 +341,7 @@ export const FEATURE_FLAGS = {
     SURVEY_HEADLINE_SUMMARY: 'survey-headline-summary', // owner: @adboio #team-surveys
     SURVEYS_ERROR_TRACKING_CROSS_SELL: 'surveys-in-error-tracking', // owner: @adboio #team-surveys
     LIVE_EVENTS_ACTIVE_RECORDINGS: 'live-events-active-recordings', // owner: @pauldambra #team-replay
+    PRODUCT_TOURS: 'product-tours-2025', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagLookupKey = keyof typeof FEATURE_FLAGS
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]

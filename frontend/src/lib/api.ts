@@ -151,6 +151,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProductTour,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1063,6 +1064,15 @@ export class ApiRequest {
             return this.survey(id, teamId).addPathComponent('activity')
         }
         return this.surveys(teamId).addPathComponent('activity')
+    }
+
+    // Product tours
+    public productTours(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('product_tours')
+    }
+
+    public productTour(id: ProductTour['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.productTours(teamId).addPathComponent(id)
     }
 
     // Error tracking
@@ -3915,6 +3925,24 @@ const api = {
         },
         async getArchivedResponseUuids(surveyId: Survey['id']): Promise<string[]> {
             return await new ApiRequest().survey(surveyId).withAction('archived-response-uuids').get()
+        },
+    },
+
+    productTours: {
+        async list(): Promise<PaginatedResponse<ProductTour>> {
+            return await new ApiRequest().productTours().get()
+        },
+        async get(tourId: ProductTour['id']): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).get()
+        },
+        async create(data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTours().create({ data })
+        },
+        async update(tourId: ProductTour['id'], data: Partial<ProductTour>): Promise<ProductTour> {
+            return await new ApiRequest().productTour(tourId).update({ data })
+        },
+        async delete(tourId: ProductTour['id']): Promise<void> {
+            await new ApiRequest().productTour(tourId).delete()
         },
     },
 

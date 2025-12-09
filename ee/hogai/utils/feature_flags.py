@@ -36,6 +36,16 @@ def is_privacy_mode_enabled(team: Team) -> bool:
     )
 
 
+def has_phai_tasks_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "phai-tasks",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def has_task_tool_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "phai-task-tool",
@@ -49,6 +59,16 @@ def has_task_tool_feature_flag(team: Team, user: User) -> bool:
 def has_create_notebook_tool_feature_flag(team: Team, user: User) -> bool:
     return posthoganalytics.feature_enabled(
         "phai-create-notebook-tool",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def has_browser_use_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "phai-browser-use",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
         group_properties={"organization": {"id": str(team.organization_id)}},

@@ -22,6 +22,7 @@ from posthog.schema import (
     AgentMode,
     AssistantMessage,
     AssistantTool,
+    AssistantToolCall,
     AssistantToolCallMessage,
     ContextMessage,
     FailureMessage,
@@ -37,11 +38,12 @@ from ee.hogai.core.agent_modes.prompts import (
     ROOT_HARD_LIMIT_REACHED_PROMPT,
     ROOT_TOOL_DOES_NOT_EXIST,
 )
-from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
+from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager, ToolsResult
 from ee.hogai.core.executable import BaseAgentExecutable
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
+from ee.hogai.tools.browser import COMPUTER_TOOL_DEFINITION, ComputerToolHandler
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
 from ee.hogai.utils.feature_flags import has_agent_modes_feature_flag
@@ -125,12 +127,12 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         prompt_builder = self._prompt_builder_class(
             team=self._team, user=self._user, context_manager=self.context_manager
         )
-        tools, system_prompts = await asyncio.gather(
+        tools_result, system_prompts = await asyncio.gather(
             *[toolkit_manager.get_tools(state, config), prompt_builder.get_prompts(state, config)]
         )
 
-        tools = cast("list[MaxTool]", tools)
-        model = self._get_model(state, tools)
+        tools_result = cast(ToolsResult, tools_result)
+        model = self._get_model(state, tools_result)
 
         # Add context messages on start of the conversation.
         messages_to_replace: Sequence[AssistantMessageUnion] = []
@@ -148,7 +150,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
         # Summarize the conversation if it's too long.
         current_token_count = await self._window_manager.calculate_token_count(
-            model, langchain_messages, tools=tools, thinking_config=self.THINKING_CONFIG
+            model, langchain_messages, tools=tools_result.tools, thinking_config=self.THINKING_CONFIG
         )
         if current_token_count > self._window_manager.CONVERSATION_WINDOW_SIZE:
             # Exclude the last message if it's the first turn.
@@ -212,14 +214,22 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
-    def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+    def _get_model(self, state: AssistantState, tools_result: ToolsResult):
+        # Include computer-use beta if native computer tool is present
+        betas = ["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"]
+        has_computer_tool = any(
+            tool.get("type") == COMPUTER_TOOL_DEFINITION["type"] for tool in tools_result.native_tools
+        )
+        if has_computer_tool:
+            betas.append("computer-use-2025-01-24")
+
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-5",
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
-            betas=["interleaved-thinking-2025-05-14", "context-1m-2025-08-07"],
+            betas=betas,
             max_tokens=8192,
             thinking=self.THINKING_CONFIG,
             conversation_start_dt=state.start_dt,
@@ -231,7 +241,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(tools, parallel_tool_calls=True)
+        # Combine MaxTools and native tool definitions for bind_tools
+        all_tools: list[MaxTool | dict] = list(tools_result.tools) + tools_result.native_tools
+        return base_model.bind_tools(all_tools, parallel_tool_calls=True)
 
     def _construct_messages(
         self,
@@ -331,12 +343,16 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         if not tool_call:
             return reset_state
 
+        # Handle native computer tool specially
+        if tool_call.name == AssistantTool.COMPUTER:
+            return await self._execute_computer_tool(tool_call, config)
+
         # Find the tool class in a toolkit.
         toolkit_manager = self._toolkit_manager_class(
             team=self._team, user=self._user, context_manager=self.context_manager
         )
-        available_tools = await toolkit_manager.get_tools(state, config)
-        tool = next((tool for tool in available_tools if tool.get_name() == tool_call.name), None)
+        tools_result = await toolkit_manager.get_tools(state, config)
+        tool = next((tool for tool in tools_result.tools if tool.get_name() == tool_call.name), None)
 
         # If the tool doesn't exist, return the message to the agent
         if not tool:
@@ -367,34 +383,7 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
                     f"Tool '{tool_call.name}' returned {type(result).__name__}, expected LangchainToolMessage"
                 )
         except MaxToolError as e:
-            logger.exception(
-                "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
-            )
-            user_distinct_id = self._get_user_distinct_id(config)
-            capture_exception(
-                e,
-                distinct_id=user_distinct_id,
-                properties={
-                    **self._get_debug_props(config),
-                    "tool": tool_call.name,
-                    "retry_strategy": e.retry_strategy,
-                },
-            )
-
-            if user_distinct_id:
-                posthoganalytics.capture(
-                    distinct_id=user_distinct_id,
-                    event="max_tool_error",
-                    properties={
-                        **self._get_debug_props(config),
-                        "tool_name": tool_call.name,
-                        "error_type": e.__class__.__name__,
-                        "retry_strategy": e.retry_strategy,
-                        "error_message": str(e),
-                    },
-                    groups=groups(None, self._team),
-                )
-
+            self._handle_max_tool_error(tool_call, e, config)
             content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
             return PartialAssistantState(
                 messages=[
@@ -452,6 +441,109 @@ class AgentToolsExecutable(BaseAgentLoopExecutable):
         return PartialAssistantState(
             messages=[tool_message],
         )
+
+    def _handle_max_tool_error(self, tool_call: AssistantToolCall, e: MaxToolError, config: RunnableConfig) -> None:
+        logger.exception(
+            "maxtool_error", extra={"tool": tool_call.name, "error": str(e), "retry_strategy": e.retry_strategy}
+        )
+        user_distinct_id = self._get_user_distinct_id(config)
+        capture_exception(
+            e,
+            distinct_id=user_distinct_id,
+            properties={
+                **self._get_debug_props(config),
+                "tool": tool_call.name,
+                "retry_strategy": e.retry_strategy,
+            },
+        )
+
+        if user_distinct_id:
+            posthoganalytics.capture(
+                distinct_id=user_distinct_id,
+                event="max_tool_error",
+                properties={
+                    **self._get_debug_props(config),
+                    "tool_name": tool_call.name,
+                    "error_type": e.__class__.__name__,
+                    "retry_strategy": e.retry_strategy,
+                    "error_message": str(e),
+                },
+                groups=groups(None, self._team),
+            )
+
+    async def _execute_computer_tool(
+        self, tool_call: AssistantToolCall, config: RunnableConfig
+    ) -> PartialAssistantState:
+        """Execute the native Anthropic computer tool using ComputerToolHandler."""
+        conversation_id = self._get_thread_id(config)
+        if not conversation_id:
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="No conversation ID found for computer tool execution",
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
+
+        handler = ComputerToolHandler(str(conversation_id))
+
+        try:
+            result = await handler.execute(tool_call.args)
+
+            # The result can be either text or image content
+            # For screenshots, result is {"type": "image", "source": {...}}
+            # For other actions, result is {"type": "text", "text": "..."}
+            if result.get("type") == "image":
+                # For images, store the base64 data in ui_payload for the frontend
+                tool_message = AssistantToolCallMessage(
+                    content="Screenshot captured",
+                    ui_payload={
+                        AssistantTool.COMPUTER: {
+                            "type": "screenshot",
+                            "image": result["source"]["data"],
+                            "media_type": result["source"]["media_type"],
+                        }
+                    },
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                )
+            else:
+                # Text response for other actions
+                tool_message = AssistantToolCallMessage(
+                    content=result.get("text", "Action completed"),
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                )
+
+            return PartialAssistantState(messages=[tool_message])
+
+        except MaxToolError as e:
+            self._handle_max_tool_error(tool_call, e, config)
+            content = f"Tool failed: {e.to_summary()}.{e.retry_hint}"
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content=content,
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
+        except Exception as e:
+            capture_exception(
+                e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+            )
+            return PartialAssistantState(
+                messages=[
+                    AssistantToolCallMessage(
+                        content="The computer tool raised an internal error. Do not immediately retry and explain to the user what happened.",
+                        id=str(uuid4()),
+                        tool_call_id=tool_call.id,
+                    )
+                ],
+            )
 
     def router(self, state: AssistantState) -> Literal["root", "end"]:
         last_message = state.messages[-1]

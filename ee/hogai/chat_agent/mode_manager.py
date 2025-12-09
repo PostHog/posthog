@@ -9,6 +9,15 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from products.tasks.backend.max_tools import (
+    CreateTaskTool,
+    GetTaskRunLogsTool,
+    GetTaskRunTool,
+    ListTaskRunsTool,
+    ListTasksTool,
+    RunTaskTool,
+)
+
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
@@ -32,8 +41,9 @@ from ee.hogai.core.agent_modes.mode_manager import AgentModeManager
 from ee.hogai.core.agent_modes.presets.product_analytics import product_analytics_agent
 from ee.hogai.core.agent_modes.presets.session_replay import session_replay_agent
 from ee.hogai.core.agent_modes.presets.sql import sql_agent
+from ee.hogai.core.agent_modes.presets.user_testing import browser_use_agent
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
-from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
+from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager, ToolsResult
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.core.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.registry import get_contextual_tool_class
@@ -50,8 +60,10 @@ from ee.hogai.tools import (
 from ee.hogai.tools.create_notebook.tool import CreateNotebookTool
 from ee.hogai.utils.feature_flags import (
     has_agent_modes_feature_flag,
+    has_browser_use_feature_flag,
     has_create_form_tool_feature_flag,
     has_create_notebook_tool_feature_flag,
+    has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
 )
 from ee.hogai.utils.prompt import format_prompt_string
@@ -73,6 +85,14 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SwitchModeTool,
 ]
 
+TASK_TOOLS: list[type["MaxTool"]] = [
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
+]
 CHAT_AGENT_MODE_REGISTRY: dict[AgentMode, AgentModeDefinition] = {
     AgentMode.PRODUCT_ANALYTICS: product_analytics_agent,
     AgentMode.SQL: sql_agent,
@@ -87,6 +107,8 @@ class ChatAgentToolkit(AgentToolkit):
         # These three tools are just for testing, behind a FF
         if has_create_form_tool_feature_flag(self._team, self._user):
             tools.append(CreateFormTool)
+        if has_phai_tasks_feature_flag(self._team, self._user):
+            tools.extend(TASK_TOOLS)
         if has_create_notebook_tool_feature_flag(self._team, self._user):
             tools.append(CreateNotebookTool)
         if has_task_tool_feature_flag(self._team, self._user):
@@ -95,8 +117,8 @@ class ChatAgentToolkit(AgentToolkit):
 
 
 class ChatAgentToolkitManager(AgentToolkitManager):
-    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> list["MaxTool"]:
-        available_tools = await super().get_tools(state, config)
+    async def get_tools(self, state: AssistantState, config: RunnableConfig) -> ToolsResult:
+        result = await super().get_tools(state, config)
 
         tool_names = self._context_manager.get_contextual_tools().keys()
         awaited_contextual_tools: list[Awaitable[MaxTool]] = []
@@ -117,12 +139,12 @@ class ChatAgentToolkitManager(AgentToolkitManager):
         contextual_tools = await asyncio.gather(*awaited_contextual_tools)
 
         # Deduplicate contextual tools
-        initialized_tool_names = {tool.get_name() for tool in available_tools}
+        initialized_tool_names = {tool.get_name() for tool in result.tools}
         for tool in contextual_tools:
             if tool.get_name() not in initialized_tool_names:
-                available_tools.append(tool)
+                result.tools.append(tool)
 
-        return available_tools
+        return result
 
 
 class BillingPromptMixin:
@@ -200,7 +222,10 @@ class ChatAgentModeManager(AgentModeManager):
 
     @property
     def mode_registry(self) -> dict[AgentMode, AgentModeDefinition]:
-        return CHAT_AGENT_MODE_REGISTRY
+        modes = CHAT_AGENT_MODE_REGISTRY
+        if has_browser_use_feature_flag(self._team, self._user):
+            modes[AgentMode.BROWSER_USE] = browser_use_agent
+        return modes
 
     @property
     def prompt_builder_class(self) -> type[AgentPromptBuilder]:

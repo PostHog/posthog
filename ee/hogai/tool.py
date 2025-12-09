@@ -49,6 +49,14 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     _context_manager: AssistantContextManager
     _node_path: tuple[NodePath, ...]
 
+    @property
+    def _conversation_id(self) -> str:
+        """Get the conversation ID from the config."""
+        conversation_id = self._get_thread_id(self._config)
+        if not conversation_id:
+            raise ValueError("No conversation ID found")
+        return str(conversation_id)
+
     # DEPRECATED: Use `_arun_impl` instead
     def _run_impl(self, *args, **kwargs) -> tuple[str, Any]:
         """DEPRECATED. Use `_arun_impl` instead."""

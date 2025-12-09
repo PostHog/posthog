@@ -378,6 +378,12 @@ export type AssistantTool =
     | 'filter_web_analytics'
     | 'create_feature_flag'
     | 'create_experiment'
+    | 'create_task'
+    | 'run_task'
+    | 'get_task_run'
+    | 'get_task_run_logs'
+    | 'list_tasks'
+    | 'list_task_runs'
     // Below are modes-only
     | 'execute_sql'
     | 'switch_mode'
@@ -387,6 +393,9 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'create_notebook'
+    // Browser automation tools
+    | 'browser_navigate'
+    | 'computer'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -394,6 +403,7 @@ export enum AgentMode {
     SessionReplay = 'session_replay',
     Plan = 'plan',
     Research = 'research',
+    BrowserUse = 'browser_use',
 }
 
 export enum SlashCommandName {

@@ -5,7 +5,9 @@ import {
     IconCheckbox,
     IconCreditCard,
     IconDocument,
+    IconGlobe,
     IconMemory,
+    IconMouse,
     IconSearch,
     IconShuffle,
 } from '@posthog/icons'
@@ -137,6 +139,50 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return `Task (${title})`
             }
             return `Running a task (${title})...`
+        },
+    },
+    browser_navigate: {
+        name: 'Navigate to a website',
+        description: 'Navigate to a website',
+        icon: <IconGlobe />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Navigated to a website'
+            }
+            return 'Navigating to a website...'
+        },
+    },
+    computer: {
+        name: 'Interact with a website',
+        description: 'Interact with a website',
+        icon: <IconMouse />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                if (toolCall.args.action === 'screenshot') {
+                    return 'Took a screenshot'
+                } else if (toolCall.args.action === 'left_click') {
+                    return 'Clicked the left mouse button'
+                } else if (toolCall.args.action === 'right_click') {
+                    return 'Clicked the right mouse button'
+                } else if (toolCall.args.action === 'left_click_drag') {
+                    return 'Dragged the left mouse button'
+                } else if (toolCall.args.action === 'double_click') {
+                    return 'Double-clicked'
+                } else if (toolCall.args.action === 'middle_click') {
+                    return 'Clicked the middle mouse button'
+                } else if (toolCall.args.action === 'mouse_move') {
+                    return 'Moved the mouse'
+                } else if (toolCall.args.action === 'type') {
+                    return 'Typed text'
+                } else if (toolCall.args.action === 'key') {
+                    return 'Pressed a key: ' + toolCall.args.key
+                } else if (toolCall.args.action === 'scroll') {
+                    return 'Scrolled'
+                } else if (toolCall.args.action === 'wait') {
+                    return 'Waited {' + toolCall.args.duration + '} seconds'
+                }
+            }
+            return 'Computering...'
         },
     },
     create_form: {
@@ -528,6 +574,84 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Creating experiment...'
         },
     },
+    create_task: {
+        name: 'Create a task',
+        description: 'Create a task for an AI agent to execute coding changes in a repository',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created task'
+            }
+            return 'Creating task...'
+        },
+    },
+    run_task: {
+        name: 'Run a task',
+        description: 'Run a task to trigger its execution',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Started task execution'
+            }
+            return 'Starting task...'
+        },
+    },
+    get_task_run: {
+        name: 'Get task status',
+        description: 'Get task status including stage, progress, and any errors',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Got task status'
+            }
+            return 'Getting task status...'
+        },
+    },
+    get_task_run_logs: {
+        name: 'Get task logs',
+        description: 'Get task logs for debugging and reviewing execution details',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Got task logs'
+            }
+            return 'Getting task logs...'
+        },
+    },
+    list_tasks: {
+        name: 'List tasks',
+        description: 'List tasks in the current project with optional filtering',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed tasks'
+            }
+            return 'Listing tasks...'
+        },
+    },
+    list_task_runs: {
+        name: 'List task runs',
+        description: 'List task runs for a specific task to see execution history',
+        product: Scene.TaskTracker,
+        icon: iconForType('task'),
+        flag: FEATURE_FLAGS.PHAI_TASKS,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Listed task runs'
+            }
+            return 'Listing task runs...'
+        },
+    },
     switch_mode: {
         name: 'Switch agent mode',
         description:
@@ -620,6 +744,12 @@ export const MODE_DEFINITIONS: Record<Exclude<AgentMode, AgentMode.Research>, Mo
             Scene.ReplayFilePlayback,
             Scene.ReplaySettings,
         ]),
+    },
+    [AgentMode.BrowserUse]: {
+        name: 'Browser use',
+        description: 'Uses a browser to browse websites and provide insights about user behavior.',
+        icon: <IconGlobe />,
+        scenes: new Set(),
     },
 }
 
