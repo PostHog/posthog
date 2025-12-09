@@ -1450,7 +1450,7 @@ def team_api_test_factory():
         def test_modifiers_are_merged_on_patch(self) -> None:
             # Set initial modifiers with personsOnEventsMode
             response = self.client.patch(
-                "/api/environments/@current/",
+                f"/api/environments/{self.team.id}",
                 {"modifiers": {"personsOnEventsMode": "person_id_override_properties_on_events"}},
             )
             assert response.status_code == status.HTTP_200_OK
@@ -1458,7 +1458,7 @@ def team_api_test_factory():
 
             # Patch with customChannelTypeRules - should preserve personsOnEventsMode
             response = self.client.patch(
-                "/api/environments/@current/",
+                f"/api/environments/{self.team.id}",
                 {
                     "modifiers": {
                         "customChannelTypeRules": [
@@ -1475,7 +1475,7 @@ def team_api_test_factory():
 
             # Patch with a different personsOnEventsMode - should update it while keeping customChannelTypeRules
             response = self.client.patch(
-                "/api/environments/@current/",
+                f"/api/environments/{self.team.id}",
                 {"modifiers": {"personsOnEventsMode": "person_id_override_properties_joined"}},
             )
             assert response.status_code == status.HTTP_200_OK
