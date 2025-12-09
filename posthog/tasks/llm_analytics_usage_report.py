@@ -14,6 +14,7 @@ from posthog.schema import AIEventType
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.property.util import get_property_string_expr
@@ -44,6 +45,9 @@ CH_LLM_ANALYTICS_SETTINGS = {
 QUERY_RETRIES = 3
 QUERY_RETRY_DELAY = 1
 QUERY_RETRY_BACKOFF = 2
+
+# Celery task ID for query attribution
+CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
 
 
 @dataclass
@@ -99,6 +103,7 @@ def _execute_split_query(
     num_splits: int = 2,
     combine_results_func: Any | None = None,
     team_ids: list[int] | None = None,
+    query_name: str = "split_query",
 ) -> Any:
     """
     Helper function to execute a query split into multiple parts to reduce memory load.
@@ -143,12 +148,19 @@ def _execute_split_query(
             split_params["team_ids"] = team_ids
 
         # Execute the query for this time split
-        split_result = sync_execute(
-            query_template,
-            split_params,
-            workload=Workload.OFFLINE,
-            settings=CH_LLM_ANALYTICS_SETTINGS,
-        )
+        with tags_context(
+            product=Product.LLM_ANALYTICS,
+            kind="celery",
+            id=CELERY_TASK_ID,
+            name=query_name,
+            workload=Workload.OFFLINE.value,
+        ):
+            split_result = sync_execute(
+                query_template,
+                split_params,
+                workload=Workload.OFFLINE,
+                settings=CH_LLM_ANALYTICS_SETTINGS,
+            )
 
         all_results.append(split_result)
 
@@ -206,14 +218,21 @@ def get_teams_with_ai_events(begin: datetime, end: datetime) -> list[int]:
           AND timestamp < %(end)s
     """
 
-    results = sync_execute(
-        query,
-        {"ai_events": AI_EVENTS, "begin": begin, "end": end},
-        workload=Workload.OFFLINE,
-        settings=CH_LLM_ANALYTICS_SETTINGS,
-    )
+    with tags_context(
+        product=Product.LLM_ANALYTICS,
+        kind="celery",
+        id=CELERY_TASK_ID,
+        name="Get teams with AI events",
+        workload=Workload.OFFLINE.value,
+    ):
+        results = sync_execute(
+            query,
+            {"ai_events": AI_EVENTS, "begin": begin, "end": end},
+            workload=Workload.OFFLINE,
+            settings=CH_LLM_ANALYTICS_SETTINGS,
+        )
 
-    return [row[0] for row in results]
+        return [row[0] for row in results]
 
 
 def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
@@ -321,6 +340,7 @@ def get_all_ai_metrics(
         num_splits=3,
         combine_results_func=_combine_all_metrics_results,
         team_ids=team_ids,
+        query_name="Get all AI metrics",
     )
 
 
@@ -437,6 +457,7 @@ def get_all_ai_dimension_breakdowns(
         num_splits=4,
         combine_results_func=_combine_dimension_breakdown_results,
         team_ids=team_ids,
+        query_name="Get AI dimension breakdowns",
     )
 
 
