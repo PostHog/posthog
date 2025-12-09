@@ -817,6 +817,7 @@ const EventContent = React.memo(
                                                     event.event === '$ai_embedding') ? (
                                                     <TextViewDisplay
                                                         event={event}
+                                                        trace={trace}
                                                         lineNumber={lineNumber}
                                                         onFallback={handleTextViewFallback}
                                                         onCopyPermalink={copyLinePermalink}

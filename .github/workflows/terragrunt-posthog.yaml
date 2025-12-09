@@ -12,7 +12,7 @@ on:
             - .github/workflows/terragrunt-posthog.yaml
     push:
         branches:
-            - main
+            - master
         paths:
             - terraform/**/*
             - .github/workflows/terragrunt-posthog.yaml
@@ -87,7 +87,7 @@ jobs:
                   role-duration-seconds: 3600
 
             - name: Plan Terraform ${{ matrix.working_dir }}
-              if: github.ref != 'refs/heads/main'
+              if: github.ref != 'refs/heads/master'
               uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -108,7 +108,7 @@ jobs:
                       # exit_code == 2: Succeeded, there is a diff
 
             - name: Apply Terraform ${{ matrix.working_dir }}
-              if: github.ref == 'refs/heads/main'
+              if: github.ref == 'refs/heads/master'
               uses: datadrivers/terragrunt-action@3297746d3dc1b0846cdf4c7816e8839eb4531e41 # v2.1.0
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}

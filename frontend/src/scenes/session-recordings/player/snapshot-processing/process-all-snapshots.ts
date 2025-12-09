@@ -124,31 +124,7 @@ function createMinimalFullSnapshot(windowId: number | undefined, timestamp: numb
     } as unknown as RecordingSnapshot
 }
 
-/**
- * NB this mutates processingCache and returns the processed snapshots
- *
- * there are several steps to processing snapshots as received from the API
- * before they are playable, vanilla rrweb data
- */
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding?: false,
-    discardRawSnapshots?: boolean
-): RecordingSnapshot[]
-export function processAllSnapshots(
-    sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
-    processingCache: ProcessingCache,
-    viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
-    sessionRecordingId: string,
-    enableYielding: true,
-    discardRawSnapshots?: boolean
-): Promise<RecordingSnapshot[]>
-export function processAllSnapshots(
+export async function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
     processingCache: ProcessingCache,
@@ -156,7 +132,7 @@ export function processAllSnapshots(
     sessionRecordingId: string,
     enableYielding: boolean = false,
     discardRawSnapshots: boolean = false
-): RecordingSnapshot[] | Promise<RecordingSnapshot[]> {
+): Promise<RecordingSnapshot[]> {
     if (enableYielding) {
         return processAllSnapshotsAsync(
             sources,

@@ -14,7 +14,7 @@ import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
 import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
 import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
-import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PersonsStore } from '../persons/persons-store'
 import { EventsProcessor } from '../process-event'
 import { createEventStep } from './createEventStep'
 import { dropOldEventsStep } from './dropOldEventsStep'
@@ -60,7 +60,7 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    personsStoreForBatch: PersonsStoreForBatch
+    personsStore: PersonsStore
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
     headers?: EventHeaders
@@ -69,7 +69,7 @@ export class EventPipelineRunner {
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        personsStoreForBatch: PersonsStoreForBatch,
+        personsStore: PersonsStore,
         groupStoreForBatch: GroupStoreForBatch,
         headers?: EventHeaders
     ) {
@@ -77,7 +77,7 @@ export class EventPipelineRunner {
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.personsStoreForBatch = personsStoreForBatch
+        this.personsStore = personsStore
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)
         this.headers = headers
@@ -328,7 +328,7 @@ export class EventPipelineRunner {
         if (!processPerson) {
             const personlessResult = await this.runPipelineStep<Person, typeof processPersonlessStep>(
                 processPersonlessStep,
-                [event, team, timestamp, this.personsStoreForBatch, forceDisablePersonProcessing],
+                [event, team, timestamp, this.personsStore, forceDisablePersonProcessing],
                 teamId,
                 true,
                 kafkaAcks,
@@ -351,7 +351,7 @@ export class EventPipelineRunner {
                 typeof processPersonsStep
             >(
                 processPersonsStep,
-                [this, event, team, timestamp, true, this.personsStoreForBatch],
+                [this, event, team, timestamp, true, this.personsStore],
                 teamId,
                 true,
                 kafkaAcks,
