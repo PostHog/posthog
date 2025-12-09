@@ -43,7 +43,13 @@ jobs:
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
             - name: Run smoke tests on DO
-              run: timeout 30m python3 bin/hobby-ci.py test || echo "Test failed or timed out"
+              id: test
+              timeout-minutes: 30
+              run: |
+                  set +e
+                  python3 bin/hobby-ci.py test
+                  echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
+                  exit 0
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
             - name: Fetch logs after test
@@ -62,9 +68,18 @@ jobs:
                   path: |
                       /tmp/cloud-init-output.log
                       /tmp/droplet_info.txt
+                      /tmp/docker-compose-logs.txt
                   if-no-files-found: warn
             - name: Post-cleanup step
-              if: success()
+              if: always()
               run: python3 bin/hobby-ci.py destroy
               env:
                   DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+            - name: Check test result
+              if: always()
+              run: |
+                  if [ "$TEST_EXIT_CODE" != "0" ]; then
+                    echo "❌ Test failed with exit code $TEST_EXIT_CODE"
+                    exit 1
+                  fi
+                  echo "✅ Test passed"

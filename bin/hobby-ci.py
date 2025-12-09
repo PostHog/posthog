@@ -352,7 +352,52 @@ ssh_authorized_keys:
                     # Show progress logs
                     print("\n📋 Cloud-init progress:", flush=True)
                     if finished and success:
-                        print("  ✅ Cloud-init completed successfully, waiting for service...", flush=True)
+                        print("  ✅ Cloud-init completed successfully", flush=True)
+
+                        # Check container health now that deployment finished
+                        print("\n🐳 Checking docker container status...", flush=True)
+                        container_status = self.run_command_on_droplet(
+                            "cd hobby && sudo -E docker-compose -f docker-compose.yml ps --format json 2>/dev/null || echo '[]'",
+                            timeout=30,
+                        )
+                        if container_status and container_status.strip():
+                            try:
+                                import json
+
+                                containers = [
+                                    json.loads(line)
+                                    for line in container_status.strip().split("\n")
+                                    if line and line != "[]"
+                                ]
+                                if containers:
+                                    running = [c for c in containers if c.get("State") == "running"]
+                                    stopped = [c for c in containers if c.get("State") != "running"]
+
+                                    print(f"  Running: {len(running)}/{len(containers)} containers", flush=True)
+                                    for c in running:
+                                        print(f"    ✅ {c.get('Service')}", flush=True)
+
+                                    if stopped:
+                                        print(f"\n  ❌ {len(stopped)} containers NOT running:", flush=True)
+                                        for c in stopped:
+                                            print(f"    ❌ {c.get('Service')}: {c.get('State')}", flush=True)
+
+                                        # Fail fast if critical containers aren't running
+                                        critical = ["web", "db", "clickhouse", "redis"]
+                                        stopped_critical = [c for c in stopped if c.get("Service") in critical]
+                                        if stopped_critical:
+                                            print(f"\n❌ Critical containers failed to start!", flush=True)
+                                            for c in stopped_critical:
+                                                print(f"   Fetching logs for {c.get('Service')}...", flush=True)
+                                                logs_cmd = f"cd hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=50 {c.get('Service')}"
+                                                container_logs = self.run_command_on_droplet(logs_cmd, timeout=30)
+                                                if container_logs:
+                                                    print(f"\n   Logs for {c.get('Service')}:", flush=True)
+                                                    for log_line in container_logs.split("\n")[-30:]:
+                                                        print(f"     {log_line}", flush=True)
+                                            return False
+                            except Exception as e:
+                                print(f"  ⚠️  Could not parse container status: {e}", flush=True)
 
                     logs = self.fetch_cloud_init_logs()
                     if logs:
@@ -368,7 +413,7 @@ ssh_authorized_keys:
                 continue
             if r.status_code == 200:
                 elapsed_total = (datetime.datetime.now() - start_time).total_seconds()
-                print(f"Success - received heartbeat from the instance after {int(elapsed_total)}s", flush=True)
+                print(f"✅ Success - received heartbeat from the instance after {int(elapsed_total)}s", flush=True)
                 return True
             if r.status_code == 502:
                 http_502_count += 1
@@ -730,6 +775,20 @@ def main():
             print(f"Logs saved to {artifact_path} ({len(logs)} bytes)", flush=True)
         else:
             print("Could not fetch cloud-init logs", flush=True)
+
+        # Fetch all docker-compose logs in one go
+        print("Fetching all docker-compose logs...", flush=True)
+        try:
+            result = ht.run_command_on_droplet(
+                "cd hobby && sudo -E docker-compose -f docker-compose.yml logs --tail=500 --no-log-prefix", timeout=60
+            )
+            if result:
+                log_path = "/tmp/docker-compose-logs.txt"
+                with open(log_path, "w") as f:
+                    f.write(result)
+                print(f"Docker logs saved to {log_path} ({len(result)} bytes)", flush=True)
+        except Exception as e:
+            print(f"Could not fetch docker logs: {e}", flush=True)
 
     if command == "test":
         name = os.environ.get("HOBBY_NAME")
