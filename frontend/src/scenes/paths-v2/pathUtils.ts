@@ -103,6 +103,8 @@ export function pageUrl(d: PathNodeData, display?: boolean): string {
         if (url.hash?.includes('/')) {
             name += url.hash
         }
+        // Decode URL-encoded characters (e.g., %3C becomes <) to display path cleaning aliases correctly
+        name = decodeURIComponent(name)
     } catch {
         // discard if invalid url
     }
