@@ -1,4 +1,4 @@
-import { IconPin, IconPinFilled } from '@posthog/icons'
+import { IconChevronRight, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel, TZLabelProps } from 'lib/components/TZLabel'
@@ -6,7 +6,8 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LogMessage } from '~/queries/schema/schema-general'
 
-import { LogsTableRowActions } from 'products/logs/frontend/components/LogsTable/LogsTableRowActions'
+import { ExpandedLogContent } from 'products/logs/frontend/components/LogsViewer/ExpandedLogContent'
+import { LogsViewerRowActions } from 'products/logs/frontend/components/LogsViewer/LogsViewerRowActions'
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
 const SEVERITY_BAR_COLORS: Record<LogMessage['severity_text'], string> = {
@@ -28,9 +29,10 @@ export interface LogColumnConfig {
 
 export const LOG_COLUMNS: LogColumnConfig[] = [
     { key: 'severity', width: 8 },
+    { key: 'expand', width: 24 },
     { key: 'timestamp', label: 'Timestamp', width: 180 },
     { key: 'message', label: 'Message', minWidth: 300, flex: 1 },
-    { key: 'actions', width: 80 },
+    { key: 'actions', width: 70 },
 ]
 
 // Calculate total width of fixed-width columns (excludes flex columns)
@@ -59,27 +61,33 @@ const getCellStyle = (column: LogColumnConfig, flexWidth?: number): React.CSSPro
 
 export interface LogRowProps {
     log: ParsedLogMessage
-    isHighlighted: boolean
+    logIndex: number
+    isAtCursor: boolean
+    isExpanded: boolean
     pinned: boolean
     showPinnedWithOpacity: boolean
     wrapBody: boolean
     prettifyJson: boolean
     tzLabelFormat: Pick<TZLabelProps, 'formatDate' | 'formatTime'>
-    onTogglePin: (uuid: string) => void
-    onSetHighlighted: (uuid: string | null) => void
+    onTogglePin: (log: ParsedLogMessage) => void
+    onToggleExpand: () => void
+    onSetCursor: () => void
     rowWidth?: number
 }
 
 export function LogRow({
     log,
-    isHighlighted,
+    logIndex,
+    isAtCursor,
+    isExpanded,
     pinned,
     showPinnedWithOpacity,
     wrapBody,
     prettifyJson,
     tzLabelFormat,
     onTogglePin,
-    onSetHighlighted,
+    onToggleExpand,
+    onSetCursor,
     rowWidth,
 }: LogRowProps): JSX.Element {
     const isNew = 'new' in log && log.new
@@ -99,11 +107,27 @@ export function LogRow({
                     </Tooltip>
                 )
             }
+            case 'expand':
+                return (
+                    <div key={column.key} style={cellStyle} className="flex items-center justify-center">
+                        <LemonButton
+                            size="xsmall"
+                            noPadding
+                            icon={
+                                <IconChevronRight className={cn('transition-transform', isExpanded && 'rotate-90')} />
+                            }
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onToggleExpand()
+                            }}
+                        />
+                    </div>
+                )
             case 'timestamp':
                 return (
                     <div key={column.key} style={cellStyle} className="flex items-center shrink-0">
                         <span className="text-xs text-muted font-mono">
-                            <TZLabel time={log.timestamp} {...tzLabelFormat} showNow={false} showToday={false} />
+                            <TZLabel time={log.timestamp} {...tzLabelFormat} timestampStyle="absolute" />
                         </span>
                     </div>
                 )
@@ -113,8 +137,12 @@ export function LogRow({
 
                 if (isPrettyJson) {
                     return (
-                        <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
-                            <pre className={cn('font-mono text-xs m-0', wrapBody ? '' : 'whitespace-nowrap truncate')}>
+                        <div
+                            key={column.key}
+                            style={cellStyle}
+                            className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                        >
+                            <pre className={cn('font-mono text-xs m-0', !wrapBody && 'whitespace-nowrap')}>
                                 {content}
                             </pre>
                         </div>
@@ -122,9 +150,16 @@ export function LogRow({
                 }
 
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-start py-1.5 overflow-hidden">
+                    <div
+                        key={column.key}
+                        style={cellStyle}
+                        className={cn('flex items-start py-1.5', wrapBody ? 'overflow-hidden' : 'overflow-x-auto')}
+                    >
                         <span
-                            className={cn('font-mono text-xs', wrapBody ? 'whitespace-pre-wrap break-all' : 'truncate')}
+                            className={cn(
+                                'font-mono text-xs',
+                                wrapBody ? 'whitespace-pre-wrap break-all' : 'whitespace-nowrap'
+                            )}
                         >
                             {content}
                         </span>
@@ -133,20 +168,24 @@ export function LogRow({
             }
             case 'actions':
                 return (
-                    <div key={column.key} style={cellStyle} className="flex items-center gap-1 justify-end shrink-0">
+                    <div
+                        key={column.key}
+                        style={cellStyle}
+                        className="flex items-center gap-1 justify-end shrink-0 px-1"
+                    >
                         <LemonButton
                             size="xsmall"
                             noPadding
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
                             onClick={(e) => {
                                 e.stopPropagation()
-                                onTogglePin(log.uuid)
+                                onTogglePin(log)
                             }}
                             tooltip={pinned ? 'Unpin log' : 'Pin log'}
                             className={cn(pinned ? 'text-warning' : 'text-muted opacity-0 group-hover:opacity-100')}
                         />
                         <div className="opacity-0 group-hover:opacity-100" onClick={(e) => e.stopPropagation()}>
-                            <LogsTableRowActions log={log} />
+                            <LogsViewerRowActions log={log} />
                         </div>
                     </div>
                 )
@@ -156,18 +195,19 @@ export function LogRow({
     }
 
     return (
-        <div
-            className={cn(
-                'flex items-center border-b border-border cursor-pointer hover:bg-fill-highlight-100 group',
-                isHighlighted && 'bg-primary-highlight',
-                pinned && 'bg-warning-highlight',
-                pinned && showPinnedWithOpacity && 'opacity-50',
-                isNew && 'VirtualizedLogsList__row--new'
-            )}
-            style={rowWidth ? { width: rowWidth } : undefined}
-            onClick={() => onSetHighlighted(isHighlighted ? null : log.uuid)}
-        >
-            {LOG_COLUMNS.map(renderCell)}
+        <div className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}>
+            <div
+                className={cn(
+                    'flex items-center cursor-pointer hover:bg-fill-highlight-100 group',
+                    isAtCursor && 'bg-primary-highlight',
+                    pinned && 'bg-warning-highlight',
+                    pinned && showPinnedWithOpacity && 'opacity-50'
+                )}
+                onClick={onSetCursor}
+            >
+                {LOG_COLUMNS.map(renderCell)}
+            </div>
+            {isExpanded && <ExpandedLogContent log={log} logIndex={logIndex} />}
         </div>
     )
 }

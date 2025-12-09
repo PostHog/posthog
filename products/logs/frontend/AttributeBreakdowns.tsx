@@ -32,6 +32,7 @@ export const AttributeBreakdowns = ({
         <div className="flex flex-col p-2 gap-y-2">
             {attributeValues.length} of the {logCount} logs have the label {attribute}
             <LemonTable
+                className="w-fit"
                 hideScrollbar
                 dataSource={dataSource}
                 size="small"

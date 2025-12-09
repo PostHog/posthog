@@ -113,6 +113,7 @@ mod tests {
             version: Some(1),
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
+            bucketing_identifier: None,
         }
     }
 

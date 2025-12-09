@@ -12,6 +12,7 @@ import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject, objectClean, pluralize } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { Scene } from 'scenes/sceneTypes'
 import {
     branchingConfigToDropdownValue,
@@ -497,6 +498,8 @@ export const surveyLogic = kea<surveyLogicType>([
             ['currentTeam'],
             propertyDefinitionsModel,
             ['propertyDefinitionsByType'],
+            maxGlobalLogic,
+            ['dataProcessingAccepted'],
         ],
     })),
     actions({
@@ -563,6 +566,22 @@ export const surveyLogic = kea<surveyLogicType>([
                 return api.surveys.summarize_responses(props.id, questionIndex, questionId)
             },
         },
+        surveyHeadline: [
+            null as { headline: string; responses_sampled: number; has_more: boolean } | null,
+            {
+                loadSurveyHeadline: async (forceRefresh: boolean = false) => {
+                    if (props.id === NEW_SURVEY.id || !values.survey?.start_date) {
+                        return null
+                    }
+                    const result = await api.surveys.getSummaryHeadline(props.id, forceRefresh)
+                    if (result) {
+                        actions.setSurveyValue('headline_summary', result.headline)
+                        actions.setSurveyValue('headline_response_count', result.responses_sampled)
+                    }
+                    return result
+                },
+            },
+        ],
         survey: {
             loadSurvey: async () => {
                 if (props.id && props.id !== 'new') {
@@ -970,6 +989,25 @@ export const surveyLogic = kea<surveyLogicType>([
 
                 if (values.survey.start_date) {
                     activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.LaunchSurvey)
+                }
+            },
+            loadSurveyBaseStatsSuccess: () => {
+                if (!values.isSurveyHeadlineEnabled || !values.dataProcessingAccepted) {
+                    return
+                }
+
+                const currentCount = values.processedSurveyStats?.[SurveyEventName.SENT]?.total_count ?? 0
+                const cachedCount = values.survey.headline_response_count ?? 0
+
+                if (currentCount === 0) {
+                    return
+                }
+
+                const needsGeneration = !values.survey.headline_summary
+                const isStale = currentCount > cachedCount + 5
+
+                if (needsGeneration || isStale) {
+                    actions.loadSurveyHeadline(true)
                 }
             },
             resetSurveyResponseLimits: () => {
@@ -1387,6 +1425,12 @@ export const surveyLogic = kea<surveyLogicType>([
             (s) => [s.enabledFlags],
             (enabledFlags: FeatureFlagsSet): boolean => {
                 return !!enabledFlags[FEATURE_FLAGS.SURVEYS_ADAPTIVE_LIMITS]
+            },
+        ],
+        isSurveyHeadlineEnabled: [
+            (s) => [s.enabledFlags],
+            (enabledFlags: FeatureFlagsSet): boolean => {
+                return !!enabledFlags[FEATURE_FLAGS.SURVEY_HEADLINE_SUMMARY]
             },
         ],
         isAnyResultsLoading: [
@@ -2123,7 +2167,16 @@ export const surveyLogic = kea<surveyLogicType>([
                 try {
                     const parsedAnswerFilters = JSON.parse(searchParams.answerFilters)
                     if (Array.isArray(parsedAnswerFilters) && parsedAnswerFilters.length > 0) {
-                        actions.setAnswerFilters(parsedAnswerFilters, false)
+                        const mergedFilters =
+                            values.answerFilters.length > 0
+                                ? values.answerFilters.map((existingFilter) => {
+                                      const urlFilter = parsedAnswerFilters.find(
+                                          (f: EventPropertyFilter) => f.key === existingFilter.key
+                                      )
+                                      return urlFilter ?? existingFilter
+                                  })
+                                : parsedAnswerFilters
+                        actions.setAnswerFilters(mergedFilters, false)
                     }
                 } catch (e) {
                     console.error('Failed to parse answerFilters from URL:', e)

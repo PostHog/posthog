@@ -3,13 +3,12 @@ import { EventHeaders, Hub, IncomingEventWithTeam } from '../../types'
 import { EventPipelineRunner } from '../../worker/ingestion/event-pipeline/runner'
 import { EventPipelineResult } from '../../worker/ingestion/event-pipeline/runner'
 import { GroupStoreForBatch } from '../../worker/ingestion/groups/group-store-for-batch.interface'
-import { PersonsStoreForBatch } from '../../worker/ingestion/persons/persons-store-for-batch'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { PipelineResult, isOkResult } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
 export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
     headers: EventHeaders
-    personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     processPerson: boolean
     forceDisablePersonProcessing: boolean
@@ -17,7 +16,8 @@ export interface EventPipelineRunnerInput extends IncomingEventWithTeam {
 
 export function createEventPipelineRunnerV1Step(
     hub: Hub,
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformerService,
+    personsStore: PersonsStore
 ): ProcessingStep<EventPipelineRunnerInput, EventPipelineResult> {
     return async function eventPipelineRunnerV1Step(
         input: EventPipelineRunnerInput
@@ -27,7 +27,6 @@ export function createEventPipelineRunnerV1Step(
             team,
             headers: inputHeaders,
             message: inputMessage,
-            personsStoreForBatch,
             groupStoreForBatch,
             processPerson,
             forceDisablePersonProcessing,
@@ -37,7 +36,7 @@ export function createEventPipelineRunnerV1Step(
             hub,
             event,
             hogTransformer,
-            personsStoreForBatch,
+            personsStore,
             groupStoreForBatch,
             inputHeaders
         )

@@ -2,7 +2,7 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING, Any, Optional
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext
+from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 
@@ -53,6 +53,7 @@ VERBOSE_NODES: set["MaxNodeName"] = {
 class ChatAgentRunner(BaseAgentRunner):
     _state: Optional[AssistantState]
     _initial_state: Optional[AssistantState | PartialAssistantState]
+    _selected_agent_mode: AgentMode | None
 
     def __init__(
         self,
@@ -67,6 +68,7 @@ class ChatAgentRunner(BaseAgentRunner):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantState | PartialAssistantState] = None,
+        agent_mode: AgentMode | None = None,
     ):
         super().__init__(
             team,
@@ -82,7 +84,6 @@ class ChatAgentRunner(BaseAgentRunner):
             is_new_conversation=is_new_conversation,
             trace_id=trace_id,
             billing_context=billing_context,
-            initial_state=initial_state,
             stream_processor=ChatAgentStreamProcessor(
                 verbose_nodes=VERBOSE_NODES,
                 streaming_nodes=STREAMING_NODES,
@@ -91,25 +92,35 @@ class ChatAgentRunner(BaseAgentRunner):
                 user=user,
             ),
         )
+        self._selected_agent_mode = agent_mode
 
     def get_initial_state(self) -> AssistantState:
         if self._latest_message:
-            return AssistantState(
+            new_state = AssistantState(
                 messages=[self._latest_message],
                 start_id=self._latest_message.id,
                 query_generation_retry_count=0,
                 graph_status=None,
                 rag_context=None,
             )
-        else:
-            return AssistantState(messages=[])
+            # Only set the agent mode if it was explicitly set.
+            if self._selected_agent_mode:
+                new_state.agent_mode = self._selected_agent_mode
+            return new_state
+
+        # When resuming, do not set the mode. It should start from the same mode as the previous generation.
+        return AssistantState(messages=[])
 
     def get_resumed_state(self) -> PartialAssistantState:
         if not self._latest_message:
             return PartialAssistantState(messages=[])
-        return PartialAssistantState(
+        new_state = PartialAssistantState(
             messages=[self._latest_message], graph_status="resumed", query_generation_retry_count=0
         )
+        # Only set the agent mode if it was explicitly set.
+        if self._selected_agent_mode:
+            new_state.agent_mode = self._selected_agent_mode
+        return new_state
 
     async def astream(
         self,

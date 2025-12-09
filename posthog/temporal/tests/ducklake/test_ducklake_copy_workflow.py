@@ -57,7 +57,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_returns_models(
             )
         ],
     )
-    monkeypatch.setenv("DUCKLAKE_DATA_BUCKET", "ducklake-test-bucket")
+    monkeypatch.setenv("DUCKLAKE_BUCKET", "ducklake-test-bucket")
     monkeypatch.setattr(ducklake_module, "_fetch_delta_partition_columns", lambda table_uri: ["timestamp"])
 
     metadata = await activity_environment.run(prepare_data_modeling_ducklake_metadata_activity, inputs)
@@ -124,7 +124,7 @@ async def test_prepare_data_modeling_ducklake_metadata_activity_applies_yaml_ove
             },
         },
     }
-    monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda: override_config)
+    monkeypatch.setattr(verification_config, "_load_verification_yaml", lambda filename: override_config)
     verification_config._get_data_modeling_verification_config.cache_clear()
     request.addfinalizer(verification_config._get_data_modeling_verification_config.cache_clear)
 
@@ -207,7 +207,7 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
 
     def fake_configure(conn, config, install_extension):
         configure_args["install_extension"] = install_extension
-        configure_args["bucket"] = config["DUCKLAKE_DATA_BUCKET"]
+        configure_args["bucket"] = config["DUCKLAKE_BUCKET"]
 
     monkeypatch.setattr(ducklake_module, "configure_connection", fake_configure)
 
@@ -246,7 +246,7 @@ async def test_copy_data_modeling_model_to_ducklake_activity_uses_duckdb(monkeyp
     ]
 
     assert configure_args["install_extension"] is True
-    assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_DATA_BUCKET"]
+    assert configure_args["bucket"] == ducklake_module.get_config()["DUCKLAKE_BUCKET"]
     assert ensured["called"] is True
     assert schema_calls and "ducklake_dev.data_modeling_team_1" in schema_calls[0]
     assert table_calls and "ducklake_dev.data_modeling_team_1.model_a" in table_calls[0][0]
