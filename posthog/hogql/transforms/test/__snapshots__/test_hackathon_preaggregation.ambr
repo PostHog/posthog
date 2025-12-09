@@ -1,0 +1,57 @@
+# serializer version: 1
+# name: TestQueryTransformation.test_basic_transformation
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state)
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+     GROUP BY day)
+  '''
+# ---
+# name: TestQueryTransformation.test_count_distinct_variant
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state)
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+     GROUP BY day)
+  '''
+# ---
+# name: TestQueryTransformation.test_date_extraction
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state)
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-06-15')), less(day, toDate('2024-07-20')))
+     GROUP BY day)
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_alias
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state) AS unique_persons
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+     GROUP BY day)
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_limit
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state)
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+     GROUP BY day
+     LIMIT 10)
+  '''
+# ---
+# name: TestQueryTransformation.test_preserves_order_by
+  '''
+  sql
+    (SELECT uniqExactMerge(persons_uniq_exact_state)
+     FROM daily_unique_persons_pageviews
+     WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+     GROUP BY day
+     ORDER BY toStartOfDay(timestamp) DESC)
+  '''
+# ---

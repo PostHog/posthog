@@ -1,0 +1,381 @@
+from datetime import datetime
+from typing import Optional
+
+from posthog.hogql import ast
+from posthog.hogql.ast import CompareOperationOp
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.visitor import CloningVisitor
+
+PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME = "daily_unique_persons_pageviews"
+
+
+def _is_person_id_field(field: ast.Field) -> bool:
+    """Check if a field represents person_id in any of its forms."""
+    return (
+        field.chain == ["person_id"]
+        or field.chain == ["person", "id"]  # person.id
+        or field.chain == ["events", "person_id"]  # events.person_id
+        or field.chain == ["events", "person", "id"]  # events.person.id
+        or (len(field.chain) == 2 and field.chain[1] == "person_id")  # table_alias.person_id
+        or (len(field.chain) == 3 and field.chain[1:] == ["person", "id"])  # table_alias.person.id
+    )
+
+
+def _is_timestamp_field(expr: ast.Expr, context: HogQLContext) -> bool:
+    """Check if an expression is a simple timestamp field."""
+    if not isinstance(expr, ast.Field):
+        return False
+
+    return (
+        expr.chain == ["timestamp"]
+        or expr.chain == ["events", "timestamp"]
+        or (len(expr.chain) == 2 and expr.chain[1] == "timestamp")
+    )
+
+
+def _is_event_field(field: ast.Field) -> bool:
+    """Check if a field represents an event property."""
+    return field.chain == ["event"] or (len(field.chain) == 2 and field.chain[1] == "event")
+
+
+def _is_pageview_filter(expr: ast.Expr) -> bool:
+    """Check if an expression is a straightforward event='$pageview' filter."""
+    if isinstance(expr, ast.CompareOperation) and expr.op == CompareOperationOp.Eq:
+        if isinstance(expr.left, ast.Field) and _is_event_field(expr.left):
+            return isinstance(expr.right, ast.Constant) and expr.right.value == "$pageview"
+        if isinstance(expr.right, ast.Field) and _is_event_field(expr.right):
+            return isinstance(expr.left, ast.Constant) and expr.left.value == "$pageview"
+    if isinstance(expr, ast.Call) and expr.name == "equals" and len(expr.args) == 2:
+        return _is_pageview_filter(
+            ast.CompareOperation(left=expr.args[0], right=expr.args[1], op=CompareOperationOp.Eq)
+        )
+    return False
+
+
+def _is_uniq_exact_persons_call(expr: ast.Expr) -> bool:
+    """Check if expression is uniqExact(person_id) or count(DISTINCT person_id)."""
+    if not isinstance(expr, ast.Call):
+        return False
+
+    # uniqExact(person_id)
+    if expr.name == "uniqExact" and len(expr.args) == 1:
+        arg = expr.args[0]
+        if isinstance(arg, ast.Field) and _is_person_id_field(arg):
+            return True
+
+    # count(DISTINCT person_id)
+    if expr.name == "count" and expr.distinct and len(expr.args) == 1:
+        arg = expr.args[0]
+        if isinstance(arg, ast.Field) and _is_person_id_field(arg):
+            return True
+
+    return False
+
+
+def _is_to_start_of_day_timestamp(expr: ast.Expr, context: HogQLContext) -> bool:
+    """Check if expression is toStartOfDay(timestamp) or toStartOfInterval(timestamp, toIntervalDay(1))."""
+    if not isinstance(expr, ast.Call):
+        return False
+
+    # toStartOfDay(timestamp)
+    if expr.name == "toStartOfDay" and len(expr.args) == 1 and _is_timestamp_field(expr.args[0], context):
+        return True
+
+    # toStartOfInterval(timestamp, toIntervalDay(1))
+    if (
+        expr.name == "toStartOfInterval"
+        and len(expr.args) == 2
+        and _is_timestamp_field(expr.args[0], context)
+        and isinstance(expr.args[1], ast.Call)
+        and expr.args[1].name == "toIntervalDay"
+        and len(expr.args[1].args) == 1
+        and isinstance(expr.args[1].args[0], ast.Constant)
+        and expr.args[1].args[0].value == 1
+    ):
+        return True
+
+    return False
+
+
+def _unwrap_alias(expr: ast.Expr) -> ast.Expr:
+    """Unwrap an Alias node to get the underlying expression."""
+    if isinstance(expr, ast.Alias):
+        return expr.expr
+    return expr
+
+
+def _call_to_compare_op(call_name: str) -> CompareOperationOp:
+    """Convert a comparison call name to CompareOperationOp."""
+    mapping = {
+        "greaterOrEquals": CompareOperationOp.GtEq,
+        "greater": CompareOperationOp.Gt,
+        "less": CompareOperationOp.Lt,
+        "lessOrEquals": CompareOperationOp.LtEq,
+        "equals": CompareOperationOp.Eq,
+        "notEquals": CompareOperationOp.NotEq,
+    }
+    return mapping.get(call_name, CompareOperationOp.Eq)
+
+
+def _extract_datetime_constant(expr: ast.Expr, context: HogQLContext) -> Optional[datetime]:
+    """Extract a datetime from a constant or toStartOfDay(constant) expression."""
+    # Direct constant: '2024-01-01' or datetime object
+    if isinstance(expr, ast.Constant):
+        if isinstance(expr.value, datetime):
+            return expr.value
+        if isinstance(expr.value, str):
+            try:
+                # Try parsing ISO format
+                dt_str = expr.value.replace("Z", "+00:00")
+                return datetime.fromisoformat(dt_str)
+            except (ValueError, AttributeError):
+                return None
+
+    # toDateTime(...) or toStartOfDay(...)
+    if isinstance(expr, ast.Call) and expr.name in ["toDateTime", "toStartOfDay"]:
+        if len(expr.args) > 0:
+            return _extract_datetime_constant(expr.args[0], context)
+
+    return None
+
+
+def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext) -> Optional[tuple[datetime, datetime]]:
+    """
+    Extract start and end timestamps from WHERE conditions.
+    Returns (start, end) as datetime objects, or None if not found.
+    """
+    start_dt = None
+    end_dt = None
+
+    for expr in where_exprs:
+        compare_expr = expr
+
+        # Try to convert Call to CompareOperation
+        if isinstance(expr, ast.Call) and expr.name in ["greaterOrEquals", "greater", "less", "lessOrEquals"]:
+            if len(expr.args) == 2:
+                compare_expr = ast.CompareOperation(
+                    left=expr.args[0], right=expr.args[1], op=_call_to_compare_op(expr.name)
+                )
+
+        if not isinstance(compare_expr, ast.CompareOperation):
+            continue
+
+        # Check if this is a timestamp comparison
+        if _is_timestamp_field(compare_expr.left, context):
+            if compare_expr.op in [CompareOperationOp.GtEq, CompareOperationOp.Gt]:
+                start_dt = _extract_datetime_constant(compare_expr.right, context)
+            elif compare_expr.op in [CompareOperationOp.Lt, CompareOperationOp.LtEq]:
+                end_dt = _extract_datetime_constant(compare_expr.right, context)
+
+        elif _is_timestamp_field(compare_expr.right, context):
+            if compare_expr.op in [CompareOperationOp.LtEq, CompareOperationOp.Lt]:
+                start_dt = _extract_datetime_constant(compare_expr.left, context)
+            elif compare_expr.op in [CompareOperationOp.GtEq, CompareOperationOp.Gt]:
+                end_dt = _extract_datetime_constant(compare_expr.left, context)
+
+    if start_dt and end_dt:
+        return (start_dt, end_dt)
+
+    return None
+
+
+def _flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
+    """Flatten AND expressions in the AST."""
+    if node is None:
+        return []
+    if isinstance(node, ast.And):
+        # If it's an AND expression, recursively flatten its children
+        flattened_exprs = []
+        for expr in node.exprs:
+            flattened_child = _flatten_and(expr)
+            if flattened_child:
+                flattened_exprs.extend(flattened_child)
+        return flattened_exprs
+
+    if isinstance(node, ast.Call) and node.name == "and":
+        return _flatten_and(ast.And(exprs=node.args))
+
+    return [node]
+
+
+def _is_valid_events_from(select_from: Optional[ast.JoinExpr]) -> bool:
+    """Check if the FROM clause is a simple events table reference."""
+    if not select_from or not isinstance(select_from.table, ast.Field):
+        return False
+    if select_from.table.chain != ["events"]:
+        return False
+    # No joins allowed
+    if select_from.next_join or select_from.constraint:
+        return False
+    return True
+
+
+def _is_daily_unique_persons_pageviews_query(node: ast.SelectQuery, context: HogQLContext) -> bool:
+    """
+    Detect if a query matches the pattern:
+    SELECT uniqExact(person_id) FROM events WHERE event='$pageview' GROUP BY toStartOfDay(timestamp)
+    """
+
+    # 1. Must select from 'events' table (no joins)
+    if not _is_valid_events_from(node.select_from):
+        return False
+
+    # 2. Must have exactly one SELECT expression
+    if not node.select or len(node.select) != 1:
+        return False
+
+    # 3. SELECT must be uniqExact(person_id) or count(DISTINCT person_id)
+    select_expr = _unwrap_alias(node.select[0])
+    if not _is_uniq_exact_persons_call(select_expr):
+        return False
+
+    # 4. WHERE must contain event='$pageview' filter
+    where_exprs = _flatten_and(node.where)
+    if not any(_is_pageview_filter(expr) for expr in where_exprs):
+        return False
+
+    # 5. Must have timestamp range in WHERE
+    timestamp_range = _extract_timestamp_range(where_exprs, context)
+    if timestamp_range is None:
+        return False
+
+    # 6. GROUP BY must contain toStartOfDay(timestamp)
+    if not node.group_by or len(node.group_by) != 1:
+        return False
+
+    group_expr = _unwrap_alias(node.group_by[0])
+    if not _is_to_start_of_day_timestamp(group_expr, context):
+        return False
+
+    # 7. No unsupported clauses
+    if (
+        node.having
+        or node.window_exprs
+        or node.prewhere
+        or node.array_join_list
+        or node.distinct
+        or node.limit_by
+        or node.limit_with_ties
+    ):
+        return False
+
+    return True
+
+
+def _run_daily_unique_persons_pageviews(start, end):
+    """
+    Stub for job orchestration (not implemented in MVP).
+    In production, this would:
+    - Check postgres for which days we already have that are between start & end
+    - Take the set difference for days we need to run now
+    - Trigger the missing days jobs
+    - Wait for completion
+
+    For MVP, we just return ready=True to enable testing the transformation logic.
+    """
+    # TODO: Implement actual job orchestration with Celery
+    return {"ready": True, "task_ids": [], "errors": []}
+
+
+class ExprTransformer(CloningVisitor):
+    """
+    Transforms an individual select statement's fields to be using ClickHouse
+    merging an aggregate function state.
+    """
+
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+
+
+class Transformer(CloningVisitor):
+    """Transform queries to use daily_unique_persons_pageviews table."""
+
+    def __init__(self, context: HogQLContext) -> None:
+        super().__init__()
+        self.context = context
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        # First, recursively transform any nested select queries (e.g., subqueries, CTEs)
+
+        # Check if this query matches the pattern
+        if not _is_daily_unique_persons_pageviews_query(node, self.context):
+            return node
+
+        transformed_node = super().visit_select_query(node)
+        # Extract date range
+        where_exprs = _flatten_and(transformed_node.where)
+        timestamp_range = _extract_timestamp_range(where_exprs, self.context)
+
+        if not timestamp_range:
+            # Shouldn't happen if pattern detection worked, but defensive
+            return transformed_node
+
+        start_dt, end_dt = timestamp_range
+
+        # For MVP, we stub out the job orchestration
+        # In production, this would trigger Celery tasks and wait
+        result = _run_daily_unique_persons_pageviews(start_dt, end_dt)
+
+        if not result["ready"]:
+            # Preaggregation not ready, fall back to original query
+            return transformed_node
+
+        # Transform the query to use preaggregated table
+        # SELECT uniqExact(person_id) -> SELECT uniqExactMerge(persons_uniq_exact_state)
+        original_select = transformed_node.select[0]
+        original_alias = original_select.alias if isinstance(original_select, ast.Alias) else None
+
+        transformed_select_expr = ast.Call(name="uniqExactMerge", args=[ast.Field(chain=["persons_uniq_exact_state"])])
+
+        # Preserve the original alias if it exists
+        if original_alias:
+            select = [ast.Alias(alias=original_alias, expr=transformed_select_expr)]
+        else:
+            select = [transformed_select_expr]
+
+        # FROM daily_unique_persons_pageviews
+        select_from = ast.JoinExpr(
+            table=ast.Field(chain=[PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME]),
+            alias=transformed_node.select_from.alias if transformed_node.select_from else None,
+            constraint=None,
+            next_join=None,
+            sample=None,
+        )
+
+        # WHERE day >= start AND day < end
+        where_conditions = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["day"]), right=ast.Constant(value=start_dt.date()), op=CompareOperationOp.GtEq
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["day"]), right=ast.Constant(value=end_dt.date()), op=CompareOperationOp.Lt
+            ),
+        ]
+        where = ast.And(exprs=where_conditions) if len(where_conditions) > 1 else where_conditions[0]
+
+        # GROUP BY day (transformed to use 'day' field instead of toStartOfDay(timestamp))
+        group_by = [ast.Field(chain=["day"])]
+
+        # Create transformed query
+        final_transformed = ast.SelectQuery(
+            select=select,
+            select_from=select_from,
+            group_by=group_by,
+            where=where,
+            array_join_list=None,
+            array_join_op=None,
+            limit_by=None,
+            limit_with_ties=None,
+            window_exprs=None,
+            prewhere=None,
+            view_name=None,
+            distinct=None,
+            limit=transformed_node.limit,
+            offset=transformed_node.offset,
+            order_by=transformed_node.order_by,
+            having=transformed_node.having,
+            settings=transformed_node.settings,
+            ctes=transformed_node.ctes,  # Preserve CTEs, they should get transformed by the outer visitor
+        )
+        return final_transformed

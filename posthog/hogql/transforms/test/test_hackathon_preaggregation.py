@@ -1,0 +1,428 @@
+from datetime import datetime
+
+from posthog.test.base import BaseTest, QueryMatchingTest
+
+from parameterized import parameterized
+
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.transforms.hackathon_preaggregation import (
+    PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME,
+    Transformer,
+    _extract_timestamp_range,
+    _flatten_and,
+    _is_daily_unique_persons_pageviews_query,
+    _is_pageview_filter,
+    _is_person_id_field,
+    _is_timestamp_field,
+    _is_to_start_of_day_timestamp,
+    _is_uniq_exact_persons_call,
+)
+
+
+class TestPatternDetection(BaseTest):
+    """Tests for individual pattern detection functions."""
+
+    def test_is_person_id_field(self):
+        from posthog.hogql import ast
+
+        # Positive cases
+        assert _is_person_id_field(ast.Field(chain=["person_id"]))
+        assert _is_person_id_field(ast.Field(chain=["person", "id"]))
+        assert _is_person_id_field(ast.Field(chain=["events", "person_id"]))
+        assert _is_person_id_field(ast.Field(chain=["events", "person", "id"]))
+        assert _is_person_id_field(ast.Field(chain=["e", "person_id"]))
+        assert _is_person_id_field(ast.Field(chain=["e", "person", "id"]))
+
+        # Negative cases
+        assert not _is_person_id_field(ast.Field(chain=["id"]))
+        assert not _is_person_id_field(ast.Field(chain=["user_id"]))
+        assert not _is_person_id_field(ast.Field(chain=["event"]))
+
+    def test_is_timestamp_field(self):
+        from posthog.hogql import ast
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+
+        # Positive cases
+        assert _is_timestamp_field(ast.Field(chain=["timestamp"]), context)
+        assert _is_timestamp_field(ast.Field(chain=["events", "timestamp"]), context)
+        assert _is_timestamp_field(ast.Field(chain=["e", "timestamp"]), context)
+
+        # Negative cases
+        assert not _is_timestamp_field(ast.Field(chain=["time"]), context)
+        assert not _is_timestamp_field(ast.Field(chain=["created_at"]), context)
+        assert not _is_timestamp_field(ast.Constant(value="timestamp"), context)
+
+    def test_is_pageview_filter(self):
+        from posthog.hogql import ast
+        from posthog.hogql.ast import CompareOperationOp
+
+        # Positive cases: event = '$pageview'
+        expr1 = ast.CompareOperation(
+            left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageview"), op=CompareOperationOp.Eq
+        )
+        assert _is_pageview_filter(expr1)
+
+        # Reversed: '$pageview' = event
+        expr2 = ast.CompareOperation(
+            left=ast.Constant(value="$pageview"), right=ast.Field(chain=["event"]), op=CompareOperationOp.Eq
+        )
+        assert _is_pageview_filter(expr2)
+
+        # With table alias: events.event = '$pageview'
+        expr3 = ast.CompareOperation(
+            left=ast.Field(chain=["events", "event"]), right=ast.Constant(value="$pageview"), op=CompareOperationOp.Eq
+        )
+        assert _is_pageview_filter(expr3)
+
+        # Negative cases
+        expr4 = ast.CompareOperation(
+            left=ast.Field(chain=["event"]), right=ast.Constant(value="$pageclick"), op=CompareOperationOp.Eq
+        )
+        assert not _is_pageview_filter(expr4)
+
+    def test_is_uniq_exact_persons_call(self):
+        from posthog.hogql import ast
+
+        # Positive cases: uniqExact(person_id)
+        expr1 = ast.Call(name="uniqExact", args=[ast.Field(chain=["person_id"])])
+        assert _is_uniq_exact_persons_call(expr1)
+
+        # count(DISTINCT person_id)
+        expr2 = ast.Call(name="count", args=[ast.Field(chain=["person_id"])], distinct=True)
+        assert _is_uniq_exact_persons_call(expr2)
+
+        # uniqExact(events.person_id)
+        expr3 = ast.Call(name="uniqExact", args=[ast.Field(chain=["events", "person_id"])])
+        assert _is_uniq_exact_persons_call(expr3)
+
+        # uniqExact(person.id)
+        expr4 = ast.Call(name="uniqExact", args=[ast.Field(chain=["person", "id"])])
+        assert _is_uniq_exact_persons_call(expr4)
+
+        # Negative cases: count(*)
+        expr5 = ast.Call(name="count", args=[])
+        assert not _is_uniq_exact_persons_call(expr5)
+
+        # uniq(person_id) - not uniqExact
+        expr6 = ast.Call(name="uniq", args=[ast.Field(chain=["person_id"])])
+        assert not _is_uniq_exact_persons_call(expr6)
+
+        # uniqExact(id) - wrong field
+        expr7 = ast.Call(name="uniqExact", args=[ast.Field(chain=["id"])])
+        assert not _is_uniq_exact_persons_call(expr7)
+
+    def test_is_to_start_of_day_timestamp(self):
+        from posthog.hogql import ast
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+
+        # Positive cases: toStartOfDay(timestamp)
+        expr1 = ast.Call(name="toStartOfDay", args=[ast.Field(chain=["timestamp"])])
+        assert _is_to_start_of_day_timestamp(expr1, context)
+
+        # toStartOfInterval(timestamp, toIntervalDay(1))
+        expr2 = ast.Call(
+            name="toStartOfInterval",
+            args=[ast.Field(chain=["timestamp"]), ast.Call(name="toIntervalDay", args=[ast.Constant(value=1)])],
+        )
+        assert _is_to_start_of_day_timestamp(expr2, context)
+
+        # With table alias: toStartOfDay(events.timestamp)
+        expr3 = ast.Call(name="toStartOfDay", args=[ast.Field(chain=["events", "timestamp"])])
+        assert _is_to_start_of_day_timestamp(expr3, context)
+
+        # Negative cases: toStartOfHour(timestamp)
+        expr4 = ast.Call(name="toStartOfHour", args=[ast.Field(chain=["timestamp"])])
+        assert not _is_to_start_of_day_timestamp(expr4, context)
+
+        # toStartOfDay(created_at) - wrong field
+        expr5 = ast.Call(name="toStartOfDay", args=[ast.Field(chain=["created_at"])])
+        assert not _is_to_start_of_day_timestamp(expr5, context)
+
+    def test_extract_timestamp_range(self):
+        from posthog.hogql import ast
+        from posthog.hogql.ast import CompareOperationOp
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+
+        # Test case: timestamp >= '2024-01-01' AND timestamp < '2024-02-01'
+        where_exprs = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value="2024-01-01 00:00:00"),
+                op=CompareOperationOp.GtEq,
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value="2024-02-01 00:00:00"),
+                op=CompareOperationOp.Lt,
+            ),
+        ]
+
+        result = _extract_timestamp_range(where_exprs, context)
+        assert result is not None
+        start_dt, end_dt = result
+        assert start_dt == datetime(2024, 1, 1, 0, 0, 0)
+        assert end_dt == datetime(2024, 2, 1, 0, 0, 0)
+
+    def test_flatten_and(self):
+        from posthog.hogql import ast
+
+        # Simple case: already flat
+        expr1 = ast.Constant(value=1)
+        assert _flatten_and(expr1) == [expr1]
+
+        # AND with two expressions
+        expr2 = ast.And(exprs=[ast.Constant(value=1), ast.Constant(value=2)])
+        assert len(_flatten_and(expr2)) == 2
+
+        # Nested AND
+        expr3 = ast.And(exprs=[ast.Constant(value=1), ast.And(exprs=[ast.Constant(value=2), ast.Constant(value=3)])])
+        assert len(_flatten_and(expr3)) == 3
+
+        # None
+        assert _flatten_and(None) == []
+
+
+class TestQueryPatternDetection(BaseTest):
+    """Tests for the main query pattern detection function."""
+
+    def test_basic_matching_query(self):
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
+    def test_count_distinct_variant(self):
+        query = """
+            SELECT count(DISTINCT person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
+    def test_with_alias(self):
+        query = """
+            SELECT uniqExact(person_id) AS unique_persons
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp) AS day
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
+    @parameterized.expand(
+        [
+            (
+                "wrong_event",
+                "SELECT uniqExact(person_id) FROM events WHERE event = 'other' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "no_event_filter",
+                "SELECT uniqExact(person_id) FROM events WHERE timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "wrong_aggregation",
+                "SELECT count(*) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "no_timestamp_range",
+                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "wrong_group_by",
+                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfHour(timestamp)",
+            ),
+            (
+                "multiple_select",
+                "SELECT uniqExact(person_id), count(*) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "with_having",
+                "SELECT uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp) HAVING uniqExact(person_id) > 10",
+            ),
+            (
+                "with_distinct",
+                "SELECT DISTINCT uniqExact(person_id) FROM events WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "from_sessions",
+                "SELECT uniqExact(person_id) FROM sessions WHERE event = '$pageview' AND timestamp >= '2024-01-01' AND timestamp < '2024-02-01' GROUP BY toStartOfDay(timestamp)",
+            ),
+            (
+                "with_join",
+                "SELECT uniqExact(e.person_id) FROM events e JOIN sessions s ON e.session_id = s.id WHERE e.event = '$pageview' AND e.timestamp >= '2024-01-01' AND e.timestamp < '2024-02-01' GROUP BY toStartOfDay(e.timestamp)",
+            ),
+        ]
+    )
+    def test_non_matching_queries(self, name, query):
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert not _is_daily_unique_persons_pageviews_query(node, context), f"Query should not match: {name}"
+
+
+class TestQueryTransformation(BaseTest, QueryMatchingTest):
+    """Tests for the query transformation logic."""
+
+    def _parse_and_transform(self, query: str) -> str:
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        transformer = Transformer(context)
+        transformed = transformer.visit(node)
+        return str(transformed)
+
+    def _normalize(self, query: str) -> str:
+        node = parse_select(query)
+        return str(node)
+
+    def test_basic_transformation(self):
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that transformation occurred
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+        assert "persons_uniq_exact_state" in transformed
+        assert "day" in transformed
+
+        # Original elements should not be present
+        assert "events" not in transformed
+        assert "toStartOfDay(timestamp)" not in transformed
+
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_preserves_alias(self):
+        original_query = """
+            SELECT uniqExact(person_id) AS unique_persons
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Alias should be preserved
+        assert "unique_persons" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_preserves_order_by(self):
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+            ORDER BY toStartOfDay(timestamp) DESC
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "ORDER BY" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_preserves_limit(self):
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+            LIMIT 10
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "LIMIT 10" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_no_transformation_for_non_matching_query(self):
+        original_query = """
+            SELECT count(*)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Should not be transformed
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME not in transformed
+        assert transformed == self._normalize(original_query)
+
+    def test_count_distinct_variant(self):
+        original_query = """
+            SELECT count(DISTINCT person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+              AND timestamp < '2024-02-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_nested_select(self):
+        original_query = """
+            SELECT sum(unique_persons) FROM (
+                SELECT uniqExact(person_id) AS unique_persons
+                FROM events
+                WHERE event = '$pageview'
+                  AND timestamp >= '2024-01-01'
+                  AND timestamp < '2024-02-01'
+                GROUP BY toStartOfDay(timestamp)
+            )
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Inner query should be transformed
+        assert PREAGGREGATED_DAILY_UNIQUE_PERSONS_PAGEVIEWS_TABLE_NAME in transformed
+        assert "uniqExactMerge" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
+
+    def test_date_extraction(self):
+        """Test that date range is correctly extracted and used in WHERE clause."""
+        original_query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-06-15'
+              AND timestamp < '2024-07-20'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        transformed = self._parse_and_transform(original_query)
+
+        # Check that the date range is in the transformed query
+        assert "2024-06-15" in transformed
+        assert "2024-07-20" in transformed
+        self.assertQueryMatchesSnapshot(transformed)
