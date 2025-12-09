@@ -117,7 +117,7 @@ async def get_s3_client():
         config=AioConfig(
             connect_timeout=60,
             read_timeout=300,
-            connector_args={"keepalive_timeout": 300},
+            connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
         ),
     ) as s3_client:
