@@ -199,8 +199,8 @@ mod tests {
         let token = "phc_test_token";
         let event_uuid = "550e8400-e29b-41d4-a716-446655440000";
 
-        let key = format!("{}{}/{}", prefix, token, event_uuid);
-        let url = format!("s3://{}/{}", bucket, key);
+        let key = format!("{prefix}{token}/{event_uuid}");
+        let url = format!("s3://{bucket}/{key}");
 
         assert_eq!(
             url,

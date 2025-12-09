@@ -180,9 +180,9 @@ fn setup_ai_test_router() -> Router {
         1_i64,
         false,
         0.0_f32,
-        26_214_400,                    // 25MB default for AI endpoint
+        26_214_400,                       // 25MB default for AI endpoint
         Some(create_mock_blob_storage()), // ai_blob_storage
-        Some(10),                      // request_timeout_seconds
+        Some(10),                         // request_timeout_seconds
     )
 }
 
@@ -1645,21 +1645,15 @@ async fn test_ai_event_with_blobs_published_with_s3_placeholders() {
     // URL format: s3://test-bucket/llma/<token>/<uuid>?range=...
     let expected_prefix = format!(
         "s3://{}/{}{}/",
-        TEST_BLOB_BUCKET,
-        TEST_BLOB_PREFIX,
-        "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
+        TEST_BLOB_BUCKET, TEST_BLOB_PREFIX, "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"
     );
     assert!(
         input_url.starts_with(&expected_prefix),
-        "Input URL should start with {}, got {}",
-        expected_prefix,
-        input_url
+        "Input URL should start with {expected_prefix}, got {input_url}"
     );
     assert!(
         output_url.starts_with(&expected_prefix),
-        "Output URL should start with {}, got {}",
-        expected_prefix,
-        output_url
+        "Output URL should start with {expected_prefix}, got {output_url}"
     );
 
     // Extract UUIDs from both URLs (should be the same)

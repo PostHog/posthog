@@ -1,7 +1,6 @@
 pub mod ai_endpoint;
 pub mod ai_s3;
 pub mod api;
-pub mod s3_client;
 pub mod config;
 pub mod events;
 pub mod limiters;
@@ -9,6 +8,7 @@ pub mod metrics_middleware;
 pub mod payload;
 pub mod prometheus;
 pub mod router;
+pub mod s3_client;
 pub mod server;
 pub mod sinks;
 pub mod test_endpoint;
