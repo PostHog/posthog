@@ -1761,6 +1761,11 @@ class PostgresPrinter(_Printer):
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
 
+    def visit_call(self, node: ast.Call):
+        # No function call validation for postgres
+        args = [self.visit(arg) for arg in node.args]
+        return f"{node.name}({', '.join(args)})"
+
 
 class ClickHousePrinter(_Printer):
     def __init__(
