@@ -16,6 +16,7 @@ export interface Ticket {
     message_count: number
     last_message_at: string | null
     last_message_text: string | null
+    unread_team_count: number
 }
 
 export const statusOptions: { value: TicketStatus | 'all'; label: string }[] = [

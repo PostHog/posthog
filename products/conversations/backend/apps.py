@@ -6,3 +6,6 @@ class ConversationsConfig(AppConfig):
     name = "products.conversations.backend"
     label = "conversations"
     verbose_name = "Conversations"
+
+    def ready(self):
+        from . import signals  # noqa: F401

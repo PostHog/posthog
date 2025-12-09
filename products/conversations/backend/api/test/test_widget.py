@@ -801,3 +801,196 @@ class TestWidgetRateLimiting(APIBaseTest):
             # This is a basic check - actual behavior depends on rate limit settings
             if i < 30:
                 self.assertIn(response.status_code, [status.HTTP_200_OK, status.HTTP_429_TOO_MANY_REQUESTS])
+
+
+class TestWidgetUnreadMessages(APIBaseTest):
+    """Tests for unread message counters."""
+
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.conversations_public_token = "test_token_123"
+        self.team.save()
+        self.headers = {"X-Conversations-Token": "test_token_123"}
+
+    def test_customer_message_increments_team_unread_count(self):
+        """When customer sends a message, unread_team_count should increment."""
+        widget_session_id = generate_widget_session_id()
+
+        # First message creates ticket with unread_team_count=1
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user_123",
+                    "message": "First message",
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket_id = response.json()["ticket_id"]
+        ticket = Ticket.objects.get(id=ticket_id)
+        self.assertEqual(ticket.unread_team_count, 1)
+        self.assertEqual(ticket.unread_customer_count, 0)
+
+        # Second message increments to 2
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user_123",
+                    "message": "Second message",
+                    "ticket_id": ticket_id,
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_team_count, 2)
+
+    def test_response_includes_unread_count(self):
+        """Message response should include unread_count for customer."""
+        widget_session_id = generate_widget_session_id()
+
+        response = self.client.post(
+            "/api/conversations/v1/widget/message",
+            data=json.dumps(
+                {
+                    "widget_session_id": widget_session_id,
+                    "distinct_id": "user_123",
+                    "message": "Hello",
+                }
+            ),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn("unread_count", data)
+        self.assertEqual(data["unread_count"], 0)  # No unread for customer yet
+
+    def test_get_messages_includes_unread_count(self):
+        """GET messages should include unread_count."""
+        widget_session_id = generate_widget_session_id()
+        ticket = Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+            unread_customer_count=3,
+        )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={widget_session_id}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["unread_count"], 3)
+
+    def test_tickets_list_includes_unread_count(self):
+        """GET tickets should include unread_count per ticket."""
+        widget_session_id = generate_widget_session_id()
+        Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+            unread_customer_count=5,
+        )
+
+        response = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["count"], 1)
+        self.assertEqual(data["results"][0]["unread_count"], 5)
+
+    def test_mark_read_resets_customer_unread_count(self):
+        """POST mark-read should reset unread_customer_count to 0."""
+        widget_session_id = generate_widget_session_id()
+        ticket = Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+            unread_customer_count=5,
+        )
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            data=json.dumps({"widget_session_id": widget_session_id}),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["unread_count"], 0)
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_customer_count, 0)
+
+    def test_mark_read_requires_widget_session_id(self):
+        """Mark-read should require widget_session_id."""
+        widget_session_id = generate_widget_session_id()
+        ticket = Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_id,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+        )
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            data=json.dumps({}),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_mark_read_other_sessions_ticket(self):
+        """Cannot mark another session's ticket as read."""
+        widget_session_1 = generate_widget_session_id()
+        widget_session_2 = generate_widget_session_id()
+
+        ticket = Ticket.objects.create(
+            team=self.team,
+            widget_session_id=widget_session_1,
+            distinct_id="user_123",
+            channel_source="widget",
+            status="new",
+            unread_customer_count=5,
+        )
+
+        response = self.client.post(
+            f"/api/conversations/v1/widget/messages/{ticket.id}/read",
+            data=json.dumps({"widget_session_id": widget_session_2}),
+            content_type="application/json",
+            headers=self.headers,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Unread count should not have changed
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.unread_customer_count, 5)

@@ -17,7 +17,7 @@ import hashlib
 import logging
 from typing import Optional
 
-from django.db.models import Q
+from django.db.models import F, Q
 
 from rest_framework import status
 from rest_framework.authentication import BaseAuthentication
@@ -243,7 +243,10 @@ class WidgetMessageView(APIView):
                 if traits:
                     ticket.anonymous_traits.update(traits)
 
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "updated_at"])
+                # Increment unread count for team (customer sent a message)
+                ticket.unread_team_count = F("unread_team_count") + 1
+                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.refresh_from_db()
 
             except Ticket.DoesNotExist:
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -259,9 +262,12 @@ class WidgetMessageView(APIView):
                     ticket.distinct_id = distinct_id
                 if traits:
                     ticket.anonymous_traits.update(traits)
-                ticket.save(update_fields=["distinct_id", "anonymous_traits", "updated_at"])
+                # Increment unread count for team
+                ticket.unread_team_count = F("unread_team_count") + 1
+                ticket.save(update_fields=["distinct_id", "anonymous_traits", "unread_team_count", "updated_at"])
+                ticket.refresh_from_db()
             else:
-                # Create new ticket
+                # Create new ticket (first message is unread for team)
                 ticket = Ticket.objects.create(
                     team=team,
                     widget_session_id=widget_session_id,
@@ -269,6 +275,7 @@ class WidgetMessageView(APIView):
                     channel_source="widget",
                     status="new",
                     anonymous_traits=traits,
+                    unread_team_count=1,
                 )
 
         # Create message
@@ -285,6 +292,7 @@ class WidgetMessageView(APIView):
                 "ticket_id": str(ticket.id),
                 "message_id": str(comment.id),
                 "ticket_status": ticket.status,
+                "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                 "created_at": comment.created_at.isoformat(),
             },
             status=status.HTTP_200_OK,
@@ -373,6 +381,7 @@ class WidgetMessagesView(APIView):
             {
                 "ticket_id": str(ticket.id),
                 "ticket_status": ticket.status,
+                "unread_count": ticket.unread_customer_count,
                 "messages": message_list,
                 "has_more": len(messages) == limit,  # Hint if there are more messages
             }
@@ -433,6 +442,7 @@ class WidgetTicketsView(APIView):
                 {
                     "id": str(ticket.id),
                     "status": ticket.status,
+                    "unread_count": ticket.unread_customer_count,  # Unread messages for customer
                     "last_message": last_comment.content if last_comment else None,
                     "last_message_at": last_comment.created_at.isoformat() if last_comment else None,
                     "message_count": message_count,
@@ -441,3 +451,44 @@ class WidgetTicketsView(APIView):
             )
 
         return Response({"count": total_count, "results": ticket_list})
+
+
+class WidgetMarkReadView(APIView):
+    """
+    POST /api/conversations/v1/widget/messages/<ticket_id>/read
+    Mark all messages in a ticket as read by the customer.
+
+    This resets unread_customer_count to 0.
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = [WidgetUserBurstThrottle, WidgetTeamThrottle]
+
+    def post(self, request: Request, ticket_id: str) -> Response:
+        """Mark ticket messages as read by customer."""
+
+        team: Team = request.auth
+
+        try:
+            widget_session_id = validate_widget_session_id(request.data.get("widget_session_id"))
+        except ValidationError:
+            logger.exception("Validation error in WidgetMarkReadView")
+            return Response({"error": "Invalid request data"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get ticket
+        try:
+            ticket = Ticket.objects.get(id=ticket_id, team=team)
+        except Ticket.DoesNotExist:
+            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # CRITICAL: Verify the ticket belongs to this widget_session_id
+        if ticket.widget_session_id != widget_session_id:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        # Reset unread count for customer
+        if ticket.unread_customer_count > 0:
+            ticket.unread_customer_count = 0
+            ticket.save(update_fields=["unread_customer_count", "updated_at"])
+
+        return Response({"success": True, "unread_count": 0})

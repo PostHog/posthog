@@ -4,6 +4,7 @@ from django.db.models.functions import Cast
 import structlog
 from rest_framework import pagination, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.comment import Comment
@@ -38,6 +39,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "message_count",
             "last_message_at",
             "last_message_text",
+            "unread_team_count",
         ]
         read_only_fields = [
             "id",
@@ -47,6 +49,7 @@ class TicketSerializer(serializers.ModelSerializer):
             "message_count",
             "last_message_at",
             "last_message_text",
+            "unread_team_count",
         ]
 
     def get_message_count(self, obj: Ticket) -> int:
@@ -150,3 +153,12 @@ class TicketViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         return queryset.order_by("-updated_at")
+
+    def retrieve(self, request, *args, **kwargs):
+        """Get single ticket and mark as read by team."""
+        instance = self.get_object()
+        if instance.unread_team_count > 0:
+            instance.unread_team_count = 0
+            instance.save(update_fields=["unread_team_count"])
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)

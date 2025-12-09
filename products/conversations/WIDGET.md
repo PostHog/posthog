@@ -311,6 +311,7 @@ Create a new message or start a new conversation.
   "ticket_id": "550e8400-e29b-41d4-a716-446655440000",
   "message_id": "660e8400-e29b-41d4-a716-446655440001",
   "ticket_status": "new",
+  "unread_count": 0,
   "created_at": "2024-01-01T12:00:00Z"
 }
 ```
@@ -349,6 +350,7 @@ Get all messages for a ticket.
 {
   "ticket_id": "550e8400-e29b-41d4-a716-446655440000",
   "ticket_status": "open",
+  "unread_count": 2,
   "messages": [
     {
       "id": "660e8400-e29b-41d4-a716-446655440001",
@@ -424,6 +426,7 @@ Get all tickets for current widget_session_id (browser session).
     {
       "id": "550e8400-e29b-41d4-a716-446655440000",
       "status": "open",
+      "unread_count": 2,
       "last_message": "Sure, it's john@example.com",
       "last_message_at": "2024-01-01T12:00:15Z",
       "message_count": 3,
@@ -432,6 +435,7 @@ Get all tickets for current widget_session_id (browser session).
     {
       "id": "550e8400-e29b-41d4-a716-446655440111",
       "status": "resolved",
+      "unread_count": 0,
       "last_message": "Thank you for your help!",
       "last_message_at": "2023-12-28T14:30:00Z",
       "message_count": 8,
@@ -459,6 +463,97 @@ Get all tickets for current widget_session_id (browser session).
 - Returns only tickets owned by this widget_session_id
 - Different devices/browsers have different widget_session_ids, so chat history is per-browser
 - This is by design for security - prevents accessing chats by knowing someone's email
+
+### POST /api/conversations/v1/widget/messages/:ticket_id/read
+
+Mark all messages in a ticket as read by the customer. Resets the unread counter to 0.
+
+**Request:**
+
+```json
+{
+  "widget_session_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479"
+}
+```
+
+**Success Response (200):**
+
+```json
+{
+  "success": true,
+  "unread_count": 0
+}
+```
+
+**Error Responses:**
+
+- `401 Unauthorized`: Invalid token
+- `403 Forbidden`: Ticket doesn't belong to this widget_session_id
+- `404 Not Found`: Ticket doesn't exist
+- `400 Bad Request`: Missing or invalid widget_session_id
+
+## Unread Message Counters
+
+The widget tracks unread messages in both directions:
+
+### How It Works
+
+| Direction | Field | Incremented When | Reset When |
+|-----------|-------|------------------|------------|
+| Customer → Team | `unread_team_count` | Customer sends a message | Team member opens ticket in dashboard |
+| Team → Customer | `unread_customer_count` | Team/AI sends a message | Customer calls mark-read endpoint |
+
+### Widget Badge
+
+The `unread_count` field is included in all responses:
+
+- **POST /message** → `unread_count` (messages customer hasn't seen)
+- **GET /messages** → `unread_count` (messages customer hasn't seen)
+- **GET /tickets** → `unread_count` per ticket
+
+Use this to show a badge on the widget button when there are unread replies.
+
+### Typical Flow
+
+```javascript
+// 1. Widget opens - check for unread messages
+const response = await fetch(`/api/conversations/v1/widget/tickets?widget_session_id=${sessionId}`)
+const data = await response.json()
+
+// Calculate total unread across all tickets
+const totalUnread = data.results.reduce((sum, t) => sum + t.unread_count, 0)
+if (totalUnread > 0) {
+  showBadge(totalUnread)
+}
+
+// 2. User opens a conversation - mark as read
+async function openConversation(ticketId) {
+  // Get messages
+  const messages = await fetchMessages(ticketId)
+  
+  // Mark as read
+  await fetch(`/api/conversations/v1/widget/messages/${ticketId}/read`, {
+    method: 'POST',
+    headers: {
+      'X-Conversations-Token': config.publicToken,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ widget_session_id: sessionId })
+  })
+  
+  // Update badge
+  updateBadge()
+}
+
+// 3. Polling - check for new messages
+setInterval(async () => {
+  const response = await fetchMessages(currentTicketId)
+  if (response.unread_count > 0) {
+    // New message from support!
+    showNotification()
+  }
+}, 5000)
+```
 
 ## Implementation Recommendations
 

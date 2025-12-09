@@ -16,6 +16,11 @@ class Ticket(UUIDTModel):
     anonymous_traits = models.JSONField(default=dict, blank=True)
     ai_resolved = models.BooleanField(default=False)
     escalation_reason = models.TextField(null=True, blank=True)
+
+    # Unread message counters
+    unread_customer_count = models.IntegerField(default=0)  # Messages customer hasn't seen (from team/AI)
+    unread_team_count = models.IntegerField(default=0)  # Messages team hasn't seen (from customer)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

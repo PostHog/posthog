@@ -1,8 +1,9 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBadge, LemonCheckbox, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -91,6 +92,11 @@ export function ConversationsTicketsScene(): JSX.Element {
                 onRow={(ticket) => ({
                     onClick: () => push(urls.conversationsTicketDetail(ticket.id)),
                 })}
+                rowClassName={(ticket) =>
+                    clsx({
+                        'bg-primary-alt-highlight': ticket.unread_team_count > 0,
+                    })
+                }
                 columns={[
                     {
                         title: 'Ticket',
@@ -98,9 +104,20 @@ export function ConversationsTicketsScene(): JSX.Element {
                         render: (_, ticket) => (
                             <div>
                                 <div className="flex items-center gap-2">
-                                    <span className="font-medium">
+                                    <span
+                                        className={clsx('font-medium', {
+                                            'font-bold': ticket.unread_team_count > 0,
+                                        })}
+                                    >
                                         <PersonDisplay noLink noPopover person={{ distinct_id: ticket.distinct_id }} />
                                     </span>
+                                    {ticket.unread_team_count > 0 && (
+                                        <LemonBadge.Number
+                                            count={ticket.unread_team_count}
+                                            size="small"
+                                            status="primary"
+                                        />
+                                    )}
                                     {ticket.message_count > 0 && (
                                         <LemonTag type="muted" size="small">
                                             {ticket.message_count}
@@ -108,7 +125,12 @@ export function ConversationsTicketsScene(): JSX.Element {
                                     )}
                                 </div>
                                 {ticket.last_message_text && (
-                                    <div className="text-xs text-muted-alt truncate max-w-md">
+                                    <div
+                                        className={clsx('text-xs truncate max-w-md', {
+                                            'text-muted-alt': ticket.unread_team_count === 0,
+                                            'font-medium': ticket.unread_team_count > 0,
+                                        })}
+                                    >
                                         {ticket.last_message_text}
                                     </div>
                                 )}
