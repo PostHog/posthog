@@ -496,17 +496,17 @@ export const workflowLogic = kea<workflowLogicType>([
                     }),
                     credentials: 'omit',
                 })
+
+                lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
+                    button: {
+                        label: 'View logs',
+                        action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
+                    },
+                })
             } catch (e) {
                 lemonToast.error('Error triggering workflow: ' + (e as Error).message)
                 return
             }
-
-            lemonToast.success(`Workflow ${scheduledAt ? 'scheduled' : 'triggered'}`, {
-                button: {
-                    label: 'View logs',
-                    action: () => router.actions.push(urls.workflow(values.workflow.id!, 'logs')),
-                },
-            })
         },
     })),
     afterMount(({ actions }) => {
