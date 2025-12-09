@@ -355,19 +355,19 @@ class TrendsActorsQueryBuilder:
 
     def _get_group_expr(self, group: GroupNode) -> ast.Expr | None:
         group_filters: list[ast.Expr] = []
-        for value in group.values:
-            if isinstance(value, EventsNode):
-                if value.event is not None:
+        for node in group.nodes:
+            if isinstance(node, EventsNode):
+                if node.event is not None:
                     group_filters.append(
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.Eq,
                             left=ast.Field(chain=["event"]),
-                            right=ast.Constant(value=str(value.event)),
+                            right=ast.Constant(value=str(node.event)),
                         )
                     )
-            elif isinstance(value, ActionsNode):
+            elif isinstance(node, ActionsNode):
                 try:
-                    action = Action.objects.get(pk=int(value.id), team__project_id=self.team.project_id)
+                    action = Action.objects.get(pk=int(node.id), team__project_id=self.team.project_id)
                     group_filters.append(action_to_expr(action))
                 except Action.DoesNotExist:
                     # If an action doesn't exist, skip it

@@ -5952,7 +5952,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Create a GroupNode that combines $pageview OR $pageleave with OR operator
         group_node = GroupNode(
             operator=FilterLogicalOperator.OR_,
-            values=[
+            nodes=[
                 EventsNode(event="$pageview"),
                 EventsNode(event="$pageleave"),
             ],
@@ -5993,7 +5993,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         group_node = GroupNode(
             operator=FilterLogicalOperator.OR_,
-            values=[
+            nodes=[
                 ActionsNode(id=page_action.id),
                 EventsNode(event="$pageleave"),
             ],
@@ -6025,7 +6025,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         group_node = GroupNode(
             operator=FilterLogicalOperator.OR_,
-            values=[
+            nodes=[
                 EventsNode(event="$pageview"),
                 EventsNode(event="$pageleave"),
             ],
@@ -6062,7 +6062,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Create a GroupNode with property filters on the values
         group_node = GroupNode(
             operator=FilterLogicalOperator.OR_,
-            values=[
+            nodes=[
                 EventsNode(
                     event="$pageview",
                     properties=[
@@ -6126,7 +6126,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # Series 1: GroupNode with 1 event + 1 action
         group_node = GroupNode(
             operator=FilterLogicalOperator.OR_,
-            values=[
+            nodes=[
                 EventsNode(event="$pageleave"),
                 ActionsNode(id=page_action.id),
             ],

@@ -146,11 +146,11 @@ def get_earliest_timestamp_from_series(
     :param series: A list of series nodes (EventsNode, ActionsNode, DataWarehouseNode, or GroupNode)
     :return: The earliest timestamp across all series
     """
-    # Expand GroupNode values into individual nodes
+    # Expand GroupNode nodes into individual nodes
     nodes: list[Union[EventsNode, ActionsNode, DataWarehouseNode]] = []
     for node in series:
         if isinstance(node, GroupNode):
-            nodes.extend(node.values)
+            nodes.extend(node.nodes)
         else:
             nodes.append(node)
 
