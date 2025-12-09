@@ -146,20 +146,15 @@ RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/astral-sh/uv:0.9.9 AS uv
-
 # Same as pyproject.toml so that uv can pick it up and doesn't need to download a different Python version.
 FROM python:3.12.12-slim-bookworm@sha256:78e702aee4d693e769430f0d7b4f4858d8ea3f1118dc3f57fee3f757d0ca64b1 AS posthog-build
-COPY --from=uv /uv /uvx /bin/
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# uv settings for Docker builds
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_LINK_MODE=copy
-ENV UV_PROJECT_ENVIRONMENT=/python-runtime
-
-# Install build dependencies
+# Compile and install Python dependencies.
+# We install those dependencies on a custom folder that we will
+# then copy to the last image.
+COPY pyproject.toml uv.lock ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "build-essential" \
@@ -171,13 +166,9 @@ RUN apt-get update && \
     "zlib1g-dev" \
     "pkg-config" \
     && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Python dependencies using cache mount for faster rebuilds
-RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=uv.lock,target=uv.lock \
-    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-dev --no-install-project --no-binary-package lxml --no-binary-package xmlsec
+    rm -rf /var/lib/apt/lists/* && \
+    pip install uv==0.9.9 --no-cache-dir && \
+    UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-dev --no-cache --compile-bytecode --no-binary-package lxml --no-binary-package xmlsec
 
 ENV PATH=/python-runtime/bin:$PATH \
     PYTHONPATH=/python-runtime
