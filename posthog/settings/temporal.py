@@ -28,12 +28,12 @@ TARGET_MEMORY_USAGE: float | None = get_from_env("TARGET_MEMORY_USAGE", None, op
 TARGET_CPU_USAGE: float | None = get_from_env("TARGET_CPU_USAGE", None, optional=True, type_cast=float)
 
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
+TEMPORAL_LOG_DEFAULT_MODE: str = os.getenv("TEMPORAL_LOG_DEFAULT_MODE", "ALL")
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
 )  # When not set: defaults to "docker" in DEBUG mode, "modal" in production
 
-TEMPORAL_LOG_LEVEL_PRODUCE: str = os.getenv("TEMPORAL_LOG_LEVEL_PRODUCE", "DEBUG")
 TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE: int = get_from_env("TEMPORAL_EXTERNAL_LOGS_QUEUE_SIZE", 0, type_cast=int)
 
 CLICKHOUSE_MAX_EXECUTION_TIME: int = get_from_env("CLICKHOUSE_MAX_EXECUTION_TIME", 86400, type_cast=int)  # 1 day

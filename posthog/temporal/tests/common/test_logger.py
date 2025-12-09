@@ -33,7 +33,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.temporal.common.logger import (
-    BACKGROUND_LOGGER_TASKS,
+    _BACKGROUND_LOGGER_TASKS,
     configure_default_ssl_context,
     configure_logger,
     resolve_log_source,
@@ -193,11 +193,11 @@ async def configure_logger_auto(log_capture, queue, producer, log_mode):
 
     yield
 
-    for task in BACKGROUND_LOGGER_TASKS.values():
+    for task in _BACKGROUND_LOGGER_TASKS.values():
         # Clean up logger tasks to avoid leaking/warnings.
         task.cancel()
 
-    await asyncio.wait(BACKGROUND_LOGGER_TASKS.values())
+    await asyncio.wait(_BACKGROUND_LOGGER_TASKS.values())
 
 
 @pytest.fixture(autouse=True, scope="function")
