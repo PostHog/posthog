@@ -3612,6 +3612,12 @@ export enum EarlyAccessFeatureTabs {
     OptedOut = 'opted-out',
 }
 
+export interface EarlyAccessFeatureParentType {
+    id: string
+    name: string
+    stage: EarlyAccessFeatureStage
+}
+
 export interface EarlyAccessFeatureType {
     /** UUID */
     id: string
@@ -3625,10 +3631,23 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** Whether this feature is publicly visible */
+    is_public?: boolean
+    /** When this feature is scheduled for release */
+    release_on?: string | null
+    /** Parent feature for hierarchical organization */
+    parent?: EarlyAccessFeatureParentType | null
+    /** Users who are contributing to this feature */
+    contributors?: UserBasicType[]
 }
 
-export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
+export interface NewEarlyAccessFeatureType
+    extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag' | 'parent' | 'contributors'> {
     feature_flag_id: number | undefined
+    /** Parent feature ID for hierarchical organization */
+    parent_id?: string | null
+    /** User IDs for contributors */
+    contributor_ids?: number[]
 }
 
 export interface ProductAreaType {

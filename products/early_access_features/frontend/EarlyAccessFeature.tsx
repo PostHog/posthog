@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 import { useState } from 'react'
@@ -7,7 +7,9 @@ import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
+    LemonCheckbox,
     LemonInput,
+    LemonInputSelect,
     LemonMenu,
     LemonSelect,
     LemonSkeleton,
@@ -20,13 +22,17 @@ import { NotFound } from 'lib/components/NotFound'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
+import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
+import { dayjs } from 'lib/dayjs'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { formatDate } from 'lib/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -58,6 +64,7 @@ import {
 
 import { InstructionsModal } from './InstructionsModal'
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -92,6 +99,10 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         setEarlyAccessFeatureValue,
     } = useActions(earlyAccessFeatureLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    useMountedLogic(earlyAccessFeaturesLogic) // Ensure features are loaded for parent dropdown
+    const { earlyAccessFeatures: allEarlyAccessFeatures, earlyAccessFeaturesLoading } =
+        useValues(earlyAccessFeaturesLogic)
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
@@ -504,6 +515,113 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             )}
                         </div>
                     </div>
+                )}
+
+                {/* New fields: is_public, release_on, contributors */}
+                {isEditingFeature || isNewEarlyAccessFeature ? (
+                    <>
+                        <div className="max-w-prose">
+                            <LemonField name="is_public" label="Public visibility">
+                                {({ value, onChange }) => (
+                                    <LemonCheckbox
+                                        checked={value}
+                                        onChange={onChange}
+                                        label="Make this feature publicly visible"
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
+
+                        <div className="max-w-prose">
+                            <LemonField name="contributor_ids" label="Contributors" showOptional>
+                                {({ value, onChange }) => (
+                                    <LemonInputSelect
+                                        mode="multiple"
+                                        value={value?.map(String) || []}
+                                        onChange={(vals) => onChange(vals.map(Number))}
+                                        options={usersLemonSelectOptions(
+                                            meFirstMembers.map((m) => m.user),
+                                            'uuid'
+                                        ).map((opt) => ({
+                                            ...opt,
+                                            key: String(meFirstMembers.find((m) => m.user.uuid === opt.key)?.user.id),
+                                        }))}
+                                        placeholder="Select contributors..."
+                                        loading={membersLoading}
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
+
+                        <div className="max-w-prose">
+                            <LemonField name="parent_id" label="Parent feature" showOptional>
+                                {({ value, onChange }) => (
+                                    <LemonSelect
+                                        value={value}
+                                        onChange={onChange}
+                                        loading={earlyAccessFeaturesLoading}
+                                        options={[
+                                            { value: null, label: 'None' },
+                                            ...allEarlyAccessFeatures
+                                                .filter(
+                                                    (f) =>
+                                                        !('id' in earlyAccessFeature) || f.id !== earlyAccessFeature.id
+                                                )
+                                                .map((f) => ({
+                                                    value: f.id,
+                                                    label: f.name,
+                                                })),
+                                        ]}
+                                        placeholder="Select a parent feature..."
+                                    />
+                                )}
+                            </LemonField>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                        <div>
+                            <b>Public visibility</b>
+                            <div>
+                                {earlyAccessFeature.is_public ? (
+                                    <LemonTag type="success">Public</LemonTag>
+                                ) : (
+                                    <span className="text-secondary">Not public</span>
+                                )}
+                            </div>
+                        </div>
+
+                        {earlyAccessFeature.release_on && (
+                            <div>
+                                <b>Release date</b>
+                                <div>{formatDate(dayjs(earlyAccessFeature.release_on))}</div>
+                            </div>
+                        )}
+
+                        {'contributors' in earlyAccessFeature &&
+                            earlyAccessFeature.contributors &&
+                            earlyAccessFeature.contributors.length > 0 && (
+                                <div>
+                                    <b>Contributors</b>
+                                    <div className="flex flex-wrap gap-1 mt-1">
+                                        {earlyAccessFeature.contributors.map((user) => (
+                                            <LemonTag key={user.id}>{user.first_name || user.email}</LemonTag>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                        {'parent' in earlyAccessFeature && earlyAccessFeature.parent && (
+                            <div>
+                                <b>Parent feature</b>
+                                <div>
+                                    <Link to={urls.earlyAccessFeature(earlyAccessFeature.parent.id)}>
+                                        {earlyAccessFeature.parent.name}
+                                    </Link>
+                                </div>
+                            </div>
+                        )}
+                    </>
                 )}
 
                 {destinationFilters && (

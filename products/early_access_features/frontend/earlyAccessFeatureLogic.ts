@@ -34,6 +34,10 @@ export const NEW_EARLY_ACCESS_FEATURE: NewEarlyAccessFeatureType = {
     documentation_url: '',
     feature_flag_id: undefined,
     payload: {},
+    is_public: false,
+    release_on: null,
+    parent_id: null,
+    contributor_ids: [],
 }
 
 export interface EarlyAccessFeatureLogicProps {

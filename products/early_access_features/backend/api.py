@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.http import JsonResponse
+from django.utils import timezone
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
 
@@ -83,9 +84,21 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
         return obj.payload if obj.payload else {}
 
 
+class MinimalEarlyAccessFeatureSerializerForParent(serializers.ModelSerializer):
+    """Minimal serializer for parent field to avoid circular references."""
+
+    class Meta:
+        model = EarlyAccessFeature
+        fields = ["id", "name", "stage"]
+        read_only_fields = fields
+
+
 class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
     payload = serializers.SerializerMethodField()
+    contributors = UserBasicSerializer(many=True, read_only=True)
+    parent = MinimalEarlyAccessFeatureSerializerForParent(read_only=True)
+    parent_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
 
     class Meta:
         model = EarlyAccessFeature
@@ -98,8 +111,13 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             "documentation_url",
             "payload",
             "created_at",
+            "is_public",
+            "release_on",
+            "parent",
+            "parent_id",
+            "contributors",
         ]
-        read_only_fields = ["id", "feature_flag", "created_at"]
+        read_only_fields = ["id", "feature_flag", "created_at", "contributors", "parent"]
 
     def get_payload(self, obj):
         return obj.payload if obj.payload else {}
@@ -109,6 +127,10 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if "payload" in self.initial_data:
             payload_value = self.initial_data.get("payload")
             validated_data["payload"] = payload_value if payload_value else {}
+
+        # Handle contributors (M2M field) separately
+        contributor_ids = self.initial_data.get("contributor_ids", None)
+
         stage = validated_data.get("stage", None)
 
         request = self.context["request"]
@@ -117,6 +139,10 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
+
+            # Auto-set release_on when promoting to General Availability
+            if stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and instance.release_on is None:
+                validated_data["release_on"] = timezone.now()
 
         if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
             super_conditions = lambda feature_flag_key: [
@@ -160,6 +186,10 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
         updated_instance = super().update(instance, validated_data)
 
+        # Update contributors M2M relationship if provided
+        if contributor_ids is not None:
+            updated_instance.contributors.set(contributor_ids)
+
         serialized_next = MinimalEarlyAccessFeatureSerializer(updated_instance).data
         produce_internal_event(
             team_id=instance.team_id,
@@ -187,6 +217,10 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
 class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
     feature_flag_id = serializers.IntegerField(required=False, write_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    parent_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+    contributor_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, write_only=True, default=list
+    )
 
     # Override payload to allow writing (parent uses SerializerMethodField which is read-only)
     payload = serializers.JSONField(required=False, allow_null=False, default=dict)  # type: ignore
@@ -204,8 +238,14 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             "feature_flag_id",
             "feature_flag",
             "_create_in_folder",
+            "is_public",
+            "release_on",
+            "parent_id",
+            "parent",
+            "contributor_ids",
+            "contributors",
         ]
-        read_only_fields = ["id", "feature_flag", "created_at"]
+        read_only_fields = ["id", "feature_flag", "created_at", "contributors"]
 
     def validate(self, data):
         feature_flag_id = data.get("feature_flag_id", None)
@@ -236,6 +276,13 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
     def create(self, validated_data):
         validated_data["team_id"] = self.context["team_id"]
+
+        # Extract M2M field data before creating
+        contributor_ids = validated_data.pop("contributor_ids", [])
+        # Handle parent_id -> parent foreign key
+        parent_id = validated_data.pop("parent_id", None)
+        if parent_id:
+            validated_data["parent_id"] = parent_id
 
         feature_flag_id = validated_data.get("feature_flag_id", None)
 
@@ -300,12 +347,19 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
 
         validated_data["feature_flag_id"] = feature_flag.id
         feature: EarlyAccessFeature = super().create(validated_data)
+
+        # Set M2M contributors after creation
+        if contributor_ids:
+            feature.contributors.set(contributor_ids)
+
         return feature
 
 
 class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "early_access_feature"
-    queryset = EarlyAccessFeature.objects.select_related("feature_flag").all()
+    queryset = (
+        EarlyAccessFeature.objects.select_related("feature_flag", "parent").prefetch_related("contributors").all()
+    )
 
     def get_serializer_class(self) -> type[serializers.Serializer]:
         if self.request.method == "POST":
