@@ -13,10 +13,12 @@ CELERY_IMPORTS = (
     [
         "ee.tasks",
         "posthog.session_recordings.playlist_counters",
+        "products.slack_app.backend.link_unfurl",
     ]
     if EE_AVAILABLE
     else [
         "posthog.session_recordings.playlist_counters",
+        "products.slack_app.backend.link_unfurl",
     ]
 )
 CELERY_BROKER_URL = REDIS_URL  # celery connects to redis
