@@ -13272,6 +13272,9 @@ class GroupNode(BaseModel):
     math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
     math_property_type: str | None = None
     name: str | None = None
+    nodes: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(
+        ..., description="Entities to combine in this group"
+    )
     operator: FilterLogicalOperator = Field(..., description="Group of entities combined with AND/OR operator")
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -13299,9 +13302,6 @@ class GroupNode(BaseModel):
         | None
     ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
-    values: list[EventsNode | ActionsNode | DataWarehouseNode] = Field(
-        ..., description="Entities to combine in this group"
-    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

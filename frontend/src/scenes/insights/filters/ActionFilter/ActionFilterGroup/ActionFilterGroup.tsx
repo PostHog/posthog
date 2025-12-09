@@ -70,8 +70,8 @@ export function ActionFilterGroup({
 
     // Ensure nested filters have order set for entityFilterVisible tracking.
     // This is critical after deletion: if we delete event[1] from [0,1,2], we get [0,2] but need [0,1].
-    const values =
-        (filter.values as LocalFilter[] | null | undefined)?.map((val, i) => ({
+    const nestedFilters =
+        (filter.nestedFilters as LocalFilter[] | null | undefined)?.map((val, i) => ({
             ...val,
             order: i,
         })) || []
@@ -83,53 +83,53 @@ export function ActionFilterGroup({
             actions: {
                 ...logic.actions,
                 updateFilterProperty: (props: any) => {
-                    const newValues = [...values]
-                    newValues[eventIndex] = {
-                        ...newValues[eventIndex],
+                    const newNestedFilters = [...nestedFilters]
+                    newNestedFilters[eventIndex] = {
+                        ...newNestedFilters[eventIndex],
                         properties: props.properties,
                     }
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
-                        values: newValues,
+                        nestedFilters: newNestedFilters,
                         index,
                     } as any)
                 },
                 updateFilter: (updates: any) => {
-                    const newValues = [...values]
-                    newValues[eventIndex] = {
-                        ...newValues[eventIndex],
+                    const newNestedFilters = [...nestedFilters]
+                    newNestedFilters[eventIndex] = {
+                        ...newNestedFilters[eventIndex],
                         ...updates,
                     }
-                    const groupName = newValues.map((v) => v.name).join(', ')
+                    const groupName = newNestedFilters.map((v) => v.name).join(', ')
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
-                        values: newValues,
+                        nestedFilters: newNestedFilters,
                         name: groupName,
                         index,
                     } as any)
                 },
                 updateFilterMath: (updates: any) => {
-                    const newValues = [...values]
-                    newValues[eventIndex] = {
-                        ...newValues[eventIndex],
+                    const newNestedFilters = [...nestedFilters]
+                    newNestedFilters[eventIndex] = {
+                        ...newNestedFilters[eventIndex],
                         ...updates,
                     }
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
-                        values: newValues,
+                        nestedFilters: newNestedFilters,
                         index,
                     } as any)
                 },
                 removeLocalFilter: () => {
-                    const newValues = values.filter((_, i) => i !== eventIndex)
-                    const groupName = newValues.map((v) => v.name).join(', ')
+                    const newNestedFilters = nestedFilters.filter((_, i) => i !== eventIndex)
+                    const groupName = newNestedFilters.map((v) => v.name).join(', ')
                     updateSeriesFilter({
                         type: EntityTypes.GROUPS,
                         operator: filter.operator,
-                        values: newValues,
+                        nestedFilters: newNestedFilters,
                         name: groupName,
                         index,
                     } as any)
@@ -168,15 +168,15 @@ export function ActionFilterGroup({
             }
         }
 
-        // Propagate math to all nested values
-        const updatedValues = values.map((val) => ({
+        // Propagate math to all nested filters
+        const updatedNestedFilters = nestedFilters.map((val) => ({
             ...val,
             ...mathProperties,
         }))
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values: updatedValues,
+            nestedFilters: updatedNestedFilters,
             ...mathProperties,
             index: filterIndex,
         } as any)
@@ -188,15 +188,15 @@ export function ActionFilterGroup({
             math_property_type: groupType,
             math_hogql: undefined,
         }
-        // Propagate to all nested values
-        const updatedValues = values.map((val) => ({
+        // Propagate to all nested filters
+        const updatedNestedFilters = nestedFilters.map((val) => ({
             ...val,
             ...mathProperties,
         }))
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values: updatedValues,
+            nestedFilters: updatedNestedFilters,
             math: filter.math,
             ...mathProperties,
             index,
@@ -209,15 +209,15 @@ export function ActionFilterGroup({
             math_property_type: undefined,
             math_hogql: hogql,
         }
-        // Propagate to all nested values
-        const updatedValues = values.map((val) => ({
+        // Propagate to all nested filters
+        const updatedNestedFilters = nestedFilters.map((val) => ({
             ...val,
             ...mathProperties,
         }))
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values: updatedValues,
+            nestedFilters: updatedNestedFilters,
             math: filter.math,
             ...mathProperties,
             index,
@@ -229,7 +229,7 @@ export function ActionFilterGroup({
             id: changedValue ? String(changedValue) : null,
             name: item?.name ?? '',
             type: String(taxonomicGroupType) as any,
-            order: values.length,
+            order: nestedFilters.length,
             uuid: uuid(),
             ...(filter.math && { math: filter.math }),
             ...(filter.math_property && { math_property: filter.math_property }),
@@ -237,12 +237,12 @@ export function ActionFilterGroup({
             ...(filter.math_hogql && { math_hogql: filter.math_hogql }),
             ...(filter.math_group_type_index !== undefined && { math_group_type_index: filter.math_group_type_index }),
         }
-        const updatedValues = [...values, newEvent]
-        const groupName = updatedValues.map((v) => v.name).join(', ')
+        const updatedNestedFilters = [...nestedFilters, newEvent]
+        const groupName = updatedNestedFilters.map((v) => v.name).join(', ')
         updateSeriesFilter({
             type: EntityTypes.GROUPS,
             operator: filter.operator,
-            values: updatedValues,
+            nestedFilters: updatedNestedFilters,
             name: groupName,
             index,
         } as any)
@@ -303,7 +303,7 @@ export function ActionFilterGroup({
                                     onChange={(currentValue, groupType) =>
                                         handleMathPropertySelect(currentValue, groupType)
                                     }
-                                    eventNames={values.map((v) => v.name).filter(Boolean) as string[]}
+                                    eventNames={nestedFilters.map((v) => v.name).filter(Boolean) as string[]}
                                     data-attr="math-property-select"
                                     showNumericalPropsOnly={showNumericalPropsOnly}
                                     renderValue={(currentValue) => (
@@ -406,9 +406,9 @@ export function ActionFilterGroup({
                     )}
                 </div>
 
-                {/* Events section - render each value as ActionFilterRow */}
+                {/* Events section - render each nested filter as ActionFilterRow */}
                 <ul className="ActionFilterGroup__events-section">
-                    {values.map((eventFilter, eventIndex) => (
+                    {nestedFilters.map((eventFilter, eventIndex) => (
                         <div key={eventFilter.uuid || eventIndex}>
                             <ActionFilterRow
                                 logic={createNestedLogicWrapper(eventIndex)}
@@ -418,8 +418,8 @@ export function ActionFilterGroup({
                                 mathAvailability={MathAvailability.None}
                                 hideRename
                                 hideDuplicate
-                                hideDeleteBtn={values.length <= 1 || readOnly}
-                                filterCount={values.length}
+                                hideDeleteBtn={nestedFilters.length <= 1 || readOnly}
+                                filterCount={nestedFilters.length}
                                 sortable={false}
                                 hasBreakdown={hasBreakdown}
                                 disabled={disabled || readOnly}
@@ -430,7 +430,7 @@ export function ActionFilterGroup({
                                 dataWarehousePopoverFields={dataWarehousePopoverFields}
                                 excludedProperties={excludedProperties}
                             />
-                            {eventIndex < values.length - 1 && (
+                            {eventIndex < nestedFilters.length - 1 && (
                                 <div className="ActionFilterGroup__operator-separator">
                                     <div className="ActionFilterGroup__operator-line ActionFilterGroup__operator-line--left" />
                                     <div className="ActionFilterGroup__operator-text">
@@ -444,7 +444,7 @@ export function ActionFilterGroup({
                 </ul>
 
                 {/* Add event button with popover */}
-                {!readOnly && values.length < 10 && (
+                {!readOnly && nestedFilters.length < 10 && (
                     <div className="ActionFilterGroup__add-event-wrapper">
                         <TaxonomicPopover
                             data-attr={`add-group-event-${index}`}

@@ -890,28 +890,28 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_group_expr(self, series: GroupNode) -> ast.Expr | None:
         group_filters: list[ast.Expr] = []
-        for value in series.values:
-            if isinstance(value, EventsNode):
-                event_expr = self._get_event_expr(value)
+        for node in series.nodes:
+            if isinstance(node, EventsNode):
+                event_expr = self._get_event_expr(node)
                 if event_expr is None:
                     continue
 
                 # Add property filters if present
-                if value.properties is not None and value.properties != []:
-                    properties_expr = property_to_expr(value.properties, self.team)
+                if node.properties is not None and node.properties != []:
+                    properties_expr = property_to_expr(node.properties, self.team)
                     combined_expr: ast.Expr = ast.And(exprs=[event_expr, properties_expr])
                     group_filters.append(combined_expr)
                 else:
                     group_filters.append(event_expr)
 
-            if isinstance(value, ActionsNode):
-                action_expr = self._get_action_expr(value)
+            if isinstance(node, ActionsNode):
+                action_expr = self._get_action_expr(node)
                 if action_expr is None:
                     continue
 
                 # Add property filters if present
-                if value.properties is not None and value.properties != []:
-                    properties_expr = property_to_expr(value.properties, self.team)
+                if node.properties is not None and node.properties != []:
+                    properties_expr = property_to_expr(node.properties, self.team)
                     combined_expr = ast.And(exprs=[action_expr, properties_expr])
                     group_filters.append(combined_expr)
                 else:

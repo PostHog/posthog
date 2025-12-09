@@ -127,7 +127,7 @@ export const legacyEntityToNode = (
         shared = {
             ...shared,
             operator: entity.operator || undefined,
-            values: (entity.values || []).map((v) =>
+            nodes: (entity.nestedFilters || []).map((v) =>
                 legacyEntityToNode(v as ActionFilter, includeProperties, mathAvailability)
             ),
         } as GroupNode

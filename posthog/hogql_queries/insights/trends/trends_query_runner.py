@@ -721,17 +721,16 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         if isinstance(series, GroupNode):
             events = []
-            for value in series.values:
-                if isinstance(value, EventsNode):
-                    # Handle "All events" (when event is None)
-                    event_name = value.event if value.event is not None else "All events"
+            for nodes in series.nodes:
+                if isinstance(nodes, EventsNode):
+                    event_name = nodes.event if nodes.event is not None else "All events"
                     events.append(event_name)
-                elif isinstance(value, ActionsNode):
-                    action = Action.objects.get(pk=int(value.id), team__project_id=self.team.project_id)
+                elif isinstance(nodes, ActionsNode):
+                    action = Action.objects.get(pk=int(nodes.id), team__project_id=self.team.project_id)
                     action_name = action.name if action.name is not None else "Unnamed action"
                     events.append(action_name)
-                elif isinstance(value, DataWarehouseNode):
-                    events.append(value.table_name)
+                elif isinstance(nodes, DataWarehouseNode):
+                    events.append(nodes.table_name)
             return ", ".join(events)
 
         return None  # type: ignore [unreachable]

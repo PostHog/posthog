@@ -44,9 +44,9 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 uuid: 'test-uuid',
             })
-            expect(groupFilter.values).not.toBeUndefined()
-            expect(groupFilter.values!).toHaveLength(1)
-            expect(groupFilter.values![0]).toEqual(eventFilter)
+            expect(groupFilter.nestedFilters).not.toBeUndefined()
+            expect(groupFilter.nestedFilters!).toHaveLength(1)
+            expect(groupFilter.nestedFilters![0]).toEqual(eventFilter)
         })
 
         it('preserves math properties at group level', () => {
@@ -80,7 +80,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
             const groupFilter = singleFilterToGroupFilter(actionFilter)
 
             expect(groupFilter.type).toBe(EntityTypes.GROUPS)
-            expect(groupFilter.values).toContainEqual(actionFilter)
+            expect(groupFilter.nestedFilters).toContainEqual(actionFilter)
         })
     })
 
@@ -109,7 +109,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [pageviewFilter, exceptionFilter],
+                nestedFilters: [pageviewFilter, exceptionFilter],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -161,7 +161,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [filter1, filter2, filter3],
+                nestedFilters: [filter1, filter2, filter3],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 5)
@@ -196,7 +196,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [eventFilter, actionFilter],
+                nestedFilters: [eventFilter, actionFilter],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -230,7 +230,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [filter],
+                nestedFilters: [filter],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -319,7 +319,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [],
+                nestedFilters: [],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -343,7 +343,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: [filter],
+                nestedFilters: [filter],
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -372,7 +372,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                 order: 0,
                 operator: FilterLogicalOperator.Or,
                 uuid: 'group-uuid',
-                values: filters,
+                nestedFilters: filters,
             }
 
             const split = splitGroupFilterToLocalFilters(groupFilter, 0)
@@ -400,7 +400,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                         name: 'group',
                         order: 1,
                         operator: FilterLogicalOperator.Or,
-                        values: [
+                        nestedFilters: [
                             {
                                 id: '$exception',
                                 type: EntityTypes.EVENTS,
@@ -450,7 +450,7 @@ describe('ActionFilterGroup - Combining and Splitting Events', () => {
                         name: 'group',
                         order: 1,
                         operator: FilterLogicalOperator.Or,
-                        values: [
+                        nestedFilters: [
                             {
                                 id: '$exception',
                                 type: EntityTypes.EVENTS,

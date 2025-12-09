@@ -15636,6 +15636,13 @@
                 "name": {
                     "type": "string"
                 },
+                "nodes": {
+                    "description": "Entities to combine in this group",
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode"
+                    },
+                    "type": "array"
+                },
                 "operator": {
                     "$ref": "#/definitions/FilterLogicalOperator",
                     "description": "Group of entities combined with AND/OR operator"
@@ -15660,19 +15667,12 @@
                 "response": {
                     "type": "object"
                 },
-                "values": {
-                    "description": "Entities to combine in this group",
-                    "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
-                    },
-                    "type": "array"
-                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["kind", "operator", "values"],
+            "required": ["kind", "nodes", "operator"],
             "type": "object"
         },
         "GroupPropertyFilter": {

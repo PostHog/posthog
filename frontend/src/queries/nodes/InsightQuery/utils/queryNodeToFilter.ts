@@ -92,7 +92,7 @@ export const seriesNodeToFilter = (
         ...(isGroupNode(node)
             ? {
                   operator: node.operator,
-                  values: (node.values || []).map((v) => seriesNodeToFilter(v)),
+                  nestedFilters: (node.nodes || []).map((v) => seriesNodeToFilter(v)),
               }
             : {}),
     })

@@ -79,7 +79,7 @@ export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
         order: filter.order,
         uuid: uuid(),
         operator: FilterLogicalOperator.Or,
-        values: [filter],
+        nestedFilters: [filter],
         // Preserve math properties from the original filter at the group level
         ...(filter.math && { math: filter.math }),
         ...(filter.math_property && { math_property: filter.math_property }),
@@ -95,8 +95,8 @@ export function singleFilterToGroupFilter(filter: LocalFilter): LocalFilter {
  * Preserves order and all filter properties
  */
 export function splitGroupFilterToLocalFilters(groupFilter: LocalFilter, baseOrder: number): LocalFilter[] {
-    const values = (groupFilter.values as LocalFilter[] | null | undefined) || []
-    return values.map((nestedFilter, index) => ({
+    const nested = (groupFilter.nestedFilters as LocalFilter[] | null | undefined) || []
+    return nested.map((nestedFilter, index) => ({
         ...nestedFilter,
         order: baseOrder + index,
         uuid: uuid(),

@@ -224,7 +224,7 @@ class QueryEventsExtractor:
             if series.name:
                 return [series.name]
             # Fall back to extracting events from the nested values
-            return [event for value in series.values for event in self._get_series_events(value)]
+            return [event for value in series.nodes for event in self._get_series_events(value)]
 
         return []
 

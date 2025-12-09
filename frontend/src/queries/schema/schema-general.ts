@@ -734,7 +734,7 @@ export interface GroupNode extends EntityNode {
     /** Group of entities combined with AND/OR operator */
     operator: FilterLogicalOperator
     /** Entities to combine in this group */
-    values: AnyEntityNode[]
+    nodes: AnyEntityNode[]
     limit?: integer
     /** Columns to order by */
     orderBy?: string[]

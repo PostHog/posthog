@@ -1285,7 +1285,7 @@ export interface ActionFilter extends EntityFilter {
     type: EntityType
     days?: string[] // TODO: why was this added here?
     operator?: FilterLogicalOperator | null
-    values?: EntityFilter[] | null
+    nestedFilters?: EntityFilter[] | null
 }
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
