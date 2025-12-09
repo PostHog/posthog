@@ -120,9 +120,11 @@ const createTableNode = (
     const tableChildren: TreeDataItem[] = []
 
     if ('fields' in table) {
-        Object.values(table.fields).forEach((field: DatabaseSchemaField) => {
-            tableChildren.push(createColumnNode(table.name, field, isSearch))
-        })
+        Object.values(table.fields)
+            .sort((a, b) => a.name.localeCompare(b.name))
+            .forEach((field: DatabaseSchemaField) => {
+                tableChildren.push(createColumnNode(table.name, field, isSearch))
+            })
     }
 
     const tableId = `${isSearch ? 'search-' : ''}table-${table.name}`
@@ -172,9 +174,11 @@ const createViewNode = (
     const isManagedViewsetView = view.managed_viewset_kind !== null
     const isManagedView = 'type' in view && view.type === 'managed_view'
 
-    Object.values(view.columns).forEach((column: DatabaseSchemaField) => {
-        viewChildren.push(createColumnNode(view.name, column, isSearch))
-    })
+    Object.values(view.columns)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((column: DatabaseSchemaField) => {
+            viewChildren.push(createColumnNode(view.name, column, isSearch))
+        })
 
     const viewId = `${isSearch ? 'search-' : ''}view-${view.id}`
 
@@ -206,9 +210,11 @@ const createManagedViewNode = (
 ): TreeDataItem => {
     const viewChildren: TreeDataItem[] = []
 
-    Object.values(managedView.fields).forEach((field: DatabaseSchemaField) => {
-        viewChildren.push(createColumnNode(managedView.name, field, isSearch))
-    })
+    Object.values(managedView.fields)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((field: DatabaseSchemaField) => {
+            viewChildren.push(createColumnNode(managedView.name, field, isSearch))
+        })
 
     const managedViewId = `${isSearch ? 'search-' : ''}managed-view-${managedView.id}`
 
@@ -233,9 +239,11 @@ const createEndpointNode = (
 ): TreeDataItem => {
     const endpointChildren: TreeDataItem[] = []
 
-    Object.values(endpoint.fields).forEach((field: DatabaseSchemaField) => {
-        endpointChildren.push(createColumnNode(endpoint.name, field, isSearch))
-    })
+    Object.values(endpoint.fields)
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .forEach((field: DatabaseSchemaField) => {
+            endpointChildren.push(createColumnNode(endpoint.name, field, isSearch))
+        })
 
     const endpointId = `${isSearch ? 'search-' : ''}endpoint-${endpoint.id}`
 
