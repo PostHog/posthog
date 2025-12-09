@@ -301,11 +301,11 @@ async def delete_recording_lts_data(input: Recording) -> None:
     recording = await SessionRecording.objects.filter(session_id=input.session_id, team_id=input.team_id).afirst()
 
     if recording is None:
-        logger.info("Recording not found in Postgres, skipping LTS deletion")
+        logger.info("Recording not found in Postgres, skipping LTS deletion...")
         return
 
     if not recording.full_recording_v2_path:
-        logger.info("Recording has no LTS path, skipping LTS deletion")
+        logger.info("Recording has no LTS path, skipping LTS deletion...")
         return
 
     logger.info(f"Deleting LTS file at path: {recording.full_recording_v2_path}")
