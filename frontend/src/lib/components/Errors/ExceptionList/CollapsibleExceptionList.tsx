@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -24,8 +25,20 @@ export function CollapsibleExceptionList({
     onFrameOpenChange?: (open: boolean) => void
     className?: string
 }): JSX.Element {
-    const { exceptionList, getExceptionFingerprint, exceptionAttributes, stackFrameRecords, stackFrameRecordsLoading } =
-        useValues(errorPropertiesLogic)
+    const {
+        exceptionList,
+        getExceptionFingerprint,
+        exceptionAttributes,
+        stackFrameRecords,
+        stackFrameRecordsLoading,
+        hasInAppFrames,
+    } = useValues(errorPropertiesLogic)
+
+    useEffect(() => {
+        if (!hasInAppFrames) {
+            setShowAllFrames(true)
+        }
+    }, [hasInAppFrames])
 
     return (
         <div className={cn('flex flex-col gap-y-2', className)}>
