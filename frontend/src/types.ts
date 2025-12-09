@@ -4661,6 +4661,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_tour'
     | 'project'
     | 'property_definition'
     | 'query'

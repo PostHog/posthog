@@ -10,19 +10,19 @@ Users create tours via the toolbar by selecting elements on their page and defin
 
 ### ProductTour
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | UUID | Primary key |
-| `team` | FK(Team) | Owner team |
-| `name` | string | Tour name (unique per team when not archived) |
-| `description` | string | Optional description |
-| `internal_targeting_flag` | FK(FeatureFlag) | Auto-created flag for targeting |
-| `content` | JSON | Tour steps, appearance, conditions |
-| `start_date` | datetime | When tour becomes active |
-| `end_date` | datetime | When tour stops |
-| `created_at` | datetime | Creation timestamp |
-| `created_by` | FK(User) | Creator |
-| `archived` | bool | Soft delete flag |
+| Field                     | Type            | Description                                   |
+| ------------------------- | --------------- | --------------------------------------------- |
+| `id`                      | UUID            | Primary key                                   |
+| `team`                    | FK(Team)        | Owner team                                    |
+| `name`                    | string          | Tour name (unique per team when not archived) |
+| `description`             | string          | Optional description                          |
+| `internal_targeting_flag` | FK(FeatureFlag) | Auto-created flag for targeting               |
+| `content`                 | JSON            | Tour steps, appearance, conditions            |
+| `start_date`              | datetime        | When tour becomes active                      |
+| `end_date`                | datetime        | When tour stops                               |
+| `created_at`              | datetime        | Creation timestamp                            |
+| `created_by`              | FK(User)        | Creator                                       |
+| `archived`                | bool            | Soft delete flag                              |
 
 ### Content Schema
 
@@ -62,21 +62,21 @@ Each tour gets an auto-created feature flag that:
 
 Events sent by posthog-js:
 
-| Event | Description |
-|-------|-------------|
-| `product tour shown` | Tour displayed to user |
-| `product tour dismissed` | User dismissed tour |
+| Event                    | Description             |
+| ------------------------ | ----------------------- |
+| `product tour shown`     | Tour displayed to user  |
+| `product tour dismissed` | User dismissed tour     |
 | `product tour completed` | User finished all steps |
-| `product tour step seen` | Individual step viewed |
+| `product tour step seen` | Individual step viewed  |
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/projects/{id}/product_tours/` | List tours |
-| POST | `/api/projects/{id}/product_tours/` | Create tour |
-| GET | `/api/projects/{id}/product_tours/{id}/` | Get tour |
-| PATCH | `/api/projects/{id}/product_tours/{id}/` | Update tour |
+| Method | Path                                     | Description  |
+| ------ | ---------------------------------------- | ------------ |
+| GET    | `/api/projects/{id}/product_tours/`      | List tours   |
+| POST   | `/api/projects/{id}/product_tours/`      | Create tour  |
+| GET    | `/api/projects/{id}/product_tours/{id}/` | Get tour     |
+| PATCH  | `/api/projects/{id}/product_tours/{id}/` | Update tour  |
 | DELETE | `/api/projects/{id}/product_tours/{id}/` | Archive tour |
 
 ## Future Enhancements (v2)
