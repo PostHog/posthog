@@ -171,6 +171,15 @@ async fn main() -> Result<()> {
     let config = Config::init_with_defaults()
         .context("Failed to load configuration from environment variables. Please check your environment setup.")?;
 
+    // Start continuous profiling if enabled (keep _agent alive for the duration of the program)
+    let _profiling_agent = match config.continuous_profiling.start_agent() {
+        Ok(agent) => agent,
+        Err(e) => {
+            tracing::warn!("Failed to start continuous profiling agent: {e}");
+            None
+        }
+    };
+
     // Initialize tracing with structured output similar to feature-flags
     let log_layer = {
         let base = fmt::layer()

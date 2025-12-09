@@ -2,10 +2,14 @@ use std::{fs, path::PathBuf, time::Duration};
 
 use anyhow::{Context, Result};
 use bytesize::ByteSize;
+use common_continuous_profiling::ContinuousProfilingConfig;
 use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
+    #[envconfig(nested = true)]
+    pub continuous_profiling: ContinuousProfilingConfig,
+
     // Kafka configuration
     #[envconfig(default = "localhost:9092")]
     pub kafka_hosts: String,
