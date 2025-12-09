@@ -46,6 +46,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
+    firebase: IconGoogleCloud,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {
@@ -68,6 +69,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'email'
         case 'github':
             return 'GitHub'
+        case 'firebase':
+            return 'Firebase'
         default:
             return capitalizeFirstLetter(kind)
     }
