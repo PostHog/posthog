@@ -40,13 +40,99 @@ from products.data_warehouse.backend.data_load.service import (
 )
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
+    DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.models.util import validate_source_prefix
+from products.data_warehouse.backend.services.direct_query_executor import DirectQueryExecutor
 from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+# Mapping from PostgreSQL types to HogQL/ClickHouse types for direct query tables
+POSTGRES_TYPE_MAPPING: dict[str, tuple[str, str]] = {
+    # Numeric types
+    "smallint": ("IntegerDatabaseField", "Int16"),
+    "integer": ("IntegerDatabaseField", "Int32"),
+    "bigint": ("IntegerDatabaseField", "Int64"),
+    "int2": ("IntegerDatabaseField", "Int16"),
+    "int4": ("IntegerDatabaseField", "Int32"),
+    "int8": ("IntegerDatabaseField", "Int64"),
+    "serial": ("IntegerDatabaseField", "Int32"),
+    "bigserial": ("IntegerDatabaseField", "Int64"),
+    "real": ("FloatDatabaseField", "Float32"),
+    "double precision": ("FloatDatabaseField", "Float64"),
+    "float4": ("FloatDatabaseField", "Float32"),
+    "float8": ("FloatDatabaseField", "Float64"),
+    "numeric": ("DecimalDatabaseField", "Decimal"),
+    "decimal": ("DecimalDatabaseField", "Decimal"),
+    # String types
+    "character varying": ("StringDatabaseField", "String"),
+    "varchar": ("StringDatabaseField", "String"),
+    "character": ("StringDatabaseField", "String"),
+    "char": ("StringDatabaseField", "String"),
+    "text": ("StringDatabaseField", "String"),
+    "name": ("StringDatabaseField", "String"),
+    "citext": ("StringDatabaseField", "String"),
+    # Boolean
+    "boolean": ("BooleanDatabaseField", "Bool"),
+    "bool": ("BooleanDatabaseField", "Bool"),
+    # Date/Time types
+    "timestamp without time zone": ("DateTimeDatabaseField", "DateTime64"),
+    "timestamp with time zone": ("DateTimeDatabaseField", "DateTime64"),
+    "timestamp": ("DateTimeDatabaseField", "DateTime64"),
+    "timestamptz": ("DateTimeDatabaseField", "DateTime64"),
+    "date": ("DateDatabaseField", "Date"),
+    "time without time zone": ("StringDatabaseField", "String"),
+    "time with time zone": ("StringDatabaseField", "String"),
+    "time": ("StringDatabaseField", "String"),
+    "timetz": ("StringDatabaseField", "String"),
+    "interval": ("StringDatabaseField", "String"),
+    # UUID
+    "uuid": ("StringDatabaseField", "UUID"),
+    # JSON types
+    "json": ("StringJSONDatabaseField", "Map"),
+    "jsonb": ("StringJSONDatabaseField", "Map"),
+    # Array types (simplified to string for now)
+    "array": ("StringArrayDatabaseField", "Array"),
+    "anyarray": ("StringArrayDatabaseField", "Array"),
+    # Other types
+    "bytea": ("StringDatabaseField", "String"),
+    "inet": ("StringDatabaseField", "String"),
+    "cidr": ("StringDatabaseField", "String"),
+    "macaddr": ("StringDatabaseField", "String"),
+    "money": ("DecimalDatabaseField", "Decimal"),
+    "oid": ("IntegerDatabaseField", "Int64"),
+    "regclass": ("StringDatabaseField", "String"),
+    "tsvector": ("StringDatabaseField", "String"),
+    "tsquery": ("StringDatabaseField", "String"),
+}
+
+
+def map_postgres_type_to_hogql(pg_type: str) -> tuple[str, str]:
+    """Map a PostgreSQL data type to HogQL and ClickHouse types.
+
+    Returns:
+        Tuple of (hogql_type_name, clickhouse_type)
+    """
+    # Normalize the type (lowercase, strip array brackets, etc.)
+    pg_type_lower = pg_type.lower().strip()
+
+    # Handle array types
+    if pg_type_lower.endswith("[]") or pg_type_lower.startswith("array"):
+        return ("StringArrayDatabaseField", "Array(String)")
+
+    # Handle parameterized types (e.g., varchar(255), numeric(10,2))
+    base_type = pg_type_lower.split("(")[0].strip()
+
+    # Look up in mapping
+    if base_type in POSTGRES_TYPE_MAPPING:
+        return POSTGRES_TYPE_MAPPING[base_type]
+
+    # Default to string for unknown types
+    return ("StringDatabaseField", "String")
+
 
 logger = structlog.get_logger(__name__)
 
@@ -403,7 +489,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         source_config: Config = source.parse_config(payload)
 
-        # For query_only sources: just validate credentials and create source (no sync)
+        # For query_only sources: validate credentials, discover schema, create tables
         if query_only:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
             if not credentials_valid:
@@ -423,6 +509,51 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 query_only=True,
                 created_by=request.user if isinstance(request.user, User) else None,
             )
+
+            # Discover schema and create direct query tables
+            try:
+                executor = DirectQueryExecutor.from_source(new_source_model)
+                schema_info = executor.get_schema()
+
+                tables_created = []
+                for table_name, columns in schema_info.tables.items():
+                    # Build table name with prefix
+                    full_table_name = f"{prefix}{table_name}" if prefix else table_name
+
+                    # Build columns dict with type mapping
+                    columns_dict = {}
+                    for col_name, col_type in columns:
+                        hogql_type, ch_type = map_postgres_type_to_hogql(col_type)
+                        columns_dict[col_name] = {
+                            "hogql": hogql_type,
+                            "clickhouse": ch_type,
+                            "valid": True,
+                        }
+
+                    # Create DataWarehouseTable for direct query
+                    table = DataWarehouseTable.objects.create(
+                        name=full_table_name,
+                        team=self.team,
+                        columns=columns_dict,
+                        external_data_source=new_source_model,
+                        is_direct_query=True,
+                    )
+                    tables_created.append(table.name)
+
+                logger.info(
+                    "Created direct query tables",
+                    source_id=new_source_model.pk,
+                    tables=tables_created,
+                    team_id=self.team_id,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to discover schema for query_only source",
+                    source_id=new_source_model.pk,
+                    error=str(e),
+                    team_id=self.team_id,
+                )
+                # Don't fail the source creation, just log the warning
 
             return Response(status=status.HTTP_201_CREATED, data={"id": new_source_model.pk})
 

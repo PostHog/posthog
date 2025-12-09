@@ -9,10 +9,10 @@ Enable users to connect to external databases (starting with Postgres) and run S
 ## Success Criteria
 
 - [x] Can add a Postgres connection via UI (reuse existing data warehouse source flow)
-- [ ] Can select a connected database as query target in SQL editor
+- [x] Can select a connected database as query target in SQL editor
 - [x] Can execute SQL queries directly against the connected database
 - [x] Can see schema (tables/columns) for connected databases
-- [ ] Results display in same format as HogQL queries
+- [x] Results display in same format as HogQL queries
 
 ## Proof Points
 
@@ -153,23 +153,67 @@ User: "Add new data source" → Select "Postgres"
 - [x] Add `/direct_query/sources` API endpoint (list query-capable sources)
 - [x] Add `/direct_query/schema/:id` API endpoint (schema discovery)
 
-### Phase 1c: Frontend SQL Editor Integration
+### Phase 1c: Frontend SQL Editor Integration ✅
 
-- [ ] Add database selector dropdown to SQL editor
-- [ ] Create directQueryLogic for state management
-- [ ] Route query execution based on selected source
-- [ ] Display results in existing output pane
+**Approach: Database Selector + Direct Tables in Schema Browser**
 
-### Phase 1d: Polish & Testing
+We implemented a hybrid approach:
 
-- [ ] Error handling and timeouts
-- [ ] Query result limits (pagination?)
-- [x] Test with demo Pagila database
-- [ ] Test with PostHog's own Postgres
+1. Database selector dropdown in SQL editor toolbar to switch between HogQL and external databases
+2. Direct-query tables appear in the existing schema browser with visual differentiation (lightning bolt icon)
+3. When an external database is selected, queries are routed to DirectQueryExecutor
+
+**Key Components Implemented:**
+
+1. **`directQueryLogic.ts`** - Kea logic for managing direct query state
+   - Loads available query-only sources from API
+   - Manages selected database state
+   - Executes queries via DirectQueryExecutor API
+   - Handles prefix stripping (e.g., `postgres.actor` → `actor`)
+
+2. **`DatabaseSelector.tsx`** - Dropdown component in SQL editor toolbar
+   - Shows "PostHog (HogQL)" as default option
+   - Lists all query-only sources (e.g., "Postgres")
+   - Syncs with URL params for shareable links
+
+3. **Schema Browser Integration**
+   - Direct-query tables appear under their source type (e.g., "postgres")
+   - Tables shown with `is_direct_query=true` flag
+   - Lightning bolt icon indicates direct query tables
+   - Context menu has "Query (Direct)" option
+
+4. **Query Execution Flow**
+   - User selects external database from dropdown
+   - User writes SQL (e.g., `SELECT * FROM postgres.actor`)
+   - Frontend strips prefix (`postgres.`) before sending to API
+   - API executes query directly against external Postgres
+   - Results displayed in same format as HogQL queries
+
+**Files Created/Modified:**
+
+| File | Status | Purpose |
+|------|--------|---------|
+| `frontend/src/scenes/data-warehouse/editor/directQueryLogic.ts` | ✅ Created | Direct query state management |
+| `frontend/src/scenes/data-warehouse/editor/DatabaseSelector.tsx` | ✅ Created | Database selector dropdown |
+| `frontend/src/scenes/data-warehouse/editor/QueryWindow.tsx` | ✅ Modified | Integrated DatabaseSelector and RunButton logic |
+| `frontend/src/scenes/data-warehouse/editor/multitabEditorLogic.tsx` | ✅ Modified | URL param handling, query routing |
+| `frontend/src/scenes/data-warehouse/editor/OutputPane.tsx` | ✅ Modified | Display direct query results |
+| `frontend/src/scenes/data-warehouse/editor/sidebar/QueryDatabase.tsx` | ✅ Modified | Direct query context menu |
+| `frontend/src/scenes/urls.ts` | ✅ Modified | Added direct_query_source URL params |
+
+### Phase 1d: Polish & Testing ✅
+
+- [x] Error handling and timeouts - Errors displayed in output pane
+- [x] Query result limits - Default 1000 rows, configurable via API
+- [x] Test with demo Pagila database - Working end-to-end
+- [x] Prefix stripping - Auto-strips source_type prefix from table names
+- [x] Loading states - Proper loading indicators in dropdown and results
 
 ---
 
 ## Architecture
+
+### Original (Database Selector) - Abandoned
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -178,18 +222,42 @@ User: "Add new data source" → Select "Postgres"
 │  │ Database Select │  │ Monaco Editor                    │ │
 │  │ - PostHog (HogQL)│  │ SELECT * FROM film LIMIT 10;    │ │
 │  │ - Pagila (PG)   │  │                                  │ │
-│  │ - My DB (PG)    │  │                                  │ │
+│  └─────────────────┘  └──────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### New (Direct Tables in Schema Browser)
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│                      SQL Editor UI                          │
+│  ┌─────────────────┐  ┌──────────────────────────────────┐ │
+│  │ Schema Browser  │  │ Monaco Editor                    │ │
+│  │                 │  │                                  │ │
+│  │ PostHog Tables  │  │ SELECT * FROM pagila_film        │ │
+│  │  └ events       │  │ LIMIT 10;                        │ │
+│  │  └ persons      │  │                                  │ │
+│  │                 │  │                                  │ │
+│  │ Direct Tables ⚡│  │                                  │ │
+│  │  └ pagila_film  │  │                                  │ │
+│  │  └ pagila_actor │  │                                  │ │
+│  │  └ pagila_rental│  │                                  │ │
 │  └─────────────────┘  └──────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                         API Layer                           │
+│                    Query Execution                          │
 │                                                             │
-│  if source == "hogql":        if source == external_db:     │
-│    /api/query/                  /api/direct_query/execute   │
-│    → HogQL → ClickHouse         → DirectQueryExecutor       │
-│                                 → External Postgres         │
+│  Parse query → Detect table references                      │
+│                                                             │
+│  if all tables are PostHog/ClickHouse:                      │
+│    → HogQL → ClickHouse                                     │
+│                                                             │
+│  if any table is "direct":                                  │
+│    → Translate to source SQL                                │
+│    → DirectQueryExecutor → External DB                      │
+│                                                             │
 └─────────────────────────────────────────────────────────────┘
                               │
               ┌───────────────┴───────────────┐

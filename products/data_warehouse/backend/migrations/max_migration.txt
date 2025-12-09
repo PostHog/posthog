@@ -1,1 +1,1 @@
-0012_externaldatasource_query_only
+0013_add_is_direct_query_to_table

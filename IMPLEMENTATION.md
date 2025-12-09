@@ -17,8 +17,12 @@ Add the ability to execute SQL queries directly against connected external datab
 | Direct Query API | ✅ Done | `products/data_warehouse/backend/api/direct_query.py` |
 | Frontend Toggle | ✅ Done | `frontend/src/scenes/data-warehouse/external/forms/SourceForm.tsx` |
 | Source Wizard Logic | ✅ Done | `frontend/src/scenes/data-warehouse/new/sourceWizardLogic.tsx` |
-| Frontend DB Selector | ⏳ Pending | - |
-| Frontend Query Logic | ⏳ Pending | - |
+| Frontend DB Selector | ✅ Done | `frontend/src/scenes/data-warehouse/editor/DatabaseSelector.tsx` |
+| Frontend Query Logic | ✅ Done | `frontend/src/scenes/data-warehouse/editor/directQueryLogic.ts` |
+| Query Execution Routing | ✅ Done | `frontend/src/scenes/data-warehouse/editor/QueryWindow.tsx` |
+| URL Param Support | ✅ Done | `frontend/src/scenes/urls.ts`, `multitabEditorLogic.tsx` |
+| Schema Browser Integration | ✅ Done | `frontend/src/scenes/data-warehouse/editor/sidebar/QueryDatabase.tsx` |
+| Output Pane Integration | ✅ Done | `frontend/src/scenes/data-warehouse/editor/OutputPane.tsx` |
 
 ---
 
@@ -789,6 +793,117 @@ curl -X POST "http://localhost:8000/api/environments/1/direct_query/execute" \
 # 4. Or test directly via Python
 python demo_query.py
 ```
+
+---
+
+## Frontend Implementation (Actual)
+
+### directQueryLogic.ts
+
+The central Kea logic for managing direct query state:
+
+```typescript
+// Key interfaces
+export interface DirectQuerySource {
+    id: string
+    source_type: string
+    prefix: string | null
+    created_at: string
+    status: string
+}
+
+export type SelectedDatabase = 'hogql' | string // 'hogql' or source UUID
+
+// Key selectors
+- selectedDatabase: Currently selected database ('hogql' or source UUID)
+- sources: List of query-only sources from API
+- isDirectQueryMode: True if an external source is selected
+- selectedSource: The currently selected DirectQuerySource object
+- selectedSourceName: Display name for the selected source
+
+// Key actions
+- setSelectedDatabase(database): Switch between HogQL and external sources
+- executeDirectQuery(sourceId, sql, maxRows): Execute query against external DB
+- loadSources(): Fetch available query-only sources from API
+```
+
+### Prefix Stripping Logic
+
+When executing queries against external databases, table prefixes are automatically stripped:
+
+```typescript
+// In directQueryLogic.ts executeDirectQuery loader:
+const prefixToStrip = source?.prefix || source?.source_type?.toLowerCase()
+if (prefixToStrip) {
+    const prefixPattern = new RegExp(`\\b${prefixToStrip}\\.`, 'gi')
+    transformedSql = sql.replace(prefixPattern, '')
+}
+
+// Example:
+// User writes: SELECT * FROM postgres.actor
+// Sent to API: SELECT * FROM actor
+```
+
+This is necessary because:
+
+1. HogQL names tables as `{source_type}.{table_name}` (e.g., `postgres.actor`)
+2. The external database just has `actor` as the table name
+3. The prefix needs to be stripped before sending to the external DB
+
+### URL Parameter Support
+
+Direct query sessions can be shared via URL:
+
+```typescript
+// urls.ts sqlEditor function supports:
+- direct_query_source: UUID of the external source
+- direct_query_prefix: Table prefix (for display)
+
+// Example URL:
+/sql?open_query=SELECT * FROM postgres.actor&direct_query_source=UUID
+```
+
+### Query Execution Flow
+
+1. User selects "Postgres" from DatabaseSelector dropdown
+2. User writes query: `SELECT * FROM postgres.actor`
+3. User clicks Run
+4. `RunButton` checks `isDirectQueryMode` from directQueryLogic
+5. If true, calls `executeDirectQuery` action
+6. `directQueryLogic` strips `postgres.` prefix
+7. API call: `POST /api/environments/@current/direct_query/execute/`
+8. Backend executes against external Postgres
+9. Results displayed in OutputPane
+
+### Key Files Summary
+
+| File | Purpose |
+|------|---------|
+| `directQueryLogic.ts` | State management for direct queries |
+| `DatabaseSelector.tsx` | Dropdown to select target database |
+| `QueryWindow.tsx` | Contains RunButton with direct query routing |
+| `OutputPane.tsx` | Displays results (handles both HogQL and direct query) |
+| `multitabEditorLogic.tsx` | URL param handling, coordinates with directQueryLogic |
+| `QueryDatabase.tsx` | Schema browser with "Query (Direct)" context menu |
+| `urls.ts` | URL generation with direct_query params |
+
+---
+
+## Known Issues & Future Work
+
+### Current Limitations
+
+1. **Single database per query** - Cannot join HogQL tables with external tables
+2. **No query history** - Direct queries not saved to query history
+3. **No autocomplete** - Monaco doesn't have schema awareness for external DBs
+
+### Future Enhancements
+
+- [ ] Connection pooling for better performance
+- [ ] Support MySQL, other databases
+- [ ] Cross-database joins (HogQL + external)
+- [ ] Query explain/analyze for external DBs
+- [ ] Schema-aware autocomplete
 
 ---
 

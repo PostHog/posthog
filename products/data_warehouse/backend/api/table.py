@@ -63,8 +63,17 @@ class TableSerializer(serializers.ModelSerializer):
             "columns",
             "external_data_source",
             "external_schema",
+            "is_direct_query",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
+        read_only_fields = [
+            "id",
+            "created_by",
+            "created_at",
+            "columns",
+            "external_data_source",
+            "external_schema",
+            "is_direct_query",
+        ]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
@@ -138,8 +147,8 @@ class SimpleTableSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DataWarehouseTable
-        fields = ["id", "name", "columns", "row_count"]
-        read_only_fields = ["id", "name", "columns", "row_count"]
+        fields = ["id", "name", "columns", "row_count", "is_direct_query"]
+        read_only_fields = ["id", "name", "columns", "row_count", "is_direct_query"]
 
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)

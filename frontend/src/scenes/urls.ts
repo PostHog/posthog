@@ -57,7 +57,9 @@ export const urls = {
         insightShortId?: string,
         draftId?: string,
         outputTab?: OutputTab,
-        endpointName?: string
+        endpointName?: string,
+        directQuerySourceId?: string,
+        directQueryPrefix?: string
     ): string => {
         const params = new URLSearchParams()
 
@@ -77,6 +79,14 @@ export const urls = {
 
         if (endpointName) {
             params.set('endpoint_name', endpointName)
+        }
+
+        if (directQuerySourceId) {
+            params.set('direct_query_source', directQuerySourceId)
+        }
+
+        if (directQueryPrefix) {
+            params.set('direct_query_prefix', directQueryPrefix)
         }
 
         const queryString = params.toString()

@@ -394,15 +394,17 @@ export const directQueryLogic = kea({
 
 5. **[x] Create API endpoint** - `/api/environments/:team_id/direct_query/execute`
 6. **[x] Add schema endpoint** - `/api/environments/:team_id/direct_query/schema/:id`
-7. **[ ] Frontend database selector** - Dropdown in SQL editor
-8. **[ ] Wire up execution** - Connect frontend to new API
+7. **[x] Frontend database selector** - `DatabaseSelector.tsx` dropdown in SQL editor toolbar
+8. **[x] Wire up execution** - Connect frontend to new API via `directQueryLogic.ts`
 9. **[x] Test with Pagila Postgres** - Successfully queried film data
+10. **[x] Tables appear in schema browser** - Direct query tables shown with lightning bolt icon
+11. **[x] Query routing** - Queries routed to external DB based on selected database
 
 ### Demo Day
 
-10. **[ ] Polish UI** - Show source name, schema browser
-11. **[ ] Error handling** - Nice error messages
-12. **[ ] Demo script** - Show connecting to external DB and querying
+12. **[x] Polish UI** - Show source name, schema browser with direct query indicators
+13. **[x] Error handling** - Nice error messages in output pane
+14. **[x] Prefix stripping** - Auto-strip `postgres.` prefix from table names for external queries
 
 ---
 

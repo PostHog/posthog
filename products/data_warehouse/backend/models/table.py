@@ -102,10 +102,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
     name = models.CharField(max_length=128)
-    format = models.CharField(max_length=128, choices=TableFormat.choices)
+    format = models.CharField(max_length=128, choices=TableFormat.choices, blank=True, default="")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
-    url_pattern = models.CharField(max_length=500)
+    url_pattern = models.CharField(max_length=500, blank=True, default="")
+
+    # Direct query tables are queried directly from the source database
+    # rather than being synced to S3/ClickHouse
+    is_direct_query = models.BooleanField(default=False)
     queryable_folder = models.CharField(max_length=500, null=True, blank=True)
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 

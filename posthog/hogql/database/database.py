@@ -469,6 +469,7 @@ class Database(BaseModel):
                     schema=schema,
                     source=source,
                     row_count=warehouse_table.row_count,
+                    is_direct_query=warehouse_table.is_direct_query,
                 )
             except (QueryError, ResolutionError) as e:
                 # Log error but continue processing other tables
