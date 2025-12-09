@@ -1,4 +1,6 @@
+import sys
 import uuid
+import socket
 import typing
 import asyncio
 import datetime as dt
@@ -9,6 +11,7 @@ from django.conf import settings
 
 import aioboto3
 from aiobotocore.config import AioConfig
+from aiobotocore.httpsession import AIOHTTPSession as BaseAIOHTTPSession
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -67,6 +70,38 @@ def _get_s3_endpoint_url() -> str:
     return settings.BATCH_EXPORT_OBJECT_STORAGE_ENDPOINT
 
 
+def socket_factory(addr_info):
+    """Socket factory for ``aiohttp.TCPConnector``."""
+    family, type_, proto, _, _ = addr_info
+    sock = socket.socket(family=family, type=type_, proto=proto)
+    # Enable keepalive in the socket
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
+
+    if sys.platform == "linux":
+        # Start sending keepalive probes after 60s
+        # Ensure that any idle timeouts allow at least 60s
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
+        # Send keepalive probes every 10s
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+        # Give up after 5 failed probes
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+
+    return sock
+
+
+class AIOHTTPSession(BaseAIOHTTPSession):
+    """Session class used to include ``socket_factory``.
+
+    This is required because aiobotocore will not allow passing ``socket_factory`` as
+    a ``connector_args``.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # This exists, but mypy is unable to check it.
+        self._connector_args["socket_factory"] = socket_factory  # type: ignore[attr-defined]
+
+
 @asynccontextmanager
 async def get_s3_client():
     """Async context manager for creating and managing an S3 client."""
@@ -79,7 +114,12 @@ async def get_s3_client():
         region_name=settings.BATCH_EXPORT_OBJECT_STORAGE_REGION,
         # aiobotocore defaults keepalive_timeout to 12 seconds, which can be low for
         # slower batch exports.
-        config=AioConfig(connect_timeout=60, read_timeout=300, connector_args={"keepalive_timeout": 300}),
+        config=AioConfig(
+            connect_timeout=60,
+            read_timeout=300,
+            connector_args={"keepalive_timeout": 300},
+            http_session_cls=AIOHTTPSession,
+        ),
     ) as s3_client:
         yield s3_client
 
