@@ -9,6 +9,15 @@ from posthog.schema import AgentMode
 
 from posthog.models import Team, User
 
+from products.tasks.backend.max_tools import (
+    CreateTaskTool,
+    GetTaskRunLogsTool,
+    GetTaskRunTool,
+    ListTaskRunsTool,
+    ListTasksTool,
+    RunTaskTool,
+)
+
 from ee.hogai.chat_agent.prompts import (
     AGENT_CORE_MEMORY_PROMPT,
     AGENT_PROMPT,
@@ -49,6 +58,12 @@ LEGACY_DEFAULT_TOOLS: list[type["MaxTool"]] = [
     ReadDataTool,
     SearchTool,
     TodoWriteTool,
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
 ]
 
 DEFAULT_TOOLS: list[type["MaxTool"]] = [
@@ -57,6 +72,12 @@ DEFAULT_TOOLS: list[type["MaxTool"]] = [
     SearchTool,
     TodoWriteTool,
     SwitchModeTool,
+    CreateTaskTool,
+    RunTaskTool,
+    GetTaskRunTool,
+    GetTaskRunLogsTool,
+    ListTasksTool,
+    ListTaskRunsTool,
 ]
 
 
