@@ -47,7 +47,7 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
         return
 
     # Temporary: Only allow team_id=2 in US region during development
-    if get_instance_region() != "US" or integration.team_id != 2:
+    if not settings.DEBUG and not (get_instance_region() == "US" and integration.team_id == 2):
         logger.info("slack_app_mention_skipped", team_id=integration.team_id, region=get_instance_region())
         return
 
