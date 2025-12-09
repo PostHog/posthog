@@ -1,5 +1,41 @@
-# Build
+# Build directories
 build/
+build_wasm/
+cmake-build-*/
+dist/
+antlr4_wasm/
+
+# Python build artifacts
 *.egg-info
 *.so
-dist/
+*.dylib
+*.dll
+__pycache__/
+*.pyc
+*.pyo
+
+# WASM build outputs (commented out - check these in for npm)
+# Uncomment if you want to build on npm install instead:
+# dist/hogql_parser.js
+# dist/hogql_parser.wasm
+
+# Node modules
+node_modules/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Backup files
+*.backup
+*.old
+
+# Temporary files
+*.tmp
+*.temp

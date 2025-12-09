@@ -1,0 +1,37 @@
+{
+    "name": "@posthog/hogql-parser",
+    "version": "0.0.1",
+    "description": "WebAssembly HogQL Parser - Parse HogQL queries in JavaScript/TypeScript",
+    "type": "module",
+    "main": "dist/hogql_parser.js",
+    "types": "dist/index.d.ts",
+    "files": [
+        "dist/hogql_parser.js",
+        "dist/hogql_parser.wasm",
+        "dist/index.d.ts",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "bash build_wasm.sh",
+        "test": "node test.js"
+    },
+    "keywords": [
+        "hogql",
+        "parser",
+        "wasm",
+        "webassembly",
+        "posthog",
+        "sql"
+    ],
+    "author": "PostHog Inc.",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/PostHog/posthog.git",
+        "directory": "common/hogql_parser"
+    },
+    "bugs": {
+        "url": "https://github.com/PostHog/posthog/issues"
+    },
+    "homepage": "https://github.com/PostHog/posthog/tree/master/common/hogql_parser"
+}
