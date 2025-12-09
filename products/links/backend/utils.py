@@ -5,47 +5,22 @@ LINK_HOG_FUNCTION_CODE = """
 if(inputs.debug) {
   print('Incoming request:', request.body)
 }
-if(request.method != inputs.method) {
+
+if (inputs.redirect_url) {
   return {
     'httpResponse': {
-      'status': 405,
-      'body': 'Method not allowed',
-    },
-  }
-}
-if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.headers['authorization'])) {
-  print('Incoming request denied due to bad authorization header')
-  return {
-    'httpResponse': {
-      'status': 401,
-      'body': 'Unauthorized',
-    },
-  }
-}
-if(empty(inputs.event)) {
-  return {
-    'httpResponse': {
-      'status': 400,
+      'status': 302,
       'body': {
-        'error': '"event" could not be parsed correctly',
-      },
-    },
+        'redirect_url': inputs.redirect_url
+      }
+    }
   }
 }
-if(empty(inputs.distinct_id)) {
-  return {
-    'httpResponse': {
-      'status': 400,
-      'body': {
-        'error': '"distinct_id" could not be parsed correctly',
-      },
-    },
-  }
-}
+
 postHogCapture({
-  'event': inputs.event,
-  'distinct_id': inputs.distinct_id,
-  'properties': inputs.properties,
+  'event': '$link_clicked',
+  'distinct_id': 'link_tracking',
+  'properties': inputs.properties
 })
 """
 
