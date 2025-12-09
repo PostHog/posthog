@@ -1520,16 +1520,21 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
 
     @action(methods=["POST"], detail=True, url_path="summary_headline", required_scopes=["survey:read"])
     def summary_headline(self, request: request.Request, **kwargs):
+        survey_id = kwargs["pk"]
+        logger.info("[summary_headline] request received", survey_id=survey_id)
+
         if not request.user.is_authenticated:
             raise exceptions.NotAuthenticated()
 
         user = cast(User, request.user)
-        survey_id = kwargs["pk"]
 
+        logger.info("[summary_headline] checking survey exists", survey_id=survey_id)
         if not Survey.objects.filter(id=survey_id, team__project_id=self.project_id).exists():
             return Response(status=status.HTTP_404_NOT_FOUND)
 
+        logger.info("[summary_headline] fetching survey", survey_id=survey_id)
         survey = self.get_object()
+        logger.info("[summary_headline] survey fetched", survey_id=survey_id)
         force_refresh = request.data.get("force_refresh", False)
 
         if not force_refresh and survey.headline_summary and survey.headline_response_count:
@@ -1547,6 +1552,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        logger.info("[summary_headline] calling generate_survey_headline", survey_id=survey_id)
         result = generate_survey_headline(
             survey=survey,
             team=self.team,

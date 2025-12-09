@@ -403,7 +403,6 @@ impl DeduplicationStore {
         // Collect UUID keys to delete first (minimize iterator lifetime)
         let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
         let mut uuid_keys_to_delete = Vec::new();
-        let mut kept_count = 0;
 
         {
             // Scope the iterator to release lock quickly
@@ -416,7 +415,6 @@ impl DeduplicationStore {
                 // Check if this key is within our cleanup range
                 if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
                     if timestamp >= cleanup_timestamp {
-                        kept_count += 1;
                         break; // We've reached keys that shouldn't be deleted
                     }
                     // Collect UUID key for batch deletion
@@ -439,8 +437,8 @@ impl DeduplicationStore {
         }
 
         info!(
-            "Store {}:{} - UUID cleanup: deleted {} records, keeping {} records",
-            self.topic, self.partition, deleted_count, kept_count
+            "Store {}:{} - UUID cleanup: deleted {} records",
+            self.topic, self.partition, deleted_count
         );
 
         // Now delete the index entries themselves using range delete (this is efficient as it's timestamp-prefixed)
