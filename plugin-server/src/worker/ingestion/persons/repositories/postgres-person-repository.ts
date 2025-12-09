@@ -708,35 +708,25 @@ export class PostgresPersonRepository
     }
 
     async addPersonlessDistinctId(teamId: number, distinctId: string, tx?: TransactionClient): Promise<boolean> {
+        // Use ON CONFLICT DO UPDATE with a no-op to always get the RETURNING clause.
+        // This eliminates the need for a fallback SELECT query on conflict (~10k queries/min saved).
+        // The no-op update on is_merged (not indexed) results in a HOT update, which is very cheap:
+        // - No index maintenance required
+        // - Creates a dead tuple that gets cleaned up by autovacuum
         const result = await this.postgres.query(
             tx ?? PostgresUse.PERSONS_WRITE,
             `
                 INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
                 VALUES ($1, $2, false, now())
-                ON CONFLICT (team_id, distinct_id) DO NOTHING
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
                 RETURNING is_merged
             `,
             [teamId, distinctId],
             'addPersonlessDistinctId'
         )
 
-        if (result.rows.length === 1) {
-            return result.rows[0]['is_merged']
-        }
-
-        // ON CONFLICT ... DO NOTHING won't give us our RETURNING, so we have to do another SELECT
-        const existingResult = await this.postgres.query(
-            tx ?? PostgresUse.PERSONS_WRITE,
-            `
-                SELECT is_merged
-                FROM posthog_personlessdistinctid
-                WHERE team_id = $1 AND distinct_id = $2
-            `,
-            [teamId, distinctId],
-            'addPersonlessDistinctId'
-        )
-
-        return existingResult.rows[0]['is_merged']
+        return result.rows[0]['is_merged']
     }
 
     async addPersonlessDistinctIdForMerge(

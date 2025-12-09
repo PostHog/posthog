@@ -19,8 +19,8 @@ export const personlessDistinctIdCacheOperationsCounter = new Counter({
 // Tracks whether we know we've already inserted a `posthog_personlessdistinctid` for the given
 // (team_id, distinct_id) pair. If we have, then we can skip the INSERT attempt.
 const PERSONLESS_DISTINCT_ID_INSERTED_CACHE = new LRUCache<string, boolean>({
-    max: 10_000,
-    ttl: ONE_HOUR * 24, // cache up to 24h
+    max: 100_000,
+    ttl: ONE_HOUR * 4,
     updateAgeOnGet: true,
 })
 
