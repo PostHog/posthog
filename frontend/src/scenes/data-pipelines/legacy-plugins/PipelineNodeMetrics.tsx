@@ -77,7 +77,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
         <div className="deprecated-space-y-4">
             <div className="flex items-start gap-8 flex-wrap">
                 <div>
-                    <div className="text-secondary font-semibold mb-2">
+                    <div className="text-muted-foreground font-semibold mb-2">
                         Events Processed successfully
                         <Tooltip title="Total number of events processed successfully">
                             <IconInfo />
@@ -86,7 +86,7 @@ function MetricsOverview({ metrics, metricsLoading }: MetricsOverviewProps): JSX
                     <div className="text-4xl">{renderNumber(metrics?.totals?.successes)}</div>
                 </div>
                 <div>
-                    <div className="text-secondary font-semibold mb-2">
+                    <div className="text-muted-foreground font-semibold mb-2">
                         Events Failed
                         <Tooltip title="Total number of events that threw an error during processing">
                             <IconInfo />

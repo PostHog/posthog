@@ -228,7 +228,7 @@ const renderUsageLimitMessage = (
                     <Tooltip title={featureInfo.description}>
                         <span>
                             <b>{featureInfo.name}</b>
-                            <IconInfo className="ml-0.5 text-secondary" />
+                            <IconInfo className="ml-0.5 text-muted-foreground" />
                         </span>
                     </Tooltip>
                     .
@@ -247,7 +247,7 @@ const renderUsageLimitMessage = (
                                 <b>{featureInfoOnNextPlan?.limit} projects</b>.
                             </p>
                         )}
-                        <p className="mb-4 text-xs italic text-secondary">
+                        <p className="mb-4 text-xs italic text-muted-foreground">
                             Need unlimited projects? Check out one of our{' '}
                             <Link to="/organization/billing?products=platform_and_support" onClick={handleCtaClick}>
                                 platform add-ons
@@ -294,8 +294,8 @@ const renderGateVariantMessage = (
 const GrandfatheredMessage = (): JSX.Element => {
     return (
         <div className="flex mb-4 text-left rounded gap-x-2 bg-card">
-            <IconInfo className="text-2xl text-secondary" />
-            <p className="mb-0 text-secondary">
+            <IconInfo className="text-2xl text-muted-foreground" />
+            <p className="mb-0 text-muted-foreground">
                 Your plan does not include this feature, but previously set settings may remain. Please upgrade your
                 plan to regain access.
             </p>

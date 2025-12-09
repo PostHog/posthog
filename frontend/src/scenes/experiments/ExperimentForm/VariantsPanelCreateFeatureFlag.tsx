@@ -181,7 +181,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                     {featureFlagKeyValidation?.error && (
                         <div className="text-xs text-destructive-foreground">{featureFlagKeyValidation.error}</div>
                     )}
-                    <div className="text-sm text-secondary">
+                    <div className="text-sm text-muted-foreground">
                         Each experiment is backed by a feature flag. This key will be used to control the experiment in
                         your code.
                     </div>
@@ -329,7 +329,7 @@ export const VariantsPanelCreateFeatureFlag = ({
                             : undefined
                     }
                 />
-                <div className="text-secondary text-sm pl-6 mt-2">
+                <div className="text-muted-foreground text-sm pl-6 mt-2">
                     If your feature flag is evaluated for anonymous users, use this option to ensure the flag value
                     remains consistent after the user logs in. Note that this feature requires creating profiles for
                     anonymous users.

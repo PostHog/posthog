@@ -70,12 +70,12 @@ export function IntegrationView({
                                     at={integration.created_at}
                                     by={integration.created_by}
                                     prefix="Created"
-                                    className="text-secondary"
+                                    className="text-muted-foreground"
                                 />
                                 {refreshedAtTimestamp && (
                                     <>
                                         <LemonDivider vertical />
-                                        <div className="flex items-baseline gap-1 text-xs text-secondary">
+                                        <div className="flex items-baseline gap-1 text-xs text-muted-foreground">
                                             Last refreshed <TZLabel time={dayjs.unix(refreshedAtTimestamp)} />
                                         </div>
                                     </>

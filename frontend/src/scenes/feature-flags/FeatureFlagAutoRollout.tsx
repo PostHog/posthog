@@ -243,7 +243,7 @@ export function FeatureFlagAutoRollback({ readOnly }: FeatureFlagAutoRollbackPro
                                             the <code>"SENTRY_"</code> properties from your Sentry account to enable.
                                         </div>
                                     ) : (
-                                        <p className="text-secondary">
+                                        <p className="text-muted-foreground">
                                             This PostHog instance is not configured for Sentry. Please contact the
                                             instance owner to configure it.
                                         </p>

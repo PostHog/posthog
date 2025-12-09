@@ -121,7 +121,7 @@ function SurveyIterationOptions(): JSX.Element {
                             label: 'Repeat on a schedule',
                             'data-attr': 'survey-iteration-frequency-days',
                             description: showSurveyRepeatSchedule ? (
-                                <div className="flex flex-row gap-2 items-center text-secondary">
+                                <div className="flex flex-row gap-2 items-center text-muted-foreground">
                                     Repeat this survey{' '}
                                     <LemonField name="iteration_count">
                                         {({ onChange, value }) => {

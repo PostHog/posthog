@@ -146,7 +146,7 @@ export function SessionTimeline({
                 {beforeLoading && (
                     <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
                         <Spinner />
-                        <span className="text-secondary">loading...</span>
+                        <span className="text-muted-foreground">loading...</span>
                     </div>
                 )}
                 {items.map((item) => {
@@ -167,7 +167,7 @@ export function SessionTimeline({
                 {afterLoading && !beforeLoading && (
                     <div className={cn(itemContainer({ selected: false }), 'justify-start')}>
                         <Spinner />
-                        <span className="text-secondary">loading...</span>
+                        <span className="text-muted-foreground">loading...</span>
                     </div>
                 )}
             </div>

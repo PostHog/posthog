@@ -92,7 +92,7 @@ export function AdvancedActivityLogsScene(): JSX.Element | null {
                                 </>
                             }
                         >
-                            <span className="flex items-center gap-1 text-sm text-secondary whitespace-nowrap cursor-pointer">
+                            <span className="flex items-center gap-1 text-sm text-muted-foreground whitespace-nowrap cursor-pointer">
                                 {includesOrgLevelLogs ? 'Project and organization logs' : 'Project logs only'}
                                 <IconInfo className="text-base" />
                             </span>

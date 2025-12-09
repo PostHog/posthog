@@ -99,7 +99,7 @@ export function OverviewGridItem({
                                         ? 'text-muted-foreground cursor-not-allowed'
                                         : filterState === 'active'
                                           ? 'cursor-pointer text-link'
-                                          : 'cursor-pointer text-secondary hover:text-foreground'
+                                          : 'cursor-pointer text-muted-foreground hover:text-foreground'
                                 )}
                                 onClick={(e) => {
                                     e.stopPropagation()

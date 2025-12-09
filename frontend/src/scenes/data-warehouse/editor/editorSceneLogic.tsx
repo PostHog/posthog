@@ -15,7 +15,7 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     }
 
     return (
-        <span className="text-xs mr-1 italic text-[color:var(--color-text-secondary-3000)]">
+        <span className="text-xs mr-1 italic text-[color:var(--color-text-muted-foreground-3000)]">
             {`(${new Intl.NumberFormat('en', {
                 notation: 'compact',
                 compactDisplay: 'short',

@@ -29,7 +29,7 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyVersionWarnin
                                 <strong>{feature}</strong>
                                 <ul className="list-none pl-2 mt-0.5">
                                     {featureWarnings.map((warning, idx) => (
-                                        <li key={idx} className="text-secondary">
+                                        <li key={idx} className="text-muted-foreground">
                                             Requires {warning.sdkType} v{warning.minVersion}+ (you have v
                                             {warning.currentVersion})
                                         </li>
@@ -38,7 +38,7 @@ export function SdkVersionWarnings({ warnings }: { warnings: SurveyVersionWarnin
                             </li>
                         ))}
                     </ul>
-                    <p className="text-sm text-secondary">
+                    <p className="text-sm text-muted-foreground">
                         <Link to="https://posthog.com/docs/libraries" target="_blank">
                             Update your SDK
                         </Link>{' '}

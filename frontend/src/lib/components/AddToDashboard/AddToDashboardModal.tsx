@@ -158,7 +158,7 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                     autoFocus
                 />
-                <div className="text-secondary">
+                <div className="text-muted-foreground">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>

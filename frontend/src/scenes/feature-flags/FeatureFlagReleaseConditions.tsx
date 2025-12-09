@@ -580,7 +580,7 @@ export function FeatureFlagReleaseConditions({
                 !readOnly &&
                 !excludeTitle && (
                     <>
-                        <div className="text-secondary mb-2">
+                        <div className="text-muted-foreground mb-2">
                             Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
                             - the first matching set is used. A condition matches when all property filters pass AND the
                             target falls within the rollout percentage.

@@ -124,7 +124,7 @@ export default function FilesPage(): React.JSX.Element {
                             </div>
                             <div className="stat">
                                 <div className="stat-title">Storage used</div>
-                                <div className="stat-value text-secondary">{formatFileSize(usedStorage)}</div>
+                                <div className="stat-value text-muted-foreground">{formatFileSize(usedStorage)}</div>
                                 <div className="stat-desc">{storagePercentage.toFixed(1)}% of 1GB</div>
                             </div>
                         </div>

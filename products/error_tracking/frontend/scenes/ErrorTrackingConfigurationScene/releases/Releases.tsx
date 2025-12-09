@@ -113,7 +113,7 @@ const ReleasesTable = (): JSX.Element => {
     const emptyState = (
         <div className="flex flex-col justify-center items-center gap-2 p-4 text-center">
             <div className="font-semibold">No releases found</div>
-            <div className="text-secondary">
+            <div className="text-muted-foreground">
                 Releases are automatically created when PostHog detects version information in your error tracking data.
                 Learn more in the{' '}
                 <Link to="https://posthog.com/docs/error-tracking" target="_blank">

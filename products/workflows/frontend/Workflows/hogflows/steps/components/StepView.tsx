@@ -46,7 +46,7 @@ export function StepView({ action }: { action: HogFlowAction }): JSX.Element {
                   ? 'var(--border-border)'
                   : 'var(--color-border)',
             colorLight: Step?.color ? `${Step?.color}20` : 'var(--color-border)',
-            color: Step?.color || 'var(--text-secondary)',
+            color: Step?.color || 'var(--text-muted-foreground)',
             icon: Step?.icon,
         }
     }, [action, isSelected, Step])

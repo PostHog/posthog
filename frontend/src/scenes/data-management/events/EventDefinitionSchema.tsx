@@ -109,7 +109,7 @@ function PropertyGroupCard({
                                 Property Coverage Trends (90 days)
                             </Link>
                             <Tooltip title="% of events containing this property">
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-xl text-muted-foreground shrink-0" />
                             </Tooltip>
                         </h4>
                         {queryResult.isTruncated && (

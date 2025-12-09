@@ -88,7 +88,7 @@ const ActivityLogDiff = ({ logItem }: { logItem: HumanizedActivityLogItem }): JS
                         )
                     })
                 ) : (
-                    <div className="text-secondary">This item has no changes to compare</div>
+                    <div className="text-muted-foreground">This item has no changes to compare</div>
                 )}
             </div>
         </div>
@@ -150,7 +150,7 @@ export const ActivityLogRow = ({ logItem }: { logItem: HumanizedActivityLogItem 
                     {logItem.extendedDescription && (
                         <div className="ActivityLogRow__description__extended">{logItem.extendedDescription}</div>
                     )}
-                    <div className="text-secondary">
+                    <div className="text-muted-foreground">
                         <TZLabel time={logItem.created_at} />
                     </div>
                 </div>

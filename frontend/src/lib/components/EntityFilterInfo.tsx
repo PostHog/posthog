@@ -31,7 +31,9 @@ export function EntityFilterInfo({
                 title="All events"
             >
                 All events
-                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
+                {isOptional && (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground normal-case">(optional)</span>
+                )}
             </span>
         )
     }
@@ -51,7 +53,9 @@ export function EntityFilterInfo({
                 >
                     {titleToDisplay}
                 </span>
-                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
+                {isOptional && (
+                    <span className="ml-1 text-xs font-normal text-muted-foreground normal-case">(optional)</span>
+                )}
             </span>
         )
     }
@@ -68,11 +72,13 @@ export function EntityFilterInfo({
             >
                 {customTitle}
             </span>
-            {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
+            {isOptional && (
+                <span className="ml-1 text-xs font-normal text-muted-foreground normal-case">(optional)</span>
+            )}
             {!showSingleName && (
                 <span
                     className={clsx(
-                        'EntityFilterInfo max-w-100 ml-1 text-secondary text-xs',
+                        'EntityFilterInfo max-w-100 ml-1 text-muted-foreground text-xs',
                         !allowWrap && 'whitespace-nowrap truncate'
                     )}
                     title={titleToDisplay}

@@ -32,7 +32,7 @@ export function ComputationTimeWithRefresh({ disableRefresh }: { disableRefresh?
     }
 
     return (
-        <div className="flex items-center text-secondary z-10">
+        <div className="flex items-center text-muted-foreground z-10">
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             {!disableRefresh && (
                 <>

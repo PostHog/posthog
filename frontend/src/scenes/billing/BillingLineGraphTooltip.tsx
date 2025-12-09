@@ -22,7 +22,7 @@ export function BillingLineGraphTooltip({ title, sortedSeries }: BillingLineGrap
                 <div key={item.id} className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
                         <SeriesColorDot colorIndex={item.id} />
-                        <span className="text-text-secondary whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
+                        <span className="text-text-muted-foreground whitespace-nowrap overflow-hidden text-ellipsis max-w-xs">
                             {item.label}
                         </span>
                     </div>

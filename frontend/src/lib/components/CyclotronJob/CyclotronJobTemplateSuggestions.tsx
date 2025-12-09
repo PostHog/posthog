@@ -27,7 +27,7 @@ function CyclotronJobTemplateSuggestionsItem({
         <LemonButton fullWidth role="menuitem" size="small" onClick={() => onSelect(option)}>
             <div className="flex-col flex-1">
                 <code className="text-sm font-semibold font-monospace">{option.example}</code>
-                <div className="text-xs text-secondary">{option.description}</div>
+                <div className="text-xs text-muted-foreground">{option.description}</div>
             </div>
         </LemonButton>
     )
@@ -72,7 +72,7 @@ export function CyclotronJobTemplateSuggestions({
                         />
                     ) : null}
                 </div>
-                <div className="text-xs text-secondary">
+                <div className="text-xs text-muted-foreground">
                     Below are a list of available functions for templating your inputs using <b>{templating}</b>.{' '}
                     <Link to="https://posthog.com/docs/cdp/destinations/customizing-destinations#customizing-payload">
                         Learn more

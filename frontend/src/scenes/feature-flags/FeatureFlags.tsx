@@ -478,7 +478,7 @@ export function OverViewTab({
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
             <div>
-                <span className="text-secondary">
+                <span className="text-muted-foreground">
                     {featureFlagsLoading ? (
                         <WrappingLoadingSkeleton>1-100 of 150 flags</WrappingLoadingSkeleton>
                     ) : count ? (

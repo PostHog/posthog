@@ -860,7 +860,7 @@ const Content = ({
         if (editingView) {
             return (
                 <TabScroller>
-                    <div className="px-6 py-4 border-t text-secondary">Variables are not allowed in views.</div>
+                    <div className="px-6 py-4 border-t text-muted-foreground">Variables are not allowed in views.</div>
                 </TabScroller>
             )
         }
@@ -916,7 +916,7 @@ const Content = ({
                 className="flex flex-1 justify-center items-center border-t"
                 data-attr="sql-editor-output-pane-empty-state"
             >
-                <span className="text-secondary mt-3">
+                <span className="text-muted-foreground mt-3">
                     {msg} Press <KeyboardShortcut command enter /> to run the query.
                 </span>
             </div>

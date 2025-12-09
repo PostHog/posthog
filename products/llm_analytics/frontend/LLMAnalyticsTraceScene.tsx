@@ -506,7 +506,7 @@ const TreeNode = React.memo(function TraceNode({
                 </div>
                 {!isCollapsedDueToFilter && renderModelRow(item, searchQuery)}
                 {!isCollapsedDueToFilter && hasChildren && (
-                    <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
+                    <div className="flex flex-row flex-wrap text-muted-foreground items-center gap-1.5">{children}</div>
                 )}
             </Link>
         </li>
@@ -574,7 +574,7 @@ function TreeNodeChildren({
                 ))
             ) : (
                 <div
-                    className="text-secondary hover:text-default text-xxs cursor-pointer p-1"
+                    className="text-muted-foreground hover:text-default text-xxs cursor-pointer p-1"
                     onClick={() => setIsCollapsed(false)}
                 >
                     Show {pluralize(tree.length, 'collapsed child', 'collapsed children')}

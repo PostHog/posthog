@@ -75,7 +75,9 @@ const CommentBottomRow = ({ comment }: { comment: CommentType }): JSX.Element =>
                         {timeInRecordingLabel}
                     </LemonButton>
                 ) : null}
-                <span className="text-xs text-secondary italic">{comment.version ? <span>(edited)</span> : null}</span>
+                <span className="text-xs text-muted-foreground italic">
+                    {comment.version ? <span>(edited)</span> : null}
+                </span>
             </div>
             <div className="flex items-center">
                 <div data-attr="comment-reactions" className="flex items-center">
@@ -267,7 +269,7 @@ export const CommentWithReplies = ({ commentWithReplies }: CommentProps): JSX.El
             {comment ? (
                 <Comment comment={comment} />
             ) : (
-                <div className="border rounded border-dashed p-2 font-semibold italic bg-card text-secondary">
+                <div className="border rounded border-dashed p-2 font-semibold italic bg-card text-muted-foreground">
                     Deleted comment
                 </div>
             )}

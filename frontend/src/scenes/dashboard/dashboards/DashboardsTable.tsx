@@ -110,7 +110,7 @@ export function DashboardsTable({
                                 )}
                                 {!canEditDashboard && (
                                     <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
-                                        <IconLock className="ml-1 text-base text-secondary" />
+                                        <IconLock className="ml-1 text-base text-muted-foreground" />
                                     </Tooltip>
                                 )}
                                 {isPrimary && (
@@ -204,7 +204,7 @@ export function DashboardsTable({
                                           fullWidth
                                           status="warning"
                                       >
-                                          <span className="text-secondary">
+                                          <span className="text-muted-foreground">
                                               Change the default dashboard
                                               <br />
                                               from the <Link to={urls.projectHomepage()}>project home page</Link>.

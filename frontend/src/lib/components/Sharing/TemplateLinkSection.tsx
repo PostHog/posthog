@@ -70,7 +70,7 @@ export function TemplateLinkSection({
                         aria-expanded={isExpanded}
                     >
                         <IconChevronRight
-                            className={clsx('shrink-0 text-lg text-secondary transition-transform', {
+                            className={clsx('shrink-0 text-lg text-muted-foreground transition-transform', {
                                 'rotate-90': isExpanded,
                             })}
                         />

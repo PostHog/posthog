@@ -86,7 +86,7 @@ export function TagSelect({
                         ))}
 
                         {filteredTags.length === 0 ? (
-                            <div className="p-2 text-secondary italic truncate border-t">
+                            <div className="p-2 text-muted-foreground italic truncate border-t">
                                 {search ? <span>No matching tags</span> : <span>No tags</span>}
                             </div>
                         ) : null}

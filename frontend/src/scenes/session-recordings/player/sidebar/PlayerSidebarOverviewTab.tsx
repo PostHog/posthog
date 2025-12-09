@@ -27,7 +27,7 @@ export function ResolutionView(): JSX.Element {
                 </>
             }
         >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
+            <span className="text-muted-foreground text-xs flex flex-row items-center gap-x-1">
                 <span>{resolutionDisplay}</span>
                 <span>({scaleDisplay})</span>
             </span>

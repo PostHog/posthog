@@ -47,7 +47,7 @@
     }
 
     &.LemonBadge--muted {
-        --lemon-badge-color: var(--color-text-secondary);
+        --lemon-badge-color: var(--color-text-muted-foreground);
     }
 
     &.LemonBadge--data {

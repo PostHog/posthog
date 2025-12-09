@@ -35,7 +35,7 @@ export function TreeRow({ item, menuItems }: TreeRowProps): JSX.Element {
             >
                 <span className="flex-1 flex gap-2">
                     <span className="truncate">{item.name}</span>
-                    <span className="italic text-secondary">{item.type}</span>
+                    <span className="italic text-muted-foreground">{item.type}</span>
                 </span>
             </LemonButton>
             {menuItems && menuItems.length > 0 && (
@@ -184,7 +184,7 @@ export function TreeFolderRow({ item, depth, onClick, selectedRow, dropdownOverl
                         ) : emptyLabel ? (
                             emptyLabel
                         ) : (
-                            <span className="text-secondary">No tables found</span>
+                            <span className="text-muted-foreground">No tables found</span>
                         )}
                     </div>
                 ))}

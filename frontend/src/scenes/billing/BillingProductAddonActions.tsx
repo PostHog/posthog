@@ -175,7 +175,7 @@ export const BillingProductAddonActions = ({
 
         if (isTrialEligible && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className="mt-2 text-xs text-muted-foreground text-right">
                     You'll have {addon.trial?.length} days to try it out. Then you'll be charged{' '}
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)}.
                 </p>
@@ -184,7 +184,7 @@ export const BillingProductAddonActions = ({
 
         if (isProrated && !isSubscribedToAnotherAddon) {
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className="mt-2 text-xs text-muted-foreground text-right">
                     Pay ~${proratedAmount.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.
@@ -196,7 +196,7 @@ export const BillingProductAddonActions = ({
         if (isSwitchPlanEnabled && isSubscribedToAnotherAddon && !isLowerTierThanCurrentAddon && isProrated) {
             const amountDue = Math.max(0, proratedAmount - unusedPlatformAddonAmount)
             return (
-                <p className="mt-2 text-xs text-secondary text-right">
+                <p className="mt-2 text-xs text-muted-foreground text-right">
                     Pay ~${amountDue.toFixed(2)} today (prorated) and
                     <br />
                     {formatFlatRate(Number(upgradePlan?.unit_amount_usd), upgradePlan?.unit)} every month thereafter.

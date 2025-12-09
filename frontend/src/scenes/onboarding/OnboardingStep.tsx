@@ -73,7 +73,7 @@ export const OnboardingStep = ({
     return (
         <>
             <div className="pb-2">
-                <div className={`text-secondary max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
+                <div className={`text-muted-foreground max-w-screen-md mx-auto ${hideHeader && 'hidden'}`}>
                     <div
                         className="flex items-center justify-start gap-x-3 px-2 shrink-0 w-full"
                         data-attr="onboarding-breadcrumbs"

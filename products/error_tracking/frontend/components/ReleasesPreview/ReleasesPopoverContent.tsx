@@ -20,7 +20,7 @@ export function ReleasePopoverContent({ release }: ReleasesPopoverContentProps):
     return (
         <div className="overflow-hidden">
             <div className="p-2">
-                <div className="pb-1 text-secondary text-xs">Release</div>
+                <div className="pb-1 text-muted-foreground text-xs">Release</div>
                 <table className="justify-between w-full text-left items-center min-w-[180px]">
                     <tr>
                         <th className="pb-1">Project</th>
@@ -106,7 +106,7 @@ function PropertyDisplay({
                 className={cn('bg-card cursor-pointer hover:bg-fill-secondary', tagProps.className)}
                 {...tagProps}
             >
-                {icon && createElement(icon, { className: 'text-sm text-secondary' })}
+                {icon && createElement(icon, { className: 'text-sm text-muted-foreground' })}
                 <span>{children}</span>
             </LemonTag>
         )

@@ -30,7 +30,7 @@ export function PlanIcon({
     timeDenominator?: string
 }): JSX.Element {
     return (
-        <div className="flex items-center text-xs text-secondary">
+        <div className="flex items-center text-xs text-muted-foreground">
             {!feature ? (
                 <>
                     <IconX className={clsx('text-destructive-foreground mx-4', className)} />
@@ -162,7 +162,7 @@ export const PlanComparison = ({
                                               : 'Usage-based - starting at $0'
                                           : '$0 per month'}
                                 {isProrated && (
-                                    <p className="text-xxs text-secondary font-normal italic mt-2">
+                                    <p className="text-xxs text-muted-foreground font-normal italic mt-2">
                                         Pay ~${prorationAmount} today{isProrated && ' (prorated)'} and{' '}
                                         {isProrated && `$${parseInt(plan.unit_amount_usd || '0')} `}every month
                                         thereafter.
@@ -229,14 +229,16 @@ export const PlanComparison = ({
                                                 </LemonTag>
                                             </Tooltip>
                                         </p>
-                                        <p className="ml-0 text-xs text-secondary mt-1">Priced per {addon.unit}</p>
+                                        <p className="ml-0 text-xs text-muted-foreground mt-1">
+                                            Priced per {addon.unit}
+                                        </p>
                                     </th>
                                     {plans?.map((plan, i) => {
                                         // If the parent plan is free, the addon isn't available
                                         return !addon.inclusion_only ? (
                                             plan.free_allocation && !plan.tiers ? (
                                                 <td key={`${addon.name}-free-tiers-td`}>
-                                                    <p className="text-secondary text-xs">
+                                                    <p className="text-muted-foreground text-xs">
                                                         Not available on this plan.
                                                     </p>
                                                 </td>
@@ -347,7 +349,7 @@ export const PlanComparison = ({
                                                 <tr key={`tr-${feature.key}`}>
                                                     <th
                                                         className={clsx(
-                                                            'text-secondary PlanTable__th__feature',
+                                                            'text-muted-foreground PlanTable__th__feature',
                                                             width &&
                                                                 width < 600 &&
                                                                 'PlanTable__th__feature--reduced_padding',

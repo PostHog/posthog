@@ -393,7 +393,7 @@ export function ManagedMigrations(): JSX.Element {
                                             </div>
                                         )
                                     }
-                                    return <span className="text-secondary">—</span>
+                                    return <span className="text-muted-foreground">—</span>
                                 },
                                 align: 'right',
                             },

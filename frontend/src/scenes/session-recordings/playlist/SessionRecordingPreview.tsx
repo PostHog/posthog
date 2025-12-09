@@ -43,14 +43,14 @@ export interface SessionRecordingPreviewProps {
 
 function RecordingDuration({ recordingDuration }: { recordingDuration: number | undefined }): JSX.Element {
     if (recordingDuration === undefined) {
-        return <div className="flex text-secondary text-xs">-</div>
+        return <div className="flex text-muted-foreground text-xs">-</div>
     }
 
     const formattedDuration = colonDelimitedDuration(recordingDuration)
     const [hours, minutes, seconds] = formattedDuration.split(':')
 
     return (
-        <div className="flex text-secondary text-xs">
+        <div className="flex text-muted-foreground text-xs">
             {hours != '00' && <span>{hours}:</span>}
             <span>
                 {minutes}:{seconds}
@@ -86,7 +86,7 @@ function RecordingExpiry({
     recordingTtl: number | undefined
 }): JSX.Element {
     if (recordingTtl === undefined) {
-        return <div className="flex text-secondary text-xs">-</div>
+        return <div className="flex text-muted-foreground text-xs">-</div>
     }
 
     const ttlColor = recordingTtl <= SESSION_RECORDINGS_TTL_WARNING_THRESHOLD_DAYS ? '#f63b3bff' : 'currentColor'
@@ -148,7 +148,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
                     <Tooltip key={property} title={label}>
                         <span className="flex items-center gap-x-0.5">
                             <PropertyIcon className={iconClassNames} property={property} value={value} />
-                            <span className="SessionRecordingPreview__property-label text-secondary truncate">
+                            <span className="SessionRecordingPreview__property-label text-muted-foreground truncate">
                                 {label}
                             </span>
                         </span>
@@ -162,7 +162,7 @@ export function PropertyIcons({ recordingProperties, loading, iconClassNames }: 
 function FirstURL(props: { startUrl: string | undefined }): JSX.Element {
     const firstPath = props.startUrl?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
     return (
-        <span className="flex overflow-hidden text-secondary text-xs">
+        <span className="flex overflow-hidden text-muted-foreground text-xs">
             <span title={`First URL: ${props.startUrl}`} className="truncate">
                 {firstPath}
             </span>
@@ -267,7 +267,7 @@ export const SessionRecordingPreview = memo(
         const loading = !recordingProperties && recordingPropertiesLoading
         const iconProperties = gatherIconProperties(recordingProperties, recording)
 
-        const iconClassNames = 'text-secondary shrink-0'
+        const iconClassNames = 'text-muted-foreground shrink-0'
 
         return (
             <DraggableToNotebook href={urls.replaySingle(recording.id)}>
@@ -287,7 +287,7 @@ export const SessionRecordingPreview = memo(
 
                             {playlistTimestampFormat === TimestampFormat.Relative ? (
                                 <TZLabel
-                                    className="overflow-hidden text-ellipsis text-xs text-secondary shrink-0"
+                                    className="overflow-hidden text-ellipsis text-xs text-muted-foreground shrink-0"
                                     time={recording.start_time}
                                     placement="right"
                                 />
@@ -300,7 +300,7 @@ export const SessionRecordingPreview = memo(
                         </div>
 
                         <div className="flex justify-between items-center gap-x-0.5">
-                            <div className="flex gap-x-4 text-secondary text-sm">
+                            <div className="flex gap-x-4 text-muted-foreground text-sm">
                                 <PropertyIcons
                                     recordingProperties={iconProperties}
                                     iconClassNames={iconClassNames}
@@ -312,7 +312,7 @@ export const SessionRecordingPreview = memo(
                                         <span className="flex gap-x-0.5">
                                             <IconCursorClick className={iconClassNames} />
                                             <span>{recording.click_count}</span>
-                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                            <span className="SessionRecordingPreview__activity-label text-muted-foreground">
                                                 clicks
                                             </span>
                                         </span>
@@ -321,7 +321,7 @@ export const SessionRecordingPreview = memo(
                                         <span className="flex gap-x-0.5">
                                             <IconKeyboard className={iconClassNames} />
                                             <span>{recording.keypress_count}</span>
-                                            <span className="SessionRecordingPreview__activity-label text-secondary">
+                                            <span className="SessionRecordingPreview__activity-label text-muted-foreground">
                                                 keys
                                             </span>
                                         </span>

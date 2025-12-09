@@ -150,7 +150,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
     if (status === 'done') {
         return (
             <MessageTemplate type="ai">
-                <p className="m-0 text-sm text-secondary">Thanks for making PostHog AI better!</p>
+                <p className="m-0 text-sm text-muted-foreground">Thanks for making PostHog AI better!</p>
             </MessageTemplate>
         )
     }
@@ -189,15 +189,17 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             <MessageTemplate type="ai">
                 <div className="flex flex-col gap-3">
                     <div className="flex items-center gap-2">
-                        <IconDocument className="text-secondary" />
+                        <IconDocument className="text-muted-foreground" />
                         <span className="font-medium">Support ticket ready for review</span>
                     </div>
-                    <p className="m-0 text-sm text-secondary">
+                    <p className="m-0 text-sm text-muted-foreground">
                         Here's a draft of your support ticket. Please review and submit it to get help from PostHog
                         support.
                     </p>
                     <div className="bg-bg-light border rounded p-3">
-                        <div className="text-xs font-medium text-secondary uppercase mb-1">Ticket description</div>
+                        <div className="text-xs font-medium text-muted-foreground uppercase mb-1">
+                            Ticket description
+                        </div>
                         <p className="m-0 text-sm whitespace-pre-wrap">{feedbackText}</p>
                     </div>
                     <div>

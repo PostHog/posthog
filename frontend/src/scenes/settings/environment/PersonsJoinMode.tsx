@@ -16,7 +16,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
         label: (
             <>
                 <div>Does an inner join</div>
-                <div className="text-secondary">
+                <div className="text-muted-foreground">
                     This is the default. You want this one unless you know what you are doing.
                 </div>
             </>
@@ -27,7 +27,7 @@ const personsJoinOptions: LemonRadioOption<PersonsJoinMode>[] = [
         label: (
             <>
                 <div>Does a left join.</div>
-                <div className="text-secondary">Experimental mode for personless events </div>
+                <div className="text-muted-foreground">Experimental mode for personless events </div>
             </>
         ),
     },

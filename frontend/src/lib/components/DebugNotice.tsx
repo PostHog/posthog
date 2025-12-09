@@ -55,7 +55,7 @@ export function DebugNotice({ isCollapsed }: DebugNoticeProps): JSX.Element | nu
                 }
                 onClick={() => setNoticeHidden(true)}
             >
-                <IconBranch className="text-secondary" />
+                <IconBranch className="text-muted-foreground" />
             </ButtonPrimitive>
         )
     }

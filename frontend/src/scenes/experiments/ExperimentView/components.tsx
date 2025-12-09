@@ -117,7 +117,7 @@ export function VariantTag({
                 />
             )}
             <span
-                className="ml-2 text-xs font-semibold truncate text-secondary"
+                className="ml-2 text-xs font-semibold truncate text-muted-foreground"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
             >
@@ -296,7 +296,7 @@ export function ExperimentLoadingAnimation(): JSX.Element {
     return (
         <div className="flex flex-col flex-1 justify-center items-center">
             <LoadingBar />
-            <div className="text-xs text-secondary w-44">
+            <div className="text-xs text-muted-foreground w-44">
                 <span className="mr-1">Fetching experiment results</span>
                 <EllipsisAnimation />
             </div>
@@ -391,7 +391,7 @@ export function PageHeaderCustom(): JSX.Element {
                                             LemonDialog.open({
                                                 title: 'Archive this experiment?',
                                                 content: (
-                                                    <div className="text-sm text-secondary">
+                                                    <div className="text-sm text-muted-foreground">
                                                         This action will move the experiment to the archived tab. It can
                                                         be restored at any time.
                                                     </div>
@@ -778,7 +778,7 @@ export const ResetButton = (): JSX.Element => {
             title: 'Reset this experiment?',
             content: (
                 <>
-                    <div className="text-sm text-secondary max-w-md">
+                    <div className="text-sm text-muted-foreground max-w-md">
                         <p>
                             The experiment start and end dates will be reset and the experiment will go back to draft
                             mode.
@@ -789,7 +789,9 @@ export const ResetButton = (): JSX.Element => {
                         </p>
                     </div>
                     {experiment.archived && (
-                        <div className="text-sm text-secondary">Resetting will also unarchive the experiment.</div>
+                        <div className="text-sm text-muted-foreground">
+                            Resetting will also unarchive the experiment.
+                        </div>
                     )}
                 </>
             ),

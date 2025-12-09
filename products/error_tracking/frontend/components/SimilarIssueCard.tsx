@@ -23,7 +23,7 @@ export default function SimilarIssueCard({
                     <RuntimeIcon runtime={relatedRuntime} fontSize="0.7rem" className="shrink-0" />
                     {issue.name}
                 </div>
-                {issue.description && <div className="text-xs text-secondary truncate">{issue.description}</div>}
+                {issue.description && <div className="text-xs text-muted-foreground truncate">{issue.description}</div>}
             </div>
             {actions}
         </div>

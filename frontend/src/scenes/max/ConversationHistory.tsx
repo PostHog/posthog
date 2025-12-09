@@ -98,7 +98,7 @@ function ConversationCard({ conversation, openConversation, sidePanel }: Convers
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />
             ) : (
-                <span className="text-secondary">{formatConversationDate(conversation.updated_at)}</span>
+                <span className="text-muted-foreground">{formatConversationDate(conversation.updated_at)}</span>
             )}
         </Link>
     )

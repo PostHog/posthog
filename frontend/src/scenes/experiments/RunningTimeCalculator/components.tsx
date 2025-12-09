@@ -68,7 +68,7 @@ export const StandardDeviationPanel = ({ standardDeviation }: { standardDeviatio
                         </>
                     }
                 >
-                    <IconInfo className="text-secondary ml-1" />
+                    <IconInfo className="text-muted-foreground ml-1" />
                 </Tooltip>
             </div>
             <div className="font-semibold">~{humanFriendlyNumber(standardDeviation, 0)}</div>

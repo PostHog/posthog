@@ -31,7 +31,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                         <LemonLabel showOptional={!variable.required} info={<>{variable.description}</>}>
                             {variable.name}
                         </LemonLabel>
-                        <p className="text-sm text-secondary">{variable.description}</p>
+                        <p className="text-sm text-muted-foreground">{variable.description}</p>
                     </div>
                     <div>
                         <ActionFilter

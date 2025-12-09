@@ -174,7 +174,7 @@ export function HogFunctionFilters({
                     return (
                         <>
                             {useMapping && (
-                                <p className="mb-0 text-sm text-secondary">
+                                <p className="mb-0 text-sm text-muted-foreground">
                                     Filters here apply for all events that could trigger this function, regardless of
                                     mappings.
                                 </p>
@@ -210,7 +210,7 @@ export function HogFunctionFilters({
                                             {isTransformation ? 'Match events' : 'Match events and actions'}
                                         </LemonLabel>
                                     </div>
-                                    <p className="mb-0 text-xs text-secondary">
+                                    <p className="mb-0 text-xs text-muted-foreground">
                                         If set, the {type} will only run if the <b>event matches any</b> of the below.
                                     </p>
                                     <ActionFilter

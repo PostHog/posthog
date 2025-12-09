@@ -504,8 +504,8 @@
     // //////////////////////////////////////////////////////////
     // ***** --color-text-primary: var(--color-neutral-950);
     // --color-text-primary-inverse: var(--color-neutral-100);
-    // --color-text-secondary-inverse: var(--color-neutral-400);
-    // --color-text-secondary: var(--color-neutral-750);
+    // --color-text-muted-foreground-inverse: var(--color-neutral-400);
+    // --color-text-muted-foreground: var(--color-neutral-750);
     // --color-text-muted-foreground: var(--color-neutral-600);
     // --color-text-success: var(--color-green-600);
     // --color-text-warning-foreground: var(--color-yellow-700);
@@ -523,14 +523,14 @@
 
     // // Graph colors
     // // //////////////////////////////////////////////////////////
-    // --color-graph-axis-label: var(--color-text-secondary);
+    // --color-graph-axis-label: var(--color-text-muted-foreground);
 
     // /* Labels around graph */
     // --color-graph-axis-line: var(--color-neutral-cool-100);
 
     // /* Background lines in a graph, horizontal and vertical */
 
-    // --color-graph-axis: var(--color-text-secondary);
+    // --color-graph-axis: var(--color-text-muted-foreground);
 
     // /* Line around a graph */
     // --color-graph-crosshair: var(--color-neutral-cool-450);
@@ -799,9 +799,9 @@
     --transparent: transparent;
 
     // --transparent: transparent;
-    --color-text-secondary-3000-light: red;
+    --color-text-muted-foreground-3000-light: red;
 
-    // --color-text-secondary-3000-light: rgb(17 17 17 / 70%);
+    // --color-text-muted-foreground-3000-light: rgb(17 17 17 / 70%);
 
     // --muted-3000-light: rgb(17 17 17 / 60%);
     --muted-3000-light: red;
@@ -889,9 +889,9 @@
     --text-3000-dark: red;
 
     // --text-3000-dark: #fff;
-    --color-text-secondary-3000-dark: red;
+    --color-text-muted-foreground-3000-dark: red;
 
-    // --color-text-secondary-3000-dark: rgb(255 255 255 / 70%);
+    // --color-text-muted-foreground-3000-dark: rgb(255 255 255 / 70%);
     --muted-3000-dark: red;
 
     // --muted-3000-dark: rgb(255 255 255 / 50%);
@@ -981,9 +981,9 @@
     --text-3000: red;
 
     // --text-3000: var(--text-card-foreground);
-    --color-text-secondary-3000: red;
+    --color-text-muted-foreground-3000: red;
 
-    // --color-text-secondary-3000: var(--color-text-secondary-3000-light);
+    // --color-text-muted-foreground-3000: var(--color-text-muted-foreground-3000-light);
     --muted-3000: red;
 
     // --muted-3000: var(--muted-3000-light);
@@ -1211,8 +1211,7 @@
     // //////////////////////////////////////////////////////////
     --color-text-primary: var(--color-neutral-100);
     --color-text-primary-inverse: var(--color-neutral-950);
-    --color-text-secondary-inverse: var(--color-neutral-650);
-    --color-text-secondary: var(--color-neutral-350);
+    --color-text-muted-foreground-inverse: var(--color-neutral-650);
     --color-text-muted-foreground: var(--color-neutral-400);
     --color-text-success: var(--color-green-400);
     --color-text-warning-foreground: var(--color-yellow-400);
@@ -1237,14 +1236,14 @@
 
     // Graph colors (dark mode)
     // //////////////////////////////////////////////////////////
-    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-label: var(--color-text-muted-foreground);
     --color-graph-axis-line: var(--color-neutral-cool-750);
-    --color-graph-axis: var(--color-text-secondary);
+    --color-graph-axis: var(--color-text-muted-foreground);
     --color-graph-crosshair: var(--color-neutral-cool-650);
 
     // Deprecated colors (Dark mode)
     --text-3000: var(--text-3000-dark);
-    --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
+    --color-text-muted-foreground-3000: var(--color-text-muted-foreground-3000-dark);
     --muted-3000: var(--muted-3000-dark);
     --trace-3000: var(--trace-3000-dark);
     --primary-3000: var(--primary-3000-dark);
@@ -1439,7 +1438,7 @@
             font-size: 0.6875rem;
             font-weight: 600;
             line-height: 1.5rem;
-            color: var(--color-text-secondary);
+            color: var(--color-text-muted-foreground);
             text-transform: uppercase;
             letter-spacing: 0.075em;
         }
@@ -1496,7 +1495,7 @@
     .card-secondary {
         font-size: 11px;
         font-weight: 600;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
         text-transform: uppercase;
         letter-spacing: 0.5px;
     }
@@ -1564,7 +1563,7 @@
         height: 1.5rem;
         margin-right: 0.75rem;
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
 
         .Toastify__toast--success & {
             color: var(--toastify-color-success);

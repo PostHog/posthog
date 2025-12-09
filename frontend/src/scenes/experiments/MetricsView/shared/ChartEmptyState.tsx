@@ -15,14 +15,14 @@ export function ChartEmptyState({ height, experimentStarted, error, metric }: Ch
         // eslint-disable-next-line react/forbid-dom-props
         <div className="flex items-center justify-center w-full" style={{ height: `${height}px` }}>
             {!experimentStarted ? (
-                <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
+                <div className="flex items-center justify-center text-muted-foreground cursor-default text-[12px] font-normal">
                     <LemonTag size="small" className="mr-2">
                         <IconClock fontSize="1em" />
                     </LemonTag>
                     <span>Waiting for experiment to start&hellip;</span>
                 </div>
             ) : (
-                <div className="flex items-center justify-center text-secondary cursor-default text-[12px] font-normal">
+                <div className="flex items-center justify-center text-muted-foreground cursor-default text-[12px] font-normal">
                     {error?.hasDiagnostics ? (
                         <ErrorChecklist error={error} metric={metric} />
                     ) : (

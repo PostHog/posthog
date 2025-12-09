@@ -131,7 +131,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                 <div className="flex-1 overflow-y-auto p-3 deprecated-space-y-4 [overflow-anchor:none]">
                     <div className="bg-card dark:bg-transparent rounded p-1">
                         <h4 className="mb-2">Tips for using PostHog AI through chat:</h4>
-                        <ul className="list-disc pl-4 deprecated-space-y-2 text-secondary">
+                        <ul className="list-disc pl-4 deprecated-space-y-2 text-muted-foreground">
                             <li>PostHog AI can't handle files or images (yet.)</li>
                             <li>Replies can take up to 3 mins due to rate-limiting.</li>
                             <li>PostHog AI can make mistakes. Please double-check responses.</li>
@@ -139,7 +139,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                     </div>
 
                     {displayMessages.length === 0 ? (
-                        <div className="flex items-center gap-2 text-secondary">
+                        <div className="flex items-center gap-2 text-muted-foreground">
                             <span>PostHog AI is thinking...</span>
                             <Spinner className="text-lg" />
                         </div>
@@ -151,7 +151,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                     className={`flex w-full ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
                                 >
                                     {message.role === 'user' && (
-                                        <div className="text-sm text-secondary mr-2 mt-2">You</div>
+                                        <div className="text-sm text-muted-foreground mr-2 mt-2">You</div>
                                     )}
 
                                     <div
@@ -201,7 +201,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                                                             {
                                                                                 key: 'analysis',
                                                                                 header: (
-                                                                                    <span className="text-secondary">
+                                                                                    <span className="text-muted-foreground">
                                                                                         What was PostHog AI thinking?
                                                                                     </span>
                                                                                 ),
@@ -365,7 +365,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                 {showInput && (
                     <>
                         {isSearchingThinking && (
-                            <div className="flex items-center gap-2 p-2 text-secondary justify-center">
+                            <div className="flex items-center gap-2 p-2 text-muted-foreground justify-center">
                                 <span>Max is searching and thinking...</span>
                                 <Spinner className="text-sm" />
                             </div>
@@ -381,7 +381,7 @@ const MaxChatInterfaceContent = forwardRef<HTMLDivElement, Record<string, never>
                                 className="w-full"
                                 data-attr="max-chat-input"
                             />
-                            <div className="px-0 text-xs text-secondary mt-1 mb-2">
+                            <div className="px-0 text-xs text-muted-foreground mt-1 mb-2">
                                 `enter` to send, `shift+enter` for a new line
                             </div>
                             <LemonButton

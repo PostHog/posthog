@@ -347,7 +347,7 @@ const ListItemDetail = memo(function ListItemDetail({ item, index }: { item: Ins
                     className="flex justify-end cursor-pointer mx-2 my-1"
                     onClick={() => setItemExpanded(index, false)}
                 >
-                    <span className="text-secondary">Collapse</span>
+                    <span className="text-muted-foreground">Collapse</span>
                 </div>
             </div>
         </div>

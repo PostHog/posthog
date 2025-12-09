@@ -60,19 +60,19 @@ Loading.parameters = {
     },
 }
 
-const iconClassNames = 'text-secondary shrink-0'
+const iconClassNames = 'text-muted-foreground shrink-0'
 
 const ActivityCounts = (): JSX.Element => (
     <div className="flex gap-1">
         <span className="flex gap-x-0.5">
             <IconCursorClick className={iconClassNames} />
             <span>42</span>
-            <span className="SessionRecordingPreview__activity-label text-secondary">clicks</span>
+            <span className="SessionRecordingPreview__activity-label text-muted-foreground">clicks</span>
         </span>
         <span className="flex gap-x-0.5">
             <IconKeyboard className={iconClassNames} />
             <span>18</span>
-            <span className="SessionRecordingPreview__activity-label text-secondary">keys</span>
+            <span className="SessionRecordingPreview__activity-label text-muted-foreground">keys</span>
         </span>
     </div>
 )
@@ -80,7 +80,7 @@ const ActivityCounts = (): JSX.Element => (
 export const NarrowWidth: StoryFn<typeof PropertyIcons> = () => {
     return (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '200px' }}>
-            <div className="flex gap-x-4 text-secondary text-sm">
+            <div className="flex gap-x-4 text-muted-foreground text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>
@@ -98,7 +98,7 @@ NarrowWidth.parameters = {
 export const MediumWidth: StoryFn<typeof PropertyIcons> = () => {
     return (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '30rem' }}>
-            <div className="flex gap-x-4 text-secondary text-sm">
+            <div className="flex gap-x-4 text-muted-foreground text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>
@@ -116,7 +116,7 @@ MediumWidth.parameters = {
 export const WideWidth: StoryFn<typeof PropertyIcons> = () => {
     return (
         <div className="SessionRecordingPreview border rounded px-4 py-2" style={{ width: '40rem' }}>
-            <div className="flex gap-x-4 text-secondary text-sm">
+            <div className="flex gap-x-4 text-muted-foreground text-sm">
                 <PropertyIcons loading={false} recordingProperties={webRecordingProperties} />
                 <ActivityCounts />
             </div>

@@ -250,7 +250,7 @@ function ToolsExplanation({ toolsInReverse }: { toolsInReverse: ToolRegistration
         () =>
             Object.entries(capabilitiesByProduct).map(([product, tools]) => (
                 <>
-                    <IconArrowRight className="text-base text-secondary shrink-0 ml-1 mr-2 h-[1.25em]" />
+                    <IconArrowRight className="text-base text-muted-foreground shrink-0 ml-1 mr-2 h-[1.25em]" />
                     <span>
                         <em>In {sceneConfigurations[product]?.name || identifierToHuman(product)}: </em>
                         {tools.map((tool, index) => (

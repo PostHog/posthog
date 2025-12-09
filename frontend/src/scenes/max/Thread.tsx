@@ -162,7 +162,9 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     )}
                     {conversationId && isThankYouVisible && !streamingActive && (
                         <MessageTemplate type="ai">
-                            <p className="m-0 text-sm text-secondary">Thanks for your feedback and using PostHog AI!</p>
+                            <p className="m-0 text-sm text-muted-foreground">
+                                Thanks for your feedback and using PostHog AI!
+                            </p>
                         </MessageTemplate>
                     )}
                 </>
@@ -888,7 +890,7 @@ function AssistantActionComponent({
                                         'leading-relaxed',
                                         isFailed && 'text-destructive-foreground',
                                         !isFailed && isCompletedSubstep && 'text-muted-foreground',
-                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-secondary'
+                                        !isFailed && isCurrentSubstep && !isCompleted && 'text-muted-foreground'
                                     )}
                                     content={handleThreeDots(substep ?? '', true)}
                                 />
@@ -1169,7 +1171,7 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
             <div className="max-w-full border py-3 px-4 rounded-lg bg-card">
                 <div className="space-y-2">
                     <div className="w-full flex justify-between items-center">
-                        <h2 className="text-sm font-semibold text-secondary">
+                        <h2 className="text-sm font-semibold text-muted-foreground">
                             {pluralize(visualizations.length, 'insight')} analyzed
                         </h2>
 

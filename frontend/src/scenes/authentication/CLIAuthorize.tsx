@@ -61,7 +61,7 @@ function ScopesList({
 
                                 {info ? (
                                     <Tooltip title={info}>
-                                        <IconInfo className="text-secondary text-base" />
+                                        <IconInfo className="text-muted-foreground text-base" />
                                     </Tooltip>
                                 ) : null}
                             </div>
@@ -90,7 +90,7 @@ function ScopesList({
                         </div>
                         {warnings?.[formScopeRadioValues[key]] && (
                             <div className="flex items-start gap-2 text-xs italic pb-2">
-                                <IconWarning className="text-base text-secondary mt-0.5" />
+                                <IconWarning className="text-base text-muted-foreground mt-0.5" />
                                 <span>{warnings[formScopeRadioValues[key]]}</span>
                             </div>
                         )}

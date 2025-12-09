@@ -378,12 +378,12 @@
         --color-white: white;
 
         /* Main application background and foreground */
-        --color-background: var(--color-posthog-3000-150); /* => --color-bg-card */
-        --color-foreground: var(--color-neutral-950); /* => --color-text-primary */
-        --color-foreground-inverse: var(--color-neutral-50); /* => --color-text-primary-inverse */
+        --color-background: var(--color-posthog-3000-150);
+        --color-foreground: var(--color-neutral-950);
+        --color-foreground-inverse: var(--color-neutral-50);
 
         /* Card background and foreground */
-        --color-card: var(--color-white); /* => --card */
+        --color-card: var(--color-white);
         --color-card-foreground: var(--color-neutral-950);
 
         /* Brand color for primary actions (buttons, highlights) */
@@ -394,7 +394,7 @@
         );
 
         /* Subdued background for less important elements */
-        --color-muted: var(--color-posthog-3000-50); /* => --color-bg-surface-tertiary */
+        --color-muted: var(--color-posthog-3000-50);
         --color-muted-foreground: var(--color-neutral-700);
 
         /* Highlight color for active or focused elements */

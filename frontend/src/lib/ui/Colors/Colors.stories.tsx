@@ -170,9 +170,9 @@ export function SemanticColors(): JSX.Element {
             name: '--color-text-foreground-inverse',
         },
         {
-            tailwindClass: 'text-secondary',
+            tailwindClass: 'text-muted-foreground',
             description: 'a more subtle text color',
-            name: '--color-text-secondary',
+            name: '--color-text-muted-foreground',
         },
         {
             tailwindClass: 'text-muted-foreground',

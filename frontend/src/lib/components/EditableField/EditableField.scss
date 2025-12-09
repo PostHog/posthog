@@ -8,13 +8,13 @@
     }
 
     i {
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
     }
 
     .EditableField__notice {
         margin-left: 0.5rem;
         font-size: 1.5rem;
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
     }
 
     .EditableField__highlight {
@@ -55,7 +55,7 @@
 
             input {
                 margin-bottom: -1px;
-                border-bottom: 1px dashed var(--color-text-secondary);
+                border-bottom: 1px dashed var(--color-text-muted-foreground);
             }
         }
     }

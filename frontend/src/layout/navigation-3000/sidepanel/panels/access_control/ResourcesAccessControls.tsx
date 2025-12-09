@@ -128,7 +128,7 @@ export function ResourcesAccessControls(): JSX.Element {
                         <ProfilePicture user={organization_member!.user} />
                         <div>
                             <p className="font-medium mb-0">{fullName(organization_member!.user)}</p>
-                            <p className="text-secondary mb-0">{organization_member!.user.email}</p>
+                            <p className="text-muted-foreground mb-0">{organization_member!.user.email}</p>
                         </div>
                     </div>
                 )

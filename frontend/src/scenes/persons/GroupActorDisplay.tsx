@@ -30,7 +30,7 @@ export function GroupActorDisplay({ actor }: GroupActorDisplayProps): JSX.Elemen
                         </>
                     }
                 >
-                    <IconInfo className="text-secondary" />
+                    <IconInfo className="text-muted-foreground" />
                 </Tooltip>
             </div>
         )

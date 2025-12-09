@@ -24,7 +24,7 @@ export function ReleasePreviewPill({ release }: { release: ErrorTrackingRelease 
                 onMouseEnter={() => setIsOpen(true)}
                 onMouseLeave={() => setIsOpen(false)}
             >
-                <IconCommit className="text-sm text-secondary" />
+                <IconCommit className="text-sm text-muted-foreground" />
                 <span>{releasePillTitle(release)}</span>
             </LemonTag>
         </Popover>

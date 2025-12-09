@@ -142,7 +142,7 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                 })
                             )}
                         />
-                        <p className="text-secondary mb-0">
+                        <p className="text-muted-foreground mb-0">
                             {(ac as AccessControlTypeOrganizationAdmins)?.organization_admin_members.length > 1
                                 ? 'have access as organization admins'
                                 : 'has access as an organization admin'}
@@ -157,7 +157,9 @@ function AccessControlObjectUsers(): JSX.Element | null {
                                     ? `${fullName(member(ac as AccessControlTypeMember)?.user)} (you)`
                                     : fullName(member(ac as AccessControlTypeMember)?.user)}
                             </p>
-                            <p className="text-secondary mb-0">{member(ac as AccessControlTypeMember)?.user.email}</p>
+                            <p className="text-muted-foreground mb-0">
+                                {member(ac as AccessControlTypeMember)?.user.email}
+                            </p>
                         </div>
                     </div>
                 ),

@@ -68,7 +68,7 @@ export const TrialCancellationSurveyModal = ({
                 {isPlatformAndSupportAddon(product) && <AddonFeatureLossNotice product={product} />}
 
                 <LemonLabel>
-                    Why are you {actionVerb}? <i className="text-secondary">(you can select multiple)</i>
+                    Why are you {actionVerb}? <i className="text-muted-foreground">(you can select multiple)</i>
                     <Tooltip title="Required">
                         <span className="text-destructive-foreground">*</span>
                     </Tooltip>

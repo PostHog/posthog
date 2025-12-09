@@ -60,9 +60,9 @@ export function UserDropdown({ userId, onChange }: UserDropdownProps): JSX.Eleme
                 ))}
 
                 {membersLoading ? (
-                    <div className="p-2 text-secondary italic truncate border-t">Loading...</div>
+                    <div className="p-2 text-muted-foreground italic truncate border-t">Loading...</div>
                 ) : users.length === 0 ? (
-                    <div className="p-2 text-secondary italic truncate border-t">
+                    <div className="p-2 text-muted-foreground italic truncate border-t">
                         <span>No matches</span>
                     </div>
                 ) : null}

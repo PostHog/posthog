@@ -645,7 +645,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 ) : (
                                                     <span>{user?.email}</span>
                                                 )}
-                                                <IconChevronRight className="size-3 text-secondary ml-auto" />
+                                                <IconChevronRight className="size-3 text-muted-foreground ml-auto" />
                                             </>
                                         )}
                                     </ButtonPrimitive>

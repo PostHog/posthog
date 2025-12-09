@@ -115,7 +115,7 @@ export function SocialLoginButtons({
 
             <div className={clsx(className, 'text-center deprecated-space-y-4')}>
                 {title && <h3>{title}</h3>}
-                {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
+                {caption && captionLocation === 'top' && <p className="text-muted-foreground">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">
                     {Object.keys(preflight.available_social_auth_providers)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
@@ -128,7 +128,7 @@ export function SocialLoginButtons({
                             />
                         ))}
                 </div>
-                {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
+                {caption && captionLocation === 'bottom' && <p className="text-muted-foreground">{caption}</p>}
             </div>
             {bottomDivider ? <LemonDivider dashed className="my-6" /> : null}
         </>

@@ -55,7 +55,7 @@ export function HogQLEditor({
                           }
                 }
             />
-            <div className="text-secondary pt-2 text-xs">
+            <div className="text-muted-foreground pt-2 text-xs">
                 <pre>
                     {placeholder ??
                         (metadataSource && isActorsQuery(metadataSource)

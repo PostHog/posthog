@@ -32,7 +32,7 @@ function QuestionTitle({
     const { isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     return (
         <div className="flex flex-col">
-            <div className="inline-flex gap-1 max-w-fit font-semibold text-secondary items-center">
+            <div className="inline-flex gap-1 max-w-fit font-semibold text-muted-foreground items-center">
                 <span>
                     {SurveyQuestionLabel[question.type]}&nbsp;
                     {question.type === SurveyQuestionType.Rating && (
@@ -48,7 +48,7 @@ function QuestionTitle({
                                 <LemonDivider vertical className="my-1 mx-1" />
                                 <Tooltip title="See all Open Text responses in the Events table at the bottom.">
                                     <span>random selection</span>
-                                    <IconInfo className="text-lg text-secondary shrink-0 ml-0.5 mt-0.5" />
+                                    <IconInfo className="text-lg text-muted-foreground shrink-0 ml-0.5 mt-0.5" />
                                 </Tooltip>
                             </>
                         )}
@@ -84,7 +84,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                                         return (
                                             <div key={i} className="flex flex-col items-center gap-1 flex-1">
                                                 <LemonSkeleton className={`w-8 sm:w-12 ${randomHeight}`} />
-                                                <span className="text-sm text-secondary font-semibold">
+                                                <span className="text-sm text-muted-foreground font-semibold">
                                                     {question.scale === 10 ? i : i + 1}
                                                 </span>
                                             </div>
@@ -94,8 +94,8 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                             </div>
                         </div>
                         <div className="flex flex-row justify-between">
-                            <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                            <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                            <div className="text-muted-foreground pl-10">{question.lowerBoundLabel}</div>
+                            <div className="text-muted-foreground pr-10">{question.upperBoundLabel}</div>
                         </div>
                     </div>
                     {question.isNpsQuestion !== false && <NPSBreakdownSkeleton />}
@@ -113,7 +113,7 @@ function QuestionLoadingSkeleton({ question }: { question: SurveyQuestion }): JS
                             const width = barWidths[i] || 'w-1/4'
                             return (
                                 <div key={i} className="flex items-center gap-6">
-                                    <div className="w-48 text-right text-sm text-secondary flex-shrink-0 truncate">
+                                    <div className="w-48 text-right text-sm text-muted-foreground flex-shrink-0 truncate">
                                         {choice}
                                     </div>
                                     <div className="flex-1 flex items-center gap-2">

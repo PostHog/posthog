@@ -149,7 +149,7 @@
     display: flex;
     flex-shrink: 0;
     font-size: 1.5rem;
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
     transition:
         background-color 200ms ease,
         color 200ms ease;

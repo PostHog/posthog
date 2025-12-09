@@ -174,7 +174,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
             <div className="ColumnConfiguratorModal">
                 <div className="Columns">
                     <div className="HalfColumn">
-                        <h4 className="secondary uppercase text-secondary">
+                        <h4 className="secondary uppercase text-muted-foreground">
                             Visible columns ({columns.length}) - Drag to reorder
                         </h4>
                         <DndContext
@@ -202,7 +202,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                         </DndContext>
                     </div>
                     <div className="HalfColumn">
-                        <h4 className="secondary uppercase text-secondary">Available columns</h4>
+                        <h4 className="secondary uppercase text-muted-foreground">Available columns</h4>
                         <div className="h-[360px]">
                             <AutoSizer>
                                 {({ height, width }: { height: number; width: number }) => (

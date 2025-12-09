@@ -64,7 +64,7 @@ export const AssigneeIconDisplay = ({ assignee, size }: AssigneeIconDisplayProps
         .otherwise(() => (
             <IconPerson
                 className={cn(
-                    'rounded-full border border-dashed border-border-strong text-secondary flex items-center justify-center p-0.5',
+                    'rounded-full border border-dashed border-border-strong text-muted-foreground flex items-center justify-center p-0.5',
                     getIconClassname(size)
                 )}
             />

@@ -16,7 +16,7 @@ export const SearchTabs = ({ inputRef }: SearchTabsProps): JSX.Element | null =>
             {Object.entries(tabsGrouped).map(([group, tabs]) => (
                 <div key={group} className={group !== 'all' ? 'pt-1.5' : ''}>
                     {group !== 'all' && (
-                        <span className="ml-4 text-xxs text-secondary uppercase">
+                        <span className="ml-4 text-xxs text-muted-foreground uppercase">
                             {groupToName[group as keyof typeof groupToName]}
                         </span>
                     )}

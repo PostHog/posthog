@@ -219,7 +219,7 @@ const DropdownMenuOpenIndicator = ({
     return (
         <IconChevronRight
             className={cn(
-                'ml-auto size-3 text-secondary rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
+                'ml-auto size-3 text-muted-foreground rotate-90 group-data-[state=open]/button-primitive:rotate-270 transition-transform duration-200 prefers-reduced-motion:transition-none',
                 intent === 'sub' && 'rotate-0 group-data-[state=open]/button-primitive:rotate-0',
                 className
             )}

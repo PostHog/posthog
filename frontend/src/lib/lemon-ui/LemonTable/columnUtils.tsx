@@ -22,7 +22,7 @@ export function atColumn<T extends Record<string, any>>(
                     <TZLabel time={actualValue} />
                 </div>
             ) : (
-                <span className="text-secondary">—</span>
+                <span className="text-muted-foreground">—</span>
             )
         },
         align: 'right',

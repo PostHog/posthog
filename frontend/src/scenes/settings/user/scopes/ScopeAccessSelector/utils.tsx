@@ -42,7 +42,7 @@ export const createTeamOption = (
                 {organizations.length > 1 ? (
                     <span>
                         <span>{orgName}</span>
-                        <span className="text-secondary mx-1">/</span>
+                        <span className="text-muted-foreground mx-1">/</span>
                         <span className="flex-1 font-semibold">{team.name}</span>
                     </span>
                 ) : (

@@ -116,7 +116,7 @@ function NPSStackedBar({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.El
 export function NPSBreakdownSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
+            <div className="font-semibold text-muted-foreground">
                 <LemonSkeleton className="h-10 w-20" />
                 <Tooltip
                     placement="bottom"
@@ -134,7 +134,7 @@ export function NPSBreakdownSkeleton(): JSX.Element {
 function NPSBreakdownViz({ npsBreakdown }: { npsBreakdown: NPSBreakdown }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="font-semibold text-secondary">
+            <div className="font-semibold text-muted-foreground">
                 <div className="text-4xl font-bold text-foreground">{npsBreakdown.score}</div>
                 <Tooltip
                     placement="bottom"
@@ -429,8 +429,8 @@ export function RatingQuestionViz({ question, questionIndex, processedData }: Pr
                     </div>
                 </div>
                 <div className="flex flex-row justify-between">
-                    <div className="text-secondary pl-10">{question.lowerBoundLabel}</div>
-                    <div className="text-secondary pr-10">{question.upperBoundLabel}</div>
+                    <div className="text-muted-foreground pl-10">{question.lowerBoundLabel}</div>
+                    <div className="text-muted-foreground pr-10">{question.upperBoundLabel}</div>
                 </div>
             </div>
             {question.isNpsQuestion !== false && (

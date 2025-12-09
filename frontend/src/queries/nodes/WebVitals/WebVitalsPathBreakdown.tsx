@@ -122,7 +122,7 @@ const Header = ({ band, label }: { band: WebVitalsMetricBand; label: string }): 
                 <Icon className="w-6 h-6" />
                 {label}
             </span>
-            <span className="text-sm text-secondary">{thresholdText}</span>
+            <span className="text-sm text-muted-foreground">{thresholdText}</span>
         </div>
     )
 }
@@ -190,7 +190,7 @@ const Content = ({
                 ) : (
                     <div className="text-center">
                         <span>{band === 'good' ? '😿' : '🚀'}</span>
-                        <span className="text-secondary">No scores in this band</span>
+                        <span className="text-muted-foreground">No scores in this band</span>
                     </div>
                 )}
             </div>

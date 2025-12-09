@@ -35,7 +35,7 @@ export function WebExperimentImplementationDetails({ experiment }: WebExperiment
                     <div className="font-semibold leading-tight text-base text-current">
                         Define variant changes directly on your website
                     </div>
-                    <div className="text-sm text-secondary">
+                    <div className="text-sm text-muted-foreground">
                         Use our toolbar to select elements and apply transformations for each variant.
                     </div>
                     <div>

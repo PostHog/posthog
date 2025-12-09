@@ -812,7 +812,7 @@ export function LemonInputSelect<T = string>({
                             {emptyStateComponent ? (
                                 emptyStateComponent
                             ) : (
-                                <p className="text-secondary italic p-1">
+                                <p className="text-muted-foreground italic p-1">
                                     {allowCustomValues
                                         ? 'Start typing and press Enter to add options'
                                         : `No options matching "${inputValue}"`}

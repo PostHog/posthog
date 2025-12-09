@@ -139,7 +139,7 @@ export function LemonCheckbox({
                     {label && <span className="LemonCheckbox__label">{label}</span>}
                     {info && (
                         <Tooltip title={info}>
-                            <IconInfo className="text-xl text-secondary shrink-0 ml-0.5" />
+                            <IconInfo className="text-xl text-muted-foreground shrink-0 ml-0.5" />
                         </Tooltip>
                     )}
                 </label>

@@ -296,7 +296,7 @@ export function FormulaSummary({ query }: { query: TrendsQuery }): JSX.Element |
         <>
             {formulaNodes.map((node, index) => (
                 <div className="SeriesDisplay" key={index}>
-                    <IconCalculate className="text-xl m-px text-text-secondary-3000" />
+                    <IconCalculate className="text-xl m-px text-text-muted-foreground-3000" />
                     <span>
                         Formula
                         {node.custom_name && (

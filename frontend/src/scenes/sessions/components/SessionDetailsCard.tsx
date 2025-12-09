@@ -17,7 +17,7 @@ interface DetailRowProps {
 function DetailRow({ label, value, className }: DetailRowProps): JSX.Element {
     return (
         <div className={`flex gap-2 ${className || ''}`}>
-            <span className="text-secondary min-w-32">{label}:</span>
+            <span className="text-muted-foreground min-w-32">{label}:</span>
             <span className="truncate">{value}</span>
         </div>
     )
@@ -159,7 +159,9 @@ export function SessionDetailsCard(): JSX.Element | null {
                     {sessionData.urls && sessionData.urls.length > 0 && (
                         <div className="flex flex-col gap-2">
                             <div className="flex gap-2">
-                                <span className="text-secondary min-w-32">All URLs ({sessionData.urls.length}):</span>
+                                <span className="text-muted-foreground min-w-32">
+                                    All URLs ({sessionData.urls.length}):
+                                </span>
                             </div>
                             <div className="ml-32 space-y-1 max-h-60 overflow-y-auto">
                                 {sessionData.urls.map((url, index) => (
@@ -186,7 +188,7 @@ export function SessionDetailsCard(): JSX.Element | null {
                             <div key={event.id} className="flex flex-col gap-1">
                                 {index > 0 && <LemonDivider className="my-2" />}
                                 <div className="flex gap-2 items-center">
-                                    <span className="text-secondary min-w-32">
+                                    <span className="text-muted-foreground min-w-32">
                                         <TZLabel time={event.timestamp} formatDate="MMM DD, h:mm A" />:
                                     </span>
                                     <div className="flex gap-2 items-center">

@@ -56,7 +56,7 @@ export function ExperimentRecalculationTime(): JSX.Element {
         <div>
             <div className="flex flex-col space-y-2">
                 <LemonLabel className="text-base">Daily recalculation time</LemonLabel>
-                <p className="text-secondary">
+                <p className="text-muted-foreground">
                     Select the time of day when experiment metrics should be recalculated. This time is in your
                     project's timezone ({projectTimezone}).
                 </p>

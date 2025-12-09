@@ -190,7 +190,7 @@
             > td {
                 padding-top: 0.3125rem;
                 padding-bottom: 0.3125rem;
-                color: var(--color-text-secondary);
+                color: var(--color-text-muted-foreground);
 
                 // Cancel the vertical margin for CodeSnippet actions
                 // This is annoyingly specific, but really needed for CodeSnippet to look good in expanded table rows
@@ -247,7 +247,7 @@
 }
 
 .LemonTable__empty-state {
-    color: var(--color-text-secondary);
+    color: var(--color-text-muted-foreground);
 }
 
 .LemonTable__overlay {
@@ -272,7 +272,7 @@
     cursor: default;
 
     .LemonTable__header-content {
-        color: var(--color-text-secondary);
+        color: var(--color-text-muted-foreground);
     }
 
     &.LemonTable__header--actionable {

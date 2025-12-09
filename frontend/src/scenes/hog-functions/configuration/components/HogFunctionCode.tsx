@@ -85,7 +85,7 @@ export function HogFunctionCode(): JSX.Element {
                     {({ value, onChange }) => (
                         <>
                             {!type.startsWith('site_') ? (
-                                <span className="text-xs text-secondary">
+                                <span className="text-xs text-muted-foreground">
                                     This is the underlying Hog code that will run whenever this triggers.{' '}
                                     <Link to="https://posthog.com/docs/hog">See the docs</Link> for more info
                                 </span>

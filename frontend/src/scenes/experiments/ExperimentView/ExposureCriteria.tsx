@@ -57,7 +57,7 @@ export function ExposureCriteriaModal(): JSX.Element {
                 </div>
             }
         >
-            <div className="text-secondary text-sm mb-4">
+            <div className="text-muted-foreground text-sm mb-4">
                 Exposure determines when a user enters your experiment. Only events that occur after exposure are
                 counted in your metrics.
             </div>

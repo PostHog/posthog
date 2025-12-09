@@ -11,7 +11,7 @@ export type EmptyMetricsPanelProps = {
 }
 
 export const EmptyMetricsPanel = ({ metricContext, className }: EmptyMetricsPanelProps): JSX.Element => (
-    <div className={clsx('border rounded bg-card pt-6 pb-8 text-secondary', className)}>
+    <div className={clsx('border rounded bg-card pt-6 pb-8 text-muted-foreground', className)}>
         <div className="flex flex-col items-center mx-auto deprecated-space-y-3">
             <IconAreaChart fontSize="30" />
             <div className="text-sm text-center text-balance max-w-sm">

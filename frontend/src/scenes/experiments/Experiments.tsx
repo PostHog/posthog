@@ -272,7 +272,7 @@ const ExperimentsTable = ({
                                                     LemonDialog.open({
                                                         title: 'Archive this experiment?',
                                                         content: (
-                                                            <div className="text-sm text-secondary">
+                                                            <div className="text-sm text-muted-foreground">
                                                                 This action will move the experiment to the archived
                                                                 tab. It can be restored at any time.
                                                             </div>
@@ -309,7 +309,7 @@ const ExperimentsTable = ({
                                             LemonDialog.open({
                                                 title: 'Delete this experiment?',
                                                 content: (
-                                                    <div className="text-sm text-secondary">
+                                                    <div className="text-sm text-muted-foreground">
                                                         Experiment with its settings will be deleted, but event data
                                                         will be preserved.
                                                     </div>
@@ -391,7 +391,7 @@ const ExperimentsTable = ({
             <LemonDivider className="my-0" />
             {count ? (
                 <div>
-                    <span className="text-secondary">
+                    <span className="text-muted-foreground">
                         {`${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} experiment${
                             count === 1 ? '' : 's'
                         }`}

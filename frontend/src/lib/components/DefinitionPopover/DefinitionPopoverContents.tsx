@@ -505,7 +505,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Description</span>
-                            <span className="text-secondary">(optional)</span>
+                            <span className="text-muted-foreground">(optional)</span>
                         </label>
                         <LemonTextArea
                             id="description"
@@ -524,7 +524,7 @@ function DefinitionEdit(): JSX.Element {
                     <>
                         <label className="definition-popover-edit-form-label" htmlFor="description">
                             <span className="label-text">Tags</span>
-                            <span className="text-secondary">(optional)</span>
+                            <span className="text-muted-foreground">(optional)</span>
                         </label>
                         <div className="definition-popover-tags">
                             <ObjectTags

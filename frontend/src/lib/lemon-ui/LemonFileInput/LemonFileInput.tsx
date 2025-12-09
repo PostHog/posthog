@@ -168,7 +168,7 @@ export const LemonFileInput = ({
                 />
                 <div
                     className={clsx(
-                        'text-secondary inline-flex flow-row items-center gap-1',
+                        'text-muted-foreground inline-flex flow-row items-center gap-1',
                         disabledReason ? 'cursor-not-allowed' : 'cursor-pointer'
                     )}
                     onClick={handleCallToActionClick}

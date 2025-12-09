@@ -28,7 +28,7 @@
 
             // Ticks at each interval
             .tick {
-                color: var(--color-text-secondary);
+                color: var(--color-text-muted-foreground);
             }
         }
 
@@ -75,7 +75,7 @@
                 fill: var(--color-white);
 
                 &.outside {
-                    fill: var(--color-text-secondary);
+                    fill: var(--color-text-muted-foreground);
                 }
             }
         }

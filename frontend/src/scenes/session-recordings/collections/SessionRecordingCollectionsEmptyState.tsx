@@ -19,7 +19,7 @@ export function SessionRecordingCollectionsEmptyState(): JSX.Element {
         <div className="flex items-center justify-center">
             <div className="max-w-248 mt-12 flex flex-col items-center">
                 <h2 className="text-xl">There are no collections that match these filters</h2>
-                <p className="text-secondary">Once you create a collection, it will show up here.</p>
+                <p className="text-muted-foreground">Once you create a collection, it will show up here.</p>
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}

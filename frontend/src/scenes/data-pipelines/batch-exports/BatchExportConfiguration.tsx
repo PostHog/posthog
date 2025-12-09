@@ -152,7 +152,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Include events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="mb-0 text-xs text-muted-foreground">
                                                 If set, the batch export will <b>only</b> export events matching any of
                                                 the below. If left unset, all events will be exported.
                                             </p>
@@ -182,7 +182,7 @@ export function BatchExportConfiguration(): JSX.Element {
                                             <div className="flex gap-2 justify-between w-full">
                                                 <LemonLabel>Exclude events</LemonLabel>
                                             </div>
-                                            <p className="mb-0 text-xs text-secondary">
+                                            <p className="mb-0 text-xs text-muted-foreground">
                                                 If set, the batch export will <b>exclude</b> events matching any of the
                                                 below. If left unset, no events will be excluded from the export.
                                             </p>
@@ -333,7 +333,7 @@ export function BatchExportConfigurationTests({
     const header = (
         <div className="space-y-2">
             <h2 className="flex gap-2 items-center m-0 text-lg font-semibold">Test configuration</h2>
-            <p className="text-xs text-secondary">
+            <p className="text-xs text-muted-foreground">
                 Test the batch export's configuration to uncover errors before saving it
             </p>
         </div>

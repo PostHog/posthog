@@ -277,7 +277,7 @@ export function HogFunctionList({
                     }
                     footer={
                         hiddenHogFunctions.length > 0 && (
-                            <div className="p-3 text-secondary">
+                            <div className="p-3 text-muted-foreground">
                                 {hiddenHogFunctions.length} hidden.{' '}
                                 <Link
                                     onClick={() => {

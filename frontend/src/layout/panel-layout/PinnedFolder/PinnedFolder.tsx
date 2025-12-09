@@ -63,7 +63,7 @@ export function PinnedFolder(): JSX.Element {
                     onClick={openEditCustomProductsModal}
                     size="xs"
                 >
-                    <CustomProductsIcon className="size-3 text-secondary" />
+                    <CustomProductsIcon className="size-3 text-muted-foreground" />
                 </ButtonPrimitive>
             ) : null}
 
@@ -77,7 +77,7 @@ export function PinnedFolder(): JSX.Element {
                             tooltipPlacement="top"
                             size="xs"
                         >
-                            <IconGear className="size-3 text-secondary" />
+                            <IconGear className="size-3 text-muted-foreground" />
                         </ButtonPrimitive>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent loop align="end" side="bottom" className="max-w-[250px]">

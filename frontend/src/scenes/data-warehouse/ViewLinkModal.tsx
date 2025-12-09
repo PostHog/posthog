@@ -338,7 +338,7 @@ export function ViewLinkForm({ mode }: ViewLinkModalProps): JSX.Element {
                         >
                             <div>
                                 <h3 className="l4 mt-2">Advanced settings</h3>
-                                <div className="text-secondary mb-2 font-medium">
+                                <div className="text-muted-foreground mb-2 font-medium">
                                     Customize how the fields are accessed
                                 </div>
                             </div>
@@ -634,7 +634,7 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                         >
                             <div>
                                 <h3 className="l4 mt-2">Advanced settings</h3>
-                                <div className="text-secondary mb-2 font-medium">
+                                <div className="text-muted-foreground mb-2 font-medium">
                                     Customize how the fields are accessed
                                 </div>
                             </div>

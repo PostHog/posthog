@@ -28,7 +28,7 @@ function DiveDeeperRow({ suggestion }: { suggestion: FollowUpSuggestion }): JSX.
                 <div className={`transform transition-transform ${isExpanded ? 'rotate-90' : ''}`}>
                     <IconChevronRight className="text-xl" />
                 </div>
-                {InsightIcon && <InsightIcon className="text-secondary text-3xl" />}
+                {InsightIcon && <InsightIcon className="text-muted-foreground text-3xl" />}
                 <div className="flex flex-col flex-1">
                     <span className="font-semibold">{suggestion.title}</span>
                     {suggestion.description && (

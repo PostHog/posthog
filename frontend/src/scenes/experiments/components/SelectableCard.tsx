@@ -53,7 +53,7 @@ export function SelectableCard({
                 <span>{title}</span>
                 {selected && <IconCheckCircle fontSize={18} color="var(--color-primary)" />}
             </div>
-            <div className="text-secondary text-sm leading-relaxed mt-1">{description}</div>
+            <div className="text-muted-foreground text-sm leading-relaxed mt-1">{description}</div>
         </div>
     )
 

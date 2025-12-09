@@ -45,7 +45,7 @@ export const FunnelMetricDataPanel = ({
                                 </>
                             }
                         >
-                            <IconInfo className="text-secondary ml-1" />
+                            <IconInfo className="text-muted-foreground ml-1" />
                         </Tooltip>
                     </div>
                     <LemonSegmentedButton

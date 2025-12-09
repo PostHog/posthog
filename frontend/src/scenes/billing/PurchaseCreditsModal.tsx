@@ -210,7 +210,9 @@ export const PurchaseCreditsModal = (): JSX.Element | null => {
                                             minimumFractionDigits: 0,
                                             maximumFractionDigits: 0,
                                         })}
-                                        <span className="italic text-secondary">${creditDiscount * 100}% off!</span>
+                                        <span className="italic text-muted-foreground">
+                                            ${creditDiscount * 100}% off!
+                                        </span>
                                     </span>
                                 ),
                             },

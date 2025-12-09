@@ -95,7 +95,7 @@ export function FeatureFlagVariantsForm({
                                     style={{
                                         marginLeft: '0.5rem',
                                     }}
-                                    iconStyle={{ color: 'var(--color-text-secondary)' }}
+                                    iconStyle={{ color: 'var(--color-text-muted-foreground)' }}
                                 >
                                     {variant.key}
                                 </CopyToClipboardInline>
@@ -109,7 +109,9 @@ export function FeatureFlagVariantsForm({
                                 {payloads[index] ? (
                                     <JSONEditorInput readOnly={true} value={payloads[index]} />
                                 ) : (
-                                    <span className="text-secondary">No payload associated with this variant</span>
+                                    <span className="text-muted-foreground">
+                                        No payload associated with this variant
+                                    </span>
                                 )}
                             </div>
                             <div>{variant.rollout_percentage}%</div>
@@ -154,7 +156,7 @@ export function FeatureFlagVariantsForm({
                 <div className="col-span-8">
                     <div className="flex flex-col">
                         <b>Payload</b>
-                        <span className="text-secondary font-normal">
+                        <span className="text-muted-foreground font-normal">
                             Specify return payload when the variant key matches
                         </span>
                     </div>
@@ -227,7 +229,7 @@ export function FeatureFlagVariantsForm({
                                 data-attr="feature-flag-variant-rollout-percentage-input"
                             />
                             {filterGroups.filter((group) => group.variant === variant.key).length > 0 && (
-                                <span className="text-secondary text-xs">
+                                <span className="text-muted-foreground text-xs">
                                     Overridden by{' '}
                                     <strong>
                                         {variantConcatWithPunctuation(

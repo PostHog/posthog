@@ -33,7 +33,7 @@ export function ExceptionAttributesPreview({
                         attributes && (
                             <>
                                 <PropertyWrapper title="Unhandled" visible={!attributes.handled}>
-                                    <IconBug className="text-sm text-secondary" />
+                                    <IconBug className="text-sm text-muted-foreground" />
                                 </PropertyWrapper>
                                 <PropertyWrapper title={attributes.browser} visible={!!attributes.browser}>
                                     <Property property="$browser" title={attributes.browser} iconOnly={iconOnly} />
@@ -67,11 +67,11 @@ export function PropertyWrapper({
 function Property({ property, title, iconOnly }: { property: string; title?: string; iconOnly: boolean }): JSX.Element {
     return iconOnly ? (
         <Tooltip title={title} delayMs={0}>
-            <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
+            <PropertyIcon property={property} value={title} className="text-sm text-muted-foreground" />
         </Tooltip>
     ) : (
         <LemonTag className="bg-card">
-            <PropertyIcon property={property} value={title} className="text-sm text-secondary" />
+            <PropertyIcon property={property} value={title} className="text-sm text-muted-foreground" />
             <span className="capitalize">{title}</span>
         </LemonTag>
     )

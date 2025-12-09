@@ -319,7 +319,7 @@ export function SharingModalContent({
                                                                 <span>Show PostHog branding</span>
                                                                 {!whitelabelAvailable && (
                                                                     <Tooltip title="This is a premium feature, click to learn more.">
-                                                                        <IconLock className="ml-1.5 text-secondary text-lg" />
+                                                                        <IconLock className="ml-1.5 text-muted-foreground text-lg" />
                                                                     </Tooltip>
                                                                 )}
                                                             </div>
@@ -370,7 +370,7 @@ export function SharingModalContent({
                                                                 <div className="flex items-center">
                                                                     <span>Show insight details</span>
                                                                     <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
-                                                                        <IconInfo className="ml-1.5 text-secondary text-lg" />
+                                                                        <IconInfo className="ml-1.5 text-muted-foreground text-lg" />
                                                                     </Tooltip>
                                                                 </div>
                                                             }

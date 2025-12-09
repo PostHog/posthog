@@ -26,7 +26,7 @@ export function HealthCheckItem({ check }: HealthCheckItemProps): JSX.Element {
                         </Link>
                     )}
                 </div>
-                <div className="text-sm text-secondary mt-0.5">
+                <div className="text-sm text-muted-foreground mt-0.5">
                     {check.status === 'loading' ? <LemonSkeleton className="w-32 h-4" /> : check.description}
                 </div>
             </div>

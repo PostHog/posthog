@@ -178,7 +178,7 @@ export const MetricHeader = ({
                                         LemonDialog.open({
                                             title: 'Duplicate this shared metric?',
                                             content: (
-                                                <div className="text-sm text-secondary max-w-lg">
+                                                <div className="text-sm text-muted-foreground max-w-lg">
                                                     <p>
                                                         We'll take you to the form to customize and save this metric.
                                                         Your new version will appear in your shared metrics, ready to be

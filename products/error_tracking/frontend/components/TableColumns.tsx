@@ -99,7 +99,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                     {record.function}
                     {record.source ? <> in {sourceDisplay(record.source)}</> : <></>}
                 </div>
-                <div className="flex items-center text-secondary">
+                <div className="flex items-center text-muted-foreground">
                     <IssueStatusSelect
                         status={record.status}
                         onChange={(status) => updateIssueStatus(record.id, status)}
@@ -117,7 +117,7 @@ export const IssueListTitleColumn = <T extends ErrorTrackingIssue | ErrorTrackin
                                 <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
                                 <AssigneeLabelDisplay
                                     assignee={anyAssignee}
-                                    className="ml-1 text-xs text-secondary"
+                                    className="ml-1 text-xs text-muted-foreground"
                                     size="xsmall"
                                 />
                                 <IconChevronDown />

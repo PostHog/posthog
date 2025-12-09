@@ -50,11 +50,11 @@ export function DuplicateExperimentModal({ isOpen, onClose, experiment }: Duplic
                     <div className="font-semibold mb-2">Use the same flag</div>
                     <div className="flex items-center justify-between p-3 border rounded bg-card">
                         <div className="flex items-center" style={{ fontSize: '13px' }}>
-                            <div className="font-semibold text-secondary">{experiment.feature_flag?.key}</div>
+                            <div className="font-semibold text-muted-foreground">{experiment.feature_flag?.key}</div>
                             <Link
                                 to={urls.featureFlag(experiment.feature_flag?.id as number)}
                                 target="_blank"
-                                className="flex items-center text-secondary"
+                                className="flex items-center text-muted-foreground"
                             >
                                 <IconOpenInNew className="ml-1" />
                             </Link>

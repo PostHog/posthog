@@ -47,24 +47,24 @@ export function ResponseCard({
                     {typeof response !== 'string' ? JSON.stringify(response) : response}
                 </div>
                 {showCount && timestamp && (
-                    <div className="text-xs text-secondary flex items-center gap-1">
+                    <div className="text-xs text-muted-foreground flex items-center gap-1">
                         {count} responses • last response <TZLabel time={timestamp} className="border-none" />
                     </div>
                 )}
                 {showCount && !timestamp && (
-                    <div className="text-xs text-secondary">
+                    <div className="text-xs text-muted-foreground">
                         {count} response{count !== 1 ? 's' : ''}
                     </div>
                 )}
                 {timestamp && !showCount && (
-                    <div className="text-xs text-secondary">
+                    <div className="text-xs text-muted-foreground">
                         <TZLabel time={timestamp} />
                     </div>
                 )}
             </div>
             {hasPersonData && (
                 <div className="bg-muted px-3 py-2 border-t flex flex-1 justify-center flex-col">
-                    {showCount && <div className="text-xs text-secondary mb-1">Last respondent:</div>}
+                    {showCount && <div className="text-xs text-muted-foreground mb-1">Last respondent:</div>}
                     <PersonDisplay
                         person={{
                             distinct_id: distinctId,

@@ -102,9 +102,9 @@ interface FeatureHighlightProps {
 function FeatureHighlight({ title, caption, icon }: FeatureHighlightProps): JSX.Element {
     return (
         <div className="fh-item flex items-center mt-4">
-            <div className="fh-icon mr-4 text-secondary">{icon}</div>
+            <div className="fh-icon mr-4 text-muted-foreground">{icon}</div>
             <div>
-                <h4 className="mb-0 text-secondary">{title}</h4>
+                <h4 className="mb-0 text-muted-foreground">{title}</h4>
                 <div className="caption">{caption}</div>
             </div>
         </div>

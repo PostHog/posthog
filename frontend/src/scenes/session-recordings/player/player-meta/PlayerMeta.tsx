@@ -67,7 +67,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                     <CopyToClipboardInline
                         description={urlToUse}
                         explicitValue={urlToUse}
-                        iconStyle={{ color: 'var(--color-text-secondary)' }}
+                        iconStyle={{ color: 'var(--color-text-muted-foreground)' }}
                         selectable={true}
                         data-attr="player-meta-copy-url"
                     />
@@ -127,18 +127,18 @@ export function PlayerMeta(): JSX.Element {
 
     const windowOptions: LemonSelectOption<number | null>[] = [
         {
-            label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
+            label: <IconWindow value={currentWindowIndex} className="text-muted-foreground" />,
             value: null,
             labelInMenu: <>Follow the user</>,
         },
     ]
     windowIds.forEach((windowId) => {
         windowOptions.push({
-            label: <IconWindow value={windowId} className="text-secondary" />,
+            label: <IconWindow value={windowId} className="text-muted-foreground" />,
             labelInMenu: (
                 <div className="flex flex-row gap-x-1 space-between items-center">
                     Follow window:&nbsp;
-                    <IconWindow value={windowId} className="text-secondary" />
+                    <IconWindow value={windowId} className="text-muted-foreground" />
                 </div>
             ),
             value: windowId,

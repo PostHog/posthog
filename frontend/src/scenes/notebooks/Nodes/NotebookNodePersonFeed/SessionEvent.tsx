@@ -13,7 +13,7 @@ export const SessionEvent = ({ event }: SessionEventProps): JSX.Element => (
             <EventIcon event={event} />
             <b className="ml-3">{eventToDescription(event)}</b>
         </div>
-        <div className="flex items-center text-secondary font-bold">
+        <div className="flex items-center text-muted-foreground font-bold">
             <span>{dayjs(event.timestamp).format('h:mm:ss A')}</span>
         </div>
     </div>

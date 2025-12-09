@@ -104,7 +104,7 @@ export function Settings({
                           }}
                           sideIcon={hasItems ? isCollapsed ? <IconChevronRight /> : <IconChevronDown /> : undefined}
                       >
-                          <span className="text-secondary">{SettingLevelNames[level]}</span>
+                          <span className="text-muted-foreground">{SettingLevelNames[level]}</span>
                       </OptionButton>
                   ),
                   items: !isCollapsed

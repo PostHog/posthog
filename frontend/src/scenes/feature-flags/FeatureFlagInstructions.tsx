@@ -246,7 +246,7 @@ export function CodeInstructions({
                                 checked={showPayloadCode}
                                 disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
-                            <IconInfo className="text-xl text-secondary shrink-0" />
+                            <IconInfo className="text-xl text-muted-foreground shrink-0" />
                         </div>
                     </Tooltip>
                     <>
@@ -268,7 +268,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-xl text-muted-foreground shrink-0" />
                             </div>
                         </Tooltip>
                         <Tooltip title="Local evaluation is only available in server side libraries and only works for flags that don't persist across authentication steps">
@@ -287,7 +287,7 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-secondary shrink-0" />
+                                <IconInfo className="text-xl text-muted-foreground shrink-0" />
                             </div>
                         </Tooltip>
                     </>

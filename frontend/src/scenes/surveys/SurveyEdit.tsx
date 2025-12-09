@@ -810,7 +810,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                       data-attr="survey-display-conditions-select"
                                                   />
                                                   {!hasTargetingSet ? (
-                                                      <span className="text-secondary">
+                                                      <span className="text-muted-foreground">
                                                           Survey <b>will be released to everyone</b>
                                                       </span>
                                                   ) : (
@@ -924,7 +924,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               })
                                                                           }}
                                                                       />
-                                                                      <p className="text-sm text-secondary">
+                                                                      <p className="text-sm text-muted-foreground">
                                                                           This is a multi-variant flag. You can link to
                                                                           "any" variant of the flag, and the survey will
                                                                           be shown whenever the flag is enabled for a

@@ -80,26 +80,26 @@ function VariableSelector({
                         <div className="ml-4">
                             {variable.default.type === EntityTypes.ACTIONS ? (
                                 <>
-                                    <p className="text-secondary mb-0 text-xs">
+                                    <p className="text-muted-foreground mb-0 text-xs">
                                         <span className="font-bold">CSS selector:</span>{' '}
                                         {variable.default.selector || 'not set'}
                                     </p>
-                                    <p className="text-secondary mb-0 text-xs">
+                                    <p className="text-muted-foreground mb-0 text-xs">
                                         <span className="font-bold">Element href:</span>{' '}
                                         {variable.default.href || 'not set'}
                                     </p>
-                                    <p className="text-secondary mb-1 text-xs">
+                                    <p className="text-muted-foreground mb-1 text-xs">
                                         <span className="font-bold">Page URL:</span> {variable.default.url || 'any url'}
                                     </p>
                                 </>
                             ) : variable.default.type === EntityTypes.EVENTS &&
                               variable.default.name == '$screenview' ? (
-                                <p className="text-secondary mb-1 text-xs">
+                                <p className="text-muted-foreground mb-1 text-xs">
                                     <span className="font-bold">Screenview:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any screenview'}
                                 </p>
                             ) : variable.default.type === EntityTypes.EVENTS ? (
-                                <p className="text-secondary mb-1 text-xs">
+                                <p className="text-muted-foreground mb-1 text-xs">
                                     <span className="font-bold">Pageview URL contains:</span>{' '}
                                     {variable.default.properties?.[0].value || 'any url'}
                                 </p>
@@ -205,7 +205,7 @@ function VariableSelector({
                                     setNewActionName(null)
                                     setIsCurrentlySelectingElement(false)
                                 }}
-                                icon={<Spinner textColored className="text-secondary" />}
+                                icon={<Spinner textColored className="text-muted-foreground" />}
                                 center
                                 className="min-w-44"
                             >
@@ -239,7 +239,7 @@ function VariableSelector({
                                                 <div className="flex">
                                                     This pageview{' '}
                                                     {currentFullUrl ? (
-                                                        <div className="text-secondary max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
+                                                        <div className="text-muted-foreground max-w-44 overflow-clip overflow-ellipsis text-nowrap ml-2">
                                                             {!currentPath ? browserUrl : '/' + currentPath}
                                                         </div>
                                                     ) : null}

@@ -43,7 +43,7 @@ export function HealthCheckSection({ category, checks, defaultOpen = true }: Hea
                     header: (
                         <div className="flex items-center justify-between w-full pr-2">
                             <div className="flex items-center gap-3">
-                                <div className="text-secondary">{config.icon}</div>
+                                <div className="text-muted-foreground">{config.icon}</div>
                                 <div>
                                     <div className="font-medium">{config.title}</div>
                                     <div className="text-xs text-muted-foreground">{config.description}</div>

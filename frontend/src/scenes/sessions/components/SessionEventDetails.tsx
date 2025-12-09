@@ -13,7 +13,7 @@ export interface SessionEventDetailsProps {
 export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.Element {
     if (!event.fullyLoaded) {
         return (
-            <div className="px-4 py-3 flex items-center gap-2 text-secondary">
+            <div className="px-4 py-3 flex items-center gap-2 text-muted-foreground">
                 <Spinner textColored />
                 <span>Loading event details...</span>
             </div>
@@ -36,7 +36,7 @@ export function SessionEventDetails({ event }: SessionEventDetailsProps): JSX.El
                             return <ErrorDisplay eventProperties={properties} eventId={eventId} />
                         case 'raw':
                             return (
-                                <pre className="text-xs text-secondary whitespace-pre-wrap">
+                                <pre className="text-xs text-muted-foreground whitespace-pre-wrap">
                                     {JSON.stringify(event, null, 2)}
                                 </pre>
                             )

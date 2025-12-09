@@ -459,7 +459,7 @@ export function ProjectTree({
                                 <ButtonPrimitive
                                     key={header.key}
                                     fullWidth
-                                    className="pointer-events-none rounded-none text-secondary font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
+                                    className="pointer-events-none rounded-none text-muted-foreground font-bold text-xs uppercase flex gap-2 motion-safe:transition-[left] duration-50"
                                     style={{
                                         paddingLeft: index === 0 ? '35px' : undefined,
                                     }}

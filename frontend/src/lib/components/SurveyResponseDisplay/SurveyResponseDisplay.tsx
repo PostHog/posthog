@@ -63,7 +63,7 @@ export function SurveyResponseDisplay({ eventProperties, eventUuid }: SurveyResp
                 <div className="flex flex-col gap-3">
                     {responses.map(({ questionIndex, question, value }) => (
                         <div key={questionIndex} className="flex flex-col gap-1">
-                            <span className="text-xs text-secondary font-semibold">{question.question}</span>
+                            <span className="text-xs text-muted-foreground font-semibold">{question.question}</span>
                             <span className="text-sm whitespace-pre-wrap">
                                 {Array.isArray(value) ? value.join(', ') : value}
                             </span>

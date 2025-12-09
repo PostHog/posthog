@@ -25,7 +25,7 @@ export function SupportModalButton({ name, email }: { name?: string; email?: str
                     icon={<IconBug />}
                     size="small"
                 >
-                    <span className="text-secondary">Report an issue</span>
+                    <span className="text-muted-foreground">Report an issue</span>
                 </LemonButton>
             </div>
         </>

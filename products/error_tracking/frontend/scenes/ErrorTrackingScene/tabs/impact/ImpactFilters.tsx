@@ -16,7 +16,7 @@ const InitialState = (): JSX.Element => {
     return (
         <div className="flex flex-col items-center text-center py-12">
             <h2 className="text-xl font-bold">Understand the impact of issues</h2>
-            <div className="text-sm text-secondary mb-2">
+            <div className="text-sm text-muted-foreground mb-2">
                 See what issues are causing the most impact on your conversion, activation or any other event you're
                 tracking in PostHog.
             </div>

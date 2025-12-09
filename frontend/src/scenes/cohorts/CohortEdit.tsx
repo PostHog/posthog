@@ -437,7 +437,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                                                 <div>
                                                                     Drag a file here or click to browse for a file
                                                                 </div>
-                                                                <div className="text-secondary text-xs">
+                                                                <div className="text-muted-foreground text-xs">
                                                                     Accepts .csv files only
                                                                 </div>
                                                             </>
@@ -525,7 +525,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                                     title={
                                         <>
                                             Persons in this cohort
-                                            <span className="text-secondary ml-2">
+                                            <span className="text-muted-foreground ml-2">
                                                 {!cohort.is_calculating &&
                                                     cohort.count != undefined &&
                                                     `(${cohort.count})`}

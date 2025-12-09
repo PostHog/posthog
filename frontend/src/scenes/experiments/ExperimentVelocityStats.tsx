@@ -23,7 +23,11 @@ export function ExperimentVelocityStats(): JSX.Element | null {
     const isPositive = percent_change > 0
     const isNegative = percent_change < 0
     const arrow = isPositive ? <IconTrending fontSize="16" /> : isNegative ? <IconTrendingDown fontSize="16" /> : ''
-    const changeColor = isPositive ? 'text-success' : isNegative ? 'text-destructive-foreground' : 'text-text-secondary'
+    const changeColor = isPositive
+        ? 'text-success'
+        : isNegative
+          ? 'text-destructive-foreground'
+          : 'text-text-muted-foreground'
 
     return (
         <div className="px-3 py-2 border rounded bg-card flex items-center gap-3">
