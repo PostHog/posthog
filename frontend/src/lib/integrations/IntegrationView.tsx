@@ -69,7 +69,7 @@ export function IntegrationView({
                                             </div>
                                         }
                                     >
-                                        <strong className="cursor-pointer underline">Connected</strong>
+                                        <strong className="cursor-help underline">Connected</strong>
                                     </Tooltip>
                                 ) : (
                                     <>Connected</>
