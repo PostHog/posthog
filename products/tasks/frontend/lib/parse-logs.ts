@@ -265,7 +265,12 @@ export function parseLogs(logs: string): LogEntry[] {
     for (let i = 0; i < lines.length; i++) {
         const entry = parseLogLine(lines[i], i, toolMap)
         if (entry !== null) {
-            entries.push(entry)
+            const lastEntry = entries[entries.length - 1]
+            if (entry.type === 'agent' && lastEntry?.type === 'agent') {
+                lastEntry.message = (lastEntry.message || '') + (entry.message || '')
+            } else {
+                entries.push(entry)
+            }
         }
     }
 

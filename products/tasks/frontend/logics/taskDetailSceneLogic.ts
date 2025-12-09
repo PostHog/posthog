@@ -43,6 +43,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         selectLatestRun: true,
         startLogPolling: true,
         stopLogPolling: true,
+        setLogs: (logs: string) => ({ logs }),
     }),
 
     reducers({
@@ -59,6 +60,20 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 loadRunsSuccess: () => false,
             },
         ],
+        logs: [
+            '' as string,
+            {
+                setSelectedRunId: () => '',
+                setLogs: (_, { logs }) => logs,
+            },
+        ],
+        isInitialLogsLoad: [
+            true as boolean,
+            {
+                setSelectedRunId: () => true,
+                setLogs: () => false,
+            },
+        ],
     }),
 
     loaders(({ props, values }) => ({
@@ -71,7 +86,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 },
             },
         ],
-        logs: [
+        rawLogs: [
             '' as string,
             {
                 loadLogs: async ({ noCache }: { noCache?: boolean } = {}) => {
@@ -121,6 +136,10 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 return task?.title || task?.slug || 'Task'
             },
         ],
+        logsLoading: [
+            (s) => [s.rawLogsLoading, s.isInitialLogsLoad],
+            (rawLogsLoading, isInitialLogsLoad): boolean => rawLogsLoading && isInitialLogsLoad,
+        ],
     }),
 
     listeners(({ actions, values }) => ({
@@ -148,12 +167,16 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
                 actions.stopLogPolling()
             }
         },
+        loadLogsSuccess: ({ rawLogs }) => {
+            if (rawLogs) {
+                actions.setLogs(rawLogs)
+            }
+        },
         startLogPolling: () => {
             if (logPollingInterval) {
                 clearInterval(logPollingInterval)
             }
             logPollingInterval = window.setInterval(() => {
-                actions.loadRuns()
                 actions.loadLogs({ noCache: true })
             }, LOG_POLL_INTERVAL_MS)
         },
@@ -191,7 +214,7 @@ export const taskDetailSceneLogic = kea<taskDetailSceneLogicType>([
         },
     })),
 
-    actionToUrl(({ values, props }) => ({
+    actionToUrl(({ props }) => ({
         setSelectedRunId: ({ runId }) => {
             if (runId) {
                 return [urls.taskDetail(props.taskId), { runId }, router.values.hashParams]

@@ -5,13 +5,16 @@ import { useMemo } from 'react'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
+import { TaskRun } from '../types'
 import { ConsoleLogEntry } from './session/ConsoleLogEntry'
+import { TaskRunStatusBadge } from './TaskRunStatusBadge'
 import { ToolCallEntry } from './session/ToolCallEntry'
 
 interface TaskSessionViewProps {
     logs: string
     loading: boolean
     isPolling: boolean
+    run: TaskRun | null
 }
 
 function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
@@ -30,12 +33,14 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
             )
         case 'user':
             return (
-                <div className="py-2">
+                <div className="py-2 flex flex-col items-end">
                     <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-medium">User</span>
                         {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
-                        <span className="text-xs text-muted">User</span>
                     </div>
-                    <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                    <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
+                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                    </div>
                 </div>
             )
         case 'agent':
@@ -43,9 +48,11 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                 <div className="py-2">
                     <div className="flex items-center gap-2 mb-1">
                         {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
-                        <span className="text-xs text-muted">Agent</span>
+                        <span className="text-xs font-medium">Agent</span>
                     </div>
-                    <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                    <div className="border-l-2 border-primary pl-3 max-w-[90%]">
+                        <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
+                    </div>
                 </div>
             )
         case 'system':
@@ -62,7 +69,7 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     }
 }
 
-export function TaskSessionView({ logs, loading, isPolling }: TaskSessionViewProps): JSX.Element {
+export function TaskSessionView({ logs, loading, isPolling, run }: TaskSessionViewProps): JSX.Element {
     const entries = useMemo(() => parseLogs(logs), [logs])
 
     const handleCopyLogs = (): void => {
@@ -90,7 +97,10 @@ export function TaskSessionView({ logs, loading, isPolling }: TaskSessionViewPro
     return (
         <div className="flex flex-col h-full">
             <div className="flex justify-between items-center px-4 py-2 border-b">
-                <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                <div className="flex items-center gap-2">
+                    {run && <TaskRunStatusBadge run={run} />}
+                    <span className="text-sm font-semibold">Logs ({entries.length})</span>
+                </div>
                 <LemonButton size="xsmall" icon={<IconCopy />} onClick={handleCopyLogs}>
                     Copy
                 </LemonButton>

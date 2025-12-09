@@ -26,11 +26,11 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
     const isLoading = status === 'pending' || status === 'running'
 
     return (
-        <div className="py-1">
+        <div className="py-2">
             <button
                 type="button"
                 onClick={() => hasContent && setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 w-full text-left rounded py-1 ${
+                className={`flex items-center gap-2 w-full text-left rounded ${
                     hasContent ? 'hover:bg-bg-light cursor-pointer' : 'cursor-default'
                 }`}
             >
