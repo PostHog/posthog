@@ -1770,6 +1770,11 @@ class HogLanguage(StrEnum):
     LIQUID = "liquid"
 
 
+class ConnectionId(StrEnum):
+    CLICKHOUSE = "clickhouse"
+    POSTGRES = "postgres"
+
+
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -10045,6 +10050,7 @@ class HogQLQueryResponse(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -10493,6 +10499,7 @@ class QueryResponseAlternative8(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11026,6 +11033,7 @@ class QueryResponseAlternative40(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -12735,6 +12743,7 @@ class CachedHogQLQueryResponse(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_metadata: dict[str, Any] | None = None
     query_status: QueryStatus | None = Field(
@@ -12936,6 +12945,7 @@ class Response3(BaseModel):
     metadata: HogQLMetadataResponse | None = Field(default=None, description="Query metadata output")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     offset: int | None = None
+    postgres: str | None = Field(default=None, description="Executed Postgres query")
     query: str | None = Field(default=None, description="Input query string")
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -13242,6 +13252,8 @@ class HogQLASTQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(default=None, description="Optional connection identifier")
+    db: str | None = Field(default=None, description="Optional database target")
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
@@ -13263,6 +13275,8 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: ConnectionId | None = Field(default=None, description="Optional connection identifier")
+    db: str | None = Field(default=None, description="Optional database target")
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
@@ -16036,6 +16050,8 @@ class HogQLAutocomplete(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(default=None, description="Optional connection identifier")
+    db: str | None = Field(default=None, description="Optional database target")
     endPosition: int = Field(..., description="End position of the editor word")
     filters: HogQLFilters | None = Field(default=None, description="Table to validate the expression against")
     globals: dict[str, Any] | None = Field(default=None, description="Global values in scope")
@@ -16102,6 +16118,8 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(default=None, description="Optional connection identifier")
+    db: str | None = Field(default=None, description="Optional database target")
     debug: bool | None = Field(default=None, description="Enable more verbose output, usually run from the /debug page")
     filters: HogQLFilters | None = Field(default=None, description="Extra filters applied to query via {filters}")
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")

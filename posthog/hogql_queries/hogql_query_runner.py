@@ -1,13 +1,18 @@
+import dataclasses
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any, Optional, cast
+
+from django.db import connection
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
     DateRange,
+    HogLanguage,
     HogQLASTQuery,
     HogQLFilters,
+    HogQLMetadata,
     HogQLQuery,
     HogQLQueryResponse,
 )
@@ -17,7 +22,8 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 
@@ -84,6 +90,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return self.to_query()
 
     def _calculate(self) -> HogQLQueryResponse:
+        if getattr(self.query, "connectionId", None) == "postgres":
+            return self._calculate_postgres()
+
         query = self.to_query()
         paginator = None
         if isinstance(query, ast.SelectQuery) and not query.limit:
@@ -119,6 +128,96 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if paginator:
             response = response.model_copy(update={**paginator.response_params(), "results": paginator.results})
         return response
+
+    def _calculate_postgres(self) -> HogQLQueryResponse:
+        from posthog.hogql.errors import ExposedHogQLError
+        from posthog.hogql.metadata import get_hogql_metadata
+
+        executor = HogQLQueryExecutor(
+            query=self.to_query(),
+            team=self.team,
+            query_type="hogql_query",
+            filters=None,
+            variables=None,
+            placeholders=None,
+            workload=self.workload,
+            modifiers=self.query.modifiers or self.modifiers,
+            limit_context=self.limit_context,
+            settings=self.settings,
+            timings=self.timings,
+        )
+
+        executor._parse_query()
+        executor._process_variables()
+        executor._process_placeholders()
+        executor._apply_limit()
+        executor._generate_hogql()
+
+        postgres_context = dataclasses.replace(
+            executor.context,
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            timings=executor.timings,
+            modifiers=executor.query_modifiers,
+            limit_context=self.limit_context,
+        )
+
+        metadata = None
+        try:
+            with executor.timings.measure("prepare_and_print_ast"):
+                postgres_sql, prepared_ast = prepare_and_print_ast(
+                    executor.select_query,
+                    context=postgres_context,
+                    dialect="postgres",
+                    pretty=executor.pretty if executor.pretty is not None else True,
+                )
+        except Exception as e:
+            if executor.debug:
+                executor.error = str(e) if isinstance(e, ExposedHogQLError) else "Unknown error"
+                postgres_sql = ""
+                prepared_ast = None
+            else:
+                raise
+
+        results: list[Any] = []
+        columns: list[str] = []
+        if executor.error is None:
+            with executor.timings.measure("postgres_execute"):
+                with connection.cursor() as cursor:
+                    cursor.execute(postgres_sql)
+                    columns = [col[0] for col in cursor.description] if cursor.description else []
+                    results = cursor.fetchall()
+
+        if executor.debug and executor.error is None:
+            metadata = get_hogql_metadata(
+                HogQLMetadata(
+                    language=HogLanguage.HOG_QL_POSTGRES,
+                    query=self.query.query if isinstance(self.query, HogQLQuery) else executor.hogql or "",
+                    debug=True,
+                    filters=self.query.filters,
+                    variables=self.query.variables,
+                    globals=self.query.values,
+                    connectionId="postgres",
+                ),
+                self.team,
+                executor.select_query,
+                prepared_ast,
+                postgres_sql,
+            )
+
+        return HogQLQueryResponse(
+            query=self.query.query if isinstance(self.query, HogQLQuery) else executor.hogql,
+            hogql=executor.hogql,
+            clickhouse=None,
+            postgres=postgres_sql,
+            error=executor.error,
+            timings=executor.timings.to_list(),
+            results=results,
+            columns=columns,
+            modifiers=self.query.modifiers or self.modifiers,
+            metadata=metadata,
+        )
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         self.query.filters = self.query.filters or HogQLFilters()

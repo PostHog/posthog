@@ -10,7 +10,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { Query } from '~/queries/Query/Query'
 import { Timings } from '~/queries/nodes/DataNode/ElapsedTime'
 import { HogQLMetadataResponse, InsightVizNode, Node, NodeKind, QueryTiming } from '~/queries/schema/schema-general'
-import { isDataTableNode, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { isDataTableNode, isHogQLQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 
 import { QueryLogTable } from './QueryLogTable'
 
@@ -55,6 +55,9 @@ export function QueryTabs<Q extends Node>({
     const explainTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === './explain')?.t ?? 0
     const totalTime = (response?.timings as QueryTiming[])?.find(({ k }) => k === '.')?.t ?? 0
     const hogQLTime = totalTime - explainTime - clickHouseTime
+    const connectionId = isHogQLQuery(query) && query.connectionId ? query.connectionId : 'clickhouse'
+    const sqlQuery = response?.postgres ?? response?.clickhouse
+    const sqlLabel = connectionId === 'postgres' ? 'Postgres' : 'ClickHouse'
     const tabs: LemonTabsProps<string>['tabs'] = query
         ? [
               response?.error && {
@@ -137,11 +140,11 @@ export function QueryTabs<Q extends Node>({
                       />
                   ),
               },
-              response?.clickhouse && {
-                  key: 'clickhouse',
+              sqlQuery && {
+                  key: 'sql',
                   label: (
                       <>
-                          Clickhouse
+                          {sqlLabel}
                           {clickHouseTime && (
                               <LemonTag className="ml-2">{Math.floor(clickHouseTime * 10) / 10}s</LemonTag>
                           )}
@@ -151,7 +154,7 @@ export function QueryTabs<Q extends Node>({
                       <CodeEditor
                           className="border"
                           language="sql"
-                          value={String(response.clickhouse)}
+                          value={String(sqlQuery)}
                           height={500}
                           path={`debug/${queryKey}/hogql.sql`}
                       />

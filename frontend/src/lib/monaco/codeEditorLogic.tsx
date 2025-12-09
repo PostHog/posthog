@@ -49,6 +49,7 @@ export interface CodeEditorLogicProps {
     metadataFilters?: HogQLFilters
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
+    connectionId?: HogQLMetadata['connectionId']
     globals?: Record<string, any>
     onError?: (error: string | null) => void
     onMetadata?: (metadata: HogQLMetadataResponse | null) => void
@@ -97,6 +98,7 @@ export const codeEditorLogic = kea<codeEditorLogicType>([
                                 globals: props.globals,
                                 sourceQuery: props.sourceQuery,
                                 variables,
+                                connectionId: props.connectionId,
                             },
                             { recursion: false }
                         )

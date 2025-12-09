@@ -65,12 +65,15 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
 
     const codeEditorKey = `hogQLQueryEditor/${key}`
 
+    const language = props.query.connectionId === 'postgres' ? 'hogQLPostgres' : 'hogQL'
+
     const codeEditorLogicProps: CodeEditorLogicProps = {
         key: codeEditorKey,
         sourceQuery: props.query,
         query: queryInput,
-        language: 'hogQL',
+        language,
         metadataFilters: props.query.filters,
+        connectionId: props.query.connectionId,
     }
 
     const { hasErrors, error } = useValues(codeEditorLogic(codeEditorLogicProps))
@@ -137,7 +140,8 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             queryKey={codeEditorKey}
                             sourceQuery={props.query}
                             className="border rounded-b overflow-hidden h-full"
-                            language="hogQL"
+                            language={language}
+                            connectionId={props.query.connectionId}
                             value={queryInput}
                             onChange={(v) => {
                                 setQueryInput(v ?? '')

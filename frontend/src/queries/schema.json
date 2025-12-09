@@ -4249,6 +4249,10 @@
                 "offset": {
                     "$ref": "#/definitions/integer"
                 },
+                "postgres": {
+                    "description": "Executed Postgres query",
+                    "type": "string"
+                },
                 "query": {
                     "description": "Input query string",
                     "type": "string"
@@ -8733,6 +8737,10 @@
                                 },
                                 "offset": {
                                     "$ref": "#/definitions/integer"
+                                },
+                                "postgres": {
+                                    "description": "Executed Postgres query",
+                                    "type": "string"
                                 },
                                 "query": {
                                     "description": "Input query string",
@@ -15785,6 +15793,14 @@
         "HogQLASTQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional connection identifier",
+                    "type": "string"
+                },
+                "db": {
+                    "description": "Optional database target",
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
@@ -15835,6 +15851,14 @@
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional connection identifier",
+                    "type": "string"
+                },
+                "db": {
+                    "description": "Optional database target",
+                    "type": "string"
+                },
                 "endPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "End position of the editor word"
@@ -15938,6 +15962,14 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional connection identifier",
+                    "type": "string"
+                },
+                "db": {
+                    "description": "Optional database target",
+                    "type": "string"
+                },
                 "debug": {
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
@@ -16079,6 +16111,15 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional connection identifier",
+                    "enum": ["clickhouse", "postgres"],
+                    "type": "string"
+                },
+                "db": {
+                    "description": "Optional database target",
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
@@ -16270,6 +16311,10 @@
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
+                },
+                "postgres": {
+                    "description": "Executed Postgres query",
+                    "type": "string"
                 },
                 "query": {
                     "description": "Input query string",
@@ -21403,6 +21448,10 @@
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
+                        "postgres": {
+                            "description": "Executed Postgres query",
+                            "type": "string"
+                        },
                         "query": {
                             "description": "Input query string",
                             "type": "string"
@@ -23066,6 +23115,10 @@
                         },
                         "offset": {
                             "$ref": "#/definitions/integer"
+                        },
+                        "postgres": {
+                            "description": "Executed Postgres query",
+                            "type": "string"
                         },
                         "query": {
                             "description": "Input query string",
