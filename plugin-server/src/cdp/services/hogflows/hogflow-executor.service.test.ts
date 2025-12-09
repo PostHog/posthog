@@ -187,7 +187,7 @@ describe('Hogflow Executor', () => {
                     hogFlow: invocation.hogFlow,
                     person: {
                         id: 'person_id',
-                        name: '',
+                        name: 'John Doe',
                         properties: {
                             name: 'John Doe',
                         },
@@ -206,7 +206,7 @@ describe('Hogflow Executor', () => {
                 logs: [
                     {
                         level: 'debug',
-                        message: 'Starting workflow execution at trigger',
+                        message: 'Starting workflow execution at trigger for [Person:person_id|John Doe]',
                         timestamp: expect.any(DateTime),
                     },
                     {
@@ -286,7 +286,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueScheduledAt).toEqual(expect.any(DateTime))
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                 [
-                  "Starting workflow execution at trigger",
+                  "Starting workflow execution at trigger for [Person:person_id|John Doe]",
                   "Executing action [Action:function_id_1]",
                   "[Action:function_id_1] Hello, Mr John Doe!",
                   "[Action:function_id_1] Fetch 1, 200",
