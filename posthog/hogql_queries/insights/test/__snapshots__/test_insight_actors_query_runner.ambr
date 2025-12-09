@@ -343,8 +343,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
-               groupUniqArray(distinct_id) AS event_distinct_ids
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
@@ -374,7 +374,7 @@
         WHERE and(equals(person.team_id, 99999), in(id,
                                                       (SELECT source.actor_id AS actor_id
                                                        FROM
-                                                         (SELECT actor_id AS actor_id, count() AS event_count, max(timestamp) AS last_seen, groupUniqArray(distinct_id) AS event_distinct_ids
+                                                         (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                           FROM
                                                             (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                              FROM events AS e
@@ -419,8 +419,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
-               groupUniqArray(distinct_id) AS event_distinct_ids
+               groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
                   toTimeZone(e.timestamp, 'US/Pacific') AS timestamp,
@@ -456,7 +456,7 @@
                                                        WHERE and(equals(person.team_id, 99999), in(person.id,
                                                                                                      (SELECT source.actor_id AS actor_id
                                                                                                       FROM
-                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, max(timestamp) AS last_seen, groupUniqArray(distinct_id) AS event_distinct_ids
+                                                                                                        (SELECT actor_id AS actor_id, count() AS event_count, groupUniqArray(distinct_id) AS event_distinct_ids, max(timestamp) AS last_seen
                                                                                                          FROM
                                                                                                            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id, toTimeZone(e.timestamp, 'US/Pacific') AS timestamp, e.uuid AS uuid, e.distinct_id AS distinct_id
                                                                                                             FROM events AS e

@@ -6,8 +6,8 @@
       FROM
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
-                max(timestamp) AS last_seen,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -32,8 +32,8 @@
       FROM
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
-                max(timestamp) AS last_seen,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -443,8 +443,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -793,8 +793,8 @@
                      FROM
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
-                               max(timestamp) AS last_seen,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -889,6 +889,7 @@
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1060,8 +1061,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1506,8 +1507,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1574,8 +1575,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1669,8 +1670,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1764,8 +1765,8 @@
       FROM
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
-                max(timestamp) AS last_seen,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -1790,8 +1791,8 @@
       FROM
         (SELECT actor_id AS actor_id,
                 count() AS event_count,
-                max(timestamp) AS last_seen,
                 groupUniqArray(distinct_id) AS event_distinct_ids,
+                max(timestamp) AS last_seen,
                 actor_id AS id
          FROM
            (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2201,8 +2202,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2288,8 +2289,8 @@
                      FROM
                        (SELECT actor_id AS actor_id,
                                count() AS event_count,
-                               max(timestamp) AS last_seen,
                                groupUniqArray(distinct_id) AS event_distinct_ids,
+                               max(timestamp) AS last_seen,
                                actor_id AS id
                         FROM
                           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
@@ -2390,8 +2391,8 @@
      FROM
        (SELECT actor_id AS actor_id,
                count() AS event_count,
-               max(timestamp) AS last_seen,
                groupUniqArray(distinct_id) AS event_distinct_ids,
+               max(timestamp) AS last_seen,
                actor_id AS id
         FROM
           (SELECT if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id) AS actor_id,
