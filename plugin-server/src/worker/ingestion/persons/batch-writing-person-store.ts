@@ -331,9 +331,6 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     outcome: 'success',
                 })
             } else {
-                // Track the failure and queue for individual retry
-                failedUpdates.push(update)
-
                 // Handle specific error types
                 if (result?.error instanceof PersonPropertiesSizeViolationError) {
                     await captureIngestionWarning(
@@ -353,8 +350,11 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                         outcome: 'properties_size_violation',
                     })
                     // Don't retry size violations - they will never succeed
-                    failedUpdates.pop()
+                    continue
                 }
+
+                // Queue for individual retry
+                failedUpdates.push(update)
             }
         }
 
