@@ -129,6 +129,17 @@ Integration.objects.filter(kind='firebase').first()
 7. Trigger an event matching your filter
 8. Check your test device!
 
+## Foreground vs Background
+
+**Important**: When your app is in the **foreground**, FCM delivers messages to your app's message handler instead of showing a system notification. You'll see the message in Logcat:
+
+```text
+MyFirebaseMsgService  D  From: 725655360102
+MyFirebaseMsgService  D  Message Notification Body: If you see this, FCM is working! 🎉
+```
+
+To see an actual notification popup, **background the app** (press Home) before sending the push.
+
 ## Troubleshooting
 
 | Error | Cause | Fix |
@@ -136,6 +147,7 @@ Integration.objects.filter(kind='firebase').first()
 | 401 Unauthorized | Invalid service account or missing permissions | Re-download service account JSON, ensure Cloud Messaging API is enabled |
 | 404 Not Found | Project ID mismatch | Check project_id in JSON matches Firebase project |
 | 400 Bad Request | Invalid/expired FCM token | Get a fresh token from your app |
+| No notification banner | App is in foreground | Background the app before sending push |
 | No notification | App force-closed or no permissions | Check app has notification permissions, is in foreground/background |
 | UNREGISTERED | Token no longer valid | App was uninstalled or token rotated - get new token |
 

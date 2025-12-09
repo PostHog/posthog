@@ -16,15 +16,35 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 | Who sees the notification? | The customer's end users |
 | What app name appears? | The customer's app name |
 
+## Current Status
+
+**Slice 1 is ~90% complete.** Remaining: full end-to-end test through PostHog UI (blocked on local capture endpoint).
+
+### What's Done
+
+- ✅ `FIREBASE` added to `IntegrationKind` in `posthog/models/integration.py`
+- ✅ `FirebaseIntegration` class with token refresh logic
+- ✅ API endpoint for service account JSON upload
+- ✅ Hog function template at `plugin-server/src/cdp/templates/_destinations/firebase_push/`
+- ✅ Frontend: types, icons, IntegrationChoice UI
+- ✅ Unit tests for `FirebaseIntegration`
+- ✅ Template tests for Hog function
+- ✅ Standalone FCM test script validated (push received on Android emulator)
+- ✅ Firebase integration created via Django shell
+
+### What's Left for Slice 1
+
+- [ ] End-to-end test through PostHog workflows (event → workflow → FCM push)
+
 ## Vertical Slices
 
-### Slice 1: Backend can send a push (hardcoded token)
+### Slice 1: Backend can send a push (hardcoded token) ✅ ~90%
 
-- Integration model: Add `FIREBASE` to `IntegrationKind`
-- Integration UI: Upload service account JSON
-- Hog template: Inputs for title, body, FCM token field
-- Push service: POST to FCM API with JWT auth
-- Test with a manually-provided FCM token
+- ✅ Integration model: Add `FIREBASE` to `IntegrationKind`
+- ✅ Integration UI: Upload service account JSON
+- ✅ Hog template: Inputs for title, body, FCM token field
+- ✅ Push service: POST to FCM API with JWT auth
+- 🔄 Test with a manually-provided FCM token (direct FCM test passed, workflow test pending)
 
 ### Slice 2: iOS SDK captures and sends FCM token
 
@@ -54,7 +74,7 @@ PostHog acts as a conduit - customers provide their Firebase credentials, we sen
 |-----------|----------|---------|
 | Integration type | `posthog/models/integration.py` | Add `FIREBASE` to `IntegrationKind` |
 | PushSubscription model | `posthog/models/push_subscription.py` | Store tokens securely (NOT as person properties) |
-| Hog function template | `plugin-server/src/cdp/templates/_destinations/firebase/` | Defines push action UI + Hog code |
+| Hog function template | `plugin-server/src/cdp/templates/_destinations/firebase_push/` | Defines push action UI + Hog code |
 | Push service | `plugin-server/src/cdp/services/messaging/push.service.ts` | Calls FCM API |
 
 ### Frontend
