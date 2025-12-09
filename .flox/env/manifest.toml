@@ -136,14 +136,6 @@ else
   echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
 fi
 
-echo -e "    \033[1;33m💻 Configuring /etc/hosts for IPv6...\033[0m"
-if ! grep -q "::1 kafka clickhouse clickhouse-coordinator objectstorage" /etc/hosts; then
-  echo "::1 kafka clickhouse clickhouse-coordinator objectstorage" | sudo tee -a /etc/hosts 1> /dev/null
-  echo -e "    \033[32m✅ /etc/hosts amended for IPv6\033[0m"
-else
-  echo -e "    \033[32m✅ /etc/hosts already contains the required entries\033[0m"
-fi
-
 echo -e "  \033[1;34m🔑 Environment variables\033[0m"
 if [ -f "$DOTENV_FILE" ]; then
   set -o allexport

@@ -45,7 +45,7 @@ ConsoleLogItem.args = {
     item: {
         data: {
             timestamp: dayjs('2019-01-30').valueOf(),
-            windowId: '12345',
+            windowId: 1,
             windowNumber: 1,
             level: 'log',
             content:

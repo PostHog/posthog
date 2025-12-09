@@ -18,7 +18,7 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     # Job to decide if we should run plugin server ci
@@ -28,7 +28,7 @@ jobs:
         timeout-minutes: 5
         name: Determine need to run Node.js checks
         outputs:
-            nodejs: ${{ steps.filter.outputs.nodejs }}
+            nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -38,6 +38,7 @@ jobs:
 
             - uses: dorny/paths-filter@4512585405083f25c027a35db413c2b3b9006d50 # v2
               id: filter
+              if: github.event_name != 'push' # Run all tests on master push
               with:
                   filters: |
                       nodejs:

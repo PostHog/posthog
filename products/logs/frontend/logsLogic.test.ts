@@ -1,9 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { logsLogic } from './logsLogic'
+import { SparklineTimezone, logsLogic } from './logsLogic'
+
+jest.mock('@posthog/lemon-ui', () => ({
+    ...jest.requireActual('@posthog/lemon-ui'),
+    lemonToast: {
+        error: jest.fn(),
+    },
+}))
 
 const createMockLog = (uuid: string): LogMessage => ({
     uuid,
@@ -192,6 +201,72 @@ describe('logsLogic', () => {
                 expect(logic.values.expandedLogIds.has('log-2')).toBe(false)
                 expect(logic.values.expandedLogIds.has('log-3')).toBe(true)
             })
+        })
+    })
+
+    describe('sparklineTimezone', () => {
+        it('updates when setSparklineTimezone is called', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setSparklineTimezone(SparklineTimezone.Device)
+            })
+                .toDispatchActions(['setSparklineTimezone'])
+                .toMatchValues({
+                    sparklineTimezone: SparklineTimezone.Device,
+                })
+
+            await expectLogic(logic, () => {
+                logic.actions.setSparklineTimezone(SparklineTimezone.UTC)
+            })
+                .toDispatchActions(['setSparklineTimezone'])
+                .toMatchValues({
+                    sparklineTimezone: SparklineTimezone.UTC,
+                })
+        })
+    })
+
+    describe('error handling', () => {
+        beforeEach(() => {
+            jest.clearAllMocks()
+        })
+
+        it.each([
+            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+            ['Fetch is aborted', 'Safari abort message'],
+            ['The operation was aborted', 'alternative abort message'],
+            ['ABORTED', 'uppercase abort'],
+            ['Request aborted by user', 'abort substring'],
+        ])('suppresses error "%s" (%s)', async (error) => {
+            logic.actions.fetchLogsFailure(error)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it.each([['Network error'], ['Server returned 500'], ['Timeout exceeded']])(
+            'shows toast for legitimate error "%s"',
+            async (error) => {
+                logic.actions.fetchLogsFailure(error)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(lemonToast.error).toHaveBeenCalledWith(`Failed to load logs: ${error}`)
+            }
+        )
+
+        it.each([
+            ['Fetch is aborted', 'Safari abort message'],
+            ['new query started', 'exact match for NEW_QUERY_STARTED_ERROR_MESSAGE'],
+        ])('suppresses fetchNextLogsPage error "%s" (%s)', async (error) => {
+            logic.actions.fetchNextLogsPageFailure(error)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).not.toHaveBeenCalled()
+        })
+
+        it('shows toast for legitimate fetchNextLogsPage error', async () => {
+            logic.actions.fetchNextLogsPageFailure('Network error')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalledWith('Failed to load more logs: Network error')
         })
     })
 })

@@ -20,17 +20,18 @@ class AccessMethod(StrEnum):
 class Product(StrEnum):
     API = "api"
     BATCH_EXPORT = "batch_export"
+    ENDPOINTS = "endpoints"
+    EXPERIMENTS = "experiments"
     FEATURE_FLAGS = "feature_flags"
+    LLM_ANALYTICS = "llm_analytics"
     MAX_AI = "max_ai"
     MESSAGING = "messaging"
-    WORKFLOWS = "workflows"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
+    SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
-    EXPERIMENTS = "experiments"
-    SDK_DOCTOR = "sdk_doctor"
-    ENDPOINTS = "endpoints"
+    WORKFLOWS = "workflows"
 
 
 class Feature(StrEnum):

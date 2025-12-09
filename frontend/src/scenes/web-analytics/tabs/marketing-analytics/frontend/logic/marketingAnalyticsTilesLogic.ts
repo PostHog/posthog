@@ -83,9 +83,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     }
                 }
 
-                // ROAS is a ratio, not a currency value
                 const isCurrency =
-                    tileColumnSelection && tileColumnSelection !== 'roas'
+                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
                         ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                         : false
 

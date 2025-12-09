@@ -209,6 +209,7 @@ fn create_group_identify_event(
     let captured_event = CapturedEvent {
         uuid: event_uuid,
         distinct_id,
+        session_id: None,
         ip: "".to_string(),
         data: serde_json::to_string(&raw_event)?,
         now: timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string(),
@@ -586,6 +587,7 @@ impl AmplitudeEvent {
                 let inner = CapturedEvent {
                     uuid: event_uuid,
                     distinct_id,
+                    session_id: None,
                     ip: amp.ip_address.unwrap_or_else(|| "127.0.0.1".to_string()),
                     data: serde_json::to_string(&raw_event)?,
                     now: Utc::now().to_rfc3339(),

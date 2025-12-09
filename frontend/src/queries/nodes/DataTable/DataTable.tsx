@@ -174,6 +174,7 @@ export function DataTable({
 
     const canUseWebAnalyticsPreAggregatedTables = useFeatureFlag('SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES')
     const hasCrmIterationOneEnabled = useFeatureFlag('CRM_ITERATION_ONE')
+    const hasCustomerAnalyticsEnabled = useFeatureFlag('CRM_ITERATION_ONE')
     const usedWebAnalyticsPreAggregatedTables =
         canUseWebAnalyticsPreAggregatedTables &&
         response &&
@@ -734,7 +735,8 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const secondRowRight = [
-        sourceFeatures.has(QueryFeature.linkDataButton) && hasCrmIterationOneEnabled ? (
+        sourceFeatures.has(QueryFeature.linkDataButton) &&
+        (hasCrmIterationOneEnabled || hasCustomerAnalyticsEnabled) ? (
             <ViewLinkButton tableName="groups" />
         ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&

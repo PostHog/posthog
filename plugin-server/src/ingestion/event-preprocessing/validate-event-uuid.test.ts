@@ -26,6 +26,7 @@ describe('createValidateEventUuidStep', () => {
             message: {} as any,
             headers: {
                 force_disable_person_processing: false,
+                historical_migration: false,
             },
         }
 

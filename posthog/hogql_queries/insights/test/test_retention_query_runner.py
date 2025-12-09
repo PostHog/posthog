@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from posthog.schema import RetentionQuery
+from posthog.schema import HogQLQueryModifiers, InCohortVia, RetentionQuery
 
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.query import execute_hogql_query
@@ -4319,6 +4319,86 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
             pluck(result_first_ever, "values", "count"),
             expected_first_ever_counts,
         )
+
+    def test_cohort_filter_optimization_with_property_filter(self):
+        """Test that cohort filters in properties trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "cohort", "key": "id", "value": cohort.pk}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_cohort_breakdown(self):
+        """Test that cohort breakdowns trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            breakdownFilter={"breakdown_type": "cohort", "breakdown": cohort.pk},
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_cohort_filter_optimization_with_nested_properties(self):
+        """Test that cohort filters in nested property groups trigger LEFTJOIN optimization"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[
+                {"type": "event", "key": "$browser", "value": "Chrome"},
+                {"type": "cohort", "key": "id", "value": cohort.pk},
+            ],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia was changed from AUTO to LEFTJOIN
+        assert runner.modifiers.inCohortVia == InCohortVia.LEFTJOIN
+
+    def test_no_cohort_filter_keeps_auto_mode(self):
+        """Test that queries without cohort filters keep AUTO mode"""
+        query = RetentionQuery(
+            dateRange={"date_from": "-7d"},
+            retentionFilter={},
+            properties=[{"type": "event", "key": "$browser", "value": "Chrome"}],
+        )
+
+        modifiers = HogQLQueryModifiers(inCohortVia=InCohortVia.AUTO)
+        runner = RetentionQueryRunner(query=query, team=self.team, modifiers=modifiers)
+
+        # Verify that inCohortVia stayed as AUTO
+        assert runner.modifiers.inCohortVia == InCohortVia.AUTO
 
 
 class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):

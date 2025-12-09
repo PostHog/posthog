@@ -9,6 +9,7 @@ import { userLogic } from 'scenes/userLogic'
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { getDefaultTreeProducts } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { FileSystemImport } from '~/queries/schema/schema-general'
+import { UserShortcutPosition } from '~/types'
 
 import type { editCustomProductsModalLogicType } from './editCustomProductsModalLogicType'
 
@@ -34,9 +35,11 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         toggleProduct: (productPath: string) => ({ productPath }),
         toggleCategory: (category: string) => ({ category }),
         setAllowSidebarSuggestions: (value: boolean) => ({ value }),
+        setShortcutPosition: (value: UserShortcutPosition, saveToUser: boolean = true) => ({ value, saveToUser }),
         setSelectedPaths: (paths: Set<string>) => ({ paths }),
         setProductLoading: (productPath: string, loading: boolean) => ({ productPath, loading }),
         setSidebarSuggestionsLoading: (loading: boolean) => ({ loading }),
+        setShortcutPositionLoading: (loading: boolean) => ({ loading }),
         toggleSidebarSuggestions: true,
         openModal: true,
         closeModal: true,
@@ -76,6 +79,18 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
             {
                 setSidebarSuggestionsLoading: (_, { loading }) => loading,
                 toggleSidebarSuggestions: () => true,
+            },
+        ],
+        shortcutPosition: [
+            'above' as UserShortcutPosition,
+            {
+                setShortcutPosition: (_, { value }) => value,
+            },
+        ],
+        shortcutPositionLoading: [
+            false,
+            {
+                setShortcutPositionLoading: (_, { loading }) => loading,
             },
         ],
         productLoading: [
@@ -132,6 +147,7 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
         loadUserSuccess: ({ user }) => {
             if (user) {
                 actions.setAllowSidebarSuggestions(user.allow_sidebar_suggestions ?? false)
+                actions.setShortcutPosition((user.shortcut_position ?? 'above') as UserShortcutPosition, false)
             }
         },
         toggleProduct: async ({ productPath }) => {
@@ -198,10 +214,26 @@ export const editCustomProductsModalLogic = kea<editCustomProductsModalLogicType
                 actions.setSidebarSuggestionsLoading(false)
             }
         },
+        setShortcutPosition: async ({ value, saveToUser }) => {
+            if (!saveToUser) {
+                return
+            }
+
+            try {
+                actions.setShortcutPositionLoading(true)
+                actions.updateUser({ shortcut_position: value })
+            } catch (error) {
+                console.error('Failed to save shortcut position preference:', error)
+                lemonToast.error('Failed to save preference. Try again?')
+            } finally {
+                actions.setShortcutPositionLoading(false)
+            }
+        },
     })),
     afterMount(({ actions, values }) => {
         if (values.user) {
             actions.setAllowSidebarSuggestions(values.user.allow_sidebar_suggestions ?? false)
+            actions.setShortcutPosition((values.user.shortcut_position ?? 'above') as UserShortcutPosition, false)
         }
 
         if (values.customProducts.length > 0) {

@@ -92,7 +92,7 @@ export function InsightViz({
     }
 
     const isFunnels = isFunnelsQuery(query.source)
-    const isHorizontalAlways = useFeatureFlag('INSIGHT_HORIZONTAL_CONTROLS')
+    const isHorizontalAlways = useFeatureFlag('PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS')
     const isRetention = isRetentionQuery(query.source)
 
     const showIfFull = !!query.full
