@@ -1,3 +1,4 @@
+from posthog.cdp.validation import compile_hog, generate_template_bytecode
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.team.team import Team
 
@@ -23,6 +24,21 @@ postHogCapture({
   'properties': inputs.properties
 })
 """
+
+
+def _get_inputs(redirect_url: str) -> dict:
+    inputs = {
+        "debug": {"order": 2, "value": False, "templating": "hog"},
+        "properties": {
+            "order": 1,
+            "value": {"$$_extend_object": "{event.query}"},
+            "templating": "hog",
+        },
+        "redirect_url": {"order": 0, "value": redirect_url, "templating": "hog"},
+    }
+    for value in inputs.values():
+        value["bytecode"] = generate_template_bytecode(value["value"], set())
+    return inputs
 
 
 def get_hog_function(team: Team, redirect_url: str) -> HogFunction:
@@ -63,14 +79,7 @@ def get_hog_function(team: Team, redirect_url: str) -> HogFunction:
                 "description": "Logs the incoming request for debugging",
             },
         ],
-        inputs={
-            "debug": {"order": 2, "value": False, "templating": "hog"},
-            "properties": {
-                "order": 1,
-                "value": {"$$_extend_object": "{event.query}"},
-                "templating": "hog",
-            },
-            "redirect_url": {"order": 0, "value": redirect_url, "templating": "hog"},
-        },
+        inputs=_get_inputs(redirect_url),
         enabled=True,
+        bytecode=compile_hog(LINK_HOG_FUNCTION_CODE, "destination"),
     )
