@@ -49,6 +49,7 @@ export const urls = {
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
+    marketingAnalyticsApp: (): string => '/marketing',
     customCss: (): string => '/themes/custom-css',
     sqlEditor: (
         query?: string,

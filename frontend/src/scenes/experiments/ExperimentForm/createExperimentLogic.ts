@@ -2,7 +2,6 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { router } from 'kea-router'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -324,9 +323,6 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                 const statsConfig = {
                     ...values.experiment?.stats_config,
                     timeseries: true,
-                    ...(values.featureFlags[FEATURE_FLAGS.EXPERIMENTS_USE_NEW_QUERY_BUILDER] && {
-                        use_new_query_builder: true,
-                    }),
                 }
 
                 const savedMetrics = [

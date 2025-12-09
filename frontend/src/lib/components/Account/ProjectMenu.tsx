@@ -85,7 +85,7 @@ export function ProjectMenu({
                         <Label intent="menu" className="px-2">
                             Current project
                         </Label>
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <div className="my-1 h-px bg-border-primary shrink-0" />
 
                         <Combobox.Empty>No projects found</Combobox.Empty>
 
@@ -129,7 +129,7 @@ export function ProjectMenu({
                                     <Label intent="menu" className="px-2 mt-2">
                                         Other projects
                                     </Label>
-                                    <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                                    <div className="my-1 h-px bg-border-primary shrink-0" />
                                 </>
                             )}
 
@@ -182,7 +182,7 @@ export function ProjectMenu({
                                     </Combobox.Group>
                                 )
                             })}
-                        <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+                        <div className="my-1 h-px bg-border-primary shrink-0" />
                         {preflight?.can_create_org && (
                             <Combobox.Item
                                 asChild

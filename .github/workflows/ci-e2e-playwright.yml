@@ -54,9 +54,9 @@ env:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    # Cancel in-progress runs when new commits are pushed
+    # Cancel in-progress runs on PRs when new commits are pushed
     # SHA verification ensures we don't commit stale snapshots if runs aren't cancelled in time
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
     changes:
@@ -321,14 +321,10 @@ jobs:
                   python manage.py migrate_clickhouse &
                   python manage.py migrate --noinput
 
-                  # Build and run Rust migrations using dedicated container
-                  # Use posthog_persons_e2e_test as the separate persons database for e2e tests
-                  # This keeps posthog_e2e_test as the default DB with old non-partitioned schema (Django migrations only)
-                  docker build -f rust/Dockerfile.sqlx-migrate -t posthog-migrations:latest ./rust
-                  docker run --rm --network host \
-                    -e PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test" \
-                    -e CYCLOTRON_DATABASE_URL="postgres://posthog:posthog@localhost:5432/cyclotron" \
-                    posthog-migrations:latest all
+                  # Run Rust migrations for persons e2e test database
+                  PERSONS_DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons_e2e_test"
+                  sqlx database create -D "$PERSONS_DATABASE_URL"
+                  sqlx migrate run -D "$PERSONS_DATABASE_URL" --source rust/persons_migrations/
 
                   python manage.py setup_dev
                   wait

@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { MessageSizeTooLarge } from '~/utils/db/error'
+import { prefetchPersonsStep } from '~/worker/ingestion/event-pipeline/prefetchPersonsStep'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
@@ -297,8 +298,13 @@ export class IngestionConsumer {
                                     .pipe(createValidateEventUuidStep())
                             )
                             // We want to call cookieless with the whole batch at once.
+                            // IMPORTANT: Cookieless processing changes distinct IDs (cookieless events
+                            // are captured with $posthog_cookieless distinct ID and rewritten here).
+                            // Any steps that depend on the final distinct ID must run after this step.
                             .gather()
                             .pipeBatch(createApplyCookielessProcessingStep(this.hub.cookielessManager))
+                            // Prefetch must run after cookieless, as cookieless changes distinct IDs
+                            .pipeBatch(prefetchPersonsStep(this.personsStore, this.hub.PERSONS_PREFETCH_ENABLED))
                     )
                     .handleIngestionWarnings(this.kafkaProducer!)
             )

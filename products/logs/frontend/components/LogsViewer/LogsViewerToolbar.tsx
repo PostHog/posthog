@@ -21,7 +21,7 @@ export const LogsViewerToolbar = ({
     orderBy,
     onChangeOrderBy,
 }: LogsViewerToolbarProps): JSX.Element => {
-    const { wrapBody, prettifyJson } = useValues(logsViewerLogic)
+    const { wrapBody, prettifyJson, logsCount } = useValues(logsViewerLogic)
     const { setWrapBody, setPrettifyJson } = useActions(logsViewerLogic)
 
     return (
@@ -53,7 +53,9 @@ export const LogsViewerToolbar = ({
             </div>
             <div className="flex items-center gap-4">
                 {totalLogsCount !== undefined && totalLogsCount > 0 && (
-                    <span className="text-muted text-xs">{humanFriendlyNumber(totalLogsCount)} logs</span>
+                    <span className="text-muted text-xs">
+                        {humanFriendlyNumber(logsCount)} of {humanFriendlyNumber(totalLogsCount)} logs
+                    </span>
                 )}
                 <span className="text-muted text-xs flex items-center gap-1">
                     <KeyboardShortcut arrowup />

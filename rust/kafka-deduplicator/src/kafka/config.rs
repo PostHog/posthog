@@ -68,12 +68,18 @@ impl ConsumerConfigBuilder {
         self
     }
 
-    /// Enable sticky partition assignments based on the kafka client ID supplied
+    /// Enable sticky partition assignments based on the kafka client ID supplied.
+    /// Always uses cooperative-sticky strategy for consistent behavior across all pods.
+    /// When client_id is provided, also enables static membership for truly sticky assignments.
     pub fn with_sticky_partition_assignment(mut self, client_id: Option<&str>) -> Self {
+        // Always use cooperative-sticky for consistent behavior across all pods
+        self.config
+            .set("partition.assignment.strategy", "cooperative-sticky");
+
         if let Some(found_client_id) = client_id {
             self.config.set("client.id", found_client_id);
-            self.config
-                .set("partition.assignment.strategy", "cooperative-sticky");
+            // Enable static membership for truly sticky assignments
+            self.config.set("group.instance.id", found_client_id);
         }
         self
     }
