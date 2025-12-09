@@ -192,7 +192,7 @@ export const ExperimentDuration = (): JSX.Element => {
                         <div
                             onMouseEnter={showPopover}
                             onMouseLeave={hidePopover}
-                            style={{ color: 'var(--brand-blue)' }}
+                            style={{ color: 'var(--color-brand-blue)' }}
                         >
                             <LemonProgressCircle
                                 progress={

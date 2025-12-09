@@ -23,7 +23,7 @@ export const LemonProgress: React.FunctionComponent<LemonProgressProps & React.R
             percent,
             smoothing = true,
             bgColor = 'var(--color-background)',
-            strokeColor = 'var(--brand-blue)',
+            strokeColor = 'var(--color-brand-blue)',
             children,
             className,
         },

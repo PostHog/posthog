@@ -100,8 +100,8 @@ export function Navigation({
                                     ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
                                     : '0px',
                                 '--scene-layout-background': sceneConfig?.canvasBackground
-                                    ? 'var(--color-bg-surface-primary)'
-                                    : 'var(--color-bg-primary)',
+                                    ? 'var(--color-card)'
+                                    : 'var(--color-muted)',
                             } as React.CSSProperties
                         }
                         onScroll={(e) => {

@@ -10,11 +10,11 @@
 
     &:not(:disabled) {
         &:hover {
-            color: var(--color-accent-hover);
+            color: var(--color-primary);
         }
 
         &:active {
-            color: var(--color-accent-active);
+            color: var(--color-primary);
         }
     }
 
@@ -31,22 +31,7 @@
         color: var(--color-foreground);
 
         &:not(:disabled):hover {
-            color: var(--color-accent-hover);
-        }
-    }
-
-    // Tooltips are inverted, so links are too
-    .Tooltip & {
-        color: var(--color-accent-inverted);
-
-        &:not(:disabled) {
-            &:hover {
-                color: var(--color-accent-hover-inverted);
-            }
-
-            &:active {
-                color: var(--color-accent-active-inverted);
-            }
+            color: var(--color-foreground);
         }
     }
 }

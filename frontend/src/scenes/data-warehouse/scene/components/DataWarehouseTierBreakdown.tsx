@@ -83,7 +83,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             width: `${currentPercentage}%`,
-                            background: 'var(--brand-blue)',
+                            background: 'var(--color-brand-blue)',
                             transitionTimingFunction: 'cubic-bezier(0.15, 0.15, 0.2, 1)',
                         }}
                     />
@@ -114,7 +114,7 @@ function TierGauge({ tier, index, tiers, unit }: TierGaugeProps): JSX.Element {
                         <span
                             className="w-2.5 h-2.5 rounded-full flex-shrink-0"
                             // eslint-disable-next-line react/forbid-dom-props
-                            style={{ background: 'var(--brand-blue)' }}
+                            style={{ background: 'var(--color-brand-blue)' }}
                         />
                         <span className="font-medium">{compactNumber(tier.current_usage)} rows</span>
                     </div>

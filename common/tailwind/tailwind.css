@@ -494,6 +494,12 @@
 }
 
 @theme {
+    /* Brand colors */
+    --color-brand-blue: #1d4aff;
+    --color-brand-red: #f54e00;
+    --color-brand-yellow: #f9bd2b;
+    --color-brand-key: #000;
+
     /* Main application background and foreground */
     --color-background: var(--color-background);
     --color-foreground: var(--color-foreground);

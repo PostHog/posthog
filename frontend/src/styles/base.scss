@@ -557,10 +557,10 @@
 
     // Brand colors
     // //////////////////////////////////////////////////////////
-    --brand-blue: #1d4aff;
-    --brand-red: #f54e00;
-    --brand-yellow: #f9bd2b;
-    --brand-key: #000;
+    --brand-blue: red;
+    --brand-red: red;
+    --brand-yellow: red;
+    --brand-key: red;
 
     // Shadows
     // //////////////////////////////////////////////////////////
@@ -1102,7 +1102,7 @@
     // );
     // --color-accent-hover: hsl(
     //     var(--color-brand-primary-hue),
-    //     var(--color-brand-primary-saturation),
+    //     var(--color-brand-primary-saturation),-
     //     calc(var(--color-brand-primary-lightness) + 10%)
     // );
     // --color-accent-hover-inverted: hsl(
@@ -1262,7 +1262,7 @@
     --color-bg-light: var(--color-accent-3000);
     --color-bg-table: #232429;
     --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
-    --link: var(--link-3000-dark);
+    // --link: var(--link-3000-dark);
 
     // --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
     --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
@@ -1659,15 +1659,15 @@
             cursor: pointer;
 
             div:nth-child(1) {
-                background: var(--brand-blue);
+                background: var(--color-brand-blue);
             }
 
             div:nth-child(2) {
-                background: var(--brand-red);
+                background: var(--color-brand-red);
             }
 
             div:nth-child(3) {
-                background: var(--brand-yellow);
+                background: var(--color-brand-yellow);
             }
 
             span {
@@ -1729,7 +1729,7 @@
     }
 
     a {
-        color: var(--link);
+        color: var(--color-primary);
         text-decoration: none;
     }
 
