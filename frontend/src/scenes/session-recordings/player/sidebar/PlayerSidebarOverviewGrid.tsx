@@ -40,7 +40,7 @@ function getFilterState(
 ): 'active' | 'replace' | 'inactive' {
     // Check first nested group (index 0) where filters are added
     const firstNestedGroup = filterGroup.values[0]
-    if (!firstNestedGroup || !('values' in firstNestedGroup) || !firstNestedGroup.values) {
+    if (!firstNestedGroup || !('values' in firstNestedGroup)) {
         return 'inactive'
     }
 

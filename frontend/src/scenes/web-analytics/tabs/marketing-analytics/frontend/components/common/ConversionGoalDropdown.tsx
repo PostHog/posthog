@@ -95,11 +95,11 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                         },
                         true,
                         MathAvailability.All
-                    )
+                    ) as (EventsNode | ActionsNode | DataWarehouseNode)[]
 
                     const firstSerie = series[0] || value
 
-                    const newFilter = {
+                    const newFilter: ConversionGoalFilter = {
                         ...value,
                         ...firstSerie,
                         // Preserve the existing schema to keep UTM mappings
@@ -107,7 +107,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                             ...value.schema_map,
                         },
                         properties: firstSerie?.properties || [], // if we clear the filter we need the properties to be set to an empty array
-                    } as ConversionGoalFilter
+                    }
 
                     // Clean up ActionsNode: remove event field and ensure id is a number
                     if (newFilter.kind === NodeKind.ActionsNode) {

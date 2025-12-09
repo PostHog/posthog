@@ -826,7 +826,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 ...currentGroup,
                 values: currentGroup.values.map((nestedGroup, index) => {
                     // Add to the first nested group (index 0)
-                    if (index === 0 && 'values' in nestedGroup && nestedGroup.values) {
+                    if (index === 0 && 'values' in nestedGroup) {
                         return {
                             ...nestedGroup,
                             values: [...nestedGroup.values, filter],
@@ -868,7 +868,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             const currentGroup = values.filters.filter_group
             const firstNestedGroup = currentGroup.values[0]
 
-            if (!firstNestedGroup || !('values' in firstNestedGroup) || !firstNestedGroup.values) {
+            if (!firstNestedGroup || !('values' in firstNestedGroup)) {
                 return
             }
 
@@ -892,7 +892,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 newGroup = {
                     ...currentGroup,
                     values: currentGroup.values.map((nestedGroup, index) => {
-                        if (index === 0 && 'values' in nestedGroup && nestedGroup.values) {
+                        if (index === 0 && 'values' in nestedGroup) {
                             return {
                                 ...nestedGroup,
                                 values: nestedGroup.values.filter((_, i) => i !== exactMatchIndex),
@@ -923,7 +923,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     newGroup = {
                         ...currentGroup,
                         values: currentGroup.values.map((nestedGroup, index) => {
-                            if (index === 0 && 'values' in nestedGroup && nestedGroup.values) {
+                            if (index === 0 && 'values' in nestedGroup) {
                                 return {
                                     ...nestedGroup,
                                     values: nestedGroup.values.map((filter, i) =>
@@ -940,7 +940,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     newGroup = {
                         ...currentGroup,
                         values: currentGroup.values.map((nestedGroup, index) => {
-                            if (index === 0 && 'values' in nestedGroup && nestedGroup.values) {
+                            if (index === 0 && 'values' in nestedGroup) {
                                 return {
                                     ...nestedGroup,
                                     values: [...nestedGroup.values, newFilter],
