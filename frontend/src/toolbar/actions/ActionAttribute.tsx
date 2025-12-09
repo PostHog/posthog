@@ -5,7 +5,6 @@ import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 
 import { SelectorQualityBadge } from '~/toolbar/elements/SelectorQualityWarning'
-import { checkSelectorFragilityCached } from '~/toolbar/utils/selectorQuality'
 
 import { ActionStepPropertyKey } from './ActionStep'
 import { actionsTabLogic } from './actionsTabLogic'
@@ -40,8 +39,6 @@ export function ActionAttribute({
             <IconClipboardEdit />
         )
 
-    const selectorResult = attribute === 'selector' && value ? checkSelectorFragilityCached(value) : null
-
     const text =
         attribute === 'href' ? (
             <Link to={value} target="_blank">
@@ -53,7 +50,7 @@ export function ActionAttribute({
                     <span className="font-mono">
                         <SelectorString value={value} />
                     </span>
-                    {selectorResult && <SelectorQualityBadge result={selectorResult} />}
+                    <SelectorQualityBadge selector={value} />
                 </span>
             ) : (
                 <span>

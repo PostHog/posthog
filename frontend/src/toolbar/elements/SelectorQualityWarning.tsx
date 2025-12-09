@@ -1,7 +1,7 @@
 import { IconWarning } from '@posthog/icons'
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FragileSelectorResult, checkSelectorFragilityCached } from '~/toolbar/utils/selectorQuality'
+import { checkSelectorFragilityCached } from '~/toolbar/utils/selectorQuality'
 
 interface SelectorQualityWarningProps {
     selector?: string | null
@@ -43,10 +43,12 @@ export function SelectorQualityWarning({ selector, compact = false }: SelectorQu
 }
 
 interface SelectorQualityBadgeProps {
-    result: FragileSelectorResult
+    selector?: string | null
 }
 
-export function SelectorQualityBadge({ result }: SelectorQualityBadgeProps): JSX.Element | null {
+export function SelectorQualityBadge({ selector }: SelectorQualityBadgeProps): JSX.Element | null {
+    const result = checkSelectorFragilityCached(selector)
+
     if (!result.isFragile) {
         return null
     }
