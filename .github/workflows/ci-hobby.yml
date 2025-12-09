@@ -70,11 +70,11 @@ jobs:
                       /tmp/droplet_info.txt
                       /tmp/docker-compose-logs.txt
                   if-no-files-found: warn
-            - name: Post-cleanup step
-              if: always()
-              run: python3 bin/hobby-ci.py destroy
-              env:
-                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
+            # - name: Post-cleanup step
+            #   if: always()
+            #   run: python3 bin/hobby-ci.py destroy
+            #   env:
+            #       DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Check test result
               if: always()
               run: |

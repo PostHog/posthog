@@ -298,7 +298,8 @@ ssh_authorized_keys:
         # Suppress SSL warnings for staging Let's Encrypt certificates
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        url = f"https://{self.hostname}/_health"
+        # Use HTTP directly to avoid DNS/TLS issues during testing
+        url = f"http://{self.droplet.ip_address}/_health"
         start_time = datetime.datetime.now()
         attempt = 1
         last_error = None
@@ -312,11 +313,8 @@ ssh_authorized_keys:
                 print(f"⏱️  Still trying... (attempt {attempt}, elapsed {int(elapsed)}s)", flush=True)
             print(f"Trying to connect... (attempt {attempt})", flush=True)
             try:
-                # verify is set False here because we are hitting the staging endpoint for Let's Encrypt
-                # This endpoint doesn't have the strict rate limiting that the production endpoint has
-                # This mitigates the chances of getting throttled or banned
-                # nosemgrep: python.requests.security.disabled-cert-validation.disabled-cert-validation
-                r = requests.get(url, verify=False, timeout=10)
+                # Using HTTP directly to avoid DNS/TLS complexity in CI
+                r = requests.get(url, timeout=10)
             except Exception as e:
                 last_error = type(e).__name__
                 connection_error_count += 1
