@@ -18,6 +18,7 @@ import {
     CalendarHeatmapFilter,
     FunnelsFilter,
     FunnelsQuery,
+    GroupNode,
     InsightQueryNode,
     InsightVizNode,
     LifecycleFilter,
@@ -81,7 +82,7 @@ export interface QueryPropertyCache
         Omit<Partial<PathsQuery>, 'kind' | 'response'>,
         Omit<Partial<StickinessQuery>, 'kind' | 'response' | 'series'>,
         Omit<Partial<LifecycleQuery>, 'kind' | 'response' | 'series'> {
-    series?: AnyEntityNode[]
+    series?: (AnyEntityNode | GroupNode)[]
     commonFilter: CommonInsightFilter
     commonFilterTrendsStickiness?: {
         resultCustomizations?: Record<string, any>
@@ -90,7 +91,10 @@ export interface QueryPropertyCache
     calendarHeatmapFilter?: Partial<CalendarHeatmapFilter>
 }
 
-const cleanSeriesEntityMath = (entity: AnyEntityNode, mathAvailability: MathAvailability): AnyEntityNode => {
+const cleanSeriesEntityMath = (
+    entity: AnyEntityNode | GroupNode,
+    mathAvailability: MathAvailability
+): AnyEntityNode | GroupNode => {
     const { math, math_property, math_group_type_index, math_hogql, ...baseEntity } = entity
 
     // TODO: This should be improved to keep a math that differs from the default.
@@ -107,7 +111,10 @@ const cleanSeriesEntityMath = (entity: AnyEntityNode, mathAvailability: MathAvai
     return baseEntity
 }
 
-const cleanSeriesMath = (series: AnyEntityNode[], mathAvailability: MathAvailability): AnyEntityNode[] => {
+const cleanSeriesMath = (
+    series: (AnyEntityNode | GroupNode)[],
+    mathAvailability: MathAvailability
+): (AnyEntityNode | GroupNode)[] => {
     return series.map((entity) => cleanSeriesEntityMath(entity, mathAvailability))
 }
 
@@ -336,18 +343,24 @@ const mergeCachedProperties = (query: InsightQueryNode, cache: QueryPropertyCach
     // series
     if (isInsightQueryWithSeries(mergedQuery)) {
         if (cache.series) {
-            // Expand GroupNodes for insight types that don't support them (non-Trends)
-            const seriesList = isTrendsQuery(mergedQuery) ? cache.series : expandGroupNodes(cache.series)
-
-            if (isLifecycleQuery(mergedQuery)) {
-                mergedQuery.series = cleanSeriesMath(seriesList.slice(0, 1), MathAvailability.None)
+            if (isTrendsQuery(mergedQuery)) {
+                // Trends supports GroupNode, keep series as-is
+                mergedQuery.series = cleanSeriesMath(cache.series, MathAvailability.All) as TrendsQuery['series']
             } else {
-                const mathAvailability = isTrendsQuery(mergedQuery)
-                    ? MathAvailability.All
-                    : isStickinessQuery(mergedQuery)
-                      ? MathAvailability.ActorsOnly
-                      : MathAvailability.None
-                mergedQuery.series = cleanSeriesMath(seriesList, mathAvailability)
+                // Expand GroupNodes for insight types that don't support them
+                const expandedSeries = expandGroupNodes(cache.series)
+
+                if (isLifecycleQuery(mergedQuery)) {
+                    mergedQuery.series = cleanSeriesMath(
+                        expandedSeries.slice(0, 1),
+                        MathAvailability.None
+                    ) as LifecycleQuery['series']
+                } else {
+                    const mathAvailability = isStickinessQuery(mergedQuery)
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.None
+                    mergedQuery.series = cleanSeriesMath(expandedSeries, mathAvailability) as typeof mergedQuery.series
+                }
             }
         }
         // else if (cache.retentionFilter?.targetEntity || cache.retentionFilter?.returningEntity) {
