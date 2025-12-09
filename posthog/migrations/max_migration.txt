@@ -1,1 +1,1 @@
-0937_alter_integration_kind
+0937_remove_redundant_cohortcalculationhistory_indexes
