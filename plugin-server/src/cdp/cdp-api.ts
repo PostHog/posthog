@@ -21,6 +21,7 @@ import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.s
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { HogFunctionTemplateManagerService } from './services/managers/hog-function-template-manager.service'
+import { LinkManagerService } from './services/managers/link-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { RecipientPreferencesService } from './services/messaging/recipient-preferences.service'
@@ -42,6 +43,7 @@ export class CdpApi {
     private hogFunctionManager: HogFunctionManagerService
     private hogFunctionTemplateManager: HogFunctionTemplateManagerService
     private hogFlowManager: HogFlowManagerService
+    private linkManager: LinkManagerService
     private recipientsManager: RecipientsManagerService
 
     private hogFlowExecutor: HogFlowExecutorService
@@ -58,6 +60,7 @@ export class CdpApi {
         this.hogFunctionManager = new HogFunctionManagerService(hub)
         this.hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub)
         this.hogFlowManager = new HogFlowManagerService(hub)
+        this.linkManager = new LinkManagerService(hub)
         this.recipientsManager = new RecipientsManagerService(hub)
         this.hogExecutor = new HogExecutorService(hub)
         this.hogFlowFunctionsService = new HogFlowFunctionsService(
@@ -471,9 +474,24 @@ export class CdpApi {
         () =>
         async (req: ModifiedRequest, res: express.Response): Promise<any> => {
             const { short_id } = req.params
+            const shortLinkDomain = req.headers['host']
 
             try {
-                const result = await this.cdpSourceWebhooksConsumer.processWebhook(short_id, req)
+                if (!shortLinkDomain) {
+                    return res.status(400).json({ error: 'Host is not set' })
+                }
+
+                const link = await this.linkManager.getLink(shortLinkDomain, short_id)
+
+                if (!link) {
+                    return res.status(404).json({ error: 'Link not found' })
+                }
+
+                if (!link.hog_function) {
+                    return res.status(404).json({ error: 'Hog function is not set' })
+                }
+
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(link.hog_function, req)
 
                 if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
                     // TODO: Better validation here before we directly use the result
