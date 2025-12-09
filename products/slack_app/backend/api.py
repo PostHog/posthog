@@ -11,6 +11,7 @@ from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 
 from posthog.models.integration import Integration, SlackIntegration, SlackIntegrationError
 from posthog.temporal.common.client import sync_connect
+from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +44,11 @@ def handle_app_mention(event: dict, slack_team_id: str) -> None:
     integration = Integration.objects.filter(kind="slack", integration_id=slack_team_id).first()
     if not integration:
         logger.warning("slack_app_no_integration_found", slack_team_id=slack_team_id)
+        return
+
+    # Temporary: Only allow team_id=2 in US region during development
+    if get_instance_region() != "US" or integration.team_id != 2:
+        logger.info("slack_app_mention_skipped", team_id=integration.team_id, region=settings.REGION)
         return
 
     try:
