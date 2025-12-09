@@ -6,7 +6,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { AnyEntityNode } from '~/queries/schema/schema-general'
+import { ActionsNode, DataWarehouseNode, EventsNode, GroupNode } from '~/queries/schema/schema-general'
 import { FilterType, InsightType } from '~/types'
 
 import { customerAnalyticsConfigLogic } from 'products/customer_analytics/frontend/customerAnalyticsConfigLogic'
@@ -235,14 +235,14 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
     })),
     listeners(({ actions, values }) => ({
         saveEvents: () => {
-            const events: Record<string, AnyEntityNode> = {}
+            const events: Record<string, ActionsNode | EventsNode | DataWarehouseNode | GroupNode> = {}
             if (values.activityEventSelection) {
                 const activityEvents = actionsAndEventsToSeries(
                     values.activityEventSelection as any,
                     true,
                     MathAvailability.None
                 )
-                events['activity_event'] = activityEvents[0] as AnyEntityNode
+                events['activity_event'] = activityEvents[0]
             }
             if (values.signupEventSelection) {
                 const signupEvents = actionsAndEventsToSeries(
@@ -250,7 +250,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['signup_event'] = signupEvents[0] as AnyEntityNode
+                events['signup_event'] = signupEvents[0]
             }
             if (values.signupPageviewEventSelection) {
                 const signupPageviewEvents = actionsAndEventsToSeries(
@@ -258,7 +258,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['signup_pageview_event'] = signupPageviewEvents[0] as AnyEntityNode
+                events['signup_pageview_event'] = signupPageviewEvents[0]
             }
             if (values.paymentEventSelection) {
                 const paymentEvents = actionsAndEventsToSeries(
@@ -266,7 +266,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['payment_event'] = paymentEvents[0] as AnyEntityNode
+                events['payment_event'] = paymentEvents[0]
             }
             if (values.subscriptionEventSelection) {
                 const subscriptionEvents = actionsAndEventsToSeries(
@@ -274,7 +274,7 @@ export const customerAnalyticsDashboardEventsLogic = kea<customerAnalyticsDashbo
                     true,
                     MathAvailability.None
                 )
-                events['subscription_event'] = subscriptionEvents[0] as AnyEntityNode
+                events['subscription_event'] = subscriptionEvents[0]
             }
             actions.updateEvents(events)
         },
