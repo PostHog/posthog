@@ -78,8 +78,8 @@ def socket_factory(addr_info):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
 
     if sys.platform == "linux":
-        # Start sending keepalive probes after 60s
-        # Ensure that any idle timeouts allow at least 60s
+        # Start sending keepalive probes after 30s
+        # Ensure that any idle timeouts allow at least 30s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
         # Send keepalive probes every 10s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
