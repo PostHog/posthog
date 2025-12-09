@@ -46,7 +46,7 @@ jobs:
                     - language: actions
                       build-mode: none
                     - language: c-cpp
-                      build-mode: none
+                      build-mode: autobuild
                     - language: go
                       build-mode: autobuild
                     - language: javascript-typescript
@@ -85,6 +85,10 @@ jobs:
 
                   # For more details on CodeQL's query packs, refer to: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
                   # queries: security-extended,security-and-quality
+
+            - name: Autobuild
+              if: matrix.build-mode == 'autobuild'
+              uses: github/codeql-action/autobuild@v4
 
             # If the analyze step fails for one of the languages you are analyzing with
             # "We were unable to automatically build your code", modify the matrix above
