@@ -103,7 +103,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {/* Line between tabs and main content */}
             <div
                 className={cn(
-                    'border-b border-border h-px w-full absolute bottom-[-1px] left-0 lg:left-[10px] right-0',
+                    'border-b border-border h-px w-full absolute bottom-0 left-0 lg:left-[10px] right-0',
                     !showRoundedCorner && 'left-0 lg:left-0'
                 )}
             />
@@ -112,9 +112,9 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
             {showRoundedCorner && (
                 <>
                     {/* background to match the navbar  */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-border bg-[var(--scene-layout-background)]" />
+                    <div className="hidden lg:block absolute bottom-[-10.5px] left-0 w-[11px] h-[11px] z-11 rounded-tl-lg border-l border-t border-border bg-[var(--scene-layout-background)]" />
                     {/* corner to match the main */}
-                    <div className="hidden lg:block absolute bottom-[-11px] left-0 w-[11px] h-[11px] z-10 bg-background" />
+                    <div className="hidden lg:block absolute bottom-[-10px] left-0 w-[11px] h-[11px] z-10 bg-background" />
                 </>
             )}
 

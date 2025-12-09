@@ -333,7 +333,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                     if (item.type === 'separator') {
                         return (
                             <div key={item.id} className="h-1 -mx-2 flex items-center">
-                                <div className="border-b border-border h-px my-2 flex-1" />
+                                <div className="border-b border-border-strong h-px my-2 flex-1" />
                             </div>
                         )
                     }

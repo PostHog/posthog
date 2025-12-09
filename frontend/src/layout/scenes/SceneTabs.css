@@ -1,7 +1,7 @@
 .scene-tab-active-indicator {
     position: absolute;
     right: 50%;
-    bottom: -7px;
+    bottom: -6px;
     z-index: 11;
     width: calc(100% + 22px);
     height: 12px;
@@ -21,13 +21,13 @@
 }
 
 .scene-tab-active-indicator::before {
-    left: 0.1px;
+    left: -0.5px;
     border-right: 1px solid var(--color-border);
     border-radius: 0 0 100%;
 }
 
 .scene-tab-active-indicator::after {
-    right: 0.1px;
+    right: -0.5px;
     border-left: 1px solid var(--color-border);
     border-radius: 0 0 0 100%;
 }
