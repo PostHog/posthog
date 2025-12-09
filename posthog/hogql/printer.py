@@ -18,7 +18,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Constant, SelectQuery, StringType
+from posthog.hogql.ast import Constant, StringType
 from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLDialect, HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
@@ -218,7 +218,7 @@ def print_prepared_ast(
             return ClickHousePrinter(
                 context=context,
                 dialect=dialect,
-                stack=stack or cast(list[SelectQuery], []),
+                stack=cast(list[AST], stack or []),
                 settings=settings,
                 pretty=pretty,
             ).visit(node)
@@ -226,7 +226,7 @@ def print_prepared_ast(
             return PostgresPrinter(
                 context=context,
                 dialect=dialect,
-                stack=stack or cast(list[SelectQuery], []),
+                stack=cast(list[AST], stack or []),
                 settings=settings,
                 pretty=pretty,
             ).visit(node)
@@ -234,7 +234,7 @@ def print_prepared_ast(
             return _Printer(
                 context=context,
                 dialect=dialect,
-                stack=stack or cast(list[SelectQuery], []),
+                stack=cast(list[AST], stack or []),
                 settings=settings,
                 pretty=pretty,
             ).visit(node)
