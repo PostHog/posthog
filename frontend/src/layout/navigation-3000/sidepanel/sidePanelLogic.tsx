@@ -1,9 +1,7 @@
 import { connect, kea, path, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -42,8 +40,6 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelLogic']),
     connect(() => ({
         values: [
-            featureFlagLogic,
-            ['featureFlags'],
             preflightLogic,
             ['isCloudOrDev'],
             activationLogic,
@@ -71,44 +67,42 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
 
     selectors({
         enabledTabs: [
-            (s) => [
-                s.selectedTab,
-                s.sidePanelOpen,
-                s.isCloudOrDev,
-                s.featureFlags,
-                s.sceneSidePanelContext,
-                s.currentTeam,
-            ],
-            (selectedTab, sidePanelOpen, isCloudOrDev, featureFlags, sceneSidePanelContext, currentTeam) => {
+            (s) => [s.isCloudOrDev, s.sceneSidePanelContext, s.currentTeam],
+            (isCloudOrDev, sceneSidePanelContext, currentTeam) => {
                 const tabs: SidePanelTab[] = []
 
-                if (featureFlags[FEATURE_FLAGS.ARTIFICIAL_HOG] || (sidePanelOpen && selectedTab === SidePanelTab.Max)) {
-                    // Show Max if user is already enrolled into beta OR they got a link to Max (even if they haven't enrolled)
-                    tabs.push(SidePanelTab.Max)
-                }
+                /* Always show PostHog AI at the top of the tabs list
+                 * ALL DEVS, add an F for Max if you are here and you see this:
+                 *  F
+                 */
+                tabs.push(SidePanelTab.Max)
+
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Status)
                 }
+
+                // Quick start is shown in the sidebar for the first 90 days of a team's existence
+                if (currentTeam?.created_at) {
+                    const teamCreatedAt = dayjs(currentTeam.created_at)
+
+                    if (dayjs().diff(teamCreatedAt, 'day') < 90) {
+                        tabs.push(SidePanelTab.Activation)
+                    }
+                }
+
                 tabs.push(SidePanelTab.Notebooks)
                 tabs.push(SidePanelTab.Docs)
                 if (isCloudOrDev) {
                     tabs.push(SidePanelTab.Support)
                 }
+
                 tabs.push(SidePanelTab.Activity)
-
-                if (currentTeam?.created_at) {
-                    const teamCreatedAt = dayjs(currentTeam.created_at)
-
-                    if (dayjs().diff(teamCreatedAt, 'day') < 30) {
-                        tabs.push(SidePanelTab.Activation)
-                    }
-                }
-
                 tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
                     tabs.push(SidePanelTab.AccessControl)
                 }
+
                 tabs.push(SidePanelTab.Exports)
                 tabs.push(SidePanelTab.Settings)
                 tabs.push(SidePanelTab.SdkDoctor)
@@ -116,6 +110,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 if (!currentTeam) {
                     return tabs.filter((tab) => !TABS_REQUIRING_A_TEAM.includes(tab))
                 }
+
                 return tabs
             },
         ],

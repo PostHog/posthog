@@ -30,8 +30,9 @@ export function Elements(): JSX.Element {
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount } = useValues(heatmapToolbarMenuLogic)
+    const { refreshClickmap } = useActions(heatmapToolbarMenuLogic)
 
-    const shiftPressed = useShiftKeyPressed()
+    const shiftPressed = useShiftKeyPressed(refreshClickmap)
     const heatmapPointerEvents = shiftPressed ? 'none' : 'all'
 
     const { theme } = useValues(toolbarLogic)

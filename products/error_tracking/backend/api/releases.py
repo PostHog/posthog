@@ -28,7 +28,7 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     serializer_class = ErrorTrackingReleaseSerializer
 
     def safely_get_queryset(self, queryset):
-        queryset = queryset.filter(team_id=self.team.id)
+        queryset = queryset.filter(team_id=self.team.id).order_by("-created_at")
 
         return queryset
 

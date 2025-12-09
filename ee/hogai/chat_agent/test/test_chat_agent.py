@@ -24,6 +24,9 @@ from langgraph.types import StateSnapshot
 from pydantic import BaseModel
 
 from posthog.schema import (
+    ArtifactContentType,
+    ArtifactMessage,
+    ArtifactSource,
     AssistantEventType,
     AssistantFunnelsEventsNode,
     AssistantFunnelsQuery,
@@ -39,8 +42,8 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsQuery,
     AssistantUpdateEvent,
-    ContextMessage,
     DashboardFilter,
+    EventTaxonomyItem,
     FailureMessage,
     HumanMessage,
     MaxAddonInfo,
@@ -52,7 +55,7 @@ from posthog.schema import (
     MaxProductInfo,
     MaxUIContext,
     TrendsQuery,
-    VisualizationMessage,
+    VisualizationArtifactContent,
 )
 
 from posthog.models import Action
@@ -64,7 +67,7 @@ from ee.hogai.chat_agent.memory import prompts as memory_prompts
 from ee.hogai.chat_agent.retention.nodes import RetentionSchemaGeneratorOutput
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.chat_agent.trends.nodes import TrendsSchemaGeneratorOutput
-from ee.hogai.core.agent_modes import SLASH_COMMAND_INIT
+from ee.hogai.core.agent_modes import SlashCommandName
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.insights_assistant import InsightsAssistant
@@ -76,7 +79,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
-from ee.hogai.utils.types.base import ReplaceMessages
+from ee.hogai.utils.types.base import ArtifactRefMessage, ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 title_generator_mock = patch(
@@ -580,53 +583,54 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
-        expected_output = [
-            ("conversation", self.conversation),
-            ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "Foobar"},
-                        )
-                    ],
-                ),
-            ),
-            (
-                "update",
-                AssistantUpdateEvent(
-                    id="message_1",
-                    tool_call_id="xyz",
-                    content="Picking relevant events and properties",
-                ),
-            ),
-            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating trends query")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
-            ("message", AssistantMessage(content="The results indicate a great future for you.")),
-        ]
-        self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(
-            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
-        )  # viz message must have this id
+
+        # Verify output length
+        self.assertEqual(len(actual_output), 8)
+
+        # Check conversation output
+        self.assertEqual(actual_output[0], ("conversation", self.conversation))
+
+        # Check human message
+        self.assertEqual(actual_output[1][0], "message")
+        assert isinstance(actual_output[1][1], HumanMessage)
+        self.assertEqual(actual_output[1][1].content, "Hello")
+
+        # Check assistant message with tool calls
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], AssistantMessage)
+        assert isinstance(actual_output[2][1], AssistantMessage)
+        assert actual_output[2][1].tool_calls is not None
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
+
+        # Check update events
+        self.assertEqual(actual_output[3][0], "update")
+        self.assertEqual(actual_output[4][0], "update")
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(actual_output[5][0], "message")
+        artifact_msg = actual_output[5][1]
+        self.assertIsInstance(artifact_msg, ArtifactMessage)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(actual_output[6][0], "message")
+        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+
+        # Check final assistant message
+        self.assertEqual(actual_output[7][0], "message")
+        assert isinstance(actual_output[7][1], AssistantMessage)
+        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
     @title_generator_mock
     @query_executor_mock
@@ -680,53 +684,55 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
-        expected_output = [
-            ("conversation", self.conversation),
-            ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "Foobar"},
-                        )
-                    ],
-                ),
-            ),
-            (
-                "update",
-                AssistantUpdateEvent(
-                    id="message_1",
-                    tool_call_id="xyz",
-                    content="Picking relevant events and properties",
-                ),
-            ),
-            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating funnel query")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
-            ("message", AssistantMessage(content="The results indicate a great future for you.")),
-        ]
-        self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(
-            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
-        )  # viz message must have this id
+
+        # Verify output length
+        self.assertEqual(len(actual_output), 8)
+
+        # Check conversation output
+        self.assertEqual(actual_output[0], ("conversation", self.conversation))
+
+        # Check human message
+        self.assertEqual(actual_output[1][0], "message")
+        assert isinstance(actual_output[1][1], HumanMessage)
+        self.assertEqual(actual_output[1][1].content, "Hello")
+
+        # Check assistant message with tool calls
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], AssistantMessage)
+        assert isinstance(actual_output[2][1], AssistantMessage)
+        assert actual_output[2][1].tool_calls is not None
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
+
+        # Check update events
+        self.assertEqual(actual_output[3][0], "update")
+        self.assertEqual(actual_output[4][0], "update")
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(actual_output[5][0], "message")
+        artifact_msg = actual_output[5][1]
+        self.assertIsInstance(artifact_msg, ArtifactMessage)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(actual_output[6][0], "message")
+        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+
+        # Check final assistant message
+        self.assertEqual(actual_output[7][0], "message")
+        assert isinstance(actual_output[7][1], AssistantMessage)
+        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
     @title_generator_mock
     @query_executor_mock
@@ -782,53 +788,55 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
-        expected_output = [
-            ("conversation", self.conversation),
-            ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "Foobar"},
-                        )
-                    ],
-                ),
-            ),
-            (
-                "update",
-                AssistantUpdateEvent(
-                    id="message_1",
-                    tool_call_id="xyz",
-                    content="Picking relevant events and properties",
-                ),
-            ),
-            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating retention query")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
-            ("message", AssistantMessage(content="The results indicate a great future for you.")),
-        ]
-        self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(
-            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
-        )  # viz message must have this id
+
+        # Verify output length
+        self.assertEqual(len(actual_output), 8)
+
+        # Check conversation output
+        self.assertEqual(actual_output[0], ("conversation", self.conversation))
+
+        # Check human message
+        self.assertEqual(actual_output[1][0], "message")
+        assert isinstance(actual_output[1][1], HumanMessage)
+        self.assertEqual(actual_output[1][1].content, "Hello")
+
+        # Check assistant message with tool calls
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], AssistantMessage)
+        assert isinstance(actual_output[2][1], AssistantMessage)
+        assert actual_output[2][1].tool_calls is not None
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
+
+        # Check update events
+        self.assertEqual(actual_output[3][0], "update")
+        self.assertEqual(actual_output[4][0], "update")
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(actual_output[5][0], "message")
+        artifact_msg = actual_output[5][1]
+        self.assertIsInstance(artifact_msg, ArtifactMessage)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(actual_output[6][0], "message")
+        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+
+        # Check final assistant message
+        self.assertEqual(actual_output[7][0], "message")
+        assert isinstance(actual_output[7][1], AssistantMessage)
+        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
 
         # Second run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
         # Third run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=False)
-        self.assertConversationEqual(actual_output, expected_output[1:])
-        self.assertEqual(
-            cast(HumanMessage, actual_output[0][1]).id, cast(VisualizationMessage, actual_output[4][1]).initiator
-        )
+        self.assertEqual(len(actual_output), 7)
 
     @title_generator_mock
     @query_executor_mock
@@ -876,44 +884,58 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # First run
         actual_output, _ = await self._run_assistant_graph(is_new_conversation=True)
-        expected_output = [
-            ("conversation", self.conversation),
-            ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    tool_calls=[
-                        AssistantToolCall(
-                            id="xyz",
-                            name="create_and_query_insight",
-                            args={"query_description": "Foobar"},
-                        )
-                    ],
-                ),
-            ),
-            (
-                "update",
-                AssistantUpdateEvent(
-                    id="message_1",
-                    tool_call_id="xyz",
-                    content="Picking relevant events and properties",
-                ),
-            ),
-            ("update", AssistantUpdateEvent(id="message_2", tool_call_id="xyz", content="Creating SQL query")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            ("message", AssistantToolCallMessage(tool_call_id="xyz", content="Result")),
-            ("message", AssistantMessage(content="The results indicate a great future for you.")),
-        ]
-        self.assertConversationEqual(actual_output, expected_output)
-        self.assertEqual(
-            cast(HumanMessage, actual_output[1][1]).id, cast(VisualizationMessage, actual_output[5][1]).initiator
-        )  # viz message must have this id
 
+        # Verify output length
+        self.assertEqual(len(actual_output), 8)
+
+        # Check conversation output
+        self.assertEqual(actual_output[0], ("conversation", self.conversation))
+
+        # Check human message
+        self.assertEqual(actual_output[1][0], "message")
+        assert isinstance(actual_output[1][1], HumanMessage)
+        self.assertEqual(actual_output[1][1].content, "Hello")
+
+        # Check assistant message with tool calls
+        self.assertEqual(actual_output[2][0], "message")
+        self.assertIsInstance(actual_output[2][1], AssistantMessage)
+        assert isinstance(actual_output[2][1], AssistantMessage)
+        assert actual_output[2][1].tool_calls is not None
+        self.assertEqual(actual_output[2][1].tool_calls[0].name, "create_and_query_insight")
+
+        # Check update events
+        self.assertEqual(actual_output[3][0], "update")
+        self.assertEqual(actual_output[4][0], "update")
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(actual_output[5][0], "message")
+        artifact_msg = actual_output[5][1]
+        self.assertIsInstance(artifact_msg, ArtifactMessage)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(actual_output[6][0], "message")
+        assert isinstance(actual_output[6][1], AssistantToolCallMessage)
+        self.assertIsInstance(actual_output[6][1], AssistantToolCallMessage)
+
+        # Check final assistant message
+        self.assertEqual(actual_output[7][0], "message")
+        assert isinstance(actual_output[7][1], AssistantMessage)
+        self.assertEqual(actual_output[7][1].content, "The results indicate a great future for you.")
+
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
-    async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock):
+    async def test_onboarding_flow_accepts_memory(self, model_mock, onboarding_enquiry_model_mock, context_mock):
         await self._set_up_onboarding_tests()
+
+        # Mock the context retrieval to return a predictable domain
+        context_mock.return_value = EventTaxonomyItem(
+            property="$host", sample_count=1, sample_values=["us.posthog.com"]
+        )
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(
@@ -937,10 +959,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
+        output, _ = await self._run_assistant_graph(
+            graph, is_new_conversation=True, message=SlashCommandName.FIELD_INIT
+        )
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
+            ("message", HumanMessage(content=SlashCommandName.FIELD_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -980,10 +1004,16 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             "Question: What does the company do?\nAnswer: Here's what I found on posthog.com: PostHog is a product analytics platform.\nQuestion: What is your target market?\nAnswer:",
         )
 
+    @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerContextMixin._aretrieve_context")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryInitializerNode._model")
     @patch("ee.hogai.chat_agent.memory.nodes.MemoryOnboardingEnquiryNode._model")
-    async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock):
+    async def test_onboarding_flow_rejects_memory(self, onboarding_enquiry_model_mock, model_mock, context_mock):
         await self._set_up_onboarding_tests()
+
+        # Mock the context retrieval to return a predictable domain
+        context_mock.return_value = EventTaxonomyItem(
+            property="$host", sample_count=1, sample_values=["us.posthog.com"]
+        )
 
         # Mock the memory initializer to return a product description
         model_mock.return_value = RunnableLambda(
@@ -1000,10 +1030,12 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
         )
 
         # First run - get the product description
-        output, _ = await self._run_assistant_graph(graph, is_new_conversation=True, message=SLASH_COMMAND_INIT)
+        output, _ = await self._run_assistant_graph(
+            graph, is_new_conversation=True, message=SlashCommandName.FIELD_INIT
+        )
         expected_output = [
             ("conversation", self.conversation),
-            ("message", HumanMessage(content=SLASH_COMMAND_INIT)),
+            ("message", HumanMessage(content=SlashCommandName.FIELD_INIT)),
             (
                 "message",
                 AssistantMessage(
@@ -1258,14 +1290,35 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             tool_call_partial_state=tool_call_state,
         )
 
-        expected_output = [
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            (
-                "message",
-                AssistantToolCallMessage(content="Result", tool_call_id=tool_call_id),
-            ),
+        # Find artifact message and tool call message in output
+        artifact_msgs: list[tuple[int, ArtifactMessage]] = [
+            (i, o[1])
+            for i, o in enumerate(output)
+            if isinstance(o, tuple)
+            and len(o) == 2
+            and o[0] == AssistantEventType.MESSAGE
+            and isinstance(o[1], ArtifactMessage)
         ]
-        self.assertConversationEqual(output, expected_output)
+        tool_call_msgs: list[tuple[int, AssistantToolCallMessage]] = [
+            (i, o[1])
+            for i, o in enumerate(output)
+            if isinstance(o, tuple)
+            and len(o) == 2
+            and o[0] == AssistantEventType.MESSAGE
+            and isinstance(o[1], AssistantToolCallMessage)
+        ]
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(len(artifact_msgs), 1)
+        artifact_msg = artifact_msgs[0][1]
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(len(tool_call_msgs), 1)
+        tool_call_msg = tool_call_msgs[0][1]
+        self.assertEqual(tool_call_msg.tool_call_id, tool_call_id)
 
     @patch("ee.hogai.core.title_generator.nodes.TitleGeneratorNode._model")
     async def test_conversation_metadata_updated(self, title_generator_model_mock):
@@ -1534,69 +1587,58 @@ class TestChatAgent(ClickhouseTestMixin, NonAtomicBaseTest):
             contextual_tools={"create_and_query_insight": {"current_query": "query"}},
         )
 
-        expected_output = [
-            ("conversation", self.conversation),
-            ("message", HumanMessage(content="Hello")),
-            (
-                "message",
-                AssistantMessage(
-                    content="",
-                    id="56076433-5d90-4248-9a46-df3fda42bd0a",
-                    tool_calls=[
-                        AssistantToolCall(
-                            args={"query_description": "Foobar"},
-                            id="xyz",
-                            name="create_and_query_insight",
-                            type="tool_call",
-                        )
-                    ],
-                ),
-            ),
-            (
-                "update",
-                AssistantUpdateEvent(content="Picking relevant events and properties", tool_call_id="xyz", id=""),
-            ),
-            ("update", AssistantUpdateEvent(content="Creating trends query", tool_call_id="xyz", id="")),
-            ("message", VisualizationMessage(query="Foobar", answer=query, plan="Plan")),
-            (
-                "message",
-                AssistantToolCallMessage(
-                    content="The results indicate a great future for you.",
-                    tool_call_id="xyz",
-                    ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-                ),
-            ),
-            ("message", AssistantMessage(content="Everything is fine")),
-        ]
-        self.assertConversationEqual(output, expected_output)
+        # Verify output length
+        self.assertEqual(len(output), 8)
 
+        # Check conversation output
+        self.assertEqual(output[0], ("conversation", self.conversation))
+
+        # Check human message
+        self.assertEqual(output[1][0], "message")
+        assert isinstance(output[1][1], HumanMessage)
+        self.assertEqual(output[1][1].content, "Hello")
+
+        # Check assistant message with tool calls
+        self.assertEqual(output[2][0], "message")
+        self.assertIsInstance(output[2][1], AssistantMessage)
+        assert isinstance(output[2][1], AssistantMessage)
+        assert output[2][1].tool_calls is not None
+        self.assertEqual(output[2][1].tool_calls[0].name, "create_and_query_insight")
+
+        # Check update events
+        self.assertEqual(output[3][0], "update")
+        self.assertEqual(output[4][0], "update")
+
+        # Check artifact message - enriched from ArtifactRefMessage
+        self.assertEqual(output[5][0], "message")
+        artifact_msg = output[5][1]
+        self.assertIsInstance(artifact_msg, ArtifactMessage)
+        assert isinstance(artifact_msg, ArtifactMessage)
+        self.assertEqual(artifact_msg.source, ArtifactSource.ARTIFACT)
+        assert isinstance(artifact_msg.content, VisualizationArtifactContent)
+        self.assertEqual(artifact_msg.content.query, query)
+
+        # Check tool call message
+        self.assertEqual(output[6][0], "message")
+        self.assertIsInstance(output[6][1], AssistantToolCallMessage)
+        assert isinstance(output[6][1], AssistantToolCallMessage)
+        self.assertEqual(output[6][1].tool_call_id, "xyz")
+
+        # Check final assistant message
+        self.assertEqual(output[7][0], "message")
+        assert isinstance(output[7][1], AssistantMessage)
+        self.assertEqual(output[7][1].content, "Everything is fine")
+
+        # Verify state messages contain ArtifactRefMessage
         snapshot = await assistant._graph.aget_state(assistant._get_config())
         state = AssistantState.model_validate(snapshot.values)
-        expected_state_messages = [
-            ContextMessage(
-                content="<system_reminder>\nContextual tools that are available to you on this page are:\n<create_and_query_insight>\nThe user is currently editing an insight (aka query). Here is that insight's current definition, which can be edited using the `create_and_query_insight` tool:\n\n```json\nquery\n```\n\n<system_reminder>\nDo not remove any fields from the current insight definition. Do not change any other fields than the ones the user asked for. Keep the rest as is.\n</system_reminder>\n</create_and_query_insight>\nIMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system_reminder>"
-            ),
-            HumanMessage(content="Hello"),
-            AssistantMessage(
-                content="",
-                tool_calls=[
-                    AssistantToolCall(
-                        id="xyz",
-                        name="create_and_query_insight",
-                        args={"query_description": "Foobar"},
-                    )
-                ],
-            ),
-            VisualizationMessage(query="Foobar", answer=query, plan="Plan"),
-            AssistantToolCallMessage(
-                content="The results indicate a great future for you.",
-                tool_call_id="xyz",
-                ui_payload={"create_and_query_insight": query.model_dump(exclude_none=True)},
-            ),
-            AssistantMessage(content="Everything is fine"),
-        ]
         state = cast(AssistantState, state)
-        self.assertStateMessagesEqual(cast(list[Any], state.messages), expected_state_messages)
+
+        # State should contain ArtifactRefMessage (from database artifact)
+        artifact_ref_messages = [m for m in state.messages if isinstance(m, ArtifactRefMessage)]
+        self.assertEqual(len(artifact_ref_messages), 1)
+        self.assertEqual(artifact_ref_messages[0].source, ArtifactSource.ARTIFACT)
+        self.assertEqual(artifact_ref_messages[0].content_type, ArtifactContentType.VISUALIZATION)
 
     @patch("ee.hogai.core.agent_modes.executables.AgentExecutable._get_model")
     async def test_continue_generation_without_new_message(self, root_mock):

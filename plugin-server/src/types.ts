@@ -276,6 +276,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE: number
     PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: number // maximum size in bytes for person properties JSON as stored, checked via pg_column_size(properties)
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
+    PERSON_PROPERTIES_UPDATE_ALL: boolean // when true, all property changes trigger person updates (disables filtering of eventToPersonProperties and geoip)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
     // Topic for async person merge processing
@@ -289,6 +290,7 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig,
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
     PERSONS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for persons to both primary and migration databases
     PERSONS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
+    PERSONS_PREFETCH_ENABLED: boolean // Enable prefetching persons in batch before processing events
     GROUPS_DUAL_WRITE_ENABLED: boolean // Enable dual-write mode for groups to both primary and migration databases
     GROUPS_DUAL_WRITE_COMPARISON_ENABLED: boolean // Enable comparison metrics between primary and secondary DBs during dual-write
     TASK_TIMEOUT: number // how many seconds until tasks are timed out
@@ -895,6 +897,7 @@ export interface RawClickHouseEvent extends BaseEvent {
     group3_created_at?: ClickHouseTimestamp
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
+    historical_migration?: boolean
 }
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
@@ -1381,15 +1384,17 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
 export interface EventHeaders {
     token?: string
     distinct_id?: string
+    session_id?: string
     timestamp?: string
     event?: string
     uuid?: string
+    now?: Date
     force_disable_person_processing: boolean
+    historical_migration: boolean
 }
 
 export interface IncomingEvent {
     event: PipelineEvent
-    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {

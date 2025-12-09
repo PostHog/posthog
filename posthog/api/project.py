@@ -145,6 +145,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",  # Compat with TeamSerializer
             "secret_api_token_backup",  # Compat with TeamSerializer
             "receive_org_level_activity_logs",  # Compat with TeamSerializer
+            "business_model",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -214,6 +215,7 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             "secret_api_token",
             "secret_api_token_backup",
             "receive_org_level_activity_logs",
+            "business_model",
         }
 
     def get_effective_membership_level(self, project: Project) -> Optional[OrganizationMembership.Level]:

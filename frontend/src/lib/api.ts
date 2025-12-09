@@ -33,6 +33,8 @@ import {
     FileSystemCount,
     FileSystemEntry,
     FileSystemViewLogEntry,
+    GroupsQuery,
+    GroupsQueryResponse,
     HogCompileResponse,
     HogQLQuery,
     HogQLQueryResponse,
@@ -192,12 +194,13 @@ import type {
     SessionGroupSummaryListItemType,
     SessionGroupSummaryType,
 } from 'products/session_summaries/frontend/types'
-import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { Task, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { OptOutEntry } from 'products/workflows/frontend/OptOuts/optOutListLogic'
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/messageTemplatesLogic'
 import { HogflowTestResult } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
+import { AgentMode } from '../queries/schema'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
@@ -461,6 +464,12 @@ export class ApiRequest {
 
     public cspReportingExplanation(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('csp-reporting').addPathComponent('explain')
+    }
+
+    // # LLM Analytics
+
+    public llmAnalyticsTranslate(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('llm_analytics').addPathComponent('translate')
     }
 
     // # Insights
@@ -1026,6 +1035,14 @@ export class ApiRequest {
 
     public task(id: Task['id'], teamId?: TeamType['id']): ApiRequest {
         return this.tasks(teamId).addPathComponent(id)
+    }
+
+    public taskRuns(taskId: Task['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.task(taskId, teamId).addPathComponent('runs')
+    }
+
+    public taskRun(taskId: Task['id'], runId: TaskRun['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.taskRuns(taskId, teamId).addPathComponent(runId)
     }
 
     // # Surveys
@@ -1718,6 +1735,19 @@ const api = {
             return new ApiRequest().cspReportingExplanation().create({ data: { properties } })
         },
     },
+    llmAnalytics: {
+        translate(params: {
+            text: string
+            targetLanguage?: string
+        }): Promise<{ translation: string; detected_language?: string; provider: string }> {
+            // Convert to snake_case for backend
+            const data = {
+                text: params.text,
+                target_language: params.targetLanguage,
+            }
+            return new ApiRequest().llmAnalyticsTranslate().create({ data })
+        },
+    },
     insights: {
         loadInsight(
             shortId: InsightModel['short_id'],
@@ -1797,6 +1827,9 @@ const api = {
 
             return result
         },
+        async getMaterializationStatus(name: string): Promise<EndpointType['materialization']> {
+            return await new ApiRequest().endpointDetail(name).withAction('materialization_status').get()
+        },
         async listVersions(name: string): Promise<EndpointVersion[]> {
             return await new ApiRequest().endpointDetail(name).withAction('versions').get()
         },
@@ -1856,6 +1889,7 @@ const api = {
             type__startswith,
             createdAtGt,
             createdAtLt,
+            searchNameOnly,
         }: {
             parent?: string
             path?: string
@@ -1870,6 +1904,7 @@ const api = {
             type__startswith?: string
             createdAtGt?: string
             createdAtLt?: string
+            searchNameOnly?: boolean
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -1887,6 +1922,7 @@ const api = {
                     type__startswith,
                     created_at__gt: createdAtGt,
                     created_at__lt: createdAtLt,
+                    search_name_only: searchNameOnly,
                 })
                 .get()
         },
@@ -1971,6 +2007,9 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
+        async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
+            return await new ApiRequest().userProductList().withAction('seed').create()
+        },
         async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
             return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
@@ -2049,19 +2088,11 @@ const api = {
                 page?: number
                 page_size?: number
                 item_id?: number | string
-                include_organization_scoped?: '1'
             }>,
             projectId: ProjectType['id'] = ApiConfig.getCurrentProjectId()
         ): ApiRequest {
             if (Array.isArray(filters.scopes)) {
                 filters.scopes = filters.scopes.join(',')
-            }
-
-            const scopesWithOrgScopedRecords = [ActivityScope.PERSONAL_API_KEY]
-            for (const scope of scopesWithOrgScopedRecords) {
-                if (filters.scope === scope || filters.scopes?.includes(scope)) {
-                    filters.include_organization_scoped = '1'
-                }
             }
 
             return new ApiRequest().activityLog(projectId).withQueryString(toParams(filters))
@@ -2204,7 +2235,7 @@ const api = {
         }: {
             query: Omit<LogsQuery, 'kind'>
             signal?: AbortSignal
-        }): Promise<{ results: LogMessage[]; hasMore: boolean }> {
+        }): Promise<{ results: LogMessage[]; hasMore: boolean; nextCursor?: string }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },
         async sparkline({ query, signal }: { query: Omit<LogsQuery, 'kind'>; signal?: AbortSignal }): Promise<any[]> {
@@ -2532,7 +2563,7 @@ const api = {
     },
 
     dashboards: {
-        async list(params: { tags?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
+        async list(params: { tags?: string; creation_mode?: string } = {}): Promise<PaginatedResponse<DashboardType>> {
             return new ApiRequest().dashboards().withQueryString(toParams(params)).get()
         },
 
@@ -2775,6 +2806,14 @@ const api = {
     groups: {
         async list(params: GroupListParams): Promise<CountedPaginatedResponse<Group>> {
             return await new ApiRequest().groups().withQueryString(toParams(params, true)).get()
+        },
+        async listClickhouse(params: GroupListParams): Promise<GroupsQueryResponse> {
+            const groupsQuery: GroupsQuery = {
+                kind: NodeKind.GroupsQuery,
+                ...params,
+            }
+
+            return await new ApiRequest().query().create({ data: { query: groupsQuery } })
         },
         async create(data: CreateGroupParams): Promise<Group> {
             return await new ApiRequest().groups().create({ data })
@@ -3316,10 +3355,6 @@ const api = {
             return await new ApiRequest().recording(recordingId).update({ data })
         },
 
-        async persist(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
-            return await new ApiRequest().recording(recordingId).withAction('persist').create()
-        },
-
         async summarizeStream(recordingId: SessionRecordingType['id']): Promise<Response> {
             return await api.createResponse(
                 new ApiRequest().recording(recordingId).withAction('summarize').assembleFullUrl(),
@@ -3341,17 +3376,9 @@ const api = {
 
         async listSnapshotSources(
             recordingId: SessionRecordingType['id'],
-            params: Record<string, any> = {},
             headers: Record<string, string> = {}
         ): Promise<SessionRecordingSnapshotResponse> {
-            if (params.source) {
-                throw new Error('source parameter is not allowed in listSnapshotSources, this is a development error')
-            }
-            return await new ApiRequest()
-                .recording(recordingId)
-                .withAction('snapshots')
-                .withQueryString(params)
-                .get({ headers })
+            return await new ApiRequest().recording(recordingId).withAction('snapshots').get({ headers })
         },
 
         async getSnapshots(
@@ -3465,7 +3492,10 @@ const api = {
             return await new ApiRequest().recordings().withAction('ai/regex').create({ data: { regex } })
         },
 
-        async bulkDeleteRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
+        async bulkDeleteRecordings(
+            session_recording_ids: SessionRecordingType['id'][],
+            date_from?: string | null
+        ): Promise<{
             success: boolean
             deleted_count: number
             total_requested: number
@@ -3473,7 +3503,7 @@ const api = {
             return await new ApiRequest()
                 .recordings()
                 .withAction('bulk_delete')
-                .create({ data: { session_recording_ids } })
+                .create({ data: { session_recording_ids, ...(date_from ? { date_from } : {}) } })
         },
 
         async bulkViewedRecordings(session_recording_ids: SessionRecordingType['id'][]): Promise<{
@@ -3725,7 +3755,7 @@ const api = {
         async create(data: TaskUpsertProps): Promise<Task> {
             return await new ApiRequest().tasks().create({ data })
         },
-        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Partial<Task>> {
+        async update(id: string, data: Partial<TaskUpsertProps>): Promise<Task> {
             return await new ApiRequest().task(id).update({ data })
         },
         async delete(id: Task['id']): Promise<void> {
@@ -3736,6 +3766,30 @@ const api = {
         },
         async run(id: Task['id']): Promise<Task> {
             return await new ApiRequest().task(id).withAction('run').create()
+        },
+        runs: {
+            async list(taskId: Task['id']): Promise<PaginatedResponse<TaskRun>> {
+                return await new ApiRequest().taskRuns(taskId).get()
+            },
+            async get(taskId: Task['id'], runId: TaskRun['id']): Promise<TaskRun> {
+                return await new ApiRequest().taskRun(taskId, runId).get()
+            },
+            async getLogs(taskId: Task['id'], runId: TaskRun['id'], noCache: boolean = false): Promise<string> {
+                const run = await new ApiRequest().taskRun(taskId, runId).get()
+                if (run.log_url) {
+                    const url = noCache
+                        ? `${run.log_url}${run.log_url.includes('?') ? '&' : '?'}t=${Date.now()}`
+                        : run.log_url // TRICKY: We add a timestamp to bypass the browser cache
+                    const response = await fetch(url, {
+                        cache: 'no-store',
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                        },
+                    })
+                    return await response.text()
+                }
+                return ''
+            },
         },
     },
 
@@ -3763,8 +3817,11 @@ const api = {
         async update(surveyId: Survey['id'], data: Partial<Survey>): Promise<Survey> {
             return await new ApiRequest().survey(surveyId).update({ data })
         },
-        async getResponsesCount(): Promise<{ [key: string]: number }> {
-            return await new ApiRequest().surveysResponsesCount().get()
+        async getResponsesCount(surveyIds?: string): Promise<{ [key: string]: number }> {
+            return await new ApiRequest()
+                .surveysResponsesCount()
+                .withQueryString(surveyIds ? { survey_ids: surveyIds } : undefined)
+                .get()
         },
         async summarize_responses(
             surveyId: Survey['id'],
@@ -3781,6 +3838,15 @@ const api = {
                 queryParams['question_id'] = questionId
             }
             return await apiRequest.withQueryString(queryParams).create()
+        },
+        async getSummaryHeadline(
+            surveyId: Survey['id'],
+            forceRefresh: boolean = false
+        ): Promise<{ headline: string; responses_sampled: number; has_more: boolean }> {
+            return await new ApiRequest()
+                .survey(surveyId)
+                .withAction('summary_headline')
+                .create({ data: { force_refresh: forceRefresh } })
         },
         async getSurveyStats({
             surveyId,
@@ -4541,6 +4607,7 @@ const api = {
                 billing_context?: MaxBillingContext
                 conversation?: string | null
                 trace_id: string
+                agent_mode?: AgentMode | null
             },
             options?: ApiMethodOptions
         ): Promise<Response> {

@@ -13,7 +13,6 @@ import {
     IconEye,
     IconHide,
     IconLive,
-    IconLogomark,
     IconNight,
     IconPieChart,
     IconQuestion,
@@ -26,6 +25,7 @@ import {
 } from '@posthog/icons'
 import { LemonBadge, Spinner } from '@posthog/lemon-ui'
 
+import { AnimatedLogomark } from 'lib/brand/AnimatedLogomark'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { Link } from 'lib/lemon-ui/Link'
@@ -333,7 +333,7 @@ export function ToolbarInfoMenu(): JSX.Element | null {
 
 export function Toolbar(): JSX.Element | null {
     const ref = useRef<HTMLDivElement | null>(null)
-    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp } = useValues(toolbarLogic)
+    const { minimized, position, isDragging, hedgehogMode, isEmbeddedInApp, isLoading } = useValues(toolbarLogic)
     const { setVisibleMenu, toggleMinimized, onMouseOrTouchDown, setElement, setIsBlurred } = useActions(toolbarLogic)
     const { isAuthenticated, userIntent } = useValues(toolbarConfigLogic)
     const { authenticate } = useActions(toolbarConfigLogic)
@@ -398,7 +398,7 @@ export function Toolbar(): JSX.Element | null {
                     title={isAuthenticated ? 'Minimize' : 'Authenticate the PostHog Toolbar'}
                     titleMinimized={isAuthenticated ? 'Expand the toolbar' : 'Authenticate the PostHog Toolbar'}
                 >
-                    <IconLogomark />
+                    <AnimatedLogomark animate={isLoading} className="Toolbar__logomark" />
                 </ToolbarButton>
                 {isAuthenticated ? (
                     <>

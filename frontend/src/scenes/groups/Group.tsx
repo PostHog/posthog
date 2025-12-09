@@ -121,7 +121,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                         label: <span data-attr="groups-overview-tab">Overview</span>,
                         content: <GroupOverview groupData={groupData} />,
                     },
-                    ...(featureFlags[FEATURE_FLAGS.CRM_ITERATION_ONE] && groupData.notebook
+                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [
                               {
                                   key: GroupsTabType.NOTES,

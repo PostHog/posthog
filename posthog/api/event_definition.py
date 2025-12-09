@@ -9,6 +9,7 @@ from rest_framework import mixins, request, response, serializers, status, views
 
 from posthog.api.event_definition_generators.base import EventDefinitionGenerator
 from posthog.api.event_definition_generators.golang import GolangGenerator
+from posthog.api.event_definition_generators.python import PythonGenerator
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -408,11 +409,14 @@ class EventDefinitionViewSet(
     def golang_definitions(self, *args, **kwargs):
         return self._generate_definitions(GolangGenerator())
 
+    @action(detail=False, methods=["GET"], url_path="python", required_scopes=["event_definition:read"])
+    def python_definitions(self, *args, **kwargs):
+        return self._generate_definitions(PythonGenerator())
+
     def _generate_definitions(self, generator: EventDefinitionGenerator) -> response.Response:
         event_definitions, schema_map = generator.fetch_event_definitions_and_schemas(self.project_id)
 
         schema_hash = generator.calculate_schema_hash(event_definitions, schema_map)
-
         content = generator.generate(event_definitions, schema_map)
 
         generator.record_report_generation(

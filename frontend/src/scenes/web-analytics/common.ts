@@ -70,6 +70,7 @@ export enum TileId {
     // Marketing Tiles
     MARKETING = 'MARKETING',
     MARKETING_CAMPAIGN_BREAKDOWN = 'MARKETING_CAMPAIGN_BREAKDOWN',
+    MARKETING_NON_INTEGRATED_CONVERSIONS = 'MARKETING_NON_INTEGRATED_CONVERSIONS',
 }
 
 export enum ProductTab {
@@ -78,6 +79,7 @@ export enum ProductTab {
     PAGE_REPORTS = 'page-reports',
     SESSION_ATTRIBUTION_EXPLORER = 'session-attribution-explorer',
     MARKETING = 'marketing',
+    HEALTH = 'health',
 }
 
 export type DeviceType = 'Desktop' | 'Mobile'
@@ -130,6 +132,7 @@ export const loadPriorityMap: Record<TileId, number> = {
     [TileId.MARKETING_OVERVIEW]: 1,
     [TileId.MARKETING]: 2,
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 3,
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 4,
 }
 
 // To enable a tile here, you must update the QueryRunner to support it
@@ -188,6 +191,7 @@ export const TILE_LABELS: Record<TileId, string> = {
     [TileId.PAGE_REPORTS_PREVIOUS_PAGE]: 'Previous page',
     [TileId.MARKETING]: 'Marketing',
     [TileId.MARKETING_CAMPAIGN_BREAKDOWN]: 'Campaign breakdown',
+    [TileId.MARKETING_NON_INTEGRATED_CONVERSIONS]: 'Non-integrated conversions',
 }
 
 export interface BaseTile {
@@ -257,8 +261,6 @@ export enum GraphsTab {
     UNIQUE_CONVERSIONS = 'UNIQUE_CONVERSIONS',
     TOTAL_CONVERSIONS = 'TOTAL_CONVERSIONS',
     CONVERSION_RATE = 'CONVERSION_RATE',
-    REVENUE_EVENTS = 'REVENUE_EVENTS',
-    CONVERSION_REVENUE = 'CONVERSION_REVENUE',
 }
 
 export enum SourceTab {
@@ -519,4 +521,36 @@ export const getDisplayColumnName = (column: string, breakdownBy?: WebStatsBreak
 
     // Return base column name if no mapping found
     return baseColumn
+}
+
+export interface ParsedURL {
+    host: string | null
+    pathname: string | null
+    isValid: boolean
+}
+
+export const parseWebAnalyticsURL = (urlString: string): ParsedURL => {
+    try {
+        const trimmed = urlString.trim()
+        if (!trimmed) {
+            return { host: null, pathname: null, isValid: false }
+        }
+
+        // If no protocol, add https://
+        const urlWithProtocol = trimmed.match(/^https?:\/\//i) ? trimmed : `https://${trimmed}`
+
+        const url = new URL(urlWithProtocol)
+
+        return {
+            host: url.hostname,
+            pathname: url.pathname,
+            isValid: true,
+        }
+    } catch {
+        return {
+            host: null,
+            pathname: null,
+            isValid: false,
+        }
+    }
 }

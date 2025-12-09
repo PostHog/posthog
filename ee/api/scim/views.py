@@ -13,6 +13,7 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from scim2_filter_parser.transpilers.django_q_object import get_query
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
@@ -20,11 +21,12 @@ from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import SCIMBearerTokenAuthentication
 from ee.api.scim.group import PostHogSCIMGroup
-from ee.api.scim.user import PostHogSCIMUser
+from ee.api.scim.user import PostHogSCIMUser, SCIMUserConflict
+from ee.api.scim.utils import detect_identity_provider
 from ee.models.rbac.role import Role
+from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 SCIM_USER_ATTR_MAP = {
-    ("userName", None, None): "email",
     ("emails", "value", None): "email",
     ("name", "familyName", None): "last_name",
     ("familyName", None, None): "last_name",
@@ -82,9 +84,20 @@ class PostHogUserFilterQuery(UserFilterQuery):
 
     @classmethod
     def search(cls, filter_query: str, request: Request) -> QuerySet[User]:
-        raw_queryset = super().search(filter_query, request)
-        # Filter results to only include users from the specified organization
         org_domain = cast(OrganizationDomain, request.auth)
+
+        if "userName" in filter_query:
+            # userName is stored in SCIMProvisionedUser, not User
+            # UserFilterQuery only queries User model, so use scim2-filter-parser directly
+            scim_attr_map = {("userName", None, None): "username"}
+            q_obj = get_query(filter_query, scim_attr_map)
+            scim_user_ids = SCIMProvisionedUser.objects.filter(
+                q_obj,
+                organization_domain=org_domain,
+            ).values_list("user_id", flat=True)
+            return User.objects.filter(id__in=scim_user_ids)
+
+        raw_queryset = super().search(filter_query, request)
         user_ids = [user.id for user in raw_queryset]
         return User.objects.filter(
             id__in=user_ids,
@@ -142,9 +155,16 @@ class SCIMUsersView(SCIMBaseView):
 
     def post(self, request: Request, domain_id: str) -> Response:
         organization_domain = cast(OrganizationDomain, request.auth)
+
         try:
-            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain)
+            identity_provider = detect_identity_provider(request)
+            scim_user = PostHogSCIMUser.from_dict(request.data, organization_domain, identity_provider)
             return Response(scim_user.to_dict(), status=status.HTTP_201_CREATED)
+        except SCIMUserConflict:
+            return Response(
+                {"schemas": [constants.SchemaURI.ERROR], "status": 409, "detail": "User already exists"},
+                status=status.HTTP_409_CONFLICT,
+            )
         except ValueError as e:
             capture_exception(
                 e,

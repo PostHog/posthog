@@ -52,7 +52,7 @@ import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { useAIData } from './hooks/useAIData'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
-import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { DisplayOption, TraceViewMode, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
@@ -68,13 +68,6 @@ import {
     isLLMEvent,
     removeMilliseconds,
 } from './utils'
-
-enum TraceViewMode {
-    Conversation = 'conversation',
-    Raw = 'raw',
-    Summary = 'summary',
-    Evals = 'evals',
-}
 
 export const scene: SceneExport = {
     component: LLMAnalyticsTraceScene,
@@ -670,10 +663,8 @@ const EventContent = React.memo(
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
-        const { displayOption, lineNumber } = useValues(llmAnalyticsTraceLogic)
-        const { handleTextViewFallback, copyLinePermalink } = useActions(llmAnalyticsTraceLogic)
-
-        const [viewMode, setViewMode] = useState(TraceViewMode.Conversation)
+        const { displayOption, lineNumber, initialTab, viewMode } = useValues(llmAnalyticsTraceLogic)
+        const { handleTextViewFallback, copyLinePermalink, setViewMode } = useActions(llmAnalyticsTraceLogic)
 
         const node = event && isLLMEvent(event) ? findNodeForEvent(tree, event.id) : null
         const aggregation = node?.aggregation || null
@@ -684,7 +675,7 @@ const EventContent = React.memo(
 
         const isGenerationEvent = event && isLLMEvent(event) && event.event === '$ai_generation'
 
-        const showPlaygroundButton = isGenerationEvent && featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+        const showPlaygroundButton = isGenerationEvent
 
         const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
@@ -826,6 +817,7 @@ const EventContent = React.memo(
                                                     event.event === '$ai_embedding') ? (
                                                     <TextViewDisplay
                                                         event={event}
+                                                        trace={trace}
                                                         lineNumber={lineNumber}
                                                         onFallback={handleTextViewFallback}
                                                         onCopyPermalink={copyLinePermalink}
@@ -913,6 +905,7 @@ const EventContent = React.memo(
                                                       trace={!isLLMEvent(event) ? event : undefined}
                                                       event={isLLMEvent(event) ? event : undefined}
                                                       tree={tree}
+                                                      autoGenerate={initialTab === 'summary'}
                                                   />
                                               ),
                                           },
@@ -1026,11 +1019,13 @@ function DisplayOptionsSelect(): JSX.Element {
             value: DisplayOption.ExpandAll,
             label: 'Expand all',
             tooltip: 'Show all messages and full conversation history',
+            'data-attr': 'llma-trace-display-expand-all',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',
+            'data-attr': 'llma-trace-display-expand-last',
         },
         ...(featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TEXT_VIEW] ||
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
@@ -1039,6 +1034,7 @@ function DisplayOptionsSelect(): JSX.Element {
                       value: DisplayOption.TextView,
                       label: 'Text view',
                       tooltip: 'Simple human readable text view, for humans',
+                      'data-attr': 'llma-trace-display-text-view',
                   },
               ]
             : []),

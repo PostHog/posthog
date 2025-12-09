@@ -3,6 +3,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import {
     SessionRecordingPlaylistLogicProps,
@@ -15,7 +16,7 @@ import { RecordingUniversalFilters } from '~/types'
 import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
-export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings']
+export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = ['search_session_recordings', 'create_form']
 
 export function UIPayloadAnswer({
     toolCallId,
@@ -35,7 +36,7 @@ export function UIPayloadAnswer({
     return null
 }
 
-function RecordingsWidget({
+export function RecordingsWidget({
     toolCallId,
     filters,
 }: {
@@ -62,6 +63,7 @@ function RecordingsWidget({
 function RecordingsListContent(): JSX.Element {
     const { otherRecordings, sessionRecordingsResponseLoading, hasNext } = useValues(sessionRecordingsPlaylistLogic)
     const { maybeLoadSessionRecordings } = useActions(sessionRecordingsPlaylistLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic())
 
     const hasRecordings = otherRecordings.length > 0
 
@@ -79,7 +81,13 @@ function RecordingsListContent(): JSX.Element {
             ) : (
                 <>
                     {otherRecordings.map((recording) => (
-                        <div key={recording.id}>
+                        <div
+                            key={recording.id}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                openSessionPlayer(recording)
+                            }}
+                        >
                             <SessionRecordingPreview recording={recording} selectable={false} />
                         </div>
                     ))}

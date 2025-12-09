@@ -1,4 +1,5 @@
 import type { ApiClient } from '@/api/client'
+import { ErrorCode } from '@/lib/errors'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
@@ -32,10 +33,27 @@ export class StateManager {
 
     private async _fetchApiKey(): Promise<NonNullable<State['apiKey']>> {
         const apiKeyResult = await this._api.apiKeys().current()
-        if (!apiKeyResult.success) {
-            throw new Error(`Failed to get API key: ${apiKeyResult.error.message}`)
+        if (apiKeyResult.success) {
+            return apiKeyResult.data
         }
-        return apiKeyResult.data
+
+        const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
+
+        if (!introspectionResult.success) {
+            throw new Error(`Failed to get API key: ${introspectionResult.error.message}`)
+        }
+
+        if (!introspectionResult.data.active) {
+            throw new Error(ErrorCode.INACTIVE_OAUTH_TOKEN)
+        }
+
+        const { scope, scoped_teams, scoped_organizations } = introspectionResult.data
+
+        return {
+            scopes: scope ? scope.split(' ') : [],
+            scoped_teams,
+            scoped_organizations,
+        }
     }
 
     async getApiKey(): Promise<NonNullable<State['apiKey']>> {

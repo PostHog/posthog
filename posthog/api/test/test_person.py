@@ -869,6 +869,29 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}").json()
         self.assertEqual(len(response["results"]), 0)
 
+    def test_person_cohorts_returns_minimal_fields(self) -> None:
+        """Verify that person cohorts endpoint returns only minimal fields (id, name, count)."""
+        person = _create_person(
+            team=self.team,
+            distinct_ids=["1"],
+            properties={"$some_prop": "something"},
+            immediate=True,
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
+            name="cohort1",
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        response = self.client.get(f"/api/person/cohorts/?person_id={person.uuid}")
+        self.assertEqual(response.status_code, 200, response.json())
+        data = response.json()
+
+        self.assertEqual(len(data["results"]), 1)
+        # CohortMinimalSerializer only returns id, name, count
+        self.assertEqual(set(data["results"][0].keys()), {"id", "name", "count"})
+
     def test_split_person_clickhouse(self):
         person = _create_person(
             team=self.team,

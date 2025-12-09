@@ -29,6 +29,7 @@ import { Paths } from 'scenes/paths/Paths'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { TrendInsight } from 'scenes/trends/Trends'
+import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, QuerySchema } from '~/queries/schema/schema-general'
@@ -69,7 +70,6 @@ export function InsightVizDisplay({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     const { isFunnelWithEnoughSteps, validationError, theme } = useValues(insightVizDataLogic(insightProps))
     const {
         isFunnels,
@@ -90,6 +90,7 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
+    const { hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -183,6 +184,8 @@ export function InsightVizDisplay({
                 )
             case InsightType.PATHS:
                 return isUsingPathsV2 ? <PathsV2 /> : <Paths />
+            case InsightType.WEB_ANALYTICS:
+                return <WebAnalyticsInsight context={context} editMode={editMode} />
             default:
                 return null
         }
@@ -266,7 +269,8 @@ export function InsightVizDisplay({
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
 
-    if (!theme) {
+    // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
+    if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
         return null
     }
 

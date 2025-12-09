@@ -321,6 +321,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_DB_CONSTRAINT_LIMIT_BYTES: 655360,
         // Trim target is the customer-facing limit (512kb)
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
+        // When true, all property changes trigger person updates (disables filtering)
+        PERSON_PROPERTIES_UPDATE_ALL: false,
         // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
         // Topic for async person merge processing
@@ -335,6 +337,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,
         PERSONS_DUAL_WRITE_ENABLED: false,
         PERSONS_DUAL_WRITE_COMPARISON_ENABLED: false,
+        PERSONS_PREFETCH_ENABLED: false,
         GROUPS_DUAL_WRITE_ENABLED: false,
         GROUPS_DUAL_WRITE_COMPARISON_ENABLED: false,
         USE_DYNAMIC_EVENT_INGESTION_RESTRICTION_CONFIG: false,

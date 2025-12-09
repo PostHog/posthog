@@ -12,7 +12,7 @@ import {
     reducers,
     selectors,
 } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -24,6 +24,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
@@ -96,7 +97,7 @@ export interface RecordingViewedSummaryAnalytics {
 
 export interface Player {
     replayer: Replayer
-    windowId: string
+    windowId: number
 }
 
 export enum SessionRecordingPlayerMode {
@@ -114,7 +115,9 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     playerKey: string
     sessionRecordingData?: SessionPlayerData
     matchingEventsMatchType?: MatchingEventsMatchType
+    /** @deprecated Use onRecordingDeleted callback instead */
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
+    onRecordingDeleted?: () => void
     autoPlay?: boolean
     noInspector?: boolean
     mode?: SessionRecordingPlayerMode
@@ -373,7 +376,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             snapshotDataLogic(props),
             ['loadSnapshots', 'loadSnapshotsForSourceFailure', 'loadSnapshotSourcesFailure', 'loadNextSnapshotSource'],
             sessionRecordingDataCoordinatorLogic(props),
-            ['loadRecordingData', 'loadRecordingMetaSuccess', 'maybePersistRecording'],
+            ['loadRecordingData', 'loadRecordingMetaSuccess'],
             playerSettingsLogic,
             ['setSpeed', 'setSkipInactivitySetting'],
             sessionRecordingEventUsageLogic,
@@ -933,7 +936,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 if (!currentTimestamp) {
                     return null
                 }
-                const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment?.windowId ?? ''] ?? []
+                const windowId = currentSegment?.windowId
+                const snapshots = windowId !== undefined ? (sessionPlayerData.snapshotsByWindowId[windowId] ?? []) : []
 
                 const currIndex = findLastIndex(
                     snapshots,
@@ -1254,14 +1258,25 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const eventsToAdd = []
 
             if (values.currentSegment?.windowId !== undefined) {
-                // TODO: Probably need to check for de-dupes here....
-                // TODO: We do some sorting and rearranging in the data logic... We may need to handle that here, replacing the
-                // whole events stream....
-                eventsToAdd.push(
-                    ...(values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []).slice(
-                        currentEvents.length
-                    )
-                )
+                const allSnapshots = values.sessionPlayerData.snapshotsByWindowId[values.currentSegment?.windowId] ?? []
+                const newSnapshots = allSnapshots.slice(currentEvents.length)
+
+                // Check if we have a full snapshot before adding incremental mutations
+                // This prevents the white screen bug where incremental mutations arrive before the full snapshot
+                // flag to test this in prod on select teams/recordings without affecting everyone
+                if (
+                    values.featureFlags[FEATURE_FLAGS.REPLAY_WAIT_FOR_FULL_SNAPSHOT_PLAYBACK] &&
+                    newSnapshots.length > 0
+                ) {
+                    const hasFullSnapshot = allSnapshots.some((e) => e.type === EventType.FullSnapshot)
+
+                    if (!hasFullSnapshot) {
+                        // We have new snapshots but no full snapshot anywhere yet - wait for it
+                        return
+                    }
+                }
+
+                eventsToAdd.push(...newSnapshots)
             }
 
             // If replayer isn't initialized, it will be initialized with the already loaded snapshots
@@ -1639,15 +1654,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: async () => {
             await deleteRecording(props.sessionRecordingId)
 
-            if (props.playlistLogic) {
+            if (props.onRecordingDeleted) {
+                props.onRecordingDeleted()
+            } else if (props.playlistLogic) {
                 props.playlistLogic.actions.loadAllRecordings()
-                // Reset selected recording to first one in the list
                 props.playlistLogic.actions.setSelectedRecordingId(null)
             } else if (router.values.location.pathname.includes('/replay')) {
-                // On a page that displays a single recording `replay/:id` that doesn't contain a list
                 router.actions.push(urls.replay())
-            } else {
-                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }
         },
         openExplorer: () => {
@@ -1874,6 +1887,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         actions.updatePlayerTimeTracking()
         // Schedule periodic updates
         actions.schedulePlayerTimeTracking()
+    }),
+
+    urlToAction(({ actions, props }) => {
+        const handleTimestampParams = (searchParams: Record<string, string>): void => {
+            if (searchParams.timestamp) {
+                const desiredStartTime = Number(searchParams.timestamp)
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTimestamp(desiredStartTime, true)
+                }
+            } else if (searchParams.t) {
+                const desiredStartTime = Number(searchParams.t) * 1000
+                if (!isNaN(desiredStartTime)) {
+                    actions.seekToTime(desiredStartTime)
+                }
+            }
+        }
+
+        return {
+            '/replay/:id': (_, searchParams) => handleTimestampParams(searchParams),
+            '/replay': (_, searchParams) => {
+                if (searchParams.sessionRecordingId === props.sessionRecordingId) {
+                    handleTimestampParams(searchParams)
+                }
+            },
+        }
     }),
 ])
 

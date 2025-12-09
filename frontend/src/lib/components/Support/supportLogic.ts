@@ -231,6 +231,11 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'LLM analytics',
             },
             {
+                value: 'logs',
+                'data-attr': `support-form-target-area-logs`,
+                label: 'Logs',
+            },
+            {
                 value: 'max-ai',
                 'data-attr': `support-form-target-area-max-ai`,
                 label: 'PostHog AI',
@@ -280,6 +285,11 @@ export const TARGET_AREA_TO_NAME = [
                 'data-attr': `support-form-target-area-logs`,
                 label: 'Logs',
             },
+            {
+                value: 'endpoints',
+                'data-attr': `support-form-target-area-endpoints`,
+                label: 'Endpoints',
+            },
         ],
     },
 ]
@@ -314,6 +324,7 @@ export type SupportTicketTargetArea =
     | 'surveys'
     | 'web_analytics'
     | 'error_tracking'
+    | 'logs'
     | 'cdp_destinations'
     | 'data_ingestion'
     | 'batch_exports'
@@ -322,6 +333,7 @@ export type SupportTicketTargetArea =
     | 'max-ai'
     | 'customer-analytics'
     | 'logs'
+    | 'endpoints'
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -366,6 +378,7 @@ export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = 
     workflows: 'workflows',
     billing: 'billing',
     logs: 'logs',
+    endpoints: 'endpoints',
 }
 
 export const SUPPORT_TICKET_TEMPLATES = {
@@ -435,6 +448,7 @@ export const supportLogic = kea<supportLogicType>([
         updateUrlParams: true,
         openEmailForm: true,
         closeEmailForm: true,
+        setLastSubmittedTicketId: (ticketId: string | null) => ({ ticketId }),
     })),
     reducers(() => ({
         isSupportFormOpen: [
@@ -449,6 +463,13 @@ export const supportLogic = kea<supportLogicType>([
             {
                 openEmailForm: () => true,
                 closeEmailForm: () => false,
+            },
+        ],
+        lastSubmittedTicketId: [
+            null as string | null,
+            {
+                setLastSubmittedTicketId: (_, { ticketId }) => ticketId,
+                openSupportForm: () => null, // Reset when opening a new form
             },
         ],
     })),
@@ -782,6 +803,7 @@ export const supportLogic = kea<supportLogicType>([
                 lemonToast.success("Got the message! If we have follow-up information for you, we'll reply via email.")
 
                 actions.ensureZendeskOrganization()
+                actions.setLastSubmittedTicketId(zendesk_ticket_id)
 
                 // Only close and reset the form on success
                 actions.closeSupportForm()

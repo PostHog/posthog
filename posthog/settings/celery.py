@@ -12,12 +12,10 @@ CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS = (
     [
         "ee.tasks",
-        "posthog.session_recordings.persist_to_lts",
         "posthog.session_recordings.playlist_counters",
     ]
     if EE_AVAILABLE
     else [
-        "posthog.session_recordings.persist_to_lts",
         "posthog.session_recordings.playlist_counters",
     ]
 )

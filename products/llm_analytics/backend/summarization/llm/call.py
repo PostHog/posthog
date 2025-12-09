@@ -85,8 +85,8 @@ def _prepare_user_param(team_id: int) -> str:
 async def summarize(
     text_repr: str,
     team_id: int,
-    trace_id: str | None = None,
     mode: str = "minimal",
+    model: str | None = None,
 ) -> SummarizationResponse:
     """
     Generate AI-powered summary from text representation.
@@ -94,8 +94,8 @@ async def summarize(
     Args:
         text_repr: Line-numbered text representation to summarize
         team_id: Team ID for cost tracking and analytics
-        trace_id: Optional trace ID for linking LLM call to source trace/event
         mode: Summary detail level ('minimal' or 'detailed')
+        model: LLM model to use (defaults to SUMMARIZATION_MODEL constant)
 
     Returns:
         Structured summarization response with flow diagram, bullets, and notes
@@ -115,6 +115,9 @@ async def summarize(
         {"role": "user", "content": user_prompt},
     ]
 
+    # Use provided model or fall back to default
+    model_to_use = model or SUMMARIZATION_MODEL
+
     # Use structured outputs with JSON schema
     # Note: We intentionally do NOT pass posthog_trace_id to avoid the summarization
     # LLM call appearing as part of the trace being summarized (which would create
@@ -122,7 +125,7 @@ async def summarize(
     # central PostHog project for cost monitoring, just as a separate trace.
     try:
         response = await client.chat.completions.create(  # type: ignore[call-overload]
-            model=SUMMARIZATION_MODEL,
+            model=model_to_use,
             messages=messages,
             user=user_param,
             response_format={

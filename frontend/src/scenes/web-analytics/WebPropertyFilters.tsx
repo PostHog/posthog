@@ -10,11 +10,33 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 
+import { AnyPropertyFilter } from '~/types'
+
 import { webAnalyticsLogic } from './webAnalyticsLogic'
 
-export const WebPropertyFilters = (): JSX.Element => {
-    const { rawWebAnalyticsFilters, preAggregatedEnabled } = useValues(webAnalyticsLogic)
-    const { setWebAnalyticsFilters } = useActions(webAnalyticsLogic)
+/**
+ * As of today, this file can be used in two modes:
+ * 1. Web Analytics Dashboard mode: No props needed, uses webAnalyticsLogic
+ * 2. Standalone mode: Pass webAnalyticsFilters and setWebAnalyticsFilters props
+ *
+ * This allows the component to be reused in Product Analytics insights.
+ */
+
+export interface WebPropertyFiltersProps {
+    webAnalyticsFilters?: AnyPropertyFilter[]
+    setWebAnalyticsFilters?: (filters: AnyPropertyFilter[]) => void
+}
+
+export const WebPropertyFilters = ({
+    webAnalyticsFilters: propsFilters,
+    setWebAnalyticsFilters: propsSetFilters,
+}: WebPropertyFiltersProps = {}): JSX.Element => {
+    // Always call hooks unconditionally (React Rules of Hooks)
+    const { rawWebAnalyticsFilters = [], preAggregatedEnabled = false } = useValues(webAnalyticsLogic)
+    const { setWebAnalyticsFilters: logicSetFilters } = useActions(webAnalyticsLogic)
+
+    const webAnalyticsFilters = propsFilters ?? rawWebAnalyticsFilters
+    const setWebAnalyticsFilters = propsSetFilters ?? logicSetFilters
 
     const [displayFilters, setDisplayFilters] = useState(false)
 
@@ -70,7 +92,7 @@ export const WebPropertyFilters = (): JSX.Element => {
                         onChange={(filters) =>
                             setWebAnalyticsFilters(filters.filter(isEventPersonOrSessionPropertyFilter))
                         }
-                        propertyFilters={rawWebAnalyticsFilters}
+                        propertyFilters={webAnalyticsFilters}
                         pageKey="web-analytics"
                         eventNames={['$pageview']}
                     />
@@ -79,7 +101,7 @@ export const WebPropertyFilters = (): JSX.Element => {
         >
             <LemonButton
                 icon={
-                    <IconWithCount count={rawWebAnalyticsFilters.length} showZero={false}>
+                    <IconWithCount count={webAnalyticsFilters.length} showZero={false}>
                         <IconFilter />
                     </IconWithCount>
                 }

@@ -871,10 +871,13 @@ You can find their full definitions in the [ClickHouse documentation](https://cl
 - `groupBitXorIf`
 - `groupBitmap`
 - `groupBitmapIf`
+- `groupBitmapState`
 - `groupBitmapAnd`
 - `groupBitmapAndIf`
+- `groupBitmapAndState`
 - `groupBitmapOr`
 - `groupBitmapOrIf`
+- `groupBitmapOrState`
 - `groupBitmapXor`
 - `groupBitmapXorIf`
 - `sumWithOverflow`

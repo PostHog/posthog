@@ -2326,3 +2326,326 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
         "With valid sent_at, clock skew correction should be applied"
     );
 }
+
+// ----------------------------------------------------------------------------
+// Token Dropper Tests
+// ----------------------------------------------------------------------------
+
+// Helper to setup test router with custom TokenDropper and CapturingSink
+fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        quota_limiter,
+        token_dropper,
+        false,
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(10),
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_drops_matching_token() {
+    // Configure token dropper to drop all events for a specific token
+    let token_dropper = TokenDropper::new("phc_dropped_token");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use the dropped token
+    let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
+
+    // Should return 200 OK (silently drops to avoid alerting clients)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify no event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        0,
+        "Event should be dropped when token matches dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_allows_non_matching_token() {
+    // Configure token dropper to drop a different token
+    let token_dropper = TokenDropper::new("phc_other_token");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use a different token that is NOT in the dropper
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published when token does not match dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_drops_matching_token_and_distinct_id() {
+    // Configure token dropper to drop events for specific token:distinct_id combination
+    let token_dropper = TokenDropper::new("phc_specific_token:blocked_user");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    // Create event with matching distinct_id
+    let form = create_ai_event_form("$ai_generation", "blocked_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_specific_token")).await;
+
+    // Should return 200 OK (silently drops to avoid alerting clients)
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify no event was published
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        0,
+        "Event should be dropped when token:distinct_id matches dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_allows_different_distinct_id() {
+    // Configure token dropper to drop events for specific token:distinct_id combination
+    let token_dropper = TokenDropper::new("phc_specific_token:blocked_user");
+    let (router, sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    // Create event with DIFFERENT distinct_id
+    let form = create_ai_event_form("$ai_generation", "allowed_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_specific_token")).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published (different distinct_id)
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published when distinct_id does not match dropper configuration"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_token_dropper_returns_success_with_empty_accepted_parts() {
+    // Configure token dropper to drop all events for a specific token
+    let token_dropper = TokenDropper::new("phc_dropped_token");
+    let (router, _sink) = setup_ai_test_router_with_token_dropper(token_dropper);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some("phc_dropped_token")).await;
+
+    // Token dropper silently drops - returns 200 OK to avoid alerting clients
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify response body contains empty accepted_parts
+    let response_text = response.text().await;
+    assert!(
+        response_text.contains(r#""accepted_parts":[]"#),
+        "Response should contain empty 'accepted_parts' field, got: {response_text}"
+    );
+}
+
+// ----------------------------------------------------------------------------
+// Quota Limiter Tests
+// ----------------------------------------------------------------------------
+
+use capture::limiters::is_llm_event;
+use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
+
+// Helper to setup test router with quota limiter configured to limit AI events
+fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+
+    // Set up mock Redis to return this token as limited for LLM events
+    let llm_key = format!(
+        "{}{}",
+        QUOTA_LIMITER_CACHE_KEY,
+        QuotaResource::LLMEvents.as_str()
+    );
+    let redis =
+        Arc::new(MockRedisClient::new().zrangebyscore_ret(&llm_key, vec![token.to_string()]));
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter = CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60))
+        .add_scoped_limiter(QuotaResource::LLMEvents, Box::new(is_llm_event));
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        quota_limiter,
+        TokenDropper::default(),
+        false,
+        CaptureMode::Events,
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        Some(10),
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_quota_limiter_drops_when_over_quota() {
+    let limited_token = "phc_limited_token_for_quota";
+    let (router, sink) = setup_ai_test_router_with_llm_quota_limited(limited_token);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use the token that is over quota
+    let response = send_multipart_request(&test_client, form, Some(limited_token)).await;
+
+    // Should return 429 Too Many Requests (billing limit)
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Verify no event was published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        0,
+        "Event should be dropped when token is over LLM quota"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_quota_limiter_allows_when_not_over_quota() {
+    // Set up quota limiter with a different token limited
+    let limited_token = "phc_other_limited_token";
+    let (router, sink) = setup_ai_test_router_with_llm_quota_limited(limited_token);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    // Use a different token that is NOT over quota
+    let response = send_multipart_request(
+        &test_client,
+        form,
+        Some("phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3"),
+    )
+    .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    // Verify event WAS published to Kafka
+    let events = sink.get_events().await;
+    assert_eq!(
+        events.len(),
+        1,
+        "Event should be published when token is not over quota"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_endpoint_quota_limiter_returns_billing_limit_error_message() {
+    let limited_token = "phc_quota_limited_token";
+    let (router, _sink) = setup_ai_test_router_with_llm_quota_limited(limited_token);
+    let test_client = TestClient::new(router);
+
+    let properties = json!({
+        "$ai_model": "gpt-4"
+    });
+
+    let form = create_ai_event_form("$ai_generation", "test_user", properties);
+
+    let response = send_multipart_request(&test_client, form, Some(limited_token)).await;
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+
+    // Verify response body contains billing limit error message
+    let response_text = response.text().await;
+    assert!(
+        response_text.contains("billing limit"),
+        "Response should contain 'billing limit' error message, got: {response_text}"
+    );
+}

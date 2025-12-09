@@ -30,6 +30,7 @@ def register_all_admin():
         PersonDistinctIdAdmin,
         PluginAdmin,
         PluginConfigAdmin,
+        ProductTourAdmin,
         ProjectAdmin,
         SurveyAdmin,
         TeamAdmin,
@@ -103,6 +104,10 @@ def register_all_admin():
 
     admin.site.register(Survey, SurveyAdmin)
 
+    from products.product_tours.backend.models import ProductTour
+
+    admin.site.register(ProductTour, ProductTourAdmin)
+
     admin.site.register(DataWarehouseTable, DataWarehouseTableAdmin)
     admin.site.register(HogFunction, HogFunctionAdmin)
     admin.site.register(EventIngestionRestrictionConfig, EventIngestionRestrictionConfigAdmin)
@@ -112,9 +117,10 @@ def register_all_admin():
     admin.site.register(PersonalAPIKey, PersonalAPIKeyAdmin)
     admin.site.register(OAuthApplication, OAuthApplicationAdmin)
 
-    admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
     admin.site.register(Task, TaskAdmin)
     admin.site.register(TaskRun, TaskRunAdmin)
+    admin.site.register(SandboxSnapshot, SandboxSnapshotAdmin)
+
     admin.site.register(DesktopRecording, DesktopRecordingAdmin)
 
     admin.site.register(UserProductList, UserProductListAdmin)

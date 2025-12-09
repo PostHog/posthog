@@ -1,3 +1,4 @@
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -80,4 +81,10 @@ export const availableOnboardingProducts: AvailableOnboardingProducts = {
         url: urls.llmAnalyticsDashboard(),
         scene: Scene.LLMAnalytics,
     },
+}
+
+/** Returns the URL for the onboarding entry point based on feature flags */
+export function getOnboardingEntryUrl(featureFlags: Record<string, string | boolean | undefined>): string {
+    const useUseCaseSelection = featureFlags[FEATURE_FLAGS.ONBOARDING_USE_CASE_SELECTION] === 'test'
+    return useUseCaseSelection ? urls.useCaseSelection() : urls.products()
 }
