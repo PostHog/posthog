@@ -30,7 +30,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { createClientIngestionWarningSubpipeline, createEventSubpipeline, createHeatmapSubpipeline } from './analytics'
+import { PerDistinctIdPipelineInput, createPerDistinctIdPipeline } from './analytics'
 import {
     createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
@@ -82,10 +82,8 @@ type PreprocessedEvent = {
     eventWithTeam: IncomingEventWithTeam
 }
 
-export interface PerDistinctIdPipelineInput extends IncomingEventWithTeam {
-    headers: EventHeaders
-    groupStoreForBatch: GroupStoreForBatch
-}
+// Re-export PerDistinctIdPipelineInput for backwards compatibility
+export type { PerDistinctIdPipelineInput }
 
 const PERSON_EVENTS = new Set(['$set', '$identify', '$create_alias', '$merge_dangerously', '$groupidentify'])
 const KNOWN_SET_EVENTS = new Set([
@@ -219,7 +217,18 @@ export class IngestionConsumer {
         this.initializePreprocessingPipeline()
 
         // Initialize main event pipeline
-        this.initializePerDistinctIdPipeline()
+        this.perDistinctIdPipeline = createPerDistinctIdPipeline(
+            newBatchPipelineBuilder<PerDistinctIdPipelineInput, { message: Message; team: Team }>(),
+            {
+                hub: this.hub,
+                hogTransformer: this.hogTransformer,
+                personsStore: this.personsStore,
+                kafkaProducer: this.kafkaProducer!,
+                groupId: this.groupId,
+                dlqTopic: this.dlqTopic,
+                promiseScheduler: this.promiseScheduler,
+            }
+        ).build()
 
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
@@ -312,75 +321,6 @@ export class IngestionConsumer {
             .build()
 
         this.preprocessingPipeline = createUnwrapper(pipeline)
-    }
-
-    private initializePerDistinctIdPipeline(): void {
-        const pipelineConfig: PipelineConfig = {
-            kafkaProducer: this.kafkaProducer!,
-            dlqTopic: this.dlqTopic,
-            promiseScheduler: this.promiseScheduler,
-        }
-
-        this.perDistinctIdPipeline = newBatchPipelineBuilder<
-            PerDistinctIdPipelineInput,
-            { message: Message; team: Team }
-        >()
-            .messageAware((builder) =>
-                builder
-                    .teamAware((b) =>
-                        // We process the events for the distinct id sequentially to provide ordering guarantees.
-                        b.sequentially((seq) =>
-                            seq.retry(
-                                (retry) =>
-                                    retry.branching<'client_ingestion_warning' | 'heatmap' | 'event', void>(
-                                        (input) => {
-                                            switch (input.event.event) {
-                                                case '$$client_ingestion_warning':
-                                                    return 'client_ingestion_warning'
-                                                case '$$heatmap':
-                                                    return 'heatmap'
-                                                default:
-                                                    return 'event'
-                                            }
-                                        },
-                                        (branches) => {
-                                            branches
-                                                .branch('client_ingestion_warning', (b) =>
-                                                    createClientIngestionWarningSubpipeline(b)
-                                                )
-                                                .branch('heatmap', (b) =>
-                                                    createHeatmapSubpipeline(b, {
-                                                        hub: this.hub,
-                                                        hogTransformer: this.hogTransformer,
-                                                        personsStore: this.personsStore,
-                                                        kafkaProducer: this.kafkaProducer!,
-                                                    })
-                                                )
-                                                .branch('event', (b) =>
-                                                    createEventSubpipeline(b, {
-                                                        hub: this.hub,
-                                                        hogTransformer: this.hogTransformer,
-                                                        personsStore: this.personsStore,
-                                                        kafkaProducer: this.kafkaProducer!,
-                                                        groupId: this.groupId,
-                                                    })
-                                                )
-                                        }
-                                    ),
-                                {
-                                    tries: 3,
-                                    sleepMs: 100,
-                                }
-                            )
-                        )
-                    )
-                    .handleIngestionWarnings(this.kafkaProducer!)
-            )
-            .handleResults(pipelineConfig)
-            .handleSideEffects(this.promiseScheduler, { await: false })
-            // We synchronize once again to ensure we return all events in one batch.
-            .gather()
-            .build()
     }
 
     public async stop(): Promise<void> {
