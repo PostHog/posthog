@@ -1147,7 +1147,7 @@ describe('Hogflow Executor', () => {
                     elements_chain: '',
                 },
                 project: { id: 1, name: 'Test Project', url: '' },
-                person: { id: 'person_id', name: '', properties: {}, url: '' },
+                person: { id: 'person_id', name: 'John Doe', properties: {}, url: '' },
                 variables: {
                     overrideMe: 'customValue',
                     extra: 'shouldBeIncluded',
