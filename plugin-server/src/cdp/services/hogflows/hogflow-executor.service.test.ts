@@ -760,7 +760,7 @@ describe('Hogflow Executor', () => {
                         expect(result.logs.map((l) => l.message)).toEqual(
                             expect.arrayContaining([
                                 expect.stringContaining(
-                                    `Workflow is aborting due to [Action:function_id_1] error handling setting (on_error: 'abort')`
+                                    `Workflow is aborting due to [Action:function_id_1] error handling setting being set to abort on error`
                                 ),
                             ])
                         )

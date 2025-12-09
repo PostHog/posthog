@@ -204,7 +204,7 @@ export class HogFlowExecutorService {
                 logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Workflow is aborting due to [Action:${lastExecutedAction.id}] error handling setting (on_error: 'abort')`,
+                    message: `Workflow is aborting due to [Action:${lastExecutedAction.id}] error handling setting being set to abort on error`,
                 })
             }
         }
