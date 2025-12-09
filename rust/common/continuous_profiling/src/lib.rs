@@ -1,7 +1,21 @@
+use std::env;
+
 use envconfig::Envconfig;
 use pyroscope::pyroscope::PyroscopeAgentRunning;
 use pyroscope::PyroscopeAgent;
 use pyroscope_pprofrs::{pprof_backend, PprofConfig};
+
+/// K8s metadata environment variables for Pyroscope tags
+const K8S_TAG_ENV_VARS: &[(&str, &str)] = &[
+    ("namespace", "K8S_NAMESPACE"),
+    ("pod", "K8S_POD_NAME"),
+    ("node", "K8S_NODE_NAME"),
+    ("pod_template_hash", "K8S_POD_TEMPLATE_HASH"),
+    ("app_instance", "K8S_APP_INSTANCE"),
+    ("app", "K8S_APP"),
+    ("container", "K8S_CONTAINER_NAME"),
+    ("controller_type", "K8S_CONTROLLER_TYPE"),
+];
 
 #[derive(Envconfig, Clone, Debug)]
 pub struct ContinuousProfilingConfig {
@@ -20,6 +34,26 @@ pub struct ContinuousProfilingConfig {
 
 /// A running Pyroscope agent handle. Keep this alive for the duration of profiling.
 pub type RunningAgent = PyroscopeAgent<PyroscopeAgentRunning>;
+
+/// Collect K8s metadata tags from environment variables.
+fn collect_k8s_tags() -> Vec<(String, String)> {
+    let mut tags = vec![("src".to_string(), "SDK".to_string())];
+    for (tag_name, env_var) in K8S_TAG_ENV_VARS {
+        match env::var(env_var) {
+            Ok(value) if !value.is_empty() => {
+                tags.push(((*tag_name).to_string(), value));
+            }
+            _ => {
+                tracing::warn!(
+                    tag_name = %tag_name,
+                    env_var = %env_var,
+                    "K8s tag not set (env var is empty)"
+                );
+            }
+        }
+    }
+    tags
+}
 
 impl ContinuousProfilingConfig {
     /// Initialize continuous profiling if enabled.
@@ -47,22 +81,29 @@ impl ContinuousProfilingConfig {
             return Ok(None);
         }
 
+        let tags = collect_k8s_tags();
+
         tracing::info!(
             server_address = %self.pyroscope_server_address,
             app_name = %self.pyroscope_application_name,
             sample_rate = %self.pyroscope_sample_rate,
+            tags = ?tags,
             "Starting continuous profiling"
         );
 
-        let agent = PyroscopeAgent::builder(
+        let mut builder = PyroscopeAgent::builder(
             &self.pyroscope_server_address,
             &self.pyroscope_application_name,
         )
         .backend(pprof_backend(
             PprofConfig::new().sample_rate(self.pyroscope_sample_rate),
-        ))
-        .build()
-        .map_err(ContinuousProfilingError::Build)?;
+        ));
+
+        for (key, value) in &tags {
+            builder = builder.tags(vec![(key.as_str(), value.as_str())]);
+        }
+
+        let agent = builder.build().map_err(ContinuousProfilingError::Build)?;
 
         let agent = agent.start().map_err(ContinuousProfilingError::Start)?;
 
