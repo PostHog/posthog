@@ -8,7 +8,7 @@
     font-weight: 500;
     color: var(--color-foreground);
     text-align: left;
-    border: solid 1px var(--color-border);
+    border: solid 1px var(--color-border-strong);
     border-radius: var(--radius);
 
     &.LemonBanner--square {
@@ -17,22 +17,18 @@
 
     &.LemonBanner--info {
         background-color: var(--color-card);
-        border-color: var(--color-border);
     }
 
     &.LemonBanner--warning {
         background-color: var(--color-warning);
-        border-color: var(--color-warning-strong);
     }
 
     &.LemonBanner--error {
-        background-color: var(--color-bg-fill-error-secondary);
-        border-color: var(--color-border-error);
+        background-color: var(--color-destructive);
     }
 
     &.LemonBanner--success {
-        background-color: var(--color-bg-fill-success-secondary);
-        border-color: var(--color-border-success);
+        background-color: var(--color-success);
     }
 
     .LemonBanner__icon {

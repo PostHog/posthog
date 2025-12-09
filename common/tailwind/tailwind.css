@@ -402,20 +402,16 @@
         --color-accent-strong: color-mix(in oklab, var(--color-black) 8%, transparent);
 
         /* Success color for successful actions */
-        --color-success: var(--color-green-50);
+        --color-success: color-mix(in oklab, var(--color-green-500) 15%, transparent);
         --color-success-foreground: var(--color-green-700);
 
-        /* Info color for informative messages */
-        --color-info: var(--color-blue-50);
-        --color-info-foreground: var(--color-blue-950);
-
         /* Warning color for warnings and cautions */
-        --color-warning: var(--color-yellow-50);
+        --color-warning: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
         --color-warning-strong: var(--color-yellow-300);
         --color-warning-foreground: var(--color-yellow-700);
 
         /* Destructive color for errors and critical actions */
-        --color-destructive: color-mix(in oklab, var(--color-red-500) 15%, transparent);
+        --color-destructive: color-mix(in oklab, var(--color-red-500) 10%, transparent);
         --color-destructive-strong: var(--color-red-300);
         --color-destructive-foreground: var(--color-red-600);
 
@@ -423,7 +419,9 @@
         --color-border: var(--color-posthog-3000-200);
         --color-border-muted: var(--color-posthog-3000-100);
         --color-border-strong: var(--color-posthog-3000-300);
-        --color-border-destructive: var(--color-red-900);
+        --color-border-success: var(--color-green-500);
+        --color-border-warning: var(--color-yellow-500);
+        --color-border-destructive: var(--color-red-500);
 
         /* Shadows */
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
@@ -460,20 +458,13 @@
         --color-accent-strong: color-mix(in oklab, var(--color-white) 8%, transparent);
 
         /* Success color for successful actions */
-        --color-success: var(--color-green-50);
         --color-success-foreground: var(--color-green-700);
 
-        /* Info color for informative messages */
-        --color-info: var(--color-blue-50);
-        --color-info-foreground: var(--color-blue-950);
-
         /* Warning color for warnings and cautions */
-        --color-warning: var(--color-yellow-50);
-        --color-warning-strong: var(--color-yellow-300);
-        --color-warning-foreground: var(--color-yellow-700);
+        --color-warning-strong: var(--color-yellow-800);
+        --color-warning-foreground: var(--color-yellow-300);
 
         /* Destructive color for errors and critical actions */
-        --color-destructive: color-mix(in oklab, var(--color-red-500) 15%, transparent);
         --color-destructive-strong: var(--color-red-300);
         --color-destructive-foreground: var(--color-red-600);
 
@@ -481,6 +472,8 @@
         --color-border: var(--color-neutral-800);
         --color-border-muted: var(--color-posthog-3000-850);
         --color-border-strong: var(--color-neutral-700);
+        --color-border-success: var(--color-green-900);
+        --color-border-warning: var(--color-yellow-900);
         --color-border-destructive: var(--color-red-900);
 
         /* Shadows */
@@ -542,6 +535,8 @@
     --color-border: var(--color-border);
     --color-border-muted: var(--color-border-muted);
     --color-border-strong: var(--color-border-strong);
+    --color-border-success: var(--color-border-success);
+    --color-border-warning: var(--color-border-warning);
     --color-border-destructive: var(--color-border-destructive);
 
     /* Ring colors */

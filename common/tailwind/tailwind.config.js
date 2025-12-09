@@ -668,13 +668,12 @@ const config = {
             // },
             ringColor: {
                 // ...commonColors,
-
-                primary: 'var(--color-border-border)',
-                secondary: 'var(--color-card)',
-                info: 'var(--color-border-info)',
-                warning: 'var(--color-warning-strong)',
-                error: 'var(--color-border-error)',
-                success: 'var(--color-border-success)',
+                // primary: 'var(--color-border-border)',
+                // secondary: 'var(--color-card)',
+                // info: 'var(--color-border-info)',
+                // warning: 'var(--color-warning-strong)',
+                // error: 'var(--color-border-error)',
+                // success: 'var(--color-border-success)',
             },
             fontFamily: {
                 sans: [
