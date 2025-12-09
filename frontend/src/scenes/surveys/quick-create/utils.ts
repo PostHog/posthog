@@ -70,5 +70,55 @@ export const buildLogicProps = (context: QuickSurveyContext): Omit<QuickSurveyFo
                     linkedFlagId: context.experiment.feature_flag?.id,
                 },
             }
+
+        case QuickSurveyType.ANNOUNCEMENT:
+            return {
+                key: `announcement-quick-survey-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.SURVEY_FORM,
+                defaults: {
+                    questionType: SurveyQuestionType.Link,
+                    name: `Announcement (${randomId})`,
+                    question: 'Hog mode is now available!',
+                    description: 'You can never have too many hedgehogs.',
+                    buttonText: 'Check it out 👉',
+                },
+            }
+
+        case QuickSurveyType.ERROR_TRACKING:
+            return {
+                key: `error-tracking-${context.exceptionType}-${randomId}`,
+                contextType: context.type,
+                source: SURVEY_CREATED_SOURCE.ERROR_TRACKING,
+                defaults: {
+                    name: `${context.exceptionType} feedback (${randomId})`,
+                    question: 'Looks like we hit a snag - how disruptive was this?',
+                    questionType: SurveyQuestionType.Rating,
+                    scaleType: 'number',
+                    ratingLowerBound: 'Minor glitch',
+                    ratingUpperBound: "Can't continue",
+                    conditions: {
+                        actions: null,
+                        events: {
+                            values: [
+                                {
+                                    name: '$exception',
+                                    propertyFilters: {
+                                        $exception_types: { values: [context.exceptionType], operator: 'exact' },
+                                        ...(context.exceptionMessage
+                                            ? {
+                                                  $exception_values: {
+                                                      values: [context.exceptionMessage],
+                                                      operator: 'icontains',
+                                                  },
+                                              }
+                                            : {}),
+                                    },
+                                },
+                            ],
+                        },
+                    },
+                },
+            }
     }
 }

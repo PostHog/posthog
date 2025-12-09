@@ -1683,6 +1683,7 @@
                 "toolbarLaunch",
                 "webAnalytics",
                 "webAnalyticsWebVitals",
+                "webAnalyticsHealth",
                 "persons"
             ],
             "type": "string"
@@ -4666,6 +4667,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
                 },
                 "next_allowed_client_refresh": {
                     "format": "date-time",
@@ -10250,6 +10255,10 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "DataWarehouseSavedQueryOrigin": {
+            "enum": ["data_warehouse", "endpoint", "managed_viewset"],
+            "type": "string"
+        },
         "DataWarehouseSyncInterval": {
             "enum": ["5min", "30min", "1hour", "6hour", "12hour", "24hour", "7day", "30day"],
             "type": "string"
@@ -11153,6 +11162,12 @@
         },
         "EmptyPropertyFilter": {
             "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "const": "empty",
+                    "type": "string"
+                }
+            },
             "type": "object"
         },
         "EndpointLastExecutionTimesRequest": {
@@ -14505,6 +14520,7 @@
                 "revenue_analytics",
                 "revenue_analytics_metadata",
                 "marketing_settings",
+                "marketing_analytics",
                 "managed_viewsets",
                 "endpoints",
                 "sql_editor",
@@ -14551,7 +14567,9 @@
                 "apps",
                 "live",
                 "chat",
-                "search"
+                "search",
+                "folder",
+                "folder_open"
             ],
             "type": "string"
         },
@@ -17718,8 +17736,7 @@
                     "$ref": "#/definitions/PropertyOperator"
                 },
                 "type": {
-                    "const": "log",
-                    "type": "string"
+                    "$ref": "#/definitions/LogPropertyFilterType"
                 },
                 "value": {
                     "$ref": "#/definitions/PropertyFilterValue"
@@ -17728,6 +17745,10 @@
             "required": ["key", "operator", "type"],
             "type": "object"
         },
+        "LogPropertyFilterType": {
+            "enum": ["log", "log_attribute", "log_resource_attribute"],
+            "type": "string"
+        },
         "LogSeverityLevel": {
             "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
             "type": "string"
@@ -17735,6 +17756,10 @@
         "LogsQuery": {
             "additionalProperties": false,
             "properties": {
+                "after": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
@@ -17817,6 +17842,10 @@
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "nextCursor": {
+                    "description": "Cursor for fetching the next page of results",
+                    "type": "string"
                 },
                 "offset": {
                     "$ref": "#/definitions/integer"
@@ -20003,14 +20032,11 @@
         "PageURL": {
             "additionalProperties": false,
             "properties": {
-                "count": {
-                    "type": "number"
-                },
                 "url": {
                     "type": "string"
                 }
             },
-            "required": ["url", "count"],
+            "required": ["url"],
             "type": "object"
         },
         "PathCleaningFilter": {
@@ -20736,7 +20762,10 @@
                 "revenue_analytics",
                 "flag",
                 "log",
-                "workflow_variable"
+                "log_attribute",
+                "log_resource_attribute",
+                "workflow_variable",
+                "empty"
             ],
             "type": "string"
         },
@@ -24528,6 +24557,10 @@
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
                         },
+                        "nextCursor": {
+                            "description": "Cursor for fetching the next page of results",
+                            "type": "string"
+                        },
                         "offset": {
                             "$ref": "#/definitions/integer"
                         },
@@ -27783,6 +27816,10 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SlashCommandName": {
+            "enum": ["/init", "/remember", "/usage", "/feedback"],
+            "type": "string"
+        },
         "SourceConfig": {
             "additionalProperties": false,
             "properties": {
@@ -27831,6 +27868,9 @@
                 },
                 "name": {
                     "$ref": "#/definitions/ExternalDataSourceType"
+                },
+                "permissionsCaption": {
+                    "type": "string"
                 },
                 "suggestedTables": {
                     "default": [],
@@ -28919,14 +28959,17 @@
                 "notebooks",
                 "log_entries",
                 "error_tracking_issues",
+                "logs",
                 "log_attributes",
+                "log_resource_attributes",
                 "replay",
                 "revenue_analytics_properties",
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",
                 "max_ai_context",
-                "workflow_variables"
+                "workflow_variables",
+                "empty"
             ],
             "type": "string"
         },

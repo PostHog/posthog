@@ -78,9 +78,10 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     }
                 }
 
-                const isCurrency = tileColumnSelection
-                    ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
-                    : false
+                const isCurrency =
+                    tileColumnSelection && MARKETING_ANALYTICS_SCHEMA[tileColumnSelection]
+                        ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
+                        : false
 
                 const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
 

@@ -113,6 +113,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     # This can indicate, for example, attempting to compare two types that cannot be
     # compared.
     "UndefinedFunction",
+    # Unretryable error raised by S3 client when using `copy_into_redshift_activity_from_stage`.
+    "ClientError",
 )
 
 

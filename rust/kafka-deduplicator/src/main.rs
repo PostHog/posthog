@@ -57,7 +57,9 @@ pub async fn index() -> &'static str {
 /// Setup metrics recorder with optimized histogram buckets for kafka-deduplicator
 /// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
-    const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+    const BUCKETS: &[f64] = &[
+        0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0,
+    ];
     // similarity scores are all in the range [0.0, 1.0] so we want
     // granular bucket ranges for higher fidelity metrics
     const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
@@ -80,6 +82,11 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         100.0 * 1024.0 * 1024.0 * 1024.0,
     ];
 
+    // Buckets for counting unique items (UUIDs, timestamps)
+    const COUNT_BUCKETS: &[f64] = &[
+        1.0, 2.0, 5.0, 10.0, 50.0, 100.0, 500.0, 1000.0, 5000.0, 10000.0,
+    ];
+
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
         .unwrap()
@@ -96,6 +103,13 @@ fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Suffix("checkpoint_size_bytes".to_string()),
             CHECKPOINT_SIZE_BYTES_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(Matcher::Suffix("unique_uuids".to_string()), COUNT_BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("unique_timestamps".to_string()),
+            COUNT_BUCKETS,
         )
         .unwrap()
         .install_recorder()

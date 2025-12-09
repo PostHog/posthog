@@ -17,7 +17,7 @@ on:
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
-    cancel-in-progress: true
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -804,6 +804,8 @@ jobs:
                       || 'posthog products'
                   }} ${{ matrix.person-on-events && 'ee/clickhouse/' || 'ee/' }} -m "not async_migrations" \
                       --ignore=posthog/temporal \
+                      --ignore=posthog/dags \
+                      --ignore=products/**/dags \
                       --ignore=products/batch_exports/backend/tests/temporal \
                       --ignore=common/hogvm/python/test \
                       ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \

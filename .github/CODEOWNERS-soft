@@ -1,5 +1,77 @@
 # If a file is set here, then PRs will tag for the team's approval but will not block PRs.
 
+# Product Analytics - owned by @PostHog/team-product-analytics
+frontend/src/exporter/ @PostHog/team-product-analytics
+frontend/src/mocks/fixtures/api/projects/team_id/insights/ @PostHog/team-product-analytics
+frontend/src/models/ @PostHog/team-product-analytics
+frontend/src/queries/latest-versions.ts @PostHog/team-product-analytics
+frontend/src/scenes/activity/ @PostHog/team-product-analytics
+frontend/src/scenes/annotations/ @PostHog/team-product-analytics
+frontend/src/scenes/dashboard/ @PostHog/team-product-analytics
+frontend/src/scenes/funnels/ @PostHog/team-product-analytics
+frontend/src/scenes/insights/ @PostHog/team-product-analytics
+frontend/src/scenes/notebooks/AddInsightsToNotebookModal/ @PostHog/team-product-analytics
+frontend/src/scenes/paths/ @PostHog/team-product-analytics
+frontend/src/scenes/paths-v2/ @PostHog/team-product-analytics
+frontend/src/scenes/persons/ @PostHog/team-product-analytics
+frontend/src/scenes/persons-management/ @PostHog/team-product-analytics
+frontend/src/scenes/project-homepage/ @PostHog/team-product-analytics
+frontend/src/scenes/retention/ @PostHog/team-product-analytics
+frontend/src/scenes/saved-insights/ @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/ActivityLogSettings.tsx @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/DataColorThemeModal.tsx @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/dataColorThemesLogic.ts @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/filterTestAccountDefaultsLogic.ts @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/PathCleaningFiltersConfig.tsx @PostHog/team-product-analytics
+frontend/src/scenes/settings/environment/TestAccountFiltersConfig.tsx @PostHog/team-product-analytics
+frontend/src/scenes/trends/ @PostHog/team-product-analytics
+frontend/src/scenes/dataThemeLogic.tsx @PostHog/team-product-analytics
+funnel-udf/ @PostHog/team-product-analytics
+playwright/e2e/product-analytics/ @PostHog/team-product-analytics
+posthog/admin/admins/dashboard_admin.py @PostHog/team-product-analytics
+posthog/admin/admins/dashboard_template_admin.py @PostHog/team-product-analytics
+posthog/admin/admins/data_color_theme_admin.py @PostHog/team-product-analytics
+posthog/admin/admins/insight_admin.py @PostHog/team-product-analytics
+posthog/api/dashboards/ @PostHog/team-product-analytics
+posthog/api/annotation.py @PostHog/team-product-analytics
+posthog/api/data_color_theme.py @PostHog/team-product-analytics
+posthog/api/insight_serializers.py @PostHog/team-product-analytics
+posthog/api/insight_variable.py @PostHog/team-product-analytics
+posthog/api/insight.py @PostHog/team-product-analytics
+posthog/hogql_queries/insights/ @PostHog/team-product-analytics
+posthog/hogql_queries/legacy_compatibility/ @PostHog/team-product-analytics
+posthog/hogql_queries/test/test_actors_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/test/test_events_dashboard_filters.py @PostHog/team-product-analytics
+posthog/hogql_queries/test/test_events_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/test/test_events_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/utils/formula_ast.py @PostHog/team-product-analytics
+posthog/hogql_queries/utils/query_compare_to_date_range.py @PostHog/team-product-analytics
+posthog/hogql_queries/utils/query_date_range.py @PostHog/team-product-analytics
+posthog/hogql_queries/utils/query_previous_period_date_range.py @PostHog/team-product-analytics
+posthog/hogql_queries/utils/timestamp_utils.py @PostHog/team-product-analytics
+posthog/hogql_queries/actor_strategies.py @PostHog/team-product-analytics
+posthog/hogql_queries/actors_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/events_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/actor_strategies.py @PostHog/team-product-analytics
+posthog/hogql_queries/actors_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/apply_dashboard_filters.py @PostHog/team-product-analytics
+posthog/hogql_queries/events_query_runner.py @PostHog/team-product-analytics
+posthog/models/filters/ @PostHog/team-product-analytics
+posthog/models/annotation.py @PostHog/team-product-analytics
+posthog/models/dashboard_templates.py @PostHog/team-product-analytics
+posthog/models/dashboard_tile.py @PostHog/team-product-analytics
+posthog/models/dashboard.py @PostHog/team-product-analytics
+posthog/models/data_color_theme.py @PostHog/team-product-analytics
+posthog/models/insight_variable.py @PostHog/team-product-analytics
+posthog/models/insight.py @PostHog/team-product-analytics
+posthog/queries/ @PostHog/team-product-analytics
+posthog/schema_migrations/ @PostHog/team-product-analytics
+posthog/schema_helpers.py @PostHog/team-product-analytics
+posthog/udf_versioner.py @PostHog/team-product-analytics
+posthog/user_scripts/ @PostHog/team-product-analytics
+products/product_analytics/ @PostHog/team-product-analytics
+products/dashboards/ @PostHog/team-product-analytics
+
 # Surveys - owned by @PostHog/team-surveys
 frontend/src/scenes/settings/environment/SurveySettings.tsx @PostHog/team-surveys
 frontend/src/scenes/surveys/ @PostHog/team-surveys
@@ -29,10 +101,9 @@ posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 plugin-server/src/ingestion/cookieless/** @PostHog/team-web-analytics
-dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Analytics Platform - owned by @PostHog/team-analytics-platform
-dags/locations/analytics_platform.py @PostHog/team-analytics-platform
+posthog/dags/locations/analytics_platform.py @PostHog/team-analytics-platform
 ee/tasks/subscriptions/** @PostHog/team-analytics-platform
 frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
 posthog/api/schema_property_group.py @PostHog/team-analytics-platform

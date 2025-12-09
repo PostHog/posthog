@@ -81,7 +81,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormComponent } from './messages/MultiQuestionForm'
 import { RecordingsWidget, UIPayloadAnswer } from './messages/UIPayloadAnswer'
-import { MAX_SLASH_COMMANDS } from './slash-commands'
+import { MAX_SLASH_COMMANDS, SlashCommandName } from './slash-commands'
 import { useFeedback } from './useFeedback'
 import {
     castAssistantQuery,
@@ -127,6 +127,14 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         const isLastInGroup =
                             !nextMessage || (message.type === 'human') !== (nextMessage.type === 'human')
 
+                        // Hiding rating buttons after /feedback command output
+                        const prevMessage = threadGrouped[index - 1]
+                        const isFeedbackCommandResponse =
+                            message.type !== 'human' &&
+                            prevMessage?.type === 'human' &&
+                            'content' in prevMessage &&
+                            prevMessage.content.startsWith(SlashCommandName.SlashFeedback)
+
                         return (
                             <Message
                                 key={`${conversationId}-${index}`}
@@ -135,6 +143,7 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                 isLastInGroup={isLastInGroup}
                                 isFinal={index === threadGrouped.length - 1}
                                 streamingActive={streamingActive}
+                                isFeedbackCommandResponse={isFeedbackCommandResponse}
                             />
                         )
                     })}
@@ -201,9 +210,16 @@ interface MessageProps {
     isLastInGroup: boolean
     isFinal: boolean
     streamingActive: boolean
+    isFeedbackCommandResponse?: boolean
 }
 
-function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps): JSX.Element {
+function Message({
+    message,
+    nextMessage,
+    isLastInGroup,
+    isFinal,
+    isFeedbackCommandResponse,
+}: MessageProps): JSX.Element {
     const { editInsightToolRegistered, registeredToolMap } = useValues(maxGlobalLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { threadLoading, isSharedThread } = useValues(maxThreadLogic)
@@ -363,7 +379,14 @@ function Message({ message, nextMessage, isLastInGroup, isFinal }: MessageProps)
                                 }
 
                                 // Show answer actions if the assistant's response is complete at this point
-                                return <SuccessActions key={`${key}-actions`} retriable={retriable} />
+                                // For feedback command responses, only show the trace button (hide rating/retry)
+                                return (
+                                    <SuccessActions
+                                        key={`${key}-actions`}
+                                        retriable={retriable}
+                                        hideRatingAndRetry={isFeedbackCommandResponse}
+                                    />
+                                )
                             }
 
                             return null
@@ -1236,7 +1259,13 @@ function RetriableFailureActions(): JSX.Element {
     )
 }
 
-function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
+function SuccessActions({
+    retriable,
+    hideRatingAndRetry,
+}: {
+    retriable: boolean
+    hideRatingAndRetry?: boolean
+}): JSX.Element {
     const { traceId } = useValues(maxThreadLogic)
     const { retryLastMessage } = useActions(maxThreadLogic)
     const { user } = useValues(userLogic)
@@ -1268,7 +1297,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
     return (
         <>
             <div className="flex items-center ml-1">
-                {rating !== 'bad' && (
+                {!hideRatingAndRetry && rating !== 'bad' && (
                     <LemonButton
                         icon={rating === 'good' ? <IconThumbsUpFilled /> : <IconThumbsUp />}
                         type="tertiary"
@@ -1277,7 +1306,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('good')}
                     />
                 )}
-                {rating !== 'good' && (
+                {!hideRatingAndRetry && rating !== 'good' && (
                     <LemonButton
                         icon={rating === 'bad' ? <IconThumbsDownFilled /> : <IconThumbsDown />}
                         type="tertiary"
@@ -1286,7 +1315,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                         onClick={() => submitRating('bad')}
                     />
                 )}
-                {retriable && (
+                {!hideRatingAndRetry && retriable && (
                     <LemonButton
                         icon={<IconRefresh />}
                         type="tertiary"
@@ -1305,7 +1334,7 @@ function SuccessActions({ retriable }: { retriable: boolean }): JSX.Element {
                     />
                 )}
             </div>
-            {feedbackInputStatus !== 'hidden' && (
+            {!hideRatingAndRetry && feedbackInputStatus !== 'hidden' && (
                 <MessageTemplate type="ai">
                     <div className="flex items-center gap-1">
                         <h4 className="m-0 text-sm grow">

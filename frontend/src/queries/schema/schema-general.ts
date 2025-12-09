@@ -2604,6 +2604,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     filterGroup: PropertyGroupFilter
     serviceNames: string[]
     liveLogsCheckpoint?: string
+    /** Cursor for fetching the next page of results */
+    after?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2612,6 +2614,8 @@ export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
     limit?: integer
     offset?: integer
     columns?: string[]
+    /** Cursor for fetching the next page of results */
+    nextCursor?: string
 }
 
 export interface SessionEventsItem {
@@ -2698,6 +2702,7 @@ export type FileSystemIconType =
     | 'revenue_analytics'
     | 'revenue_analytics_metadata'
     | 'marketing_settings'
+    | 'marketing_analytics'
     | 'managed_viewsets'
     | 'endpoints'
     | 'sql_editor'
@@ -2745,6 +2750,8 @@ export type FileSystemIconType =
     | 'live'
     | 'chat'
     | 'search'
+    | 'folder'
+    | 'folder_open'
 
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
@@ -3432,6 +3439,12 @@ export enum DatabaseSchemaManagedViewTableKind {
     REVENUE_ANALYTICS_SUBSCRIPTION = 'revenue_analytics_subscription',
 }
 
+export enum DataWarehouseSavedQueryOrigin {
+    DATA_WAREHOUSE = 'data_warehouse',
+    ENDPOINT = 'endpoint',
+    MANAGED_VIEWSET = 'managed_viewset',
+}
+
 export interface DatabaseSchemaManagedViewTable extends DatabaseSchemaTableCommon {
     query: HogQLQuery
     type: 'managed_view'
@@ -4116,7 +4129,6 @@ export interface RevenueAnalyticsConfig {
 
 export interface PageURL {
     url: string
-    count: number
 }
 
 export interface WebPageURLSearchQuery extends WebAnalyticsQueryBase<WebPageURLSearchQueryResponse> {
@@ -4496,6 +4508,7 @@ export interface SourceConfig {
     label?: string
     docsUrl?: string
     caption?: string | any
+    permissionsCaption?: string
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean

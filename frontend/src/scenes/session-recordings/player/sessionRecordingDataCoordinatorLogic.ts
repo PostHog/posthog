@@ -180,8 +180,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         processSnapshotsAsync: async (_, breakpoint) => {
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
-            const decompressionMode = values.featureFlags[FEATURE_FLAGS.REPLAY_CLIENT_SIDE_DECOMPRESSION]
-            const enableYielding = decompressionMode === 'yielding' || decompressionMode === 'worker_and_yielding'
+            const processingMode = values.featureFlags[FEATURE_FLAGS.REPLAY_YIELDING_PROCESSING]
+            const enableYielding = processingMode === 'yielding' || processingMode === 'worker_and_yielding'
             const discardRawSnapshots = !!values.featureFlags[FEATURE_FLAGS.REPLAY_DISCARD_RAW_SNAPSHOTS]
 
             const result = await processAllSnapshots(

@@ -50,8 +50,8 @@ jobs:
               with:
                   filters: |
                       dagster:
-                        - 'dags/**'
-                        # Dagster depends on Python, so ensure we run on possible changes to it
+                        - 'posthog/dags/**'
+                        # Dagster depends on Python, so ensure we run on any possible changes to it
                         - 'posthog/**/*'
                         - 'ee/**/*'
                         - 'products/**/*'
@@ -150,7 +150,11 @@ jobs:
 
             - name: Run Dagster tests
               run: |
-                  pytest dags
+                  pytest posthog/dags
+
+            - name: Run products Dagster tests
+              run: |
+                  pytest products/**/dags
 
     # Job just to collate the status of the matrix jobs for requiring passing status
     dagster_tests:
