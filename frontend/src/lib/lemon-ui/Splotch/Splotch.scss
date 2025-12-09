@@ -10,23 +10,23 @@
     border-radius: var(--radius);
 
     .Splotch--blue & {
-        background: var(--blue);
+        background: var(--splotch-blue);
     }
 
     .Splotch--purple & {
-        background: var(--purple);
+        background: var(--splotch-purple);
     }
 
     .Splotch--green & {
-        background: var(--green);
+        background: var(--splotch-green);
     }
 
     .Splotch--black & {
-        background: var(--black);
+        background: var(--splotch-black);
     }
 
     .Splotch--white & {
-        background: #fff;
+        background: var(--color-white);
         border: 1px solid var(--color-border);
     }
 }

@@ -430,28 +430,10 @@
     ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
 
     // Dashboard item colors
-    --blue: #597dce;
-    --purple: #c278cf;
-    --green: var(--color-success-foreground);
-    --black: var(--color-foreground);
-
-    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
-    // --data-color-1: #1d4aff;
-    // --data-color-1-hover: #1a3cf6;
-    // --data-color-2: #621da6;
-    // --data-color-3: #42827e;
-    // --data-color-4: #ce0e74;
-    // --data-color-5: #f14f58;
-    // --data-color-6: #7c440e;
-    // --data-color-7: #529a0a;
-    // --data-color-8: #0476fb;
-    // --data-color-9: #fe729e;
-    // --data-color-10: #35416b;
-    // --data-color-11: #41cbc4;
-    // --data-color-12: #b64b02;
-    // --data-color-13: #e4a604;
-    // --data-color-14: #a56eff;
-    // --data-color-15: #30d5c8;
+    --splotch-blue: #597dce;
+    --splotch-purple: #c278cf;
+    --splotch-green: var(--color-success-foreground);
+    --splotch-black: var(--color-foreground);
 
     // Lifecycle series (compiled)
     --color-lifecycle-new: #1d4aff;
@@ -521,44 +503,14 @@
     // The space the panel is from the left edge of the screen on mobile
     --panel-layout-mobile-offset: 40px;
 
-    // Toasts
+    // Toasts sizes
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
-    --toastify-color-dark: var(--color-accent-3000-dark);
-    --toastify-color-light: var(--color-card);
-    --toastify-color-info: var(--color-blue-500);
-    --toastify-color-success: var(--color-success-foreground);
-    --toastify-color-warning: var(--color-warning-foreground);
-    --toastify-color-error: var(--color-destructive-foreground);
-    --toastify-color-progress-info: var(--toastify-color-info);
-    --toastify-color-progress-success: var(--toastify-color-success);
-    --toastify-color-progress-warning: var(--toastify-color-warning);
-    --toastify-color-progress-error: var(--toastify-color-error);
-    --toastify-toast-background: var(--color-card);
+    // More toast styles can be found in tailwind.css
     --toastify-toast-width: 26rem;
     --toastify-toast-min-height: 3.5rem;
     --toastify-toast-max-height: 16rem;
-    --toastify-text-color-light: #757575;
-
-    // In-app prompts
-    --in-app-prompts-width: 26rem;
-    --lettermark-1-bg: #dcb1e3;
-    --lettermark-1-text: #572e5e;
-    --lettermark-2-bg: #ffc4b2;
-    --lettermark-2-text: #3e5891;
-    --lettermark-3-bg: #b1985d;
-    --lettermark-3-text: #3e5891;
-    --lettermark-4-bg: #3e5891;
-    --lettermark-4-text: #ffc4b2;
-    --lettermark-5-bg: #8da9e7;
-    --lettermark-5-text: #572e5e;
-    --lettermark-6-bg: #572e5e;
-    --lettermark-6-text: #dcb1e3;
-    --lettermark-7-bg: #ffc035;
-    --lettermark-7-text: #35416b;
-    --lettermark-8-bg: #ff906e;
-    --lettermark-8-text: #2a3d65;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
@@ -1355,7 +1307,7 @@
         font-family: var(--font-sans);
         font-size: 1rem;
         cursor: unset;
-        border: 1px solid var(--secondary-3000-button-border);
+        border: 1px solid var(--color-border);
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
         opacity: 1 !important;

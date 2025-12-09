@@ -443,26 +443,46 @@
         /* Scrollbar colors */
         --color-scrollbar-thumb: var(--xcolor-neutral-300);
         --color-scrollbar-thumb-hover: var(--color-neutral-400);
+
+        /* Toasts colors
+            Update and override from react-toastify
+            which attaches these variables to :root
+            which means they aren't available in the toolbar 
+
+            More toast styles can be found in base.scss
+        */
+        --toastify-color-dark: var(--color-card);
+        --toastify-color-light: var(--color-card);
+        --toastify-color-info: var(--color-blue-500);
+        --toastify-color-success: var(--color-success-foreground);
+        --toastify-color-warning: var(--color-warning-foreground);
+        --toastify-color-error: var(--color-destructive-foreground);
+        --toastify-color-progress-info: var(--toastify-color-info);
+        --toastify-color-progress-success: var(--toastify-color-success);
+        --toastify-color-progress-warning: var(--toastify-color-warning);
+        --toastify-color-progress-error: var(--toastify-color-error);
+        --toastify-toast-background: var(--color-card);
+        --toastify-text-color-light: #757575;
     }
 
     body[theme='dark'] {
-        /* Main application background and foreground */
+        /* [dark] Main application background and foreground */
         --color-background: var(--color-neutral-950);
         --color-foreground: var(--color-neutral-100);
         --color-foreground-inverse: var(--color-neutral-900);
 
-        /* Card background and foreground */
+        /* [dark] Card background and foreground */
         --color-card: var(--color-neutral-875);
         --color-card-foreground: var(--color-neutral-100);
 
-        /* Brand color for primary actions (buttons, highlights) */
+        /* [dark] Brand color for primary actions (buttons, highlights) */
         --color-primary: hsl(
             var(--color-brand-primary-hue),
             var(--color-brand-primary-saturation),
             var(--color-brand-primary-lightness)
         );
 
-        /* Brand color for subtle highlights (tags, pills) */
+        /* [dark] Brand color for subtle highlights (tags, pills) */
         --color-primary-muted: hsla(
             var(--color-brand-primary-hue),
             var(--color-brand-primary-saturation),
@@ -470,26 +490,26 @@
             10%
         );
 
-        /* Subdued background for less important elements */
+        /* [dark] Subdued background for less important elements */
         --color-muted: var(--color-neutral-910);
         --color-muted-foreground: var(--color-neutral-200);
 
-        /* Highlight color for active or focused elements */
+        /* [dark] Highlight color for active or focused elements */
         --color-accent: color-mix(in oklab, var(--color-white) 5%, transparent);
         --color-accent-strong: color-mix(in oklab, var(--color-white) 8%, transparent);
 
-        /* Success color for successful actions */
+        /* [dark] Success color for successful actions */
         --color-success-foreground: var(--color-green-700);
 
-        /* Warning color for warnings and cautions */
+        /* [dark] Warning color for warnings and cautions */
         --color-warning-strong: var(--color-yellow-800);
         --color-warning-foreground: var(--color-yellow-300);
 
-        /* Destructive color for errors and critical actions */
+        /* [dark] Destructive color for errors and critical actions */
         --color-destructive-strong: var(--color-red-300);
         --color-destructive-foreground: var(--color-red-600);
 
-        /* Border colors */
+        /* [dark] Border colors */
         --color-border: var(--color-neutral-800);
         --color-border-primary-muted: hsla(
             var(--color-brand-primary-hue),
@@ -503,12 +523,31 @@
         --color-border-warning: var(--color-yellow-900);
         --color-border-destructive: var(--color-red-900);
 
-        /* Shadows */
+        /* [dark] Shadows */
         --shadow-elevation-3000: 0 3px 0 var(--color-border-strong);
 
-        /* Scrollbar colors */
+        /* [dark] Scrollbar colors */
         --color-scrollbar-thumb: var(--color-neutral-700);
         --color-scrollbar-thumb-hover: var(--color-neutral-600);
+
+        /* [dark] Toasts colors
+            Update and override from react-toastify
+            which attaches these variables to :root
+            which means they aren't available in the toolbar 
+
+            More toast styles can be found in base.scss
+        */
+        --toastify-color-dark: var(--color-card);
+        --toastify-color-light: var(--color-card);
+        --toastify-color-info: var(--color-blue-500);
+        --toastify-color-success: var(--color-success-foreground);
+        --toastify-color-warning: var(--color-warning-foreground);
+        --toastify-color-error: var(--color-destructive-foreground);
+        --toastify-color-progress-info: var(--toastify-color-info);
+        --toastify-color-progress-success: var(--toastify-color-success);
+        --toastify-color-progress-warning: var(--toastify-color-warning);
+        --toastify-color-progress-error: var(--toastify-color-error);
+        --toastify-toast-background: var(--color-card);
     }
 }
 
