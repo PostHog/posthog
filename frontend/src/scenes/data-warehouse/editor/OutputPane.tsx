@@ -57,6 +57,7 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import { copyTableToCsv, copyTableToExcel, copyTableToJson } from '../../../queries/nodes/DataTable/clipboardUtils'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
+import { directQueryLogic } from './directQueryLogic'
 import { multitabEditorLogic } from './multitabEditorLogic'
 import { Endpoint } from './output-pane-tabs/Endpoint'
 import { QueryInfo } from './output-pane-tabs/QueryInfo'
@@ -300,15 +301,41 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
-        responseLoading,
-        responseError,
+        responseLoading: hogqlResponseLoading,
+        responseError: hogqlResponseError,
         queryId,
         pollResponse,
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = dataNodeResponse as HogQLQueryResponse | undefined
+    // Direct query support
+    const { isDirectQueryMode, queryResult, queryResultLoading } = useValues(directQueryLogic)
+
+    // Transform direct query result to match HogQL format for rendering
+    const directQueryResponse: HogQLQueryResponse | undefined = useMemo(() => {
+        if (!isDirectQueryMode || !queryResult) {
+            return undefined
+        }
+        // Transform rows from Record<string, any>[] to any[][]
+        const results = queryResult.rows.map((row: Record<string, any>) =>
+            queryResult.columns.map((col: string) => row[col])
+        )
+        return {
+            columns: queryResult.columns,
+            results,
+            types: queryResult.columns.map((col: string) => [col, 'String']), // Default type for now
+            hasMore: false,
+            limit: queryResult.row_count,
+            offset: 0,
+            hogql: '',
+            timings: [{ k: 'query', t: queryResult.execution_time_ms / 1000 }],
+        } as HogQLQueryResponse
+    }, [isDirectQueryMode, queryResult])
+
+    const responseLoading = isDirectQueryMode ? queryResultLoading : hogqlResponseLoading
+    const responseError = isDirectQueryMode ? (queryResult?.error ?? null) : hogqlResponseError
+    const response = isDirectQueryMode ? directQueryResponse : (dataNodeResponse as HogQLQueryResponse | undefined)
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
