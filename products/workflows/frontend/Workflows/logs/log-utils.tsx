@@ -11,7 +11,7 @@ import { HogFlow } from '../hogflows/types'
 const RICH_LOG_REGEX = /(\[[a-zA-Z0-9_-]+:.*\])/
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
-const PERSON_REGREX = /\[Person:([a-zA-Z0-9_-]+)\|(.*)\]/
+const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
