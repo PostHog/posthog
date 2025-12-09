@@ -31,7 +31,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
 
     return (
         <div
-            className={clsx('StepBar ', !showPersonsModal && 'StepBar__unclickable')}
+            className={clsx('StepBar', !showPersonsModal && 'StepBar__unclickable')}
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {

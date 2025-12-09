@@ -1,58 +1,56 @@
-/* stylelint-disable order/order */
-@layer base {
-    @import '../../styles/screen-sizes';
+@import '../../styles/mixins';
+@import '../../styles/vars';
 
-    .saved-insights {
-        .new-insight-dropdown-btn {
-            height: 40px;
-            padding: 8px 12px 8px 16px;
-            color: white;
-            cursor: pointer;
-            background-color: var(--color-accent);
-            border: 1px solid var(--color-border-primary);
-            border-radius: var(--radius);
-        }
-
-        .saved-insight-empty-state {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-align: center;
-        }
+.saved-insights {
+    .new-insight-dropdown-btn {
+        height: 40px;
+        padding: 8px 12px 8px 16px;
+        color: white;
+        cursor: pointer;
+        background-color: var(--color-accent);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
     }
 
-    .new-insight-overlay {
-        width: 21rem;
-    }
-
-    .insight-type-icon-wrapper {
+    .saved-insight-empty-state {
         display: flex;
         align-items: center;
+        justify-content: center;
+        text-align: center;
+    }
+}
 
-        .icon-container {
-            position: relative;
-            width: 22px;
-            height: 22px;
-            margin-right: 8px;
+.new-insight-overlay {
+    width: 21rem;
+}
 
-            .icon-container-inner {
-                margin-left: -2px;
-                font-size: 22px;
-            }
+.insight-type-icon-wrapper {
+    display: flex;
+    align-items: center;
+
+    .icon-container {
+        position: relative;
+        width: 22px;
+        height: 22px;
+        margin-right: 8px;
+
+        .icon-container-inner {
+            margin-left: -2px;
+            font-size: 22px;
         }
     }
+}
 
-    .saved-insights-grid {
-        position: relative;
-        display: grid;
-        grid-gap: 1rem;
+.saved-insights-grid {
+    position: relative;
+    display: grid;
+    grid-gap: 1rem;
 
-        @media screen and (min-width: $xl) {
-            grid-template-columns: repeat(2, 1fr);
-        }
+    @include screen($xl) {
+        grid-template-columns: repeat(2, 1fr);
+    }
 
-        @media screen and (min-width: $xxl) {
-            grid-template-columns: repeat(3, 1fr);
-        }
+    @include screen($xxl) {
+        grid-template-columns: repeat(3, 1fr);
     }
 }

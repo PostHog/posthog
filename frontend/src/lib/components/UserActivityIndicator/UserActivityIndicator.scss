@@ -1,8 +1,6 @@
-@layer base {
-    .UserActivityIndicator {
-        display: flex;
-        align-items: center;
-        font-size: 0.75rem;
-        white-space: nowrap;
-    }
+.UserActivityIndicator {
+    display: flex;
+    align-items: center;
+    font-size: 0.75rem;
+    white-space: nowrap;
 }
