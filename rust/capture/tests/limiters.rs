@@ -130,6 +130,7 @@ async fn setup_router_with_limits(
         TokenDropper::default(),
         false, // metrics
         CaptureMode::Events,
+        String::from("capture"),
         None,        // concurrency_limit
         1024 * 1024, // event_size_limit
         false,       // enable_historical_rerouting
@@ -1129,6 +1130,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1205,6 +1207,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1285,6 +1288,7 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
@@ -1702,6 +1706,7 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         TokenDropper::default(),
         false,
         CaptureMode::Events,
+        String::from("capture"),
         None,
         1024 * 1024,
         false,
