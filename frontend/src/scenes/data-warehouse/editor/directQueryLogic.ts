@@ -89,14 +89,20 @@ export const directQueryLogic = kea<directQueryLogicType>([
                     const source = values.sources.find((s: DirectQuerySource) => s.id === sourceId)
                     let transformedSql = sql
 
-                    // Strip the prefix from table names in the SQL
-                    // Tables are referenced as "prefix.table_name" or "source_type.table_name" in HogQL
+                    // Strip HogQL table path prefixes from the SQL
+                    // Tables are referenced as "source_type.prefix.table_name" or "source_type.table_name" in HogQL
                     // but need to be just "table_name" for the external database
-                    // When prefix is empty, HogQL uses source_type.toLowerCase() as the prefix
-                    const prefixToStrip = source?.prefix || source?.source_type?.toLowerCase()
-                    if (prefixToStrip) {
-                        const prefixPattern = new RegExp(`\\b${prefixToStrip}\\.`, 'gi')
-                        transformedSql = sql.replace(prefixPattern, '')
+                    if (source) {
+                        const sourceType = source.source_type.toLowerCase()
+                        if (source.prefix) {
+                            // Strip "source_type.prefix." (e.g., "postgres.northwind.")
+                            const fullPrefixPattern = new RegExp(`\\b${sourceType}\\.${source.prefix}\\.`, 'gi')
+                            transformedSql = transformedSql.replace(fullPrefixPattern, '')
+                        } else {
+                            // Strip "source_type." (e.g., "postgres.")
+                            const sourceTypePattern = new RegExp(`\\b${sourceType}\\.`, 'gi')
+                            transformedSql = transformedSql.replace(sourceTypePattern, '')
+                        }
                     }
 
                     // Use the unified /query/ endpoint with DirectQuery kind

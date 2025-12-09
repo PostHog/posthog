@@ -517,8 +517,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 tables_created = []
                 for table_name, columns in schema_info.tables.items():
-                    # Build table name with prefix
-                    full_table_name = f"{prefix}{table_name}" if prefix else table_name
+                    # For query_only sources, don't bake prefix into table name
+                    # The prefix is used for HogQL namespace routing (e.g., postgres.northwind.orders)
+                    # but the actual table name should match the external DB (e.g., orders)
+                    full_table_name = table_name
 
                     # Build columns dict with type mapping
                     columns_dict = {}
