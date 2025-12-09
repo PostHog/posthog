@@ -7,6 +7,10 @@ on:
     pull_request:
     merge_group:
 
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -56,13 +60,6 @@ jobs:
         runs-on: depot-ubuntu-latest
 
         steps:
-            # If this run wasn't initiated by the bot (meaning: snapshot update) and we've determined
-            # there are backend changes, cancel previous runs
-            - uses: n1hility/cancel-previous-runs@e709d8e41b16d5d0b8d529d293c5e126c57dc022 # v3
-              if: github.actor != 'posthog-bot'
-              with:
-                  token: ${{ secrets.GITHUB_TOKEN }}
-
             - uses: actions/checkout@v4
               with:
                   fetch-depth: 1

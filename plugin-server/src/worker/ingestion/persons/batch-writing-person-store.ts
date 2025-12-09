@@ -477,6 +477,90 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         return fetchPromise
     }
 
+    async prefetchPersons(teamDistinctIds: { teamId: number; distinctId: string }[]): Promise<void> {
+        if (teamDistinctIds.length === 0) {
+            return
+        }
+
+        // Filter out entries that are already cached or have pending fetches
+        const uncachedEntries: { teamId: number; distinctId: string; cacheKey: string }[] = []
+
+        for (const { teamId, distinctId } of teamDistinctIds) {
+            // Check if already in update cache
+            const cachedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+            if (cachedPerson !== undefined) {
+                continue
+            }
+
+            // Check if already in check cache
+            const checkCachedPerson = this.getCheckCachedPerson(teamId, distinctId)
+            if (checkCachedPerson !== undefined) {
+                continue
+            }
+
+            // Check if there's already a pending fetch
+            const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+            if (this.fetchPromisesForChecking.has(cacheKey) || this.fetchPromisesForUpdate.has(cacheKey)) {
+                continue
+            }
+
+            uncachedEntries.push({ teamId, distinctId, cacheKey })
+        }
+
+        if (uncachedEntries.length === 0) {
+            return
+        }
+
+        // Create a shared promise for the batch fetch that populates caches when complete
+        // Use primary (useReadReplica=false) to ensure fresh data for updates
+        const batchFetchPromise = this.personRepository
+            .fetchPersonsByDistinctIds(
+                uncachedEntries.map(({ teamId, distinctId }) => ({ teamId, distinctId })),
+                false
+            )
+            .then((persons) => {
+                // Build a map of cacheKey -> person for quick lookup
+                // Strip distinct_id since InternalPerson doesn't have it
+                const personsByKey = new Map<string, InternalPerson>()
+                for (const person of persons) {
+                    const cacheKey = this.getDistinctCacheKey(person.team_id, person.distinct_id)
+                    const { distinct_id: _, ...internalPerson } = person
+                    personsByKey.set(cacheKey, internalPerson)
+                }
+
+                // Cache all results (found persons and nulls for missing ones)
+                for (const { teamId, distinctId, cacheKey } of uncachedEntries) {
+                    const person = personsByKey.get(cacheKey)
+                    if (person) {
+                        this.setCheckCachedPerson(teamId, distinctId, person)
+                        const personUpdate = fromInternalPerson(person, distinctId)
+                        this.setCachedPersonForUpdate(teamId, distinctId, personUpdate)
+                    } else {
+                        this.setCheckCachedPerson(teamId, distinctId, null)
+                    }
+                }
+
+                return personsByKey
+            })
+            .finally(() => {
+                // Clean up the promises after completion
+                for (const { cacheKey } of uncachedEntries) {
+                    this.fetchPromisesForChecking.delete(cacheKey)
+                }
+            })
+
+        // Register per-key promises so fetchForChecking/fetchForUpdate will wait on them
+        for (const { cacheKey } of uncachedEntries) {
+            const keyPromise = batchFetchPromise.then((personsByKey) => {
+                return personsByKey.get(cacheKey) ?? null
+            })
+            this.fetchPromisesForChecking.set(cacheKey, keyPromise)
+        }
+
+        // Await the batch fetch so callers who await prefetchPersons() get blocking behavior
+        await batchFetchPromise
+    }
+
     async fetchForUpdate(teamId: Team['id'], distinctId: string): Promise<InternalPerson | null> {
         this.incrementCount('fetchForUpdate', distinctId)
 
@@ -486,6 +570,18 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
         }
 
         const cacheKey = this.getDistinctCacheKey(teamId, distinctId)
+
+        // Check if there's a pending prefetch for this key - if so, wait for it to complete
+        // and then return from cache (prefetch populates both caches)
+        const prefetchPromise = this.fetchPromisesForChecking.get(cacheKey)
+        if (prefetchPromise) {
+            await prefetchPromise
+            const prefetchedPerson = this.getCachedPersonForUpdateByDistinctId(teamId, distinctId)
+            if (prefetchedPerson !== undefined) {
+                return prefetchedPerson === null ? null : toInternalPerson(prefetchedPerson)
+            }
+        }
+
         let fetchPromise = this.fetchPromisesForUpdate.get(cacheKey)
         if (!fetchPromise) {
             personFetchForUpdateCacheOperationsCounter.inc({ operation: 'miss' })

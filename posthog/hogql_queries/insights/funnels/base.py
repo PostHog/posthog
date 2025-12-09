@@ -8,7 +8,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
-    BreakdownAttributionType,
     BreakdownType,
     DataWarehouseNode,
     EventsNode,
@@ -140,7 +139,7 @@ class FunnelBase(ABC):
     # arrayRotateRight turns [1,2,3] into [3,1,2]
     # arrayRotateLeft turns [1,2,3] into [2,3,1]
     # For some reason, using these uses much less memory than using indexing in clickhouse to check the previous and next element
-    def _udf_event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
+    def event_array_filter(self, timestamp_index: int, prop_val_index: int, steps_index: int):
         return f"""arrayFilter(
                     (x, x_before, x_after) -> not (
                         length(x.{steps_index}) <= 1
@@ -313,7 +312,7 @@ class FunnelBase(ABC):
 
     # This version of the inner event query modifies how exclusions are returned to
     # make them behave more like steps. It returns a boolean "exclusion_{0..n}" for each event
-    def _get_inner_event_query_for_udf(
+    def _get_inner_event_query(
         self,
         skip_entity_filter=False,
         skip_step_filter=False,
@@ -372,50 +371,6 @@ class FunnelBase(ABC):
                 constraint_type="ON",
             ),
         )
-
-    def _add_breakdown_attribution_subquery(self, inner_query: ast.SelectQuery) -> ast.SelectQuery:
-        breakdown, breakdownAttributionType = (
-            self.context.breakdown,
-            self.context.breakdownAttributionType,
-        )
-
-        if breakdownAttributionType in [
-            BreakdownAttributionType.FIRST_TOUCH,
-            BreakdownAttributionType.LAST_TOUCH,
-        ]:
-            # When breaking down by first/last touch, each person can only have one prop value
-            # so just select that. Except for the empty case, where we select the default.
-
-            if self._query_has_array_breakdown():
-                assert isinstance(breakdown, list)
-                default_breakdown_value = f"""[{','.join(["''" for _ in range(len(breakdown or []))])}]"""
-                # default is [''] when dealing with a single breakdown array, otherwise ['', '', ...., '']
-                breakdown_selector = parse_expr(
-                    f"if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, {default_breakdown_value})"
-                )
-            else:
-                breakdown_selector = ast.Field(chain=["prop_vals"])
-
-            return ast.SelectQuery(
-                select=[ast.Field(chain=["*"]), ast.Alias(alias="prop", expr=breakdown_selector)],
-                select_from=ast.JoinExpr(table=inner_query),
-            )
-
-        # When breaking down by specific step, each person can have multiple prop values
-        # so array join those to each event
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=["*"]), ast.Field(chain=["prop"])],
-            select_from=ast.JoinExpr(table=inner_query),
-            array_join_op="ARRAY JOIN",
-            array_join_list=[ast.Alias(alias="prop", expr=ast.Field(chain=["prop_vals"]))],
-        )
-
-        if self._query_has_array_breakdown():
-            query.where = ast.CompareOperation(
-                left=ast.Field(chain=["prop"]), right=ast.Array(exprs=[]), op=ast.CompareOperationOp.NotEq
-            )
-
-        return query
 
     def get_breakdown_limit(self):
         return self.context.breakdownFilter.breakdown_limit or get_breakdown_limit_for_context(

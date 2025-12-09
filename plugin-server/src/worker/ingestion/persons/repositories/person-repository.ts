@@ -40,7 +40,8 @@ export interface PersonRepository {
     ): Promise<InternalPerson | undefined>
 
     fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(

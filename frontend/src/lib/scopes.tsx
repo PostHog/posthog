@@ -16,6 +16,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'action', objectPlural: 'actions' },
     { key: 'access_control', objectPlural: 'access controls' },
     { key: 'activity_log', objectPlural: 'activity logs' },
+    { key: 'alert', objectPlural: 'alerts' },
     { key: 'annotation', objectPlural: 'annotations' },
     { key: 'batch_export', objectPlural: 'batch exports' },
     { key: 'cohort', objectPlural: 'cohorts' },
@@ -53,6 +54,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'person', objectPlural: 'persons' },
     { key: 'plugin', objectPlural: 'plugins' },
+    { key: 'product_tour', objectPlural: 'product tours' },
     {
         key: 'project',
         objectPlural: 'projects',

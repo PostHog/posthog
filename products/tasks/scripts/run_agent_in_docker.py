@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Wrapper script that creates a task locally, then runs the agent in Docker.
+Test script that creates a task and runs the agent using DockerSandbox.
 """
 # ruff: noqa: T201, E402
 
 import os
 import sys
 import argparse
-import subprocess
 from pathlib import Path
 
 script_dir = Path(__file__).resolve().parent
@@ -17,6 +16,7 @@ if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+os.environ["DEBUG"] = "1"
 
 import django
 
@@ -29,15 +29,15 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.services.docker_sandbox import DockerSandbox
+from products.tasks.backend.services.sandbox import SandboxConfig, SandboxTemplate
 
 
 def create_test_task(repository=None):
     with transaction.atomic():
-        # Use existing hedgebox demo team
         team = Team.objects.get(id=1)
         user = User.objects.get(email="test@posthog.com")
 
-        # Parse repository argument or use default
         if repository:
             parts = repository.split("/")
             if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -46,7 +46,6 @@ def create_test_task(repository=None):
         else:
             org, repo = "posthog", "posthog-js"
 
-        # Enable tasks feature flag on team 1 if not already enabled
         feature_flag, created = FeatureFlag.objects.get_or_create(
             team=team,
             key="tasks",
@@ -60,12 +59,10 @@ def create_test_task(repository=None):
             feature_flag.active = True
             feature_flag.save()
 
-        # Get or create GitHub integration
         github_integration, _ = Integration.objects.get_or_create(
             team=team, kind="github", defaults={"config": {"organization": org, "repositories": [repo]}}
         )
 
-        # Get GitHub token from integration
         github_token = (
             github_integration.sensitive_config.get("access_token") if github_integration.sensitive_config else None
         )
@@ -74,8 +71,8 @@ def create_test_task(repository=None):
 
         task = Task.objects.create(
             team=team,
-            title="Test Task for runAgent.mjs",
-            description="This is a test task created to test the runAgent.mjs script outside of sandbox",
+            title="Add a joke to the README.md file",
+            description="Add a joke to the README.md file",
             origin_product=Task.OriginProduct.USER_CREATED,
             github_integration=github_integration,
             repository=repository,
@@ -102,201 +99,99 @@ def create_test_task(repository=None):
         print(f"✓ Created test task: {task.id}")
         print(f"  - Run ID: {task_run.id}")
         print(f"  - Team: {team.id}")
-        print(f"  - Task slug: {task.slug}")
         print(f"  - API Key: {api_key_value}")
         print(f"  - GitHub token: {'✓' if github_token else '✗ (not configured)'}")
 
-        return task, task_run.id, api_key.id, api_key_value, github_token
+        return task, task_run, api_key, api_key_value, github_token
 
 
 def cleanup_test_data(task_id, api_key_id):
     print(f"\nCleaning up test data...")
     with transaction.atomic():
-        Task.objects.filter(id=task_id).delete()
+        task = Task.objects.filter(id=task_id).first()
+        if task:
+            task.soft_delete()
         PersonalAPIKey.objects.filter(id=api_key_id).delete()
     print("✓ Cleanup complete")
 
 
-def run_agent_in_docker(
-    task_id,
-    run_id,
-    repository_path,
-    api_key,
-    team_id,
-    repository,
-    github_token=None,
-    prompt=None,
-    max_turns=None,
-    local_agent_path=None,
-):
-    image_name = "posthog-sandbox-base"
-    # Access PostHog web server directly on host port 8000
-    host_url = "http://host.docker.internal:8000"
-
-    # Match production sandbox structure: /tmp/workspace/repos/{org}/{repo}
-    org, repo = repository.lower().split("/")
-    container_repo_path = f"/tmp/workspace/repos/{org}/{repo}"
-
-    # Build image if needed
-    check_result = subprocess.run(["docker", "images", "-q", image_name], capture_output=True, text=True)
-
-    if not check_result.stdout.strip():
-        print("Building sandbox-base image...")
-        subprocess.run(
-            [
-                "docker",
-                "build",
-                "-f",
-                f"{repo_root}/products/tasks/backend/sandbox/images/Dockerfile.sandbox-base",
-                "-t",
-                image_name,
-                str(repo_root),
-            ],
-            check=True,
-        )
-
-    # Build local agent package if provided
-    if local_agent_path:
-        print(f"Building local agent package at {local_agent_path}...")
-        subprocess.run(["npm", "run", "build"], cwd=local_agent_path, check=True)
-
-    # Clone repository first, then run agent (matching production flow)
-    # Use token in URL for authentication if available
-    # GitHub accepts tokens in the format: https://x-access-token:TOKEN@github.com/...
-    if github_token:
-        clone_url = f"https://x-access-token:{github_token}@github.com/{repository}.git"
-    else:
-        clone_url = f"https://github.com/{repository}.git"
-    clone_cmd = f"mkdir -p /tmp/workspace/repos/{org} && cd /tmp/workspace/repos/{org} && git clone {clone_url} {repo}"
-
-    # Build node command
-    cmd_parts = ["node", "/scripts/runAgent.mjs"]
-
-    if prompt:
-        cmd_parts.extend(["--prompt", f"'{prompt}'"])
-        if max_turns:
-            cmd_parts.extend(["--max-turns", str(max_turns)])
-    else:
-        cmd_parts.extend(["--taskId", str(task_id)])
-        cmd_parts.extend(["--runId", str(run_id)])
-
-    cmd_parts.extend(["--repositoryPath", container_repo_path])
-
-    run_cmd = " ".join(cmd_parts)
-
-    # Match production sandbox.py:298 - git reset + IS_SANDBOX inline
-    agent_cmd = f"git reset --hard HEAD && IS_SANDBOX=True {run_cmd}"
-
-    # Combine clone and run commands
-    full_cmd = f"{clone_cmd} && cd {container_repo_path} && {agent_cmd}"
-
-    print(f"\nRunning agent in Docker container...")
-    print(f"  Clone + Run command: {full_cmd}")
-    print(f"  Host URL: {host_url}")
-    print(f"  Project ID: {team_id}")
-    print(f"  Task ID: {task_id}")
-    print(f"  Run ID: {run_id}")
-    print(f"  Repository: {repository}")
-    print(f"  GitHub token: {'✓' if github_token else '✗ (not configured - will fail on git push)'}")
-    print()
-
-    # Mount the updated runAgent.mjs script
-    runagent_path = f"{repo_root}/products/tasks/scripts/runAgent.mjs"
-
-    docker_args = [
-        "docker",
-        "run",
-        "--rm",
-        "-v",
-        f"{runagent_path}:/scripts/runAgent.mjs:ro",
-        "-e",
-        f"POSTHOG_API_URL={host_url}",
-        "-e",
-        f"POSTHOG_PERSONAL_API_KEY={api_key}",
-        "-e",
-        f"POSTHOG_PROJECT_ID={team_id}",
-    ]
-
-    # Mount local agent package if provided
-    if local_agent_path:
-        # Create a tarball of the package for proper installation with dependencies
-        pack_result = subprocess.run(
-            ["npm", "pack", "--pack-destination", "/tmp"],
-            cwd=local_agent_path,
-            capture_output=True,
-            text=True,
-        )
-        tarball_name = pack_result.stdout.strip().split("\n")[-1]
-        tarball_path = f"/tmp/{tarball_name}"
-
-        docker_args.extend(["-v", f"{tarball_path}:/agent-package.tgz:ro"])
-        # Install from tarball to get proper dependency resolution
-        install_cmd = "cd /scripts && npm install /agent-package.tgz"
-        full_cmd = f"{install_cmd} && {full_cmd}"
-        print(f"  Using local agent: {local_agent_path} (packed as {tarball_name})")
-
-    if github_token:
-        docker_args.extend(["-e", f"GITHUB_TOKEN={github_token}"])
-
-    docker_args.extend([image_name, "bash", "-c", full_cmd])
-
-    result = subprocess.run(docker_args)
-
-    print(f"\n{'=' * 60}")
-    print(f"Agent completed with exit code: {result.returncode}")
-    print(f"{'=' * 60}\n")
-
-    return result.returncode
-
-
 def main():
-    parser = argparse.ArgumentParser(description="Test runAgent.mjs in Docker with @posthog/agent package")
-    parser.add_argument("--prompt", help="Optional prompt to run")
-    parser.add_argument("--max-turns", type=int, help="Maximum turns (with --prompt)")
-    parser.add_argument("--repository-path", default=str(repo_root), help="Repository path")
-    parser.add_argument("--repository", help="GitHub repository", default="posthog/posthog-js")
+    parser = argparse.ArgumentParser(description="Test agent in DockerSandbox")
+    parser.add_argument("--repository", help="GitHub repository", default="joshsny/test-repo")
     parser.add_argument("--github-token", help="GitHub personal access token")
     parser.add_argument("--no-cleanup", action="store_true", help="Don't cleanup test data")
-    parser.add_argument("--local-agent", help="Path to local @posthog/agent package (will be built and linked)")
+    parser.add_argument("--keep-sandbox", action="store_true", help="Don't destroy sandbox after running")
 
     args = parser.parse_args()
 
-    task, run_id, api_key_id, api_key_value, github_token_from_integration = create_test_task(args.repository)
-    task_id = str(task.id)
-    run_id = str(run_id)
-    api_key = api_key_value
+    task, task_run, api_key, api_key_value, github_token_from_integration = create_test_task(args.repository)
     github_token = args.github_token or github_token_from_integration
-    team_id = 1  # Hardcoded to hedgebox team
-    repository = task.repository
 
+    sandbox = None
     try:
-        exit_code = run_agent_in_docker(
-            task_id,
-            run_id,
-            args.repository_path,
-            api_key,
-            team_id,
-            repository,
-            github_token=github_token,
-            prompt=args.prompt,
-            max_turns=args.max_turns,
-            local_agent_path=args.local_agent,
+        config = SandboxConfig(
+            name=f"test-sandbox-{task.id}",
+            template=SandboxTemplate.DEFAULT_BASE,
+            environment_variables={
+                "GITHUB_TOKEN": github_token or "",
+                "POSTHOG_PERSONAL_API_KEY": api_key_value,
+                "POSTHOG_API_URL": "http://localhost:8000",  # Use 8000 directly, not 8010 (Caddy returns empty from Docker)
+                "POSTHOG_PROJECT_ID": "1",
+            },
         )
 
-        if not args.no_cleanup:
-            cleanup_test_data(task_id, api_key_id)
-        else:
-            print(f"\n⚠ Test data not cleaned up")
-            print(f"  Task ID: {task_id}")
-            print(f"  Run ID: {run_id}")
+        print(f"\n{'=' * 60}")
+        print("Creating DockerSandbox...")
+        print(f"{'=' * 60}")
+        sandbox = DockerSandbox.create(config)
+        print(f"✓ Sandbox created: {sandbox.id}")
 
-        sys.exit(exit_code)
+        print(f"\nCloning {task.repository}...")
+        clone_result = sandbox.clone_repository(task.repository, github_token=github_token or "")
+        print(f"Clone exit code: {clone_result.exit_code}")
+        if clone_result.exit_code != 0:
+            print(f"Clone stderr: {clone_result.stderr}")
+            raise RuntimeError("Failed to clone repository")
+
+        print(f"\nExecuting task {task.id} (run {task_run.id})...")
+        result = sandbox.execute_task(
+            task_id=str(task.id),
+            run_id=str(task_run.id),
+            repository=task.repository,
+        )
+
+        print(f"\n{'=' * 60}")
+        print(f"Task completed with exit code: {result.exit_code}")
+        print(f"{'=' * 60}")
+        print(f"\nstdout:\n{result.stdout}")
+        print(f"\nstderr:\n{result.stderr}")
+
+        exit_code = result.exit_code
 
     except Exception as e:
         print(f"\nERROR: {e}")
+        import traceback
+
+        traceback.print_exc()
+        exit_code = 1
+
+    finally:
+        if sandbox and not args.keep_sandbox:
+            print(f"\nDestroying sandbox...")
+            sandbox.destroy()
+            print("✓ Sandbox destroyed")
+        elif sandbox:
+            print(f"\n⚠ Sandbox kept alive: {sandbox.id}")
+            print(f"  To destroy: docker rm -f {sandbox.id}")
+
         if not args.no_cleanup:
-            cleanup_test_data(task_id, api_key_id)
-        sys.exit(1)
+            cleanup_test_data(task.id, api_key.id)
+        else:
+            print(f"\n⚠ Test data not cleaned up")
+            print(f"  Task ID: {task.id}")
+            print(f"  Run ID: {task_run.id}")
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
