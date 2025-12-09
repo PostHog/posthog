@@ -139,7 +139,7 @@ export function Tooltip({
     const childSupportsRef =
         typeof child.type === 'string' || (child.type as any)?.$$typeof === Symbol.for('react.forward_ref')
 
-    const childWithRef = childSupportsRef ? child : <span className="Tooltip__ref-wrapper">{child}</span>
+    const childWithRef = childSupportsRef ? child : <span className="Tooltip__ref-wrapper contents">{child}</span>
     const childrenRef = (childWithRef as any).ref
     const triggerRef = useMergeRefs([refs.setReference, childrenRef])
 

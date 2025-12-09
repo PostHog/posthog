@@ -1501,6 +1501,19 @@
         }
     },
     {
+        "model": "essentialai/rnj-1-instruct",
+        "cost": {
+            "default": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
+            },
+            "together": {
+                "prompt_token": 1.5e-7,
+                "completion_token": 1.5e-7
+            }
+        }
+    },
+    {
         "model": "google/gemini-2.0-flash-001",
         "cost": {
             "default": {
@@ -1946,12 +1959,12 @@
         "model": "google/gemma-3-27b-it",
         "cost": {
             "default": {
-                "prompt_token": 8e-8,
-                "completion_token": 4.5e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "chutes-bf16": {
-                "prompt_token": 1.3e-7,
-                "completion_token": 5.2e-7
+                "prompt_token": 3e-8,
+                "completion_token": 1.1e-7
             },
             "deepinfra-fp8": {
                 "prompt_token": 9e-8,
@@ -4994,6 +5007,15 @@
         }
     },
     {
+        "model": "openrouter/bodybuilder",
+        "cost": {
+            "default": {
+                "prompt_token": 0,
+                "completion_token": 0
+            }
+        }
+    },
+    {
         "model": "perplexity/sonar",
         "cost": {
             "default": {
@@ -6169,6 +6191,19 @@
         }
     },
     {
+        "model": "relace/relace-search",
+        "cost": {
+            "default": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000003
+            },
+            "relace-bf16": {
+                "prompt_token": 0.000001,
+                "completion_token": 0.000003
+            }
+        }
+    },
+    {
         "model": "sao10k/l3-euryale-70b",
         "cost": {
             "default": {
@@ -6808,6 +6843,21 @@
             "z-ai": {
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000022
+            }
+        }
+    },
+    {
+        "model": "z-ai/glm-4.6v",
+        "cost": {
+            "default": {
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7,
+                "cache_read_token": 5e-8
+            },
+            "z-ai-fp8": {
+                "prompt_token": 3e-7,
+                "completion_token": 9e-7,
+                "cache_read_token": 5e-8
             }
         }
     }
