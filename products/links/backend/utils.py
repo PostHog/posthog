@@ -7,6 +7,12 @@ if(inputs.debug) {
   print('Incoming request:', request.body)
 }
 
+postHogCapture({
+  'event': '$link_clicked',
+  'distinct_id': 'link_tracking',
+  'properties': inputs.properties
+})
+
 if (inputs.redirect_url) {
   return {
     'httpResponse': {
@@ -17,12 +23,6 @@ if (inputs.redirect_url) {
     }
   }
 }
-
-postHogCapture({
-  'event': '$link_clicked',
-  'distinct_id': 'link_tracking',
-  'properties': inputs.properties
-})
 """
 
 
