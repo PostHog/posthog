@@ -73,7 +73,7 @@ def _forward_to_billing_service(event_type: str, payload: dict[str, Any], integr
 @permission_classes([])
 def vercel_webhook(request: Request) -> Response:
     """
-    Handle Vercel webhooks. Routes billing events (marketplace.*) to the billing service.
+    Handle Vercel webhooks. Routes billing events (marketplace.invoice.*) to the billing service.
     Non-billing events are acknowledged but not processed.
     """
     signature = request.headers.get("x-vercel-signature")
