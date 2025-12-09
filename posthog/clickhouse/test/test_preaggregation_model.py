@@ -11,13 +11,11 @@ from posthog.clickhouse.preaggregation.sql import (
 
 
 class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
-    def test_insert_and_read_preaggregation_results(self):
-        job_id = uuid.uuid4()
-        time_window_start = datetime(2024, 3, 8, 0, 0, 0, tzinfo=UTC)
-        breakdown_value = ["safari", "mac"]
-        test_uuid = uuid.uuid4()
+    def _insert_preaggregation_result(self, team_id, job_id, time_window_start, breakdown_value, test_uuid):
+        """Helper to insert a preaggregation result using INSERT ... SELECT pattern."""
+        # Build the breakdown array literal
+        breakdown_literal = "[" + ", ".join(f"'{v}'" for v in breakdown_value) + "]"
 
-        # Insert a row using the writable distributed table
         sync_execute(
             f"""
             INSERT INTO {WRITABLE_PREAGGREGATION_RESULTS_TABLE()} (
@@ -26,24 +24,30 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
                 time_window_start,
                 breakdown_value,
                 uniq_exact_state
-            ) VALUES (
-                %(team_id)s,
-                %(job_id)s,
-                %(time_window_start)s,
-                %(breakdown_value)s,
-                uniqExactState(%(test_uuid)s)
             )
+            SELECT
+                %(team_id)s as team_id,
+                toUUID(%(job_id)s) as job_id,
+                toDateTime64(%(time_window_start)s, 6, 'UTC') as time_window_start,
+                {breakdown_literal} as breakdown_value,
+                initializeAggregation('uniqExactState', toUUID(%(test_uuid)s)) as uniq_exact_state
             """,
             {
-                "team_id": self.team.id,
-                "job_id": job_id,
-                "time_window_start": time_window_start,
-                "breakdown_value": breakdown_value,
-                "test_uuid": test_uuid,
+                "team_id": team_id,
+                "job_id": str(job_id),
+                "time_window_start": time_window_start.strftime("%Y-%m-%d %H:%M:%S"),
+                "test_uuid": str(test_uuid),
             },
         )
 
-        # Read it back from the distributed table
+    def test_insert_and_read_preaggregation_results(self):
+        job_id = uuid.uuid4()
+        time_window_start = datetime(2024, 3, 8, 0, 0, 0, tzinfo=UTC)
+        breakdown_value = ["safari", "mac"]
+        test_uuid = uuid.uuid4()
+
+        self._insert_preaggregation_result(self.team.id, job_id, time_window_start, breakdown_value, test_uuid)
+
         result = sync_execute(
             f"""
             SELECT
@@ -55,56 +59,31 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
             WHERE
                 team_id = %(team_id)s AND
-                job_id = %(job_id)s
+                job_id = toUUID(%(job_id)s)
             GROUP BY team_id, job_id, time_window_start, breakdown_value
             """,
             {
                 "team_id": self.team.id,
-                "job_id": job_id,
+                "job_id": str(job_id),
             },
         )
 
         assert len(result) == 1
         row = result[0]
-        assert row[0] == self.team.id  # team_id
-        assert row[1] == job_id  # job_id
-        assert row[2] == time_window_start  # time_window_start
-        assert row[3] == breakdown_value  # breakdown_value
-        assert row[4] == 1  # uniq_count (one unique UUID)
+        assert row[0] == self.team.id
+        assert row[1] == job_id
+        assert row[2] == time_window_start
+        assert row[3] == breakdown_value
+        assert row[4] == 1
 
     def test_insert_multiple_rows_same_job(self):
         job_id = uuid.uuid4()
         time_window_start = datetime(2024, 3, 8, 0, 0, 0, tzinfo=UTC)
 
-        # Insert multiple rows with different breakdown values
         for breakdown in [["chrome"], ["safari"], ["firefox"]]:
             test_uuid = uuid.uuid4()
-            sync_execute(
-                f"""
-                INSERT INTO {WRITABLE_PREAGGREGATION_RESULTS_TABLE()} (
-                    team_id,
-                    job_id,
-                    time_window_start,
-                    breakdown_value,
-                    uniq_exact_state
-                ) VALUES (
-                    %(team_id)s,
-                    %(job_id)s,
-                    %(time_window_start)s,
-                    %(breakdown_value)s,
-                    uniqExactState(%(test_uuid)s)
-                )
-                """,
-                {
-                    "team_id": self.team.id,
-                    "job_id": job_id,
-                    "time_window_start": time_window_start,
-                    "breakdown_value": breakdown,
-                    "test_uuid": test_uuid,
-                },
-            )
+            self._insert_preaggregation_result(self.team.id, job_id, time_window_start, breakdown, test_uuid)
 
-        # Read all rows for this job
         result = sync_execute(
             f"""
             SELECT
@@ -113,13 +92,13 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
             WHERE
                 team_id = %(team_id)s AND
-                job_id = %(job_id)s
+                job_id = toUUID(%(job_id)s)
             GROUP BY team_id, job_id, time_window_start, breakdown_value
             ORDER BY breakdown_value
             """,
             {
                 "team_id": self.team.id,
-                "job_id": job_id,
+                "job_id": str(job_id),
             },
         )
 
@@ -134,31 +113,7 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
         time_window_start = datetime(2024, 3, 8, 0, 0, 0, tzinfo=UTC)
         test_uuid = uuid.uuid4()
 
-        # Insert with empty breakdown (no GROUP BY case)
-        sync_execute(
-            f"""
-            INSERT INTO {WRITABLE_PREAGGREGATION_RESULTS_TABLE()} (
-                team_id,
-                job_id,
-                time_window_start,
-                breakdown_value,
-                uniq_exact_state
-            ) VALUES (
-                %(team_id)s,
-                %(job_id)s,
-                %(time_window_start)s,
-                %(breakdown_value)s,
-                uniqExactState(%(test_uuid)s)
-            )
-            """,
-            {
-                "team_id": self.team.id,
-                "job_id": job_id,
-                "time_window_start": time_window_start,
-                "breakdown_value": [],
-                "test_uuid": test_uuid,
-            },
-        )
+        self._insert_preaggregation_result(self.team.id, job_id, time_window_start, [], test_uuid)
 
         result = sync_execute(
             f"""
@@ -168,15 +123,15 @@ class TestPreaggregationModel(ClickhouseTestMixin, BaseTest):
             FROM {DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE()}
             WHERE
                 team_id = %(team_id)s AND
-                job_id = %(job_id)s
+                job_id = toUUID(%(job_id)s)
             GROUP BY team_id, job_id, time_window_start, breakdown_value
             """,
             {
                 "team_id": self.team.id,
-                "job_id": job_id,
+                "job_id": str(job_id),
             },
         )
 
         assert len(result) == 1
-        assert result[0][0] == []  # empty breakdown
-        assert result[0][1] == 1  # one unique UUID
+        assert result[0][0] == []
+        assert result[0][1] == 1
