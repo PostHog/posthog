@@ -93,6 +93,7 @@ pub fn router<
     token_dropper: TokenDropper,
     metrics: bool,
     capture_mode: CaptureMode,
+    deploy_role: String,
     concurrency_limit: Option<usize>,
     event_size_limit: usize,
     enable_historical_rerouting: bool,
@@ -283,7 +284,7 @@ pub fn router<
     // Installing a global recorder when capture is used as a library (during tests etc)
     // does not work well.
     if metrics {
-        let recorder_handle = setup_metrics_recorder();
+        let recorder_handle = setup_metrics_recorder(deploy_role, capture_mode.as_tag());
         router.route("/metrics", get(move || ready(recorder_handle.render())))
     } else {
         router
