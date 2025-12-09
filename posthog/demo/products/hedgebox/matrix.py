@@ -1206,7 +1206,6 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.40),
                 "minimum_detectable_effect": 10,
             },
-            stats_config={"use_new_query_builder": True},
             start_date=self.file_engagement_experiment_start,
             end_date=None,
             created_at=file_engagement_flag.created_at,

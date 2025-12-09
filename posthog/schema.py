@@ -247,6 +247,7 @@ class AssistantNavigateUrl(StrEnum):
     TOOLBAR_LAUNCH = "toolbarLaunch"
     WEB_ANALYTICS = "webAnalytics"
     WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    WEB_ANALYTICS_HEALTH = "webAnalyticsHealth"
     PERSONS = "persons"
 
 
@@ -926,6 +927,12 @@ class DataWarehouseManagedViewsetKind(RootModel[Literal["revenue_analytics"]]):
     root: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class DataWarehouseSavedQueryOrigin(StrEnum):
+    DATA_WAREHOUSE = "data_warehouse"
+    ENDPOINT = "endpoint"
+    MANAGED_VIEWSET = "managed_viewset"
+
+
 class DataWarehouseSyncInterval(StrEnum):
     FIELD_5MIN = "5min"
     FIELD_30MIN = "30min"
@@ -1123,10 +1130,10 @@ class EmbeddingRecord(BaseModel):
 
 
 class EmptyPropertyFilter(BaseModel):
-    pass
     model_config = ConfigDict(
         extra="forbid",
     )
+    type: Literal["empty"] = "empty"
 
 
 class EndpointLastExecutionTimesRequest(BaseModel):
@@ -1537,6 +1544,7 @@ class FileSystemIconType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
     MARKETING_SETTINGS = "marketing_settings"
+    MARKETING_ANALYTICS = "marketing_analytics"
     MANAGED_VIEWSETS = "managed_viewsets"
     ENDPOINTS = "endpoints"
     SQL_EDITOR = "sql_editor"
@@ -1584,6 +1592,8 @@ class FileSystemIconType(StrEnum):
     LIVE = "live"
     CHAT = "chat"
     SEARCH = "search"
+    FOLDER = "folder"
+    FOLDER_OPEN = "folder_open"
 
 
 class FileSystemViewLogEntry(BaseModel):
@@ -1965,6 +1975,12 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 class LinkedinAdsTableKeywords(StrEnum):
     CAMPAIGNS = "campaigns"
+
+
+class LogPropertyFilterType(StrEnum):
+    LOG = "log"
+    LOG_ATTRIBUTE = "log_attribute"
+    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
 
 
 class LogSeverityLevel(StrEnum):
@@ -2447,7 +2463,6 @@ class PageURL(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count: float
     url: str
 
 
@@ -2663,7 +2678,10 @@ class PropertyFilterType(StrEnum):
     REVENUE_ANALYTICS = "revenue_analytics"
     FLAG = "flag"
     LOG = "log"
+    LOG_ATTRIBUTE = "log_attribute"
+    LOG_RESOURCE_ATTRIBUTE = "log_resource_attribute"
     WORKFLOW_VARIABLE = "workflow_variable"
+    EMPTY = "empty"
 
 
 class PropertyMathType(StrEnum):
@@ -3091,6 +3109,13 @@ class SimpleIntervalType(StrEnum):
     MONTH = "month"
 
 
+class SlashCommandName(StrEnum):
+    FIELD_INIT = "/init"
+    FIELD_REMEMBER = "/remember"
+    FIELD_USAGE = "/usage"
+    FIELD_FEEDBACK = "/feedback"
+
+
 class SourceFieldFileUploadJsonFormatConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3344,7 +3369,9 @@ class TaxonomicFilterGroupType(StrEnum):
     NOTEBOOKS = "notebooks"
     LOG_ENTRIES = "log_entries"
     ERROR_TRACKING_ISSUES = "error_tracking_issues"
+    LOGS = "logs"
     LOG_ATTRIBUTES = "log_attributes"
+    LOG_RESOURCE_ATTRIBUTES = "log_resource_attributes"
     REPLAY = "replay"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
     RESOURCES = "resources"
@@ -3352,6 +3379,7 @@ class TaxonomicFilterGroupType(StrEnum):
     ACTIVITY_LOG_PROPERTIES = "activity_log_properties"
     MAX_AI_CONTEXT = "max_ai_context"
     WORKFLOW_VARIABLES = "workflow_variables"
+    EMPTY = "empty"
 
 
 class TestSetupRequest(BaseModel):
@@ -4886,7 +4914,7 @@ class LogPropertyFilter(BaseModel):
     key: str
     label: str | None = None
     operator: PropertyOperator
-    type: Literal["log"] = "log"
+    type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
 
 
@@ -7236,6 +7264,7 @@ class CachedLogsQueryResponse(BaseModel):
     last_refresh: AwareDatetime
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     next_allowed_client_refresh: AwareDatetime
     offset: int | None = None
     query_metadata: dict[str, Any] | None = None
@@ -10088,6 +10117,7 @@ class LogsQueryResponse(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -11554,6 +11584,7 @@ class QueryResponseAlternative70(BaseModel):
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    nextCursor: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     offset: int | None = None
     query_status: QueryStatus | None = Field(
         default=None, description="Query status indicates whether next to the provided data, a query is still running."
@@ -14603,6 +14634,7 @@ class LogsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
     dateRange: DateRange
     filterGroup: PropertyGroupFilter
     kind: Literal["LogsQuery"] = "LogsQuery"
@@ -16702,6 +16734,7 @@ class SourceConfig(BaseModel):
     iconPath: str
     label: str | None = None
     name: ExternalDataSourceType
+    permissionsCaption: str | None = None
     suggestedTables: list[SuggestedTable] | None = Field(
         default=[], description="Tables to suggest enabling, with optional tooltip explaining why"
     )

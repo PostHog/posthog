@@ -153,10 +153,10 @@ pub struct Config {
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub read_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_write_database_url: String,
 
-    #[envconfig(default = "")]
+    #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog_persons")]
     pub persons_read_database_url: String,
 
     #[envconfig(default = "1000")]

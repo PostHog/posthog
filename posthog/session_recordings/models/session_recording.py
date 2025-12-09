@@ -1,7 +1,6 @@
 from datetime import datetime
 from typing import Any, Optional, Union
 
-from django.conf import settings
 from django.db import models
 
 from posthog.models.person.missing_person import MissingPerson
@@ -144,10 +143,6 @@ class SessionRecording(UUIDTModel):
         else:
             SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
             self.viewed = True
-
-    def build_blob_ingestion_storage_path(self, root_prefix: Optional[str] = None) -> str:
-        root_prefix = root_prefix or settings.OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER
-        return f"{root_prefix}/team_id/{self.team_id}/session_id/{self.session_id}/data"
 
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
