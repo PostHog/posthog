@@ -60,7 +60,7 @@ export function HogQLEditor({
                     {placeholder ??
                         (metadataSource && isActorsQuery(metadataSource)
                             ? "Enter SQL expression, such as:\n- properties.$geoip_country_name\n- toInt(properties.$browser_version) * 10\n- concat(properties.name, ' <', properties.email, '>')\n- toBool(is_identified) ? 'user' : 'anon'"
-                            : "Enter SQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- pdi.person.properties.email\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)")}
+                            : "Enter SQL Expression, such as:\n- properties.$current_url\n- person.properties.email\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)")}
                 </pre>
             </div>
             <LemonButton

@@ -1,12 +1,18 @@
-import { useMemo } from 'react'
+import { useCallback, useMemo } from 'react'
 import { Root, createRoot } from 'react-dom/client'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
-const tooltipInstances = new Map<
-    string,
-    { root: Root; element: HTMLElement; isMouseOver: boolean; hideTimeout: NodeJS.Timeout | null }
->()
+type TooltipInstance = {
+    root: Root
+    element: HTMLElement
+    isMouseOver: boolean
+    hideTimeout: NodeJS.Timeout | null
+    mouseEnterHandler: () => void
+    mouseLeaveHandler: () => void
+}
+
+const tooltipInstances = new Map<string, TooltipInstance>()
 
 export function ensureTooltip(id: string): [Root, HTMLElement] {
     let instance = tooltipInstances.get(id)
@@ -19,40 +25,42 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
 
         const root = createRoot(tooltipEl)
 
+        const mouseEnterHandler = (): void => {
+            const inst = tooltipInstances.get(id)
+            if (inst) {
+                inst.isMouseOver = true
+                if (inst.hideTimeout) {
+                    clearTimeout(inst.hideTimeout)
+                    inst.hideTimeout = null
+                }
+            }
+        }
+
+        const mouseLeaveHandler = (): void => {
+            const inst = tooltipInstances.get(id)
+            if (inst) {
+                inst.isMouseOver = false
+                inst.hideTimeout = setTimeout(() => {
+                    if (!inst.isMouseOver) {
+                        inst.element.classList.add('opacity-0', 'invisible')
+                    }
+                }, 100)
+            }
+        }
+
         instance = {
             root,
             element: tooltipEl,
             isMouseOver: false,
             hideTimeout: null,
+            mouseEnterHandler,
+            mouseLeaveHandler,
         }
 
         tooltipInstances.set(id, instance)
 
-        // Add mouse tracking for this specific tooltip
-        tooltipEl.addEventListener(
-            'mouseenter',
-            () => {
-                instance!.isMouseOver = true
-                if (instance!.hideTimeout) {
-                    clearTimeout(instance!.hideTimeout)
-                    instance!.hideTimeout = null
-                }
-            },
-            { passive: true }
-        )
-
-        tooltipEl.addEventListener(
-            'mouseleave',
-            () => {
-                instance!.isMouseOver = false
-                instance!.hideTimeout = setTimeout(() => {
-                    if (!instance!.isMouseOver) {
-                        instance!.element.classList.add('opacity-0', 'invisible')
-                    }
-                }, 100)
-            },
-            { passive: true }
-        )
+        tooltipEl.addEventListener('mouseenter', mouseEnterHandler, { passive: true })
+        tooltipEl.addEventListener('mouseleave', mouseLeaveHandler, { passive: true })
     }
 
     return [instance.root, instance.element]
@@ -94,11 +102,13 @@ export function cleanupTooltip(id: string): void {
         if (instance.hideTimeout) {
             clearTimeout(instance.hideTimeout)
         }
+        instance.element.removeEventListener('mouseenter', instance.mouseEnterHandler)
+        instance.element.removeEventListener('mouseleave', instance.mouseLeaveHandler)
+        tooltipInstances.delete(id)
         queueMicrotask(() => {
             instance.root.unmount()
             instance.element.remove()
         })
-        tooltipInstances.delete(id)
     }
 }
 
@@ -117,9 +127,9 @@ export function useInsightTooltip(): {
         }
     })
 
-    const getTooltip = (): [Root, HTMLElement] => ensureTooltip(tooltipId)
-    const hide = (): void => hideTooltip(tooltipId)
-    const cleanup = (): void => cleanupTooltip(tooltipId)
+    const getTooltip = useCallback((): [Root, HTMLElement] => ensureTooltip(tooltipId), [tooltipId])
+    const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
+    const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
 
     return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup }
 }

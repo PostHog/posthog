@@ -5,12 +5,15 @@ import { useMemo } from 'react'
 import { IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
+import { useDebouncedNameInputs } from './utils'
 
 export function StepConditionalBranchConfiguration({
     node,
@@ -23,22 +26,7 @@ export function StepConditionalBranchConfiguration({
     const { edgesByActionId, selectedNodeCanBeDeleted } = useValues(hogFlowEditorLogic)
     const { setWorkflowAction, setWorkflowActionEdges } = useActions(hogFlowEditorLogic)
 
-    const nodeEdges = edgesByActionId[action.id]
-
-    const [branchEdges, nonBranchEdges] = useMemo(() => {
-        const branchEdges: HogFlow['edges'] = []
-        const nonBranchEdges: HogFlow['edges'] = []
-
-        nodeEdges.forEach((edge) => {
-            if (edge.type === 'branch' && edge.from === action.id) {
-                branchEdges.push(edge)
-            } else {
-                nonBranchEdges.push(edge)
-            }
-        })
-
-        return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
-    }, [nodeEdges, action.id])
+    const nodeEdges = edgesByActionId[action.id] ?? []
 
     const setConditions = (
         conditions: Extract<HogFlowAction, { type: 'conditional_branch' }>['config']['conditions']
@@ -53,16 +41,30 @@ export function StepConditionalBranchConfiguration({
         })
     }
 
+    const { localNames: localConditionNames, handleNameChange } = useDebouncedNameInputs(conditions, setConditions)
+
+    const [branchEdges, nonBranchEdges] = useMemo(() => {
+        const branchEdges: HogFlow['edges'] = []
+        const nonBranchEdges: HogFlow['edges'] = []
+
+        nodeEdges?.forEach((edge) => {
+            if (edge.type === 'branch' && edge.from === action.id) {
+                branchEdges.push(edge)
+            } else {
+                nonBranchEdges.push(edge)
+            }
+        })
+
+        return [branchEdges.sort((a, b) => (a.index ?? 0) - (b.index ?? 0)), nonBranchEdges]
+    }, [nodeEdges, action.id])
+
     const addCondition = (): void => {
         const continueEdge = nodeEdges.find((edge) => edge.type === 'continue' && edge.from === action.id)
         if (!continueEdge) {
             throw new Error('Continue edge not found')
         }
 
-        setConditions([
-            ...conditions,
-            { filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events' }] } },
-        ])
+        setConditions([...conditions, { filters: {} }])
         setWorkflowActionEdges(action.id, [
             ...branchEdges,
             {
@@ -104,11 +106,22 @@ export function StepConditionalBranchConfiguration({
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
                             setConditions(
-                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                                conditions.map((condition, i) =>
+                                    i === index ? { ...condition, filters: filters ?? {} } : condition
+                                )
                             )
                         }
                         typeKey={`workflow-trigger-${index}`}
                     />
+
+                    <LemonField.Pure label="Condition name (optional)">
+                        <LemonInput
+                            value={localConditionNames[index] || ''}
+                            onChange={(value) => handleNameChange(index, value)}
+                            placeholder={`If condition #${index + 1} matches`}
+                            size="small"
+                        />
+                    </LemonField.Pure>
                 </div>
             ))}
 

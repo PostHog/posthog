@@ -1,5 +1,6 @@
 from .create_and_query_insight import CreateAndQueryInsightTool, CreateAndQueryInsightToolArgs
 from .create_dashboard import CreateDashboardTool, CreateDashboardToolArgs
+from .create_form import CreateFormTool, CreateFormToolArgs
 from .create_insight import CreateInsightTool, CreateInsightToolArgs
 from .execute_sql.tool import ExecuteSQLTool, ExecuteSQLToolArgs
 from .read_data import ReadDataTool, ReadDataToolArgs
@@ -14,6 +15,8 @@ __all__ = [
     "CreateAndQueryInsightToolArgs",
     "CreateDashboardTool",
     "CreateDashboardToolArgs",
+    "CreateFormTool",
+    "CreateFormToolArgs",
     "ReadDataTool",
     "ReadDataToolArgs",
     "ReadTaxonomyTool",

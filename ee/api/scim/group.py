@@ -72,6 +72,7 @@ class PostHogSCIMGroup(SCIMGroup):
         Convert Role to SCIM Group format.
         """
         return {
+            "schemas": [constants.SchemaURI.GROUP],
             "id": self.id,
             "displayName": self.display_name,
             "members": self.members,

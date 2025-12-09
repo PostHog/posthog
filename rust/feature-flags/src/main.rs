@@ -98,6 +98,7 @@ async fn main() {
             // Production: JSON format (like Django's JSONRenderer())
             base_layer
                 .json()
+                .with_span_list(false)
                 .with_filter(EnvFilter::from_default_env())
                 .boxed()
         }

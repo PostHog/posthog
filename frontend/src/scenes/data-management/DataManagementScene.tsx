@@ -152,7 +152,6 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         url: urls.ingestionWarnings(),
         label: 'Ingestion warnings',
         content: <IngestionWarningsView />,
-        flag: FEATURE_FLAGS.INGESTION_WARNINGS_ENABLED,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },
     [DataManagementTab.MarketingAnalytics]: {

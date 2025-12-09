@@ -32,6 +32,8 @@ export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'chi
     className?: string
     title?: string
     children?: JSX.Element
+    /** 'relative' shows "Just now", "Today", "Yesterday" when applicable. 'absolute' always shows full date+time. */
+    timestampStyle?: 'relative' | 'absolute'
 }
 
 const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
@@ -139,6 +141,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     {
         time,
         showSeconds,
+        timestampStyle = 'relative',
         formatDate,
         formatTime,
         showPopover = true,
@@ -154,9 +157,9 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     const format = useCallback(() => {
         return formatDate || formatTime
-            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
+            ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime, { timestampStyle })
             : parsedTime.fromNow()
-    }, [formatDate, formatTime, parsedTime])
+    }, [formatDate, formatTime, parsedTime, timestampStyle])
 
     const [formattedContent, setFormattedContent] = useState(format())
 

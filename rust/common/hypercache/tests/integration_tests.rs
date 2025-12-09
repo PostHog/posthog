@@ -103,7 +103,7 @@ async fn set_cache_value(
         .body(json_str.into_bytes().into())
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Failed to set S3 object: {}", e))?;
+        .map_err(|e| anyhow::anyhow!("Failed to set S3 object: {e}"))?;
 
     Ok(())
 }

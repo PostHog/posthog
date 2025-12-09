@@ -762,6 +762,19 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
+    if kind == NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.non_integrated_conversions_table_query_runner import (
+            NonIntegratedConversionsTableQueryRunner,
+        )
+
+        return NonIntegratedConversionsTableQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+        )
+
     if kind == "UsageMetricsQuery":
         from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
 

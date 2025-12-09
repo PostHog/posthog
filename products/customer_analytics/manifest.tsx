@@ -14,19 +14,27 @@ export const manifest: ProductManifest = {
             description: 'Understand how your customers interact with your product ',
             iconType: 'cohort',
         },
+        CustomerAnalyticsConfiguration: {
+            import: () =>
+                import('./frontend/scenes/CustomerAnalyticsConfigurationScene/CustomerAnalyticsConfigurationScene'),
+            projectBased: true,
+            name: 'Customer analytics configuration',
+        },
     },
     routes: {
         // Single route for now, may want to split in the future
         '/customer_analytics': ['CustomerAnalytics', 'customerAnalytics'],
+        '/customer_analytics/configuration': ['CustomerAnalyticsConfiguration', 'customerAnalyticsConfiguration'],
     },
     urls: {
         customerAnalytics: (): string => '/customer_analytics',
+        customerAnalyticsConfiguration: (): string => '/customer_analytics/configuration',
     },
     treeItemsProducts: [
         {
             path: 'Customer analytics',
             intents: [ProductKey.CUSTOMER_ANALYTICS],
-            category: 'Unreleased',
+            category: 'Analytics',
             iconType: 'cohort',
             href: urls.customerAnalytics(),
             tags: ['alpha'],

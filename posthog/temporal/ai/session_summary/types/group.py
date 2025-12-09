@@ -19,6 +19,7 @@ class SessionGroupSummaryInputs:
 
     session_ids: list[str]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     redis_key_base: str
     summary_title: str | None
@@ -45,6 +46,7 @@ class SessionGroupSummaryOfSummariesInputs:
 
     single_session_summaries_inputs: list[SingleSessionSummaryInputs]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     summary_title: str | None
     redis_key_base: str
@@ -59,6 +61,7 @@ class SessionGroupSummaryPatternsExtractionChunksInputs:
     redis_keys_of_chunks_to_combine: list[str]
     session_ids: list[str]
     user_id: int
+    user_distinct_id_to_log: str | None = None
     team_id: int
     redis_key_base: str
     extra_summary_context: ExtraSummaryContext | None = None

@@ -5,15 +5,16 @@ import { logsLogic } from './logsLogic'
 
 export interface AttributeBreakdownLogicProps {
     attribute: string
+    tabId: string
 }
 
 export const attributeBreakdownLogic = kea<attributeBreakdownLogicType>([
     props({} as AttributeBreakdownLogicProps),
-    key((props) => props.attribute),
+    key((props) => `${props.tabId}-${props.attribute}`),
     path((key) => ['products', 'logs', 'frontend', 'logsAttributeBreakdownsLogic', key]),
 
-    connect(() => ({
-        values: [logsLogic, ['logs']],
+    connect((props: AttributeBreakdownLogicProps) => ({
+        values: [logsLogic({ tabId: props.tabId }), ['logs']],
     })),
 
     selectors(({ props }) => ({

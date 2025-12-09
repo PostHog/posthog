@@ -62,13 +62,14 @@ class TestTemplateRudderstack(BaseHogFunctionTemplateTest):
                                     "browser": "Chrome",
                                 },
                                 "channel": "s2s",
-                                "messageId": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
-                                "originalTimestamp": "2024-08-29T13:40:22.713Z",
-                                "userId": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
                                 "type": "page",
                                 "properties": {
                                     "url": "https://example.com",
                                 },
+                                "messageId": "96a04bdc-6021-4120-a3e3-f1988f59ba5f",
+                                "originalTimestamp": "2024-08-29T13:40:22.713Z",
+                                "userId": "a08ff8e1-a5ee-49cc-99e9-564e455c33f0",
+                                "anonymousId": "85bcd2e4-d10d-4a99-9dc8-43789b7226a1",
                             }
                         ],
                         "sentAt": {"__hogDateTime__": True, "dt": 1724946899.775266, "zone": "UTC"},

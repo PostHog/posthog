@@ -138,6 +138,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::now_v7(),
             distinct_id: "user123".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"test_event","properties":{}}"#.to_string(),
             now: "2023-10-15T14:30:00+00:00".to_string(),
@@ -171,6 +172,7 @@ mod tests {
         let event = CapturedEvent {
             uuid: Uuid::now_v7(),
             distinct_id: "user456".to_string(),
+            session_id: None,
             ip: "127.0.0.1".to_string(),
             data: r#"{"event":"another_event","properties":{}}"#.to_string(),
             now: "2023-10-15T15:00:00+00:00".to_string(),

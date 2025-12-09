@@ -252,13 +252,29 @@ export function SurveyColorsAppearance({
                     />
                 </>
             )}
+            <SurveyAppearanceInput
+                value={appearance.inputBackground}
+                onChange={(inputBackground) => onAppearanceChange({ inputBackground })}
+                error={validationErrors?.inputBackground}
+                label="Input background color"
+                info="Requires at least version 1.300.0 of posthog-js"
+            />
+            <SurveyAppearanceInput
+                value={appearance.inputTextColor}
+                onChange={(inputTextColor) => onAppearanceChange({ inputTextColor })}
+                error={validationErrors?.inputTextColor}
+                label="Input text color"
+                info="Requires at least version 1.300.0 of posthog-js"
+            />
             {customizePlaceholderText && (
-                <SurveyAppearanceInput
-                    value={appearance.placeholder}
-                    onChange={(placeholder) => onAppearanceChange({ placeholder })}
-                    error={validationErrors?.placeholder}
-                    label="Placeholder text"
-                />
+                <>
+                    <SurveyAppearanceInput
+                        value={appearance.placeholder}
+                        onChange={(placeholder) => onAppearanceChange({ placeholder })}
+                        error={validationErrors?.placeholder}
+                        label="Placeholder text"
+                    />
+                </>
             )}
         </SurveyOptionsGroup>
     )

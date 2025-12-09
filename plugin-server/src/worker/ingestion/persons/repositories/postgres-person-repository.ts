@@ -261,20 +261,28 @@ export class PostgresPersonRepository
     }
 
     async fetchPersonsByDistinctIds(
-        teamPersons: { teamId: TeamId; distinctId: string }[]
+        teamPersons: { teamId: TeamId; distinctId: string }[],
+        useReadReplica: boolean = true
     ): Promise<InternalPersonWithDistinctId[]> {
         if (teamPersons.length === 0) {
             return []
         }
 
-        // Build the WHERE clause for multiple team_id, distinct_id pairs
-        const conditions = teamPersons
-            .map((_, index) => {
-                const teamIdParam = index * 2 + 1
-                const distinctIdParam = index * 2 + 2
-                return `(posthog_persondistinctid.team_id = $${teamIdParam} AND posthog_persondistinctid.distinct_id = $${distinctIdParam})`
-            })
-            .join(' OR ')
+        // Deduplicate inputs to avoid duplicate rows in results
+        const seen = new Set<string>()
+        const uniqueTeamPersons = teamPersons.filter((p) => {
+            const key = `${p.teamId}:${p.distinctId}`
+            if (seen.has(key)) {
+                return false
+            }
+            seen.add(key)
+            return true
+        })
+
+        // Use UNNEST with two arrays to keep query structure constant for prepared statement reuse.
+        // This avoids creating different query plans for different batch sizes.
+        const teamIds = uniqueTeamPersons.map((p) => p.teamId)
+        const distinctIds = uniqueTeamPersons.map((p) => p.distinctId)
 
         const queryString = `SELECT
                 posthog_person.id,
@@ -293,15 +301,14 @@ export class PostgresPersonRepository
                 posthog_persondistinctid.person_id = posthog_person.id
                 AND posthog_persondistinctid.team_id = posthog_person.team_id
             )
-            WHERE ${conditions}`
-
-        // Flatten the parameters: [teamId1, distinctId1, teamId2, distinctId2, ...]
-        const params = teamPersons.flatMap((person) => [person.teamId, person.distinctId])
+            JOIN UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                ON posthog_persondistinctid.team_id = batch.team_id
+                AND posthog_persondistinctid.distinct_id = batch.distinct_id`
 
         const { rows } = await this.postgres.query<RawPerson & { distinct_id: string }>(
-            PostgresUse.PERSONS_READ,
+            useReadReplica ? PostgresUse.PERSONS_READ : PostgresUse.PERSONS_WRITE,
             queryString,
-            params,
+            [teamIds, distinctIds],
             'fetchPersonsByDistinctIds'
         )
 

@@ -34,7 +34,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
     connect(() => ({
         values: [
             issueFiltersLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
-            ['dateRange', 'filterTestAccounts', 'filterGroup', 'searchQuery'],
+            ['dateRange', 'filterTestAccounts', 'mergedFilterGroup', 'searchQuery'],
             issueQueryOptionsLogic({ logicKey: ERROR_TRACKING_SCENE_LOGIC_KEY }),
             ['assignee', 'orderBy', 'orderDirection', 'status'],
         ],
@@ -58,7 +58,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 s.dateRange,
                 s.assignee,
                 s.filterTestAccounts,
-                s.filterGroup,
+                s.mergedFilterGroup,
                 s.searchQuery,
                 s.orderDirection,
             ],
@@ -68,7 +68,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                 dateRange,
                 assignee,
                 filterTestAccounts,
-                filterGroup,
+                mergedFilterGroup,
                 searchQuery,
                 orderDirection
             ): DataTableNode => {
@@ -83,7 +83,7 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
                     dateRange,
                     assignee,
                     filterTestAccounts,
-                    filterGroup,
+                    filterGroup: mergedFilterGroup,
                     volumeResolution: ERROR_TRACKING_LISTING_RESOLUTION,
                     searchQuery,
                     columns,
@@ -114,9 +114,9 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
         query: () => {
             actions.setSelectedIssueIds([])
 
-            const filterGroup = values.filterGroup.values[0] as UniversalFiltersGroup
+            const mergedFilterGroup = values.mergedFilterGroup.values[0] as UniversalFiltersGroup
             posthog.capture('error_tracking_query_executed', {
-                filter_count: filterGroup.values.length,
+                filter_count: mergedFilterGroup.values.length,
                 has_search_query: !!values.searchQuery,
                 filter_test_accounts: values.filterTestAccounts,
                 sort_by: values.orderBy,

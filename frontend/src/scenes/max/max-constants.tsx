@@ -1,10 +1,21 @@
-import { IconAtSign, IconBook, IconCreditCard, IconMemory, IconSearch, IconShuffle } from '@posthog/icons'
+import {
+    IconAtSign,
+    IconBook,
+    IconBrain,
+    IconCreditCard,
+    IconDocument,
+    IconMemory,
+    IconSearch,
+    IconShuffle,
+} from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AgentMode, AssistantTool } from '~/queries/schema/schema-assistant-messages'
+import { RecordingUniversalFilters } from '~/types'
 
 import { EnhancedToolCall } from './Thread'
 import { isAgentMode } from './maxTypes'
@@ -29,7 +40,7 @@ export interface ToolDefinition<N extends string = string> {
     displayFormatter?: (
         toolCall: EnhancedToolCall,
         { registeredToolMap }: { registeredToolMap: Record<string, ToolRegistration> }
-    ) => string
+    ) => string | [text: string, widgetDef: RecordingsWidgetDef | null]
     /**
      * If only available in a specific product, specify it here.
      * We're using Scene instead of ProductKey, because that's more flexible (specifically for SQL editor there
@@ -40,6 +51,8 @@ export interface ToolDefinition<N extends string = string> {
     flag?: (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
     /** If the tool is in beta, set this to true to display a beta badge */
     beta?: boolean
+    /** Agent modes this tool is available in (defined in backend presets) */
+    modes?: AgentMode[]
 }
 
 /** Active instance of a tool. */
@@ -79,12 +92,40 @@ export interface ToolRegistration extends Pick<ToolDefinition, 'name' | 'descrip
     callback?: (toolOutput: any, conversationId: string) => void | Promise<void>
 }
 
+export interface RecordingsWidgetDef {
+    widget: 'recordings'
+    args: RecordingUniversalFilters
+}
+
 /** Static mode definition for display purposes. */
 export interface ModeDefinition {
     name: string
+    description: string
+    icon: JSX.Element
+    /** Scenes that should trigger this agent mode */
+    scenes: Set<Scene>
 }
 
+/** Default tools available in all modes */
+export const DEFAULT_TOOL_KEYS: (keyof typeof TOOL_DEFINITIONS)[] = [
+    'read_taxonomy',
+    'read_data',
+    'search',
+    'switch_mode',
+]
+
 export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, ToolDefinition> = {
+    create_form: {
+        name: 'Create a form',
+        description: 'Create a form to collect information from the user',
+        icon: <IconQuestionAnswer />,
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created a form'
+            }
+            return 'Creating a form...'
+        },
+    },
     session_summarization: {
         name: 'Summarize sessions',
         description: 'Summarize sessions to analyze real user behavior',
@@ -102,9 +143,12 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         name: 'Create dashboards',
         description: 'Create dashboards with insights based on your requirements',
         icon: iconForType('dashboard'),
+        modes: [AgentMode.ProductAnalytics],
     },
     search: {
-        name: 'Search',
+        name: 'Search PostHog data',
+        description:
+            'Search PostHog data for documentation, insights, dashboards, cohorts, actions, experiments, feature flags, notebooks, error tracking issues, surveys, and other.',
         icon: <IconSearch />,
         subtools: {
             docs: {
@@ -132,18 +176,19 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     read_taxonomy: {
-        name: 'Read taxonomy',
+        name: 'Read data schema',
+        description: 'Read data schema to retrieve events, properties, and sample property values',
         icon: iconForType('data_warehouse'),
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Read taxonomy'
+                return 'Read data schema'
             }
-            return 'Reading taxonomy...'
+            return 'Reading data schema...'
         },
     },
     read_data: {
         name: 'Read data',
-        description: 'Read data from PostHog',
+        description: 'Read data, such as your data warehouse schema and billed usage statistics',
         icon: iconForType('data_warehouse'),
         subtools: {
             billing_info: {
@@ -168,6 +213,17 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                     return 'Reading data warehouse schema...'
                 },
             },
+            artifacts: {
+                name: 'Read conversation artifacts',
+                description: 'Read conversation artifacts created by the agent',
+                icon: <IconDocument />,
+                displayFormatter: (toolCall) => {
+                    if (toolCall.status === 'completed') {
+                        return 'Read conversation artifacts'
+                    }
+                    return 'Reading conversation artifacts...'
+                },
+            },
         },
     },
     create_and_query_insight: {
@@ -186,10 +242,11 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         },
     },
     create_insight: {
-        name: 'Edit the insight',
-        description: "Edit the insight you're viewing",
+        name: 'Create an insight or edit an existing one',
+        description: "Create an insight or edit an existing one you're viewing",
         icon: iconForType('product_analytics'),
         product: Scene.Insight,
+        modes: [AgentMode.ProductAnalytics],
         displayFormatter: (toolCall, { registeredToolMap }) => {
             const isEditing = registeredToolMap.create_and_query_insight || registeredToolMap.create_insight
             if (isEditing) {
@@ -210,6 +267,24 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
                 return 'Searched recordings'
             }
             return 'Searching recordings...'
+        },
+    },
+    filter_session_recordings: {
+        name: 'Filter recordings',
+        description: 'Filter recordings to find the most relevant ones',
+        product: Scene.Replay,
+        icon: iconForType('session_replay'),
+        displayFormatter: (toolCall) => {
+            const widgetDef = toolCall.args?.recordings_filters
+                ? ({
+                      widget: 'recordings',
+                      args: toolCall.args.recordings_filters as RecordingUniversalFilters,
+                  } as const)
+                : null
+            if (toolCall.status === 'completed') {
+                return ['Filtered recordings', widgetDef]
+            }
+            return ['Filtering recordings...', widgetDef]
         },
     },
     generate_hogql_query: {
@@ -431,11 +506,12 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
     },
     switch_mode: {
         name: 'Switch agent mode',
-        description: 'Switch agent mode to a specialized agent',
+        description:
+            'Switch agent mode to another specialized mode like product analytics, SQL, or session replay analysis',
         icon: <IconShuffle />,
         displayFormatter: (toolCall) => {
             const modeName = isAgentMode(toolCall.args.new_mode) ? MODE_DEFINITIONS[toolCall.args.new_mode].name : null
-            const modeText = modeName ? ` to the ${modeName} mode` : 'mode'
+            const modeText = (modeName ? ` to the ${modeName} mode` : 'mode').toLowerCase()
 
             if (toolCall.status === 'completed') {
                 return `Switched agent ${modeText}`
@@ -449,6 +525,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         description: 'Write and tweak SQL right there',
         product: Scene.SQLEditor,
         icon: iconForType('insight/hog'),
+        modes: [AgentMode.SQL],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Executed SQL'
@@ -462,6 +539,7 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
         flag: 'max-session-summarization',
         icon: iconForType('session_replay'),
         beta: true,
+        modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
                 return 'Summarized sessions'
@@ -473,15 +551,57 @@ export const TOOL_DEFINITIONS: Record<Exclude<AssistantTool, 'todo_write'>, Tool
 
 export const MODE_DEFINITIONS: Record<AgentMode, ModeDefinition> = {
     [AgentMode.ProductAnalytics]: {
-        name: 'product analytics',
+        name: 'Product analytics',
+        description: 'Creates insights and dashboards to analyze your product data.',
+        icon: iconForType('product_analytics'),
+        scenes: new Set([Scene.Dashboards, Scene.Dashboard, Scene.Insight, Scene.SavedInsights]),
     },
     [AgentMode.SQL]: {
         name: 'SQL',
+        description: 'Generates and executes SQL queries for your PostHog data and connected data warehouse sources.',
+        icon: iconForType('sql_editor'),
+        scenes: new Set([Scene.SQLEditor]),
     },
     [AgentMode.SessionReplay]: {
-        name: 'session replay',
+        name: 'Session replay',
+        description: 'Analyzes session recordings and provides summaries and insights about user behavior.',
+        icon: iconForType('session_replay'),
+        scenes: new Set([
+            Scene.Replay,
+            Scene.ReplaySingle,
+            Scene.ReplayPlaylist,
+            Scene.ReplayFilePlayback,
+            Scene.ReplaySettings,
+        ]),
     },
 }
+
+export const SPECIAL_MODES = {
+    auto: {
+        name: 'Auto',
+        description:
+            'Automatically selects the best mode based on your request. The tools that are available in all modes are listed below.',
+        icon: <IconShuffle />,
+    },
+    deep_research: {
+        name: 'Research',
+        description:
+            'Answers complex questions using advanced reasoning models and more resources, taking more time to provide deeper insights.',
+        icon: <IconBrain />,
+    },
+}
+
+/** Get tools available for a specific agent mode */
+export function getToolsForMode(mode: AgentMode): ToolDefinition[] {
+    return Object.values(TOOL_DEFINITIONS).filter((tool) => tool.modes?.includes(mode))
+}
+
+/** Get default tools available in auto mode */
+export function getDefaultTools(): ToolDefinition[] {
+    return DEFAULT_TOOL_KEYS.map((key) => TOOL_DEFINITIONS[key])
+}
+
+export type SpecialMode = keyof typeof SPECIAL_MODES
 
 export const AI_GENERALLY_CAN: { icon: JSX.Element; description: string }[] = [
     { icon: <IconAtSign />, description: 'Analyze and use attached context' },
@@ -495,6 +615,11 @@ export const AI_GENERALLY_CANNOT: string[] = [
     'Guarantee correctness',
     'Order tungsten cubes',
 ]
+
+export function getToolDefinitionFromToolCall(toolCall: EnhancedToolCall): ToolDefinition | null {
+    const identifier = toolCall.args.kind ?? toolCall.name
+    return getToolDefinition(identifier as string)
+}
 
 export function getToolDefinition(identifier: string): ToolDefinition | null {
     const flatTools = Object.entries(TOOL_DEFINITIONS).flatMap(([key, tool]) => {

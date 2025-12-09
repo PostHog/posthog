@@ -1,5 +1,6 @@
 import re
 import ssl
+import sys
 import enum
 import json
 import uuid
@@ -7,7 +8,6 @@ import socket
 import typing
 import asyncio
 import datetime as dt
-import platform
 import contextlib
 import collections.abc
 from urllib.parse import urljoin
@@ -567,6 +567,7 @@ class ClickHouseClient:
         )
 
         if not resp:
+            self.logger.warning("Query not found in query log", query_id=query_id)
             raise ClickHouseQueryNotFound(query, query_id)
 
         lines = resp.split(b"\n")
@@ -598,7 +599,24 @@ class ClickHouseClient:
         elif "QueryStart" in events:
             return ClickHouseQueryStatus.RUNNING
         else:
+            self.logger.warning("Expected event not found in query log", query_id=query_id, events=events)
             raise ClickHouseQueryNotFound(query, query_id)
+
+    async def acancel_query(self, query_id: str) -> None:
+        """Cancel a running query in ClickHouse.
+
+        Arguments:
+            query_id: The ID of the query to cancel.
+        """
+        query = f"KILL QUERY ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' WHERE query_id = {{{{query_id:String}}}}"
+
+        await self.execute_query(
+            query,
+            query_parameters={"query_id": query_id},
+            query_id=f"{query_id}-KILL",
+        )
+
+        self.logger.info("Cancelled query", query_id=query_id)
 
     async def stream_query_as_jsonl(
         self,
@@ -684,14 +702,23 @@ class ClickHouseClient:
             # Enable keepalive in the socket
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
 
-            if platform.system() == "Linux":
+            if sys.platform == "linux":
                 # Start sending keepalive probes after 60s
                 # Ensure that any idle timeouts allow at least 60s
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 60)
-                # Start sending keepalive probes every 10s
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
+                tcp_keepidle = 60
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, tcp_keepidle)
+                # Send keepalive probes every 10s
+                tcp_keepintvl = 10
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, tcp_keepintvl)
                 # Give up after 5 failed probes
-                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, 5)
+                tcp_keepcnt = 5
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, tcp_keepcnt)
+                self.logger.debug(
+                    "Configured keepalive probes",
+                    tcp_keepidle=tcp_keepidle,
+                    tcp_keepintvl=tcp_keepintvl,
+                    tcp_keepcnt=tcp_keepcnt,
+                )
 
             return sock
 

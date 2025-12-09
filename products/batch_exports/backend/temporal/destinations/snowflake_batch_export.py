@@ -104,6 +104,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "SnowflakeQueryServerTimeoutError",
     # Raised when either the warehouse does not exist or we are missing 'USAGE' permissions on it
     "SnowflakeWarehouseUsageError",
+    # Invalid filter used.
+    "InvalidFilterError",
 )
 
 
@@ -355,8 +357,15 @@ class SnowflakeField(Field):
 
         return cls(field.name, snowflake_type, snowflake_type_to_data_type(snowflake_type), field.is_nullable)
 
+    @property
+    def snowflake_type_name(self) -> SnowflakeTypeName:
+        if self.snowflake_type.repeated is True:
+            return "ARRAY"
+        else:
+            return self.snowflake_type.name
+
     def to_destination_field(self) -> SnowflakeDestinationField:
-        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type.name, is_nullable=self.nullable)
+        return SnowflakeDestinationField(name=self.name, type=self.snowflake_type_name, is_nullable=self.nullable)
 
 
 class SnowflakeTable(Table):
@@ -797,12 +806,17 @@ class SnowflakeClient:
             else:
                 raise
 
+        record_batch_field_names = [field.name.lower() for field in table.fields]
+        fields = (
+            SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
+            for metadata in metadata
+            # Only include fields that are present in the record batch schema
+            if metadata.name.lower() in record_batch_field_names
+        )
+
         return SnowflakeTable.from_snowflake_table(
             table.name,
-            fields=(
-                SnowflakeDestinationField(metadata.name, FIELD_ID_TO_NAME[metadata.type_code], metadata.is_nullable)  # type: ignore[arg-type]
-                for metadata in metadata
-            ),
+            fields=fields,
             parents=table.parents,
             primary_key=table.primary_key,
             version_key=table.version_key,
@@ -818,7 +832,7 @@ class SnowflakeClient:
                 Whether to include an 'IF NOT EXISTS' clause in the query such that it
                 won't fail if the table already exists.
         """
-        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type.name}' for field in table)
+        field_ddl = ", ".join(f'"{field.name}" {field.snowflake_type_name}' for field in table)
 
         if_not_exists = ""
         if exists_ok:
@@ -950,7 +964,7 @@ class SnowflakeClient:
         """
         select_fields = ", ".join(
             f'PARSE_JSON($1:"{field.name}")'
-            if field.data_type == JsonType() and field.name != "elements"
+            if field.data_type == JsonType() and field.name.lower() != "elements"
             else f'$1:"{field.name}"'
             for field in table
         )

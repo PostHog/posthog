@@ -1,50 +1,107 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { externalDataSources } from '~/queries/schema/schema-general'
+import { MatchField, VALID_NATIVE_MARKETING_SOURCES, externalDataSources } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { VALID_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
+import {
+    getGlobalCampaignMapping,
+    parseCommaSeparatedValues,
+    removeCampaignFromMappings,
+} from '../NonIntegratedConversionsTable/mappingUtils'
 
-const SEPARATOR = ','
+export interface CampaignNameMappingsConfigurationProps {
+    sourceFilter?: string
+    compact?: boolean
+    initialUtmValue?: string
+}
 
-export function CampaignNameMappingsConfiguration(): JSX.Element {
-    const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
-    const { updateCampaignNameMappings } = useActions(marketingAnalyticsSettingsLogic)
+export function CampaignNameMappingsConfiguration({
+    sourceFilter,
+    compact = false,
+    initialUtmValue,
+}: CampaignNameMappingsConfigurationProps): JSX.Element {
+    const { marketingAnalyticsConfig, integrationCampaigns, integrationCampaignsLoading } = useValues(
+        marketingAnalyticsSettingsLogic
+    )
+    const { updateCampaignNameMappings, loadIntegrationCampaigns } = useActions(marketingAnalyticsSettingsLogic)
 
     const campaignMappings = marketingAnalyticsConfig?.campaign_name_mappings || {}
-    const [selectedSource, setSelectedSource] = useState<string>('')
+    const fieldPreferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
+    const [selectedSource, setSelectedSource] = useState<string>(sourceFilter || '')
     const [newCleanName, setNewCleanName] = useState('')
-    const [newRawValues, setNewRawValues] = useState('')
+    const [newRawValues, setNewRawValues] = useState(initialUtmValue || '')
 
-    const availableSources = externalDataSources.filter((source) =>
-        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
-    )
+    useEffect(() => {
+        if (initialUtmValue) {
+            setNewRawValues(initialUtmValue)
+        }
+    }, [initialUtmValue])
 
-    const updateMappings = (newMappings: Record<string, Record<string, string[]>>): void => {
-        updateCampaignNameMappings(newMappings)
-    }
+    const currentIntegration = sourceFilter || selectedSource
+
+    useEffect(() => {
+        if (
+            currentIntegration &&
+            !integrationCampaigns[currentIntegration] &&
+            !integrationCampaignsLoading[currentIntegration]
+        ) {
+            loadIntegrationCampaigns(currentIntegration)
+        }
+    }, [currentIntegration, integrationCampaigns, integrationCampaignsLoading, loadIntegrationCampaigns])
+
+    const filteredMappings = sourceFilter ? { [sourceFilter]: campaignMappings[sourceFilter] || {} } : campaignMappings
+    const matchField = sourceFilter
+        ? fieldPreferences[sourceFilter]?.match_field || MatchField.CAMPAIGN_NAME
+        : MatchField.CAMPAIGN_NAME
+    const columnHeader = matchField === MatchField.CAMPAIGN_ID ? 'Campaign ID' : 'Campaign name'
+
+    const campaigns = integrationCampaigns[currentIntegration] || []
+    const campaignOptions = campaigns.map((c: { name: string; id: string }) => ({
+        key: matchField === MatchField.CAMPAIGN_ID ? c.id : c.name,
+        label: matchField === MatchField.CAMPAIGN_ID ? `${c.id} (${c.name})` : c.name,
+    }))
+
+    const alreadyMappedValues = useMemo(() => {
+        if (!newRawValues.trim()) {
+            return []
+        }
+        return parseCommaSeparatedValues(newRawValues)
+            .map((value) => {
+                const existing = getGlobalCampaignMapping(value, marketingAnalyticsConfig)
+                return existing
+                    ? { value, integration: existing.integration, campaignName: existing.campaignName }
+                    : null
+            })
+            .filter(Boolean) as Array<{ value: string; integration: string; campaignName: string }>
+    }, [newRawValues, marketingAnalyticsConfig])
+
+    const hasAlreadyMappedValues = alreadyMappedValues.length > 0
 
     const addMapping = (): void => {
         if (!selectedSource || !newCleanName.trim() || !newRawValues.trim()) {
             return
         }
 
-        const rawValuesArray = newRawValues
-            .split(SEPARATOR)
-            .map((v) => v.trim())
-            .filter((v) => v.length > 0)
+        const filteredValues = parseCommaSeparatedValues(newRawValues).filter(
+            (value) => getGlobalCampaignMapping(value, marketingAnalyticsConfig) === null
+        )
+
+        if (filteredValues.length === 0) {
+            return
+        }
 
         const sourceMappings = campaignMappings[selectedSource] || {}
+        const existingValues = sourceMappings[newCleanName.trim()] || []
 
-        updateMappings({
+        updateCampaignNameMappings({
             ...campaignMappings,
             [selectedSource]: {
                 ...sourceMappings,
-                [newCleanName.trim()]: rawValuesArray,
+                [newCleanName.trim()]: [...new Set([...existingValues, ...filteredValues])],
             },
         })
 
@@ -52,129 +109,165 @@ export function CampaignNameMappingsConfiguration(): JSX.Element {
         setNewRawValues('')
     }
 
+    const removeUtmValue = (source: string, cleanName: string, utmValue: string): void => {
+        updateCampaignNameMappings(
+            removeCampaignFromMappings(marketingAnalyticsConfig, source as any, cleanName, utmValue)
+        )
+    }
+
     const removeMapping = (source: string, cleanName: string): void => {
         const sourceMappings = { ...campaignMappings[source] }
         delete sourceMappings[cleanName]
 
+        const newMappings = { ...campaignMappings }
         if (Object.keys(sourceMappings).length === 0) {
-            const newMappings = { ...campaignMappings }
             delete newMappings[source]
-            updateMappings(newMappings)
         } else {
-            updateMappings({
-                ...campaignMappings,
-                [source]: sourceMappings,
-            })
+            newMappings[source] = sourceMappings
         }
+        updateCampaignNameMappings(newMappings)
     }
 
-    const totalMappings = Object.values(campaignMappings).reduce(
-        (sum, sourceMappings) => sum + Object.keys(sourceMappings).length,
-        0
+    const availableSources = externalDataSources.filter((source) =>
+        VALID_NATIVE_MARKETING_SOURCES.includes(source as any)
     )
 
     return (
         <div className="space-y-4">
-            <div>
-                <h3 className="text-lg font-semibold mb-1">Campaign name mappings</h3>
-                <p className="text-muted mb-4">
-                    Map UTM campaign values to your ad platform campaign names for proper conversion attribution. Ad
-                    platforms (LinkedIn, Google, TikTok, etc.) don't store UTM parameters—they only have campaign names.
-                    PostHog joins conversions to paid campaigns by matching{' '}
-                    <code className="text-xs">utm_campaign</code> values with campaign names from your ad integrations.
-                    If your <code className="text-xs">utm_campaign</code> doesn't exactly match your ad platform
-                    campaign name (e.g., "2025q3_paid_social_linkedin" vs "TOFU Video Views | LinkedIn | Global"), your
-                    conversions won't attribute to the paid campaign. Use this to map multiple UTM variations to the
-                    correct campaign name.
-                </p>
-            </div>
-
-            {totalMappings > 0 && (
-                <div className="border rounded p-4 space-y-4">
-                    <h4 className="font-semibold">Current mappings ({totalMappings})</h4>
-                    {Object.entries(campaignMappings).map(([source, sourceMappings]) => (
-                        <div key={source} className="space-y-2">
-                            <div className="font-medium text-sm text-muted">{source}</div>
-                            {Object.entries(sourceMappings).map(([cleanName, rawValues]) => (
-                                <div
-                                    key={cleanName}
-                                    className="flex items-start justify-between bg-bg-light rounded p-3"
-                                >
-                                    <div className="flex-1">
-                                        <div className="font-medium mb-2">{cleanName}</div>
-                                        <div className="flex flex-wrap gap-1">
-                                            {(rawValues as string[]).map((rawValue) => (
-                                                <LemonTag key={rawValue}>{rawValue}</LemonTag>
-                                            ))}
-                                        </div>
-                                    </div>
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        icon={<IconTrash />}
-                                        onClick={() => removeMapping(source, cleanName)}
-                                        tooltip="Remove mapping"
-                                    />
-                                </div>
-                            ))}
-                        </div>
-                    ))}
+            {!compact && (
+                <div>
+                    <h3 className="text-lg font-semibold mb-1">Campaign name mappings</h3>
+                    <p className="text-muted mb-4">
+                        Map UTM campaign values to your ad platform campaign names for proper conversion attribution. If
+                        your <code className="text-xs">utm_campaign</code> doesn't exactly match your ad platform
+                        campaign name, your conversions won't attribute to the paid campaign.
+                    </p>
                 </div>
             )}
+            {compact && <h4 className="font-semibold text-sm mb-2">Campaign name mappings</h4>}
 
-            <div className="border rounded p-4 space-y-3">
-                <h4 className="font-semibold">Add new mapping</h4>
-
-                <div className="space-y-3">
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Data source</label>
-                        <LemonSelect
-                            value={selectedSource}
-                            onChange={setSelectedSource}
-                            options={[
-                                { label: 'Select a source...', value: '' },
-                                ...availableSources.map((source) => ({ label: source, value: source })),
-                            ]}
-                            fullWidth
-                        />
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Ad platform campaign name</label>
-                        <LemonInput
-                            value={newCleanName}
-                            onChange={setNewCleanName}
-                            placeholder="e.g., campaign name from the Data Warehouse table (e.g., TOFU Video Views | LinkedIn | Global)"
-                            fullWidth
-                        />
-                        <div className="text-xs text-muted mt-1">
-                            The exact campaign name from your ad platform (LinkedIn, Google, etc.)
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-medium mb-1">UTM campaign values to map</label>
-                        <LemonInput
-                            value={newRawValues}
-                            onChange={setNewRawValues}
-                            placeholder="e.g., utm campaign from the url (e.g., 2025q3_paid_social_linkedin)"
-                            fullWidth
-                        />
-                        <div className="text-xs text-muted mt-1">
-                            Comma-separated list of utm_campaign values that should map to this campaign
-                        </div>
-                    </div>
-
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPlusSmall />}
-                        onClick={addMapping}
-                        disabled={!selectedSource || !newCleanName.trim() || !newRawValues.trim()}
-                        fullWidth
-                    >
-                        Add mapping
-                    </LemonButton>
-                </div>
+            <div className="border rounded overflow-x-auto">
+                <table className="w-full table-fixed">
+                    <thead>
+                        <tr className="bg-bg-light border-b">
+                            {!sourceFilter && (
+                                <th className="text-left text-xs font-semibold p-2 text-muted w-1/4">Source</th>
+                            )}
+                            <th className="text-left text-xs font-semibold p-2 text-muted w-1/3">{columnHeader}</th>
+                            <th className="text-left text-xs font-semibold p-2 text-muted">utm_campaign</th>
+                            <th className="text-right text-xs font-semibold p-2 text-muted w-16">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {Object.entries(filteredMappings).flatMap(([source, sourceMappings]) =>
+                            sourceMappings && Object.keys(sourceMappings).length > 0
+                                ? Object.entries(sourceMappings).map(([cleanName, rawValues]) => (
+                                      <tr key={`${source}-${cleanName}`} className="border-b last:border-b-0">
+                                          {!sourceFilter && <td className="p-2 text-sm align-top">{source}</td>}
+                                          <td className="p-2 text-sm align-top font-medium">{cleanName}</td>
+                                          <td className="p-2 align-top">
+                                              <div className="flex flex-wrap gap-1">
+                                                  {(rawValues as string[]).map((rawValue) => (
+                                                      <LemonTag
+                                                          key={rawValue}
+                                                          size="small"
+                                                          closable
+                                                          onClose={() => removeUtmValue(source, cleanName, rawValue)}
+                                                      >
+                                                          {rawValue}
+                                                      </LemonTag>
+                                                  ))}
+                                              </div>
+                                          </td>
+                                          <td className="p-2 text-right align-top">
+                                              <LemonButton
+                                                  type="tertiary"
+                                                  status="danger"
+                                                  size="small"
+                                                  icon={<IconTrash />}
+                                                  onClick={() => removeMapping(source, cleanName)}
+                                                  tooltip="Remove mapping"
+                                              />
+                                          </td>
+                                      </tr>
+                                  ))
+                                : []
+                        )}
+                        <tr className="bg-bg-light">
+                            {!sourceFilter && (
+                                <td className="p-2 align-top">
+                                    <LemonSelect
+                                        value={selectedSource}
+                                        onChange={setSelectedSource}
+                                        options={[
+                                            { label: 'Source...', value: '' },
+                                            ...availableSources.map((s) => ({ label: s, value: s })),
+                                        ]}
+                                        size="small"
+                                        fullWidth
+                                    />
+                                </td>
+                            )}
+                            <td className="p-2 align-top">
+                                <LemonInputSelect
+                                    value={newCleanName ? [newCleanName] : []}
+                                    onChange={(values) => setNewCleanName(values[0] || '')}
+                                    options={campaignOptions}
+                                    placeholder={
+                                        integrationCampaignsLoading[currentIntegration] ? 'Loading...' : columnHeader
+                                    }
+                                    mode="single"
+                                    allowCustomValues
+                                    size="small"
+                                    loading={integrationCampaignsLoading[currentIntegration]}
+                                />
+                            </td>
+                            <td className="p-2 align-top">
+                                <div className="flex flex-col gap-1">
+                                    <LemonInput
+                                        value={newRawValues}
+                                        onChange={setNewRawValues}
+                                        placeholder="utm_campaign values (comma-separated)"
+                                        size="small"
+                                        fullWidth
+                                    />
+                                    {hasAlreadyMappedValues && (
+                                        <div className="flex items-start gap-1 text-warning text-xs">
+                                            <IconWarning className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                                            <span>
+                                                {alreadyMappedValues.length === 1
+                                                    ? `"${alreadyMappedValues[0].value}" is already mapped to ${alreadyMappedValues[0].integration}: ${alreadyMappedValues[0].campaignName}`
+                                                    : `${alreadyMappedValues.length} values are already mapped elsewhere`}
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </td>
+                            <td className="p-2 text-right align-top">
+                                <Tooltip
+                                    title={
+                                        hasAlreadyMappedValues
+                                            ? 'Some utm_campaign values are already mapped. Each value can only be in one mapping.'
+                                            : 'Add mapping'
+                                    }
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        onClick={addMapping}
+                                        disabled={
+                                            (!sourceFilter && !selectedSource) ||
+                                            !newCleanName.trim() ||
+                                            !newRawValues.trim() ||
+                                            hasAlreadyMappedValues
+                                        }
+                                    />
+                                </Tooltip>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
             </div>
         </div>
     )

@@ -103,7 +103,8 @@
                                                                                                                                           max_bytes_before_external_group_by=0,
                                                                                                                                           transform_null_in=1,
                                                                                                                                           optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                                          allow_experimental_join_condition=1
+                                                                                                                                          allow_experimental_join_condition=1,
+                                                                                                                                          use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_basic_query.1
@@ -186,11 +187,11 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 691200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                            and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 691200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                          and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                          and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                         and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                         and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -229,7 +230,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence.2
@@ -467,7 +469,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.10
@@ -521,7 +524,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.11
@@ -614,7 +618,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.13
@@ -813,7 +818,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.5
@@ -906,7 +912,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.7
@@ -999,7 +1006,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.9
@@ -1076,7 +1084,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_poe_override.1
@@ -1117,11 +1126,11 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                            and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                          and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                          and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                         and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                         and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1160,7 +1169,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence.1
@@ -1217,11 +1227,11 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                            and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                          and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                          and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                         and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                         and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1278,7 +1288,8 @@
                                 max_bytes_before_external_group_by=0,
                                 transform_null_in=1,
                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                allow_experimental_join_condition=1
+                                allow_experimental_join_condition=1,
+                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event.1
@@ -1340,11 +1351,11 @@
         FROM
           (SELECT arraySort(t -> t.1, groupArray(tuple(accurateCastOrNull(timestamp, 'Float64'), uuid, '', arrayFilter(x -> ifNull(notEquals(x, 0), 1), [multiply(1, step_0), multiply(2, step_1)])))) AS events_array,
                   [''] AS prop,
-                  arrayJoin(aggregate_funnel_v9(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
-                                                                                                                                                                                             and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
-                                                                                                                                                                                                                             and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
-                                                                                                                                                                                                                                                            and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
-                                                                                                                                                                                                                                                                                            and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
+                  arrayJoin(aggregate_funnel(2, 259200, 'first_touch', 'ordered', prop, [], arrayFilter((x, x_before, x_after) -> not(and(ifNull(lessOrEquals(length(x.4), 1), 0), ifNull(equals(x.4, x_before.4), isNull(x.4)
+                                                                                                                                                                                          and isNull(x_before.4)), ifNull(equals(x.4, x_after.4), isNull(x.4)
+                                                                                                                                                                                                                          and isNull(x_after.4)), ifNull(equals(x.3, x_before.3), isNull(x.3)
+                                                                                                                                                                                                                                                         and isNull(x_before.3)), ifNull(equals(x.3, x_after.3), isNull(x.3)
+                                                                                                                                                                                                                                                                                         and isNull(x_after.3)), ifNull(greater(x.1, x_before.1), 0), ifNull(less(x.1, x_after.1), 0))), events_array, arrayRotateRight(events_array, 1), arrayRotateLeft(events_array, 1)))) AS af_tuple,
                   af_tuple.1 AS step_reached,
                   plus(af_tuple.1, 1) AS steps,
                   af_tuple.2 AS breakdown,
@@ -1415,7 +1426,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties.1
@@ -1517,7 +1529,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_performed_event_with_event_filters_and_explicit_date.1
@@ -1599,7 +1612,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person.1
@@ -1692,7 +1706,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_materialized.1
@@ -1854,7 +1869,8 @@
                                                                                                                                           max_bytes_before_external_group_by=0,
                                                                                                                                           transform_null_in=1,
                                                                                                                                           optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                                                                          allow_experimental_join_condition=1
+                                                                                                                                          allow_experimental_join_condition=1,
+                                                                                                                                          use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_properties_with_pushdowns.1
@@ -1983,7 +1999,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_person_props_only.1
@@ -2054,7 +2071,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
@@ -2093,7 +2111,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
@@ -2135,7 +2154,8 @@
                                 max_bytes_before_external_group_by=0,
                                 transform_null_in=1,
                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                allow_experimental_join_condition=1
+                                allow_experimental_join_condition=1,
+                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter.1
@@ -2199,7 +2219,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.1
@@ -2284,7 +2305,8 @@
                                                                                 max_bytes_before_external_group_by=0,
                                                                                 transform_null_in=1,
                                                                                 optimize_min_equality_disjunction_chain_length=4294967295,
-                                                                                allow_experimental_join_condition=1
+                                                                                allow_experimental_join_condition=1,
+                                                                                use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.3
@@ -2384,7 +2406,8 @@
                                                                max_bytes_before_external_group_by=0,
                                                                transform_null_in=1,
                                                                optimize_min_equality_disjunction_chain_length=4294967295,
-                                                               allow_experimental_join_condition=1
+                                                               allow_experimental_join_condition=1,
+                                                               use_hive_partitioning=0
   '''
 # ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts.2

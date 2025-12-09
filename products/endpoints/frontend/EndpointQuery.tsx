@@ -2,8 +2,10 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -20,9 +22,17 @@ interface EndpointQueryProps {
 
 export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
     const { endpoint } = useValues(endpointLogic({ tabId }))
-    const { queryToRender } = useValues(endpointSceneLogic({ tabId }))
+    const { queryToRender, endpointLoading } = useValues(endpointSceneLogic({ tabId }))
     const { setLocalQuery } = useActions(endpointSceneLogic({ tabId }))
     const { newTab } = useActions(sceneLogic)
+
+    if (endpointLoading) {
+        return (
+            <div className="flex items-center justify-center h-60">
+                <Spinner />
+            </div>
+        )
+    }
 
     if (!endpoint || !queryToRender) {
         return <div>No query available</div>
@@ -38,7 +48,7 @@ export function EndpointQuery({ tabId }: EndpointQueryProps): JSX.Element {
         const variables = hogqlQuery.variables || {}
 
         const handleEditQuery = (): void => {
-            newTab(urls.sqlEditor(hogqlQuery.query))
+            newTab(urls.sqlEditor(hogqlQuery.query, undefined, undefined, undefined, OutputTab.Endpoint, endpoint.name))
         }
 
         return (

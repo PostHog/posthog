@@ -6,6 +6,7 @@ import { IconArrowRight, IconChevronRight } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -16,12 +17,12 @@ export const OnboardingStep = ({
     title,
     subtitle,
     children,
+    showContinue = true,
     showSkip = false,
     showHelpButton = false,
     onSkip,
     onContinue,
     continueText,
-    continueOverride,
     continueDisabledReason,
     hideHeader,
     breadcrumbHighlightName,
@@ -32,12 +33,12 @@ export const OnboardingStep = ({
     title: string
     subtitle?: string
     children: React.ReactNode
+    showContinue?: boolean
     showSkip?: boolean
     showHelpButton?: boolean
     onSkip?: () => void
     onContinue?: () => void
     continueText?: string
-    continueOverride?: JSX.Element
     continueDisabledReason?: string
     hideHeader?: boolean
     breadcrumbHighlightName?: OnboardingStepKey
@@ -45,13 +46,29 @@ export const OnboardingStep = ({
     actions?: JSX.Element
 }): JSX.Element => {
     const { hasNextStep, onboardingStepKeys, currentOnboardingStep } = useValues(onboardingLogic)
+
     const { completeOnboarding, goToNextStep, setStepKey } = useActions(onboardingLogic)
+    const { reportOnboardingStepCompleted, reportOnboardingStepSkipped } = useActions(eventUsageLogic)
     const { openSupportForm } = useActions(supportLogic)
 
     if (!stepKey) {
         throw new Error('stepKey is required in any OnboardingStep')
     }
     const breadcrumbStepKeys = onboardingStepKeys.filter((stepKey) => !breadcrumbExcludeSteps.includes(stepKey))
+
+    const advance: () => void = !hasNextStep ? completeOnboarding : goToNextStep
+
+    const skip = (): void => {
+        reportOnboardingStepSkipped(stepKey)
+        onSkip?.()
+        advance()
+    }
+
+    const next = (): void => {
+        reportOnboardingStepCompleted(stepKey)
+        onContinue?.()
+        advance()
+    }
 
     return (
         <>
@@ -110,28 +127,16 @@ export const OnboardingStep = ({
                         </LemonButton>
                     )}
                     {showSkip && (
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                onSkip && onSkip()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
-                            }}
-                            data-attr="onboarding-skip-button"
-                        >
+                        <LemonButton type="secondary" onClick={skip} data-attr="onboarding-skip-button">
                             Skip {!hasNextStep ? 'and finish' : 'for now'}
                         </LemonButton>
                     )}
-                    {continueOverride ? (
-                        continueOverride
-                    ) : (
+                    {showContinue && (
                         <LemonButton
                             type="primary"
                             status="alt"
                             data-attr="onboarding-continue"
-                            onClick={() => {
-                                onContinue?.()
-                                !hasNextStep ? completeOnboarding() : goToNextStep()
-                            }}
+                            onClick={next}
                             sideIcon={hasNextStep ? <IconArrowRight /> : null}
                             disabledReason={continueDisabledReason}
                         >

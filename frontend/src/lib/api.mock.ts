@@ -206,6 +206,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     default_evaluation_environments_enabled: false,
     managed_viewsets: { revenue_analytics: true },
     receive_org_level_activity_logs: false,
+    require_evaluation_environment_tags: false,
 }
 
 export const MOCK_DEFAULT_PROJECT: ProjectType = {
@@ -268,6 +269,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_2fa_enabled: false,
     has_social_auth: false,
     has_sso_enforcement: false,
+    shortcut_position: 'above',
     sensitive_session_expires_at: dayjs().add(1, 'hour').toISOString(),
     theme_mode: null,
     team: MOCK_DEFAULT_TEAM,

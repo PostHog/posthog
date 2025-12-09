@@ -12,7 +12,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import connections
 from django.http import HttpRequest
-from django.test import TestCase, TransactionTestCase
+from django.test import TestCase, TransactionTestCase, override_settings
 from django.test.client import Client
 from django.test.utils import CaptureQueriesContext
 
@@ -63,9 +63,7 @@ def make_session_recording_decide_response(overrides: Optional[dict] = None) -> 
         "masking": None,
         "urlTriggers": [],
         "urlBlocklist": [],
-        "scriptConfig": {
-            "script": "posthog-recorder",
-        },
+        "scriptConfig": None,
         "sampleRate": None,
         "eventTriggers": [],
         "triggerMatchType": None,
@@ -579,78 +577,74 @@ class TestDecide(BaseTest, QueryMatchingTest):
             [
                 "defaults to none",
                 None,
-                None,
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "must have allowlist",
-                "new-recorder",
-                None,
+                "sdk_config with recorder_script",
+                {"recorder_script": "team-recorder"},
+                {"scriptConfig": {"script": "team-recorder"}},
+            ],
+            [
+                "extra_settings ignores additional keys",
+                {"something": "not-the-team-recorder"},
                 {"scriptConfig": None},
-                False,
             ],
             [
-                "ignores empty allowlist",
-                "new-recorder",
-                [],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "wild card works",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                False,
-            ],
-            [
-                "can have wild card and team id",
-                "new-recorder",
-                ["*"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
-            ],
-            [
-                "allow list can exclude",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": None},
-                False,
-            ],
-            [
-                "allow list can include",
-                "new-recorder",
-                ["9999", "9998"],
-                {"scriptConfig": {"script": "new-recorder"}},
-                True,
+                "extra_settings ignores additional keys when used",
+                {"something": "not-the-team-recorder", "recorder_script": "team-recorder"},
+                {"scriptConfig": {"script": "team-recorder"}},
             ],
         ]
     )
     def test_session_recording_script_config(
         self,
         _name: str,
-        rrweb_script_name: str | None,
-        team_allow_list: list[str] | None,
+        extra_settings: dict | None,
         expected: dict,
-        include_team_in_allowlist: bool,
     ) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
         self._update_team(
             {
                 "session_recording_opt_in": True,
+                "extra_settings": extra_settings,
             }
         )
 
-        if team_allow_list and include_team_in_allowlist:
-            team_allow_list.append(f"{self.team.id}")
+        self.team.refresh_from_db()
 
-        with self.settings(
-            SESSION_REPLAY_RRWEB_SCRIPT=rrweb_script_name,
-            SESSION_REPLAY_RRWEB_SCRIPT_ALLOWED_TEAMS=team_allow_list or [],
-        ):
-            response = self._post_decide(api_version=3)
-            assert response.status_code == 200
-            assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"] == make_session_recording_decide_response(expected)
+
+    @override_settings(DEBUG=True)
+    def test_session_recording_script_config_defaults_to_posthog_recorder_in_debug(self) -> None:
+        from django.core.cache import cache
+
+        cache.clear()
+
+        self._update_team(
+            {
+                "session_recording_opt_in": True,
+                "extra_settings": None,
+            }
+        )
+
+        self.team.refresh_from_db()
+
+        from posthog.models.team.team_caching import set_team_in_cache
+
+        set_team_in_cache(self.team.api_token, self.team)
+
+        response = self._post_decide(api_version=3)
+        assert response.status_code == 200
+        assert response.json()["sessionRecording"]["scriptConfig"] == {"script": "posthog-recorder"}
 
     def test_exception_autocapture_opt_in(self, *args):
         # :TRICKY: Test for regression around caching

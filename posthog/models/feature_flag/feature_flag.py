@@ -89,6 +89,19 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Specifies where this feature flag should be evaluated",
     )
 
+    BUCKETING_IDENTIFIER_CHOICES = [
+        ("distinct_id", "User ID (default)"),
+        ("device_id", "Device ID"),
+    ]
+    bucketing_identifier = models.CharField(
+        max_length=50,
+        choices=BUCKETING_IDENTIFIER_CHOICES,
+        default="distinct_id",
+        null=True,
+        blank=True,
+        help_text="Identifier used for bucketing users into rollout and variants",
+    )
+
     # Cache projection: evaluation_tag_names is stored in Redis but isn't a DB field.
     # This allows us to include evaluation tags in the cached flag data without
     # modifying the FeatureFlag model schema. The Redis cache stores the serialized

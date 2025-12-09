@@ -43,11 +43,13 @@ PRODUCTS_APPS = [
     "products.notebooks.backend.apps.NotebooksConfig",
     "products.surveys.backend.apps.SurveysConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
+    "products.data_modeling.backend.apps.DataModelingConfig",
     "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
     "products.customer_analytics.backend.apps.CustomerAnalyticsConfig",
+    "products.product_tours.backend.apps.ProductToursConfig",
 ]
 
 INSTALLED_APPS = [

@@ -269,7 +269,7 @@ def get_people(
     """Get people from raw SQL results in data model and dict formats"""
     distinct_id_subquery = Subquery(
         PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
-        .filter(person_id=OuterRef("person_id"))
+        .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
     persons: QuerySet[Person] = (
@@ -293,7 +293,7 @@ def get_serialized_people(
     team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=1000
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
-        people_ids, order_by="created_at DESC, uuid"
+        people_ids, sort_by_created_at_descending=True
     )
     from posthog.api.person import get_person_name_helper
 

@@ -20,15 +20,30 @@ function applyForceOverflowRestrictions(
     headers?: EventHeaders
 ): ForceOverflowDecision {
     const distinctId = headers?.distinct_id
+    const sessionId = headers?.session_id
+    const eventName = headers?.event
+    const eventUuid = headers?.uuid
     const token = headers?.token
 
-    const shouldForceOverflow = eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
+    const shouldForceOverflow = eventIngestionRestrictionManager.shouldForceOverflow(
+        token,
+        distinctId,
+        sessionId,
+        eventName,
+        eventUuid
+    )
 
     if (!shouldForceOverflow) {
         return { shouldRedirect: false }
     }
 
-    const shouldSkipPerson = eventIngestionRestrictionManager.shouldSkipPerson(token, distinctId)
+    const shouldSkipPerson = eventIngestionRestrictionManager.shouldSkipPerson(
+        token,
+        distinctId,
+        sessionId,
+        eventName,
+        eventUuid
+    )
     const preservePartitionLocality = shouldForceOverflow && !shouldSkipPerson ? true : undefined
 
     return { shouldRedirect: true, preservePartitionLocality }
