@@ -2125,17 +2125,17 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
   }
 
   VISIT(ColumnExprBetween) {
-    PyObject* expr = visitAsPyObject(ctx->columnExpr(0));
+    PyObject* expr = visitAsPyObject(ctx->columnExprNoLogical(0));
     PyObject* low;
     try {
-      low = visitAsPyObject(ctx->columnExpr(1));
+      low = visitAsPyObject(ctx->columnExprNoLogical(1));
     } catch (...) {
       Py_DECREF(expr);
       throw;
     }
     PyObject* high;
     try {
-      high = visitAsPyObject(ctx->columnExpr(2));
+      high = visitAsPyObject(ctx->columnExprNoLogical(2));
     } catch (...) {
       Py_DECREF(low);
       Py_DECREF(expr);
@@ -2987,6 +2987,164 @@ class HogQLParseTreeConverter : public HogQLParserBaseVisitor {
     string empty = "";
     RETURN_NEW_AST_NODE("Constant", "{s:s}", "value", "");
   }
+
+  // Delegation methods for columnExprNoLogical alternatives
+  // These contexts have the same structure as their columnExpr counterparts
+  // We visit child nodes directly to produce the same AST
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalCase)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalCast)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalDate)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalIntervalString)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalInterval)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalSubstring)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalTimestamp)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalTrim)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalWinFunction)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalWinFunctionTarget)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalFunction)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalCallSelect)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalCall)
+  VISIT(ColumnExprNoLogicalTagElement) { return visit(ctx->hogqlxTagElement()); }
+  VISIT(ColumnExprNoLogicalTemplateString) { return visit(ctx->templateString()); }
+  VISIT(ColumnExprNoLogicalLiteral) { return visit(ctx->literal()); }
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalArrayAccess)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalTupleAccess)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalPropertyAccess)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalNullArrayAccess)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalNullTupleAccess)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalNullPropertyAccess)
+  VISIT(ColumnExprNoLogicalNegate) {
+    PyObject* expr = visitAsPyObject(ctx->columnExprNoLogical());
+    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:s,s:N}", "op", "Neg", "right", expr);
+  }
+
+  VISIT(ColumnExprNoLogicalPrecedence1) {
+    const char* op_name;
+    if (ctx->ASTERISK()) {
+      op_name = "Mult";
+    } else if (ctx->SLASH()) {
+      op_name = "Div";
+    } else if (ctx->PERCENT()) {
+      op_name = "Mod";
+    } else {
+      throw ParsingError("Unsupported value of rule ColumnExprNoLogicalPrecedence1");
+    }
+    PyObject* left = visitAsPyObject(ctx->left);
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:s,s:N,s:N}", "op", op_name, "left", left, "right", right);
+  }
+
+  VISIT(ColumnExprNoLogicalPrecedence2) {
+    const char* op_name;
+    if (ctx->PLUS()) {
+      op_name = "Add";
+    } else if (ctx->DASH()) {
+      op_name = "Sub";
+    } else if (ctx->CONCAT()) {
+      op_name = "Concat";
+    } else {
+      throw ParsingError("Unsupported value of rule ColumnExprNoLogicalPrecedence2");
+    }
+    PyObject* left = visitAsPyObject(ctx->left);
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(left);
+      throw;
+    }
+    RETURN_NEW_AST_NODE("ArithmeticOperation", "{s:s,s:N,s:N}", "op", op_name, "left", left, "right", right);
+  }
+
+  VISIT(ColumnExprNoLogicalPrecedence3) {
+    PyObject* op = NULL;
+    if (ctx->EQ_SINGLE() || ctx->EQ_DOUBLE()) {
+      op = get_ast_enum_member("CompareOperationOp", "Eq");
+    } else if (ctx->NOT_EQ()) {
+      op = get_ast_enum_member("CompareOperationOp", "NotEq");
+    } else if (ctx->LT()) {
+      op = get_ast_enum_member("CompareOperationOp", "Lt");
+    } else if (ctx->LT_EQ()) {
+      op = get_ast_enum_member("CompareOperationOp", "LtEq");
+    } else if (ctx->GT()) {
+      op = get_ast_enum_member("CompareOperationOp", "Gt");
+    } else if (ctx->GT_EQ()) {
+      op = get_ast_enum_member("CompareOperationOp", "GtEq");
+    } else if (ctx->LIKE()) {
+      if (ctx->NOT()) {
+        op = get_ast_enum_member("CompareOperationOp", "NotLike");
+      } else {
+        op = get_ast_enum_member("CompareOperationOp", "Like");
+      }
+    } else if (ctx->ILIKE()) {
+      if (ctx->NOT()) {
+        op = get_ast_enum_member("CompareOperationOp", "NotILike");
+      } else {
+        op = get_ast_enum_member("CompareOperationOp", "ILike");
+      }
+    } else if (ctx->REGEX_SINGLE() or ctx->REGEX_DOUBLE()) {
+      op = get_ast_enum_member("CompareOperationOp", "Regex");
+    } else if (ctx->NOT_REGEX()) {
+      op = get_ast_enum_member("CompareOperationOp", "NotRegex");
+    } else if (ctx->IREGEX_SINGLE() or ctx->IREGEX_DOUBLE()) {
+      op = get_ast_enum_member("CompareOperationOp", "IRegex");
+    } else if (ctx->NOT_IREGEX()) {
+      op = get_ast_enum_member("CompareOperationOp", "NotIRegex");
+    } else if (ctx->IN()) {
+      if (ctx->COHORT()) {
+        if (ctx->NOT()) {
+          op = get_ast_enum_member("CompareOperationOp", "NotInCohort");
+        } else {
+          op = get_ast_enum_member("CompareOperationOp", "InCohort");
+        }
+      } else {
+        if (ctx->NOT()) {
+          op = get_ast_enum_member("CompareOperationOp", "NotIn");
+        } else {
+          op = get_ast_enum_member("CompareOperationOp", "In");
+        }
+      }
+    } else {
+      throw ParsingError("Unsupported value of rule ColumnExprNoLogicalPrecedence3");
+    }
+    if (!op) throw PyInternalError();
+
+    PyObject* left;
+    try {
+      left = visitAsPyObject(ctx->left);
+    } catch (...) {
+      Py_DECREF(op);
+      throw;
+    }
+    PyObject* right;
+    try {
+      right = visitAsPyObject(ctx->right);
+    } catch (...) {
+      Py_DECREF(op);
+      Py_DECREF(left);
+      throw;
+    }
+
+    RETURN_NEW_AST_NODE("CompareOperation", "{s:N,s:N,s:N}", "left", left, "right", right, "op", op);
+  }
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalIsNull)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalNullish)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalTernaryOp)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalAlias)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalAsterisk)
+  VISIT(ColumnExprNoLogicalSubquery) { return visit(ctx->selectSetStmt()); }
+  VISIT(ColumnExprNoLogicalParens) { return visit(ctx->columnExpr()); }
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalTuple)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalArray)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalDict)
+  VISIT_UNSUPPORTED(ColumnExprNoLogicalLambda)
+  VISIT(ColumnExprNoLogicalIdentifier) { return visit(ctx->columnIdentifier()); }
 };
 
 class HogQLErrorListener : public antlr4::BaseErrorListener {
