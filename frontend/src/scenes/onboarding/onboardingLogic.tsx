@@ -386,8 +386,8 @@ export const onboardingLogic = kea<onboardingLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/onboarding/:productKey': ({ productKey }, { success, upgraded, step }) => {
-            if (!productKey) {
-                window.location.href = urls.default()
+            if (!productKey || productKey === 'use-case') {
+                // 'use-case' is handled by the UseCaseSelection scene, not onboardingLogic
                 return
             }
 
