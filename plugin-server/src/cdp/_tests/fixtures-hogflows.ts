@@ -47,7 +47,7 @@ export const createExampleHogFlowInvocation = (
         properties: {
             name: 'John Doe',
         },
-        name: '',
+        name: 'John Doe',
         url: '',
         ..._person,
     }
