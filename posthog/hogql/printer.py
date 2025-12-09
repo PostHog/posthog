@@ -630,54 +630,16 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
     def visit_and(self, node: ast.And):
-        """
-        optimizations:
-        1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
-        2. and(expr0, 0, expr2, ...) <=> 0
-        """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
 
-        if self.dialect == "hogql":
-            return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
-
-        exprs: list[str] = []
-        for expr in node.exprs:
-            printed = self.visit(expr)
-            if printed == "0":  # optimization 2
-                return "0"
-            if printed != "1":  # optimization 1
-                exprs.append(printed)
-        if len(exprs) == 0:
-            return "1"
-        elif len(exprs) == 1:
-            return exprs[0]
-        return f"and({', '.join(exprs)})"
+        return f"and({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_or(self, node: ast.Or):
-        """
-        optimizations:
-        1. or(expr0, 1, expr2, ...) <=> 1
-        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
-        """
         if len(node.exprs) == 1:
             return self.visit(node.exprs[0])
 
-        if self.dialect == "hogql":
-            return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
-
-        exprs: list[str] = []
-        for expr in node.exprs:
-            printed = self.visit(expr)
-            if printed == "1":
-                return "1"
-            if printed != "0":
-                exprs.append(printed)
-        if len(exprs) == 0:
-            return "0"
-        elif len(exprs) == 1:
-            return exprs[0]
-        return f"or({', '.join(exprs)})"
+        return f"or({', '.join([self.visit(expr) for expr in node.exprs])})"
 
     def visit_not(self, node: ast.Not):
         return f"not({self.visit(node.expr)})"
@@ -1125,41 +1087,17 @@ class _Printer(Visitor[str]):
         not_kw = " NOT" if node.negated else ""
         op = f"{expr}{not_kw} BETWEEN {low} AND {high}"
 
-        if self.dialect == "hogql":
-            return op
-
-        nullable_expr = self._is_nullable(node.expr)
-        nullable_low = self._is_nullable(node.low)
-        nullable_high = self._is_nullable(node.high)
-        not_nullable = not nullable_expr and not nullable_low and not nullable_high
-
-        if not_nullable:
-            return op
-
-        return f"ifNull({op}, 0)"
+        return op
 
     def visit_constant(self, node: ast.Constant):
         # Inline everything in HogQL
         return self._print_escaped_string(node.value)
 
     def visit_field(self, node: ast.Field):
-        if node.type is None and self.dialect != "hogql":
-            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
-            raise ImpossibleASTError(f"Field {field} has no type")
-
-        if self.dialect == "hogql":
-            if node.chain == ["*"]:
-                return "*"
-            # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
-
-        if node.type is not None:
-            if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
-                raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
-
-            return self.visit(node.type)
-        else:
-            raise ImpossibleASTError(f"Unknown Type, can not print {type(node.type).__name__}")
+        if node.chain == ["*"]:
+            return "*"
+        # When printing HogQL, we print the properties out as a chain as they are.
+        return ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
 
     def __get_optimized_property_group_call(self, node: ast.Call) -> str | None:
         """
@@ -1899,9 +1837,6 @@ class _Printer(Visitor[str]):
             raise ImpossibleASTError(f"Invalid frame type {node.frame_type}")
 
     def visit_hogqlx_tag(self, node: ast.HogQLXTag):
-        if self.dialect != "hogql":
-            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
-
         attributes = []
         children = []
         for attribute in node.attributes:
@@ -1928,8 +1863,6 @@ class _Printer(Visitor[str]):
         return tag
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
-        if self.dialect != "hogql":
-            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
         if isinstance(node.value, ast.HogQLXTag):
             value = self.visit(node.value)
         elif isinstance(node.value, list):
@@ -2077,6 +2010,63 @@ class ClickHousePrinter(_Printer):
 
         return super().visit_select_query(node)
 
+    def visit_and(self, node: ast.And):
+        """
+        optimizations:
+        1. and(expr0, 1, expr2, ...) <=> and(expr0, expr2, ...)
+        2. and(expr0, 0, expr2, ...) <=> 0
+        """
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+
+        exprs: list[str] = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "0":  # optimization 2
+                return "0"
+            if printed != "1":  # optimization 1
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "1"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"and({', '.join(exprs)})"
+
+    def visit_or(self, node: ast.Or):
+        """
+        optimizations:
+        1. or(expr0, 1, expr2, ...) <=> 1
+        2. or(expr0, 0, expr2, ...) <=> or(expr0, expr2, ...)
+        """
+        if len(node.exprs) == 1:
+            return self.visit(node.exprs[0])
+
+        exprs: list[str] = []
+        for expr in node.exprs:
+            printed = self.visit(expr)
+            if printed == "1":
+                return "1"
+            if printed != "0":
+                exprs.append(printed)
+        if len(exprs) == 0:
+            return "0"
+        elif len(exprs) == 1:
+            return exprs[0]
+        return f"or({', '.join(exprs)})"
+
+    def visit_between_expr(self, node: ast.BetweenExpr):
+        op = super().visit_between_expr(node)
+
+        nullable_expr = self._is_nullable(node.expr)
+        nullable_low = self._is_nullable(node.low)
+        nullable_high = self._is_nullable(node.high)
+        not_nullable = not nullable_expr and not nullable_low and not nullable_high
+
+        if not_nullable:
+            return op
+
+        return f"ifNull({op}, 0)"
+
     def visit_constant(self, node: ast.Constant):
         if (
             node.value is None
@@ -2098,6 +2088,22 @@ class ClickHousePrinter(_Printer):
         else:
             # Strings, lists, tuples, and any other random datatype printed in ClickHouse.
             return self.context.add_value(node.value)
+
+    def visit_field(self, node: ast.Field):
+        if node.type is None:
+            field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
+            raise ImpossibleASTError(f"Field {field} has no type")
+
+        if isinstance(node.type, ast.LazyJoinType) or isinstance(node.type, ast.VirtualTableType):
+            raise QueryError(f"Can't select a table when a column is expected: {'.'.join(node.chain)}")
+
+        return self.visit(node.type)
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
 
     def visit_table_type(self, type: ast.TableType):
         return type.table.to_printed_clickhouse(self.context)
