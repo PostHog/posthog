@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPlus } from '@posthog/icons'
@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonTable, LemonTableColumn, Link } from '@p
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -29,6 +30,7 @@ export const scene: SceneExport = {
 
 export function LinksScene(): JSX.Element {
     const { links, linksLoading } = useValues(linksLogic)
+    const { deleteLink } = useActions(linksLogic)
     const shouldShowEmptyState = links.length == 0 && !linksLoading
 
     const columns = [
@@ -81,8 +83,26 @@ export function LinksScene(): JSX.Element {
                                     {
                                         label: 'Delete link',
                                         status: 'danger' as const,
-                                        disabledReason: 'Coming soon',
-                                        onClick: () => {},
+                                        onClick: () => {
+                                            LemonDialog.open({
+                                                title: 'Permanently delete link?',
+                                                description:
+                                                    'Doing so will remove the link and the existing redirect rules. You will NOT lose access to the `$link_clicked` events.',
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    type: 'primary',
+                                                    status: 'danger',
+                                                    'data-attr': 'confirm-delete-link',
+                                                    onClick: () => {
+                                                        deleteLink(link.id)
+                                                    },
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Close',
+                                                    type: 'secondary',
+                                                },
+                                            })
+                                        },
                                     },
                                 ]}
                             />
