@@ -859,7 +859,6 @@ You can find their full definitions in the [ClickHouse documentation](https://cl
 - `groupUniqArray`
 - `groupArrayInsertAt`
 - `groupArrayInsertAtIf`
-- `groupArrayIntersect`
 - `groupArrayMovingAvg`
 - `groupArrayMovingAvgIf`
 - `groupArrayMovingSum`
