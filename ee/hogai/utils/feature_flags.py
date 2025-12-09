@@ -64,3 +64,13 @@ def has_create_notebook_tool_feature_flag(team: Team, user: User) -> bool:
         group_properties={"organization": {"id": str(team.organization_id)}},
         send_feature_flag_events=False,
     )
+
+
+def has_browser_use_feature_flag(team: Team, user: User) -> bool:
+    return posthoganalytics.feature_enabled(
+        "phai-browser-use",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )

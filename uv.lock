@@ -2785,6 +2785,20 @@ wheels = [
 ]
 
 [[package]]
+name = "hyperbrowser"
+version = "0.75.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "httpx" },
+    { name = "jsonref" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/4a/99/0a58631aa55a11808adb468c8315f7db012acd0d5b8d8a5fe76802ddb717/hyperbrowser-0.75.0.tar.gz", hash = "sha256:102eb548e47242aa03188dc4747aaae0e4e778a9e5c69d1e17883e1823de97f4", size = 29474, upload-time = "2025-12-04T06:29:59.135Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/29/eb/74cfad1c4b57fcb9f091c46d46f28f7d2129a9a315cd2df11e1c7adfd72a/hyperbrowser-0.75.0-py3-none-any.whl", hash = "sha256:aa2d15f4a474d12c2064df877b36fa47e285bbc6ce9737f7d1fe2cd779541977", size = 58480, upload-time = "2025-12-04T06:29:58.094Z" },
+]
+
+[[package]]
 name = "hyperframe"
 version = "6.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4447,6 +4461,7 @@ dependencies = [
     { name = "granian", extra = ["pname", "reload", "uvloop"] },
     { name = "gspread" },
     { name = "hogql-parser" },
+    { name = "hyperbrowser" },
     { name = "infi-clickhouse-orm" },
     { name = "jsonref" },
     { name = "kafka-python" },
@@ -4697,6 +4712,7 @@ requires-dist = [
     { name = "granian", extras = ["uvloop", "reload", "pname"], specifier = "==2.5.5" },
     { name = "gspread", specifier = "==6.2.1" },
     { name = "hogql-parser", specifier = "==1.2.12" },
+    { name = "hyperbrowser", specifier = "==0.75.0" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=9578c79f29635ee2c1d01b7979e89adab8383de2" },
     { name = "jsonref", specifier = "==1.1.0" },
     { name = "kafka-python", specifier = "==2.0.6" },

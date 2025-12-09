@@ -363,7 +363,7 @@
             ]
         },
         "AgentMode": {
-            "enum": ["product_analytics", "sql", "session_replay", "plan", "research"],
+            "enum": ["product_analytics", "sql", "session_replay", "plan", "research", "browser_use"],
             "type": "string"
         },
         "AggregationAxisFormat": {
@@ -1947,7 +1947,9 @@
                 "create_insight",
                 "create_form",
                 "task",
-                "create_notebook"
+                "create_notebook",
+                "browser_navigate",
+                "computer"
             ],
             "type": "string"
         },

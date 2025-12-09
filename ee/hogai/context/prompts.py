@@ -69,3 +69,10 @@ CONTEXT_MODE_SWITCH_PROMPT = "Your mode has been switched to"
 CONTEXT_MODE_PROMPT = """
 <system_reminder>{{{mode_prompt}}} {{{mode}}}.</system_reminder>
 """.strip()
+
+BROWSER_SESSION_CLOSED_PROMPT = """
+<system_reminder>
+Your previous browser session has been closed. Any browser state from before (open pages, form inputs, etc.) is no longer available.
+If you need to continue browser automation, you will need to navigate to the URL again and start fresh.
+</system_reminder>
+""".strip()

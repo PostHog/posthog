@@ -1,17 +1,25 @@
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
+import structlog
+from posthoganalytics import capture_exception
+
+from posthog.schema import AgentMode, AssistantMessage, ContextMessage, HumanMessage, MaxBillingContext
 
 from posthog.models import Team, User
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.chat_agent.taxonomy.types import TaxonomyNodeName
+from ee.hogai.context.prompts import BROWSER_SESSION_CLOSED_PROMPT
 from ee.hogai.core.runner import BaseAgentRunner
+from ee.hogai.tools.browser import BrowserSessionManager
 from ee.hogai.utils.types import AssistantNodeName, AssistantOutput, AssistantState, PartialAssistantState
 from ee.models import Conversation
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
@@ -45,8 +53,8 @@ VERBOSE_NODES: set["MaxNodeName"] = {
 
 
 class ChatAgentRunner(BaseAgentRunner):
-    _state: Optional[AssistantState]
-    _initial_state: Optional[AssistantState | PartialAssistantState]
+    _state: AssistantState | None
+    _initial_state: AssistantState | PartialAssistantState | None
     _selected_agent_mode: AgentMode | None
 
     def __init__(
@@ -54,10 +62,10 @@ class ChatAgentRunner(BaseAgentRunner):
         team: Team,
         conversation: Conversation,
         *,
-        new_message: Optional[HumanMessage] = None,
+        new_message: HumanMessage | None = None,
         user: User,
-        session_id: Optional[str] = None,
-        contextual_tools: Optional[dict[str, Any]] = None,
+        session_id: str | None = None,
+        contextual_tools: dict[str, Any] | None = None,
         is_new_conversation: bool = False,
         trace_id: Optional[str | UUID] = None,
         parent_span_id: Optional[str | UUID] = None,
@@ -150,3 +158,44 @@ class ChatAgentRunner(BaseAgentRunner):
                 "$session_id": self._session_id,
             },
         )
+
+    @asynccontextmanager
+    async def _lock_conversation(self):
+        """
+        Override to add browser session cleanup when the conversation turn ends.
+        This ensures the browser session is closed even if the generator is stopped early.
+        """
+        try:
+            self._conversation.status = Conversation.Status.IN_PROGRESS
+            await self._conversation.asave(update_fields=["status"])
+            yield
+        finally:
+            # Clean up browser session before releasing the conversation lock
+            await self._cleanup_browser_session()
+            self._conversation.status = Conversation.Status.IDLE
+            await self._conversation.asave(update_fields=["status", "updated_at"])
+
+    async def _cleanup_browser_session(self) -> None:
+        """
+        Close any active browser session for this conversation and add a context message
+        to inform the agent that the session was closed.
+        """
+        conversation_id = str(self._conversation.id)
+        # Check if there's an active browser session for this conversation
+        if conversation_id not in BrowserSessionManager._sessions:
+            return
+
+        try:
+            # Close the browser session
+            await BrowserSessionManager.close(conversation_id)
+            # Add a system message to the state to inform the agent
+            # This will be visible in the next turn
+            config = self._get_config()
+            await self._graph.aupdate_state(
+                config,
+                PartialAssistantState(
+                    messages=[ContextMessage(content=BROWSER_SESSION_CLOSED_PROMPT, id=str(uuid4()))],
+                ),
+            )
+        except Exception as e:
+            capture_exception(e)

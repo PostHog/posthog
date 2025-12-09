@@ -63,6 +63,7 @@ dependencies = [
     "granian[uvloop,reload,pname]==2.5.5",
     "gspread==6.2.1",
     "hogql-parser==1.2.12",
+    "hyperbrowser==0.75.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.0.6",

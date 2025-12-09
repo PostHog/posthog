@@ -393,6 +393,9 @@ export type AssistantTool =
     | 'create_form'
     | 'task'
     | 'create_notebook'
+    // Browser automation tools
+    | 'browser_navigate'
+    | 'computer'
 
 export enum AgentMode {
     ProductAnalytics = 'product_analytics',
@@ -400,6 +403,7 @@ export enum AgentMode {
     SessionReplay = 'session_replay',
     Plan = 'plan',
     Research = 'research',
+    BrowserUse = 'browser_use',
 }
 
 export enum SlashCommandName {

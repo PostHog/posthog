@@ -67,9 +67,32 @@ def convert_assistant_message_to_anthropic_message(
         result_message = tool_result_map.get(tool_call_id)
         if result_message is None:
             continue
+
+        # Build tool result content - can include both text and image
+        tool_result_content: list[dict[str, Any]] = []
+
+        # Check if this is a computer tool result with screenshot
+        computer_payload = (result_message.ui_payload or {}).get("computer")
+        if computer_payload and computer_payload.get("type") == "screenshot":
+            # Include the image in Anthropic's format
+            tool_result_content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": computer_payload.get("media_type", "image/png"),
+                        "data": computer_payload["image"],
+                    },
+                }
+            )
+
+        # Always include text content
+        if result_message.content:
+            tool_result_content.append({"type": "text", "text": result_message.content})
+
         history.append(
             messages.HumanMessage(
-                content=[{"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}],
+                content=[{"type": "tool_result", "tool_use_id": tool_call_id, "content": tool_result_content}],
             ),
         )
 
