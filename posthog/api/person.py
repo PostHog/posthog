@@ -615,7 +615,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False, required_scopes=["person:read", "cohort:read"])
     def cohorts(self, request: request.Request) -> response.Response:
-        from posthog.api.cohort import CohortSerializer
+        from posthog.api.cohort import CohortMinimalSerializer
 
         team = cast(User, request.user).team
         if not team:
@@ -632,7 +632,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         cohorts = Cohort.objects.filter(pk__in=cohort_ids, deleted=False)
 
-        return response.Response({"results": CohortSerializer(cohorts, many=True).data})
+        return response.Response({"results": CohortMinimalSerializer(cohorts, many=True).data})
 
     @action(methods=["GET"], url_path="activity", detail=False, required_scopes=["activity_log:read"])
     def all_activity(self, request: request.Request, **kwargs):

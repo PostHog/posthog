@@ -283,6 +283,7 @@ class BaseHyperCacheCommand(BaseCommand):
                 "cache_miss": 0,
                 "cache_match": 0,
                 "cache_mismatch": 0,
+                "error": 0,
                 "fixed": 0,
                 "fix_failed": 0,
             }
@@ -318,7 +319,7 @@ class BaseHyperCacheCommand(BaseCommand):
             self._print_verification_results(stats, mismatches, verbose, fix)
         finally:
             # Update cache metrics after verification completes (even on failure)
-            get_cache_stats(self.get_hypercache_config())
+            self._update_cache_stats_safe()
 
             if not settings.TEST:
                 connection.close()
@@ -350,7 +351,12 @@ class BaseHyperCacheCommand(BaseCommand):
             stats["total"] += 1
 
             # Delegate to subclass for actual verification
-            result = self.verify_team(team, verbose, batch_data)
+            try:
+                result = self.verify_team(team, verbose, batch_data)
+            except Exception as e:
+                stats["error"] += 1
+                self.stdout.write(self.style.ERROR(f"Error verifying team {team.id}: {e}"))
+                continue
 
             # Handle result
             if result["status"] == "match":
@@ -425,6 +431,12 @@ class BaseHyperCacheCommand(BaseCommand):
         self.stdout.write(
             f"Cache misses:         {stats['cache_miss']} ({self.format_percentage(stats['cache_miss'], stats['total'])})"
         )
+        if stats["error"] > 0:
+            self.stdout.write(
+                self.style.ERROR(
+                    f"Errors:               {stats['error']} ({self.format_percentage(stats['error'], stats['total'])})"
+                )
+            )
 
         if fix:
             self.stdout.write(
@@ -479,7 +491,15 @@ class BaseHyperCacheCommand(BaseCommand):
                         )
                     )
             else:
-                self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
+                if stats["error"] > 0:
+                    self.stdout.write(
+                        self.style.ERROR(
+                            f"\n✗ Verification incomplete: {stats['error']} error(s) occurred, "
+                            f"{len(mismatches)} issue(s) found\n"
+                        )
+                    )
+                else:
+                    self.stdout.write(self.style.WARNING(f"\n⚠ Found issues with {len(mismatches)} team(s)\n"))
 
     # Methods that subclasses must implement
 
@@ -671,7 +691,7 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(self.style.WARNING(f"Warning: {failed} teams failed to cache. Check logs for details."))
 
         # Update cache metrics after warming completes
-        get_cache_stats(config)
+        self._update_cache_stats_safe(config)
 
     # Optional methods that subclasses can override for enhanced functionality
 
@@ -692,6 +712,23 @@ class BaseHyperCacheCommand(BaseCommand):
             self.stdout.write(f"    Cache: {diff.get('cached_value')}")
 
     # Configuration and validation helpers
+
+    def _update_cache_stats_safe(self, config: HyperCacheManagementConfig | None = None) -> None:
+        """
+        Update cache metrics, logging a warning on failure.
+
+        This wraps get_cache_stats() in a try/except to handle Redis timeouts
+        gracefully without crashing the command. Metric updates are non-critical
+        operations that shouldn't abort the main workflow.
+
+        Args:
+            config: HyperCache config. If None, uses get_hypercache_config().
+        """
+        try:
+            config = config or self.get_hypercache_config()
+            get_cache_stats(config)
+        except Exception as e:
+            self.stdout.write(self.style.WARNING(f"Failed to update cache metrics: {e}"))
 
     def check_dedicated_cache_configured(self) -> bool:
         """

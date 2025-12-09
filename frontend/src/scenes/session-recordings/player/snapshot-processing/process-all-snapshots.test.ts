@@ -140,7 +140,7 @@ describe('process all snapshots', () => {
 
             for (let i = 0; i < runs; i++) {
                 const start = performance.now()
-                const results = processAllSnapshots(
+                const results = await processAllSnapshots(
                     [
                         {
                             source: 'blob_v2',
@@ -187,7 +187,7 @@ describe('process all snapshots', () => {
                 blob_key: '0',
             } as SessionRecordingSnapshotSource
             const key = keyForSource(source)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [
                     {
                         source: 'blob_v2',
@@ -515,7 +515,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -566,7 +566,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(2)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -612,7 +612,7 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns undefined - should extract from mobile snapshot
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -663,7 +663,7 @@ describe('process all snapshots', () => {
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
             // viewportForTimestamp returns different dimensions - should use snapshot dimensions
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -709,7 +709,7 @@ describe('process all snapshots', () => {
             expect(parsed[0].type).toBe(3)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -749,7 +749,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = processAllSnapshots(
+            const result = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -793,7 +793,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -890,7 +890,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([snapshotJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const results = processAllSnapshots(
+            const results = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },
@@ -942,7 +942,7 @@ describe('process all snapshots', () => {
             const parsed = await parseEncodedSnapshots([emptyWireframesJson], sessionId)
 
             const key = keyForSource({ source: 'blob_v2', blob_key: '0' } as any)
-            const result = processAllSnapshots(
+            const result = await processAllSnapshots(
                 [{ source: 'blob_v2', blob_key: '0' } as any],
                 { [key]: { snapshots: parsed } } as any,
                 { snapshots: {} },

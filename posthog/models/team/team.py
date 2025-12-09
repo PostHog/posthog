@@ -23,6 +23,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.models.dashboard import Dashboard
+from posthog.models.file_system.user_product_list import backfill_user_product_list_for_new_user
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
@@ -141,13 +142,15 @@ class TeamManager(models.Manager):
             )
         team.save()
 
-        # Backfill UserProductList from user's other teams if they have any
-        if initiating_user:
-            from posthog.models.file_system.user_product_list import UserProductList
-
-            UserProductList.backfill_from_other_teams(initiating_user, team)
+        # Add UserProductList for all users who have access to this new team
+        self._sync_user_product_lists_for_new_team(team)
 
         return team
+
+    def _sync_user_product_lists_for_new_team(self, team: "Team") -> None:
+        """Sync UserProductList for all users who have access to this new team."""
+        for user in team.all_users_with_access():
+            backfill_user_product_list_for_new_user(user, team)
 
     def create(self, **kwargs):
         from ..project import Project

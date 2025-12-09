@@ -9,7 +9,7 @@ import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
 import { PersonPropertyService } from '../persons/person-property-service'
-import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { PersonsStore } from '../persons/persons-store'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
@@ -18,7 +18,7 @@ export async function processPersonsStep(
     team: Team,
     timestamp: DateTime,
     processPerson: boolean,
-    personStoreBatch: PersonsStoreForBatch
+    personsStore: PersonsStore
 ): Promise<PipelineResult<[PluginEvent, Person, Promise<void>]>> {
     const context = new PersonContext(
         event,
@@ -27,7 +27,7 @@ export async function processPersonsStep(
         timestamp,
         processPerson,
         runner.hub.db.kafkaProducer,
-        personStoreBatch,
+        personsStore,
         runner.hub.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
         runner.mergeMode,
         runner.hub.PERSON_PROPERTIES_UPDATE_ALL

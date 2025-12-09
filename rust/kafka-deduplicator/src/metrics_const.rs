@@ -8,6 +8,9 @@ pub const UNIQUE_EVENTS_TOTAL_COUNTER: &str = "unique_events_total";
 /// Counter for duplicate events published to Kafka (with status label: success/failure)
 pub const DUPLICATE_EVENTS_PUBLISHED_COUNTER: &str = "duplicate_events_published_total";
 
+/// Histogram for Kafka producer send duration
+pub const PRODUCER_SEND_DURATION_HISTOGRAM: &str = "producer_send_duration_seconds";
+
 /// Counter for deduplication results broken down by result type, dedup type, and reason
 pub const DEDUPLICATION_RESULT_COUNTER: &str = "deduplication_result_total";
 

@@ -1,20 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { InviteMembersButton } from 'lib/components/Account/InviteMembersButton'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
+import { OnboardingStepKey, type SDK, SDKInstructionsMap, SDKTag } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
 import { onboardingLogic } from '../onboardingLogic'
@@ -91,24 +88,26 @@ export function OnboardingInstallStep({
     const { setAvailableSDKInstructionsMap, selectSDK, setSearchTerm, setSelectedTag } = useActions(sdksLogic)
     const { filteredSDKs, selectedSDK, tags, searchTerm, selectedTag } = useValues(sdksLogic)
     const [instructionsModalOpen, setInstructionsModalOpen] = useState(false)
-    const { closeSidePanel } = useActions(sidePanelStateLogic)
-    const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
-    const { openSupportForm } = useActions(supportLogic)
-    const { isCloudOrDev } = useValues(preflightLogic)
     const { currentTeam } = useValues(teamLogic)
-    const supportFormInOnboarding = useFeatureFlag('SUPPORT_FORM_IN_ONBOARDING')
 
     const installationComplete = useInstallationComplete(teamPropertyToVerify)
+    const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     useEffect(() => {
         setAvailableSDKInstructionsMap(sdkInstructionMap)
     }, [sdkInstructionMap, setAvailableSDKInstructionsMap])
+
+    // In the experiment, show skip at bottom only when installation is NOT complete
+    const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
+    // In the experiment, hide the top skip button (but still show Continue when installation is complete)
+    const showTopSkipButton = !isSkipButtonExperiment || installationComplete
 
     return (
         <OnboardingStep
             title="Install"
             stepKey={stepKey}
             continueDisabledReason={!installationComplete ? 'Installation is not complete' : undefined}
+            showSkip={showSkipAtBottom}
             actions={
                 <div className="pr-2">
                     <RealtimeCheckIndicator
@@ -143,26 +142,9 @@ export function OnboardingInstallStep({
                                 fullWidth={false}
                                 text="Invite developer"
                             />
-                            {isCloudOrDev && supportFormInOnboarding && (
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    icon={<IconChatHelp />}
-                                    onClick={() =>
-                                        selectedTab === SidePanelTab.Support && sidePanelOpen
-                                            ? closeSidePanel()
-                                            : openSupportForm({
-                                                  kind: 'support',
-                                                  target_area: 'onboarding',
-                                                  isEmailFormOpen: true,
-                                                  severity_level: 'low',
-                                              })
-                                    }
-                                >
-                                    Get help
-                                </LemonButton>
+                            {showTopSkipButton && (
+                                <NextButton size="small" installationComplete={installationComplete} />
                             )}
-                            <NextButton size="small" installationComplete={installationComplete} />
                         </div>
                     </div>
                     <LemonTabs
