@@ -1,50 +1,18 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { SessionData } from '~/queries/schema/schema-general'
-import { ActivityTab, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
+import { PersonsTabType } from '~/types'
 
 import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
-
-const getEventsUrl = (key: string, value: string): string => {
-    const eventsQuery = getDefaultEventsSceneQuery([
-        {
-            type: PropertyFilterType.EventMetadata,
-            key: key,
-            value: [value],
-            operator: PropertyOperator.Exact,
-        },
-    ])
-    // Override the default time range to 90 days
-    if ('after' in eventsQuery.source) {
-        eventsQuery.source.after = '-90d'
-    }
-    return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
-}
-
-const getLinkTextAndUrl = (session: SessionData): { text: string; url: string } => {
-    if (session.session_id) {
-        return {
-            text: session.session_id,
-            url: getEventsUrl('$session_id', session.session_id),
-        }
-    }
-    return {
-        text: session.event_uuid,
-        url: getEventsUrl('uuid', session.event_uuid),
-    }
-}
 
 export function SampledSessionsModal(): JSX.Element {
     const { isOpen, modalData, recordingAvailability, recordingAvailabilityLoading } =
@@ -74,36 +42,14 @@ export function SampledSessionsModal(): JSX.Element {
         {
             title: 'Person',
             key: 'personId',
-            render: (_, session) => {
-                if (session.person_id) {
-                    return (
-                        <PersonDisplay
-                            person={{ id: session.person_id }}
-                            displayName={session.person_id}
-                            withIcon={true}
-                            href={urls.personByUUID(session.person_id, true, PersonsTabType.EVENTS)}
-                        />
-                    )
-                }
-
-                const { text, url } = getLinkTextAndUrl(session)
-                return (
-                    <div className="flex items-center gap-1">
-                        <Link
-                            to={url}
-                            onClick={(e) => {
-                                e.preventDefault()
-                                sceneLogic.actions.newTab(url)
-                            }}
-                            className="font-mono text-xs whitespace-nowrap"
-                            title={`View events for ${text}`}
-                        >
-                            {text}
-                            <IconOpenInNew style={{ fontSize: 14 }} />
-                        </Link>
-                    </div>
-                )
-            },
+            render: (_, session) => (
+                <PersonDisplay
+                    person={{ id: session.person_id }}
+                    displayName={session.person_id}
+                    withIcon={true}
+                    href={urls.personByUUID(session.person_id, true, PersonsTabType.EVENTS)}
+                />
+            ),
             width: '40%',
         },
         {
