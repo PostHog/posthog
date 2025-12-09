@@ -1,0 +1,183 @@
+package installer
+
+import (
+	"fmt"
+	"net/http"
+	"os/exec"
+	"time"
+)
+
+func IsDockerInstalled() bool {
+	_, err := exec.LookPath("docker")
+	return err == nil
+}
+
+func IsDockerRunning() bool {
+	cmd := exec.Command("docker", "info")
+	return cmd.Run() == nil
+}
+
+func InstallDocker() error {
+	commands := [][]string{
+		{"apt", "install", "-y", "apt-transport-https", "ca-certificates", "curl", "software-properties-common"},
+		{"sh", "-c", "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -"},
+		{"add-apt-repository", "-y", "deb [arch=amd64] https://download.docker.com/linux/ubuntu jammy stable"},
+		{"apt", "update"},
+		{"apt", "install", "-y", "docker-ce"},
+	}
+
+	for _, cmdArgs := range commands {
+		cmd := exec.Command("sudo", cmdArgs...)
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("failed to run %v: %w", cmdArgs, err)
+		}
+	}
+	return nil
+}
+
+func InstallDockerCompose() error {
+	cmd := exec.Command("sudo", "sh", "-c",
+		`curl -L "https://github.com/docker/compose/releases/download/v2.33.1/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose && chmod +x /usr/local/bin/docker-compose`)
+	return cmd.Run()
+}
+
+// Returns the appropriate docker-compose command for the system
+// This will be either `docker-compose` or `docker compose`
+func GetDockerComposeCommand() (string, []string) {
+	if _, err := exec.LookPath("docker-compose"); err == nil {
+		return "docker-compose", nil
+	}
+	return "docker", []string{"compose"}
+}
+
+func DockerComposeStop() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "-f", "docker-compose.yml", "stop")
+	exec.Command(cmd, fullArgs...).Run() // Ignore errors, stack might not be running
+	return nil
+}
+
+func DockerComposeDown() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "-f", "docker-compose.yml", "down")
+	return exec.Command(cmd, fullArgs...).Run()
+}
+
+func DockerComposePull() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "-f", "docker-compose.yml", "pull")
+	return exec.Command(cmd, fullArgs...).Run()
+}
+
+func DockerComposeUp() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "--no-build", "--pull", "always")
+	return exec.Command(cmd, fullArgs...).Run()
+}
+
+func DockerComposeUpDB() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "-f", "docker-compose.yml", "up", "-d", "db")
+	return exec.Command(cmd, fullArgs...).Run()
+}
+
+func RunAsyncMigrationsCheck() error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "run", "asyncmigrationscheck")
+	return exec.Command("sudo", append([]string{"-E", cmd}, fullArgs...)...).Run()
+}
+
+// WaitForHealth waits for PostHog to be healthy
+func WaitForHealth(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://localhost/_health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return nil
+			}
+		}
+		time.Sleep(5 * time.Second)
+	}
+
+	return fmt.Errorf("timeout waiting for PostHog to be healthy")
+}
+
+func CheckDockerVolumes() (bool, bool) {
+	out, err := RunCommand("docker", "volume", "ls")
+	if err != nil {
+		return false, false
+	}
+
+	hasPostgres := false
+	hasClickhouse := false
+
+	if contains(out, "postgres-data") {
+		hasPostgres = true
+	}
+	if contains(out, "clickhouse-data") {
+		hasClickhouse = true
+	}
+
+	return hasPostgres, hasClickhouse
+}
+
+func AddUserToDockerGroup(user string) error {
+	return exec.Command("sudo", "usermod", "-aG", "docker", user).Run()
+}
+
+func DockerVolumeRemove(name string) error {
+	return exec.Command("docker", "volume", "rm", name).Run()
+}
+
+func DockerExec(container string, command ...string) (string, error) {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "exec", "-T", container)
+	fullArgs = append(fullArgs, command...)
+	return RunCommand(cmd, fullArgs...)
+}
+
+// Creates a backup of the postgres database
+func BackupPostgres(outputFile string) error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "exec", "-T", "db", "pg_dumpall", "--clean", "-U", "posthog")
+
+	shellCmd := fmt.Sprintf("%s %s | gzip > %s", cmd, joinArgs(fullArgs), outputFile)
+	return exec.Command("sh", "-c", shellCmd).Run()
+}
+
+// Restores a postgres backup
+func RestorePostgres(inputFile string) error {
+	cmd, args := GetDockerComposeCommand()
+	fullArgs := append(args, "exec", "-T", "db", "psql", "-U", "posthog")
+
+	shellCmd := fmt.Sprintf("gunzip -c %s | %s %s", inputFile, cmd, joinArgs(fullArgs))
+	return exec.Command("sh", "-c", shellCmd).Run()
+}
+
+func joinArgs(args []string) string {
+	result := ""
+	for i, arg := range args {
+		if i > 0 {
+			result += " "
+		}
+		result += arg
+	}
+	return result
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}
