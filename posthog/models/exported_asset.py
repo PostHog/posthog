@@ -133,6 +133,8 @@ class ExportedAsset(models.Model):
             filename = f"{filename}-{slugify(self.dashboard.name)}"
         elif self.insight:
             filename = f"{filename}-{slugify(self.insight.name or self.insight.derived_name)}"
+        elif self.export_context and self.export_context.get("name"):
+            filename = f"{filename}-{slugify(self.export_context.get('name'))}"
 
         filename = f"{filename}.{ext}"
 
