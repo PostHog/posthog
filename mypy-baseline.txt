@@ -388,7 +388,6 @@ posthog/hogql/printer.py:0: error: Incompatible types in assignment (expression 
 posthog/hogql/printer.py:0: error: Item "None" of "list[Expr] | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/hogql/printer.py:0: error: Item "TableType" of "TableType | TableAliasType" has no attribute "alias"  [union-attr]
 posthog/hogql/printer.py:0: error: List comprehension has incompatible type List[SelectQueryType | None]; expected List[SelectQueryType]  [misc]
-posthog/hogql/printer.py:0: error: Name "args" already defined on line 0  [no-redef]
 posthog/hogql/printer.py:0: error: Need type annotation for "found_aliases" (hint: "found_aliases: dict[<type>, <type>] = ...")  [var-annotated]
 posthog/hogql/printer.py:0: error: Right operand of "and" is never evaluated  [unreachable]
 posthog/hogql/printer.py:0: error: Subclass of "TableType" and "LazyTableType" cannot exist: would have incompatible method signatures  [unreachable]
