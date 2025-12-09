@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 import structlog
@@ -12,6 +13,8 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.link import Link
 from posthog.models.team.team import Team
+
+from products.links.backend.utils import get_hog_function
 
 logger = structlog.get_logger(__name__)
 
@@ -42,11 +45,21 @@ class LinkSerializer(serializers.ModelSerializer):
         if validated_data.get("short_link_domain") != "phog.gg":
             raise serializers.ValidationError({"short_link_domain": "Only phog.gg is allowed as a short link domain"})
 
-        link = Link.objects.create(
-            team=team,
-            created_by=self.context["request"].user,
-            **validated_data,
-        )
+        redirect_url = validated_data.get("redirect_url")
+        if not redirect_url:
+            raise serializers.ValidationError({"redirect_url": "Redirect URL is required"})
+
+        with transaction.atomic():
+            hog_function = get_hog_function(team=team, redirect_url=redirect_url)
+            hog_function.created_by = self.context["request"].user
+            hog_function.save()
+
+            link = Link.objects.create(
+                team=team,
+                created_by=self.context["request"].user,
+                hog_function=hog_function,
+                **validated_data,
+            )
 
         logger.info("link_created", id=link.id, team_id=team.id)
         return link
