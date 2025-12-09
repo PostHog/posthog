@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { createMemoryHistory } from 'history'
 import { testUtilsPlugin } from 'kea-test-utils'
@@ -11,7 +11,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKea } from '~/initKea'
-import { AppContext, OrganizationType, ProjectType, TeamType, UserType } from '~/types'
+import { AppContext, ProjectType, TeamType } from '~/types'
 
 process.on('unhandledRejection', (err) => {
     console.warn(err)
@@ -20,20 +20,13 @@ process.on('unhandledRejection', (err) => {
 export function initKeaTests(
     mountCommonLogic = true,
     teamForWindowContext: TeamType = MOCK_DEFAULT_TEAM,
-    projectForWindowContext: ProjectType = MOCK_DEFAULT_PROJECT,
-    organizationForWindowContext: OrganizationType = MOCK_DEFAULT_ORGANIZATION,
-    userForWindowContext: UserType = MOCK_DEFAULT_USER
+    projectForWindowContext: ProjectType = MOCK_DEFAULT_PROJECT
 ): void {
     dayjs.tz.setDefault('UTC')
     window.POSTHOG_APP_CONTEXT = {
         ...window.POSTHOG_APP_CONTEXT,
         current_team: teamForWindowContext,
         current_project: projectForWindowContext,
-        current_user: {
-            ...userForWindowContext,
-            organization: organizationForWindowContext,
-            team: teamForWindowContext,
-        },
     } as unknown as AppContext
     posthog.init('no token', {
         autocapture: false,
