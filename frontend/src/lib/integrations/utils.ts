@@ -5,6 +5,7 @@ import { IntegrationKind } from '~/types'
 import IconBingAds from 'public/services/bing-ads.svg'
 import IconClickUp from 'public/services/clickup.svg'
 import IconDatabricks from 'public/services/databricks.png'
+import IconFirebase from 'public/services/firebase.png'
 import IconGitHub from 'public/services/github.png'
 import IconGitLab from 'public/services/gitlab.png'
 import IconGoogleAds from 'public/services/google-ads.png'
@@ -46,7 +47,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     databricks: IconDatabricks,
     'tiktok-ads': IconTikTok,
     'bing-ads': IconBingAds,
-    firebase: IconGoogleCloud,
+    firebase: IconFirebase,
 }
 
 export const getIntegrationNameFromKind = (kind: string): string => {

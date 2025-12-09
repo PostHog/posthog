@@ -18,6 +18,7 @@ from posthog.models.integration import (
     DatabricksIntegration,
     DatabricksIntegrationError,
     EmailIntegration,
+    FirebaseIntegration,
     GitHubIntegration,
     GoogleCloudIntegration,
     Integration,
@@ -762,3 +763,180 @@ class TestEmailIntegrationDomainValidation(BaseTest):
             )
         assert disposable_domain in str(exc.value)
         assert "not supported" in str(exc.value)
+
+
+class TestFirebaseIntegrationModel(BaseTest):
+    mock_keyfile = {
+        "type": "service_account",
+        "project_id": "posthog-test-firebase",
+        "private_key_id": "df3e129a722a865cc3539b4e69507bad",
+        "private_key": "-----BEGIN PRIVATE KEY-----\nTHISISTHEKEY==\n-----END PRIVATE KEY-----\n",
+        "client_email": "firebase-adminsdk@posthog-test-firebase.iam.gserviceaccount.com",
+        "client_id": "11223344556677889900",
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk%40posthog-test-firebase.iam.gserviceaccount.com",
+        "universe_domain": "googleapis.com",
+    }
+
+    def create_integration(self, config: Optional[dict] = None, sensitive_config: Optional[dict] = None) -> Integration:
+        _config = {"project_id": "posthog-test-firebase", "refreshed_at": int(time.time()), "expires_in": 3600}
+        _sensitive_config = {"key_info": self.mock_keyfile, "access_token": "ACCESS_TOKEN"}
+        _config.update(config or {})
+        _sensitive_config.update(sensitive_config or {})
+
+        return Integration.objects.create(
+            team=self.team, kind="firebase", config=_config, sensitive_config=_sensitive_config
+        )
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration_from_key(self, mock_credentials):
+        mock_credentials.return_value.service_account_email = (
+            "firebase-adminsdk@posthog-test-firebase.iam.gserviceaccount.com"
+        )
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            integration = FirebaseIntegration.integration_from_key(
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+        assert integration.team == self.team
+        assert integration.created_by == self.user
+        assert integration.kind == "firebase"
+        assert integration.integration_id == "posthog-test-firebase"
+
+        assert integration.config == {
+            "project_id": "posthog-test-firebase",
+            "refreshed_at": 1704110400,
+            "expires_in": 3600,
+        }
+        assert integration.sensitive_config == {
+            "key_info": self.mock_keyfile,
+            "access_token": "ACCESS_TOKEN",
+        }
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration_from_key_missing_project_id(self, mock_credentials):
+        mock_credentials.return_value.token = "ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704110400 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        keyfile_without_project = {**self.mock_keyfile}
+        del keyfile_without_project["project_id"]
+
+        with pytest.raises(ValidationError, match="project_id"):
+            FirebaseIntegration.integration_from_key(
+                keyfile_without_project,
+                self.team.id,
+                self.user,
+            )
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_integration_from_key_invalid_credentials(self, mock_credentials):
+        mock_credentials.side_effect = Exception("Invalid credentials")
+
+        with pytest.raises(ValidationError, match="Failed to authenticate"):
+            FirebaseIntegration.integration_from_key(
+                self.mock_keyfile,
+                self.team.id,
+                self.user,
+            )
+
+    def test_access_token_expired(self):
+        now = datetime.now()
+        with freeze_time(now):
+            integration = self.create_integration(config={"expires_in": 1000})
+
+        firebase = FirebaseIntegration(integration)
+
+        with freeze_time(now):
+            assert not firebase.access_token_expired()
+
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=501)):
+            assert not firebase.access_token_expired()
+
+        with freeze_time(now + timedelta(seconds=1000) - timedelta(seconds=499)):
+            assert firebase.access_token_expired()
+
+        with freeze_time(now + timedelta(seconds=1000)):
+            assert firebase.access_token_expired()
+
+    @patch("posthog.models.integration.reload_integrations_on_workers")
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_refresh_access_token(self, mock_credentials, mock_reload):
+        mock_credentials.return_value.token = "NEW_ACCESS_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704117600 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        integration = self.create_integration()
+        firebase = FirebaseIntegration(integration)
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            firebase.refresh_access_token()
+
+        assert integration.config["refreshed_at"] == 1704117600
+        assert integration.config["expires_in"] == 3600
+        assert integration.sensitive_config["access_token"] == "NEW_ACCESS_TOKEN"
+
+        mock_reload.assert_called_once_with(self.team.id, [integration.id])
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_refresh_access_token_invalid_credentials(self, mock_credentials):
+        mock_credentials.return_value.refresh = MagicMock(side_effect=Exception("Invalid credentials"))
+
+        integration = self.create_integration()
+        firebase = FirebaseIntegration(integration)
+
+        with pytest.raises(ValidationError, match="Failed to authenticate"):
+            firebase.refresh_access_token()
+
+    @patch("google.oauth2.service_account.Credentials.from_service_account_info")
+    def test_get_access_token_refreshes_if_expired(self, mock_credentials):
+        mock_credentials.return_value.token = "REFRESHED_TOKEN"
+        mock_credentials.return_value.expiry = datetime.fromtimestamp(1704200000 + 3600)
+        mock_credentials.return_value.refresh = lambda _: None
+
+        now = datetime.now()
+        with freeze_time(now):
+            integration = self.create_integration(config={"expires_in": 100})
+
+        firebase = FirebaseIntegration(integration)
+
+        with freeze_time(now + timedelta(seconds=100)):
+            with patch("posthog.models.integration.reload_integrations_on_workers"):
+                token = firebase.get_access_token()
+
+        assert token == "REFRESHED_TOKEN"
+        assert integration.sensitive_config["access_token"] == "REFRESHED_TOKEN"
+
+    def test_get_access_token_returns_cached_if_not_expired(self):
+        now = datetime.now()
+        with freeze_time(now):
+            integration = self.create_integration(
+                config={"expires_in": 3600},
+                sensitive_config={"key_info": self.mock_keyfile, "access_token": "CACHED_TOKEN"},
+            )
+
+        firebase = FirebaseIntegration(integration)
+
+        with freeze_time(now + timedelta(seconds=100)):
+            token = firebase.get_access_token()
+
+        assert token == "CACHED_TOKEN"
+
+    def test_project_id_property(self):
+        integration = self.create_integration()
+        firebase = FirebaseIntegration(integration)
+        assert firebase.project_id == "posthog-test-firebase"
+
+    def test_init_with_wrong_kind_raises(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+
+        with pytest.raises(Exception, match="wrong 'kind'"):
+            FirebaseIntegration(integration)
