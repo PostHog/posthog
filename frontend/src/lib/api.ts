@@ -1046,6 +1046,11 @@ export class ApiRequest {
         return this.taskRuns(taskId, teamId).addPathComponent(runId)
     }
 
+    // # AI Visibility
+    public aiVisibility(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('ai_visibility')
+    }
+
     // # Surveys
     public surveys(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('surveys')
@@ -3800,6 +3805,16 @@ const api = {
                 }
                 return ''
             },
+        },
+    },
+
+    ai_visibility: {
+        async scrape(data: { domain: string }): Promise<{
+            business_name: string
+            business_type: string
+            domain: string
+        }> {
+            return await new ApiRequest().aiVisibility().withAction('scrape').create({ data })
         },
     },
 
