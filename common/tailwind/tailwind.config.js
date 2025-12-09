@@ -227,7 +227,7 @@ const plugin = require('tailwindcss/plugin')
 // 'warning-highlight': 'var(--warning-highlight)',
 // 'warning-dark': 'var(--warning-dark)',
 // highlight: 'var(--highlight)',
-// success: 'var(--success)',
+// success: 'var(--color-success-foreground)',
 // 'success-light': 'var(--success-light)',
 // 'success-lighter': 'var(--success-lighter)',
 // 'success-dark': 'var(--success-dark)',

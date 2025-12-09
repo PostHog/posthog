@@ -79,7 +79,7 @@ export function CodeEditorResizeable({
                     </LemonButton>
                     <LemonButton
                         type="tertiary"
-                        icon={<IconCheck color="var(--success)" />}
+                        icon={<IconCheck color="var(--color-success-foreground)" />}
                         onClick={onAcceptChanges}
                         tooltipPlacement="top"
                         size="small"

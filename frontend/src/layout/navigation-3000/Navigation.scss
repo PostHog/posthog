@@ -567,7 +567,7 @@
     }
 
     &.SidebarListItem--marker-status-success {
-        --sidebar-list-item-status-color: var(--success);
+        --sidebar-list-item-status-color: var(--color-success-foreground);
     }
 
     &.SidebarListItem--marker-status-warning {

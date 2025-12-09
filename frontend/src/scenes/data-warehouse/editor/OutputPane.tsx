@@ -501,7 +501,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 className={clsx(
                                     'flex-1 flex-row flex items-center bold content-center px-2 pt-[3px] cursor-pointer border-b-[medium] whitespace-nowrap',
                                     {
-                                        'font-semibold !border-brand-yellow': tab.key === activeTab,
+                                        'font-semibold !border-primary': tab.key === activeTab,
                                         'border-transparent': tab.key !== activeTab,
                                         'opacity-50 cursor-not-allowed': tab.disabled,
                                     }

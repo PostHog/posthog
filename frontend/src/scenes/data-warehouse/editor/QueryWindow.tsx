@@ -296,7 +296,7 @@ function RunButton(): JSX.Element {
         }
 
         if (!metadata || isUsingIndices || queryInput?.trim().length === 0) {
-            return ['var(--success)', 'New changes to run']
+            return ['var(--color-success-foreground)', 'New changes to run']
         }
 
         const tooltipContent = !isUsingIndices

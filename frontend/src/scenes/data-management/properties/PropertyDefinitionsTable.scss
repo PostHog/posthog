@@ -19,7 +19,7 @@
                     }
 
                     &.taxonomy-icon-verified {
-                        color: var(--success);
+                        color: var(--color-success-foreground);
                     }
                 }
             }
@@ -41,7 +41,7 @@
                     cursor: pointer;
 
                     svg {
-                        color: var(--success);
+                        color: var(--color-success-foreground);
                     }
                 }
             }

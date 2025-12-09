@@ -80,7 +80,7 @@ export const OAuthAuthorize = (): JSX.Element => {
                             <ul className="space-y-2">
                                 {scopeDescriptions.map((scopeDescription, idx) => (
                                     <li key={idx} className="flex items-center space-x-2 text-large">
-                                        <IconCheck color="var(--success)" />
+                                        <IconCheck color="var(--color-success-foreground)" />
                                         <span className="font-medium">{scopeDescription}</span>
                                     </li>
                                 ))}

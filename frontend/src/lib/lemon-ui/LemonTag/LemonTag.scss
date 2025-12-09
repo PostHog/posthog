@@ -55,9 +55,9 @@
     }
 
     &.LemonTag--success {
-        color: var(--success);
+        color: var(--color-success-foreground);
         background: none;
-        border-color: var(--success);
+        border-color: var(--color-success-foreground);
     }
 
     &.LemonTag--completion {

@@ -191,7 +191,7 @@ export function FunnelBarHorizontal({
                                     }
                                 >
                                     <IconTrendingFlat
-                                        style={{ color: 'var(--success)' }}
+                                        style={{ color: 'var(--color-success-foreground)' }}
                                         className="value-inspector-button-icon"
                                     />
                                     <b>

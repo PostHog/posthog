@@ -109,7 +109,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             {!!diffShowRunButton && (
                                 <LemonButton
                                     type="primary"
-                                    icon={<IconCheck color="var(--success)" />}
+                                    icon={<IconCheck color="var(--color-success-foreground)" />}
                                     onClick={() => {
                                         onAcceptSuggestedQueryInput(true)
                                     }}
@@ -121,7 +121,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                             )}
                             <LemonButton
                                 type="tertiary"
-                                icon={<IconCheck color="var(--success)" />}
+                                icon={<IconCheck color="var(--color-success-foreground)" />}
                                 onClick={() => {
                                     onAcceptSuggestedQueryInput()
                                 }}

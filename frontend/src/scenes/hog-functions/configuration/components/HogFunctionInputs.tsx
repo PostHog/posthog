@@ -89,7 +89,7 @@ export function HogFunctionInputs(): JSX.Element {
                             </LemonButton>
                             <LemonButton
                                 type="tertiary"
-                                icon={<IconCheck color="var(--success)" />}
+                                icon={<IconCheck color="var(--color-success-foreground)" />}
                                 onClick={() => {
                                     if (newInputs) {
                                         setConfigurationValue('inputs_schema', newInputs)

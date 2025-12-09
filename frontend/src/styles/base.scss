@@ -592,7 +592,7 @@
     // Dashboard item colors
     --blue: #597dce;
     --purple: #c278cf;
-    --green: var(--success);
+    --green: var(--color-success-foreground);
     --black: var(--color-foreground);
 
     // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
@@ -688,7 +688,7 @@
     --toastify-color-dark: var(--color-accent-3000-dark);
     --toastify-color-light: var(--color-card);
     --toastify-color-info: var(--color-blue-500);
-    --toastify-color-success: var(--success);
+    --toastify-color-success: var(--color-success-foreground);
     --toastify-color-warning: var(--color-warning-foreground);
     --toastify-color-error: var(--color-destructive-foreground);
     --toastify-color-progress-info: var(--toastify-color-info);

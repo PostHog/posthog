@@ -44,7 +44,7 @@ export const SidePanelActivation = (): JSX.Element | null => {
                             percent={completionPercent}
                             size="medium"
                             bgColor="var(--color-bg-3000)"
-                            strokeColor="var(--success)"
+                            strokeColor="var(--color-success-foreground)"
                             className="w-full stroke-opacity-80 h-2"
                         />
                         <span className="font-medium text-muted-foreground">{completionPercent}%</span>

@@ -65,7 +65,7 @@ export default function PasswordStrength({
                             ? 'var(--color-destructive-foreground)'
                             : score <= 3
                               ? 'var(--color-warning-foreground)'
-                              : 'var(--success)'
+                              : 'var(--color-success-foreground)'
                     }
                 />
             </span>
