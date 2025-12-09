@@ -78,8 +78,8 @@ def socket_factory(addr_info):
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, True)
 
     if sys.platform == "linux":
-        # Start sending keepalive probes after 60s
-        # Ensure that any idle timeouts allow at least 60s
+        # Start sending keepalive probes after 30s
+        # Ensure that any idle timeouts allow at least 30s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, 30)
         # Send keepalive probes every 10s
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, 10)
@@ -117,7 +117,7 @@ async def get_s3_client():
         config=AioConfig(
             connect_timeout=60,
             read_timeout=300,
-            connector_args={"keepalive_timeout": 300},
+            connector_args={"keepalive_timeout": 30},
             http_session_cls=AIOHTTPSession,
         ),
     ) as s3_client:
@@ -488,18 +488,29 @@ async def _write_batch_export_record_batches_to_internal_stage(
                     query_id=str(query_id),
                 )
                 # Sometimes we can't find the query in the query log, so make sure we retry a few times
+                num_attempts = 5
                 check_query = make_retryable_with_exponential_backoff(
                     client.acheck_query,
-                    max_attempts=5,
+                    max_attempts=num_attempts,
                     max_retry_delay=1,
                     retryable_exceptions=(ClickHouseQueryNotFound,),
                 )
 
-                status = await check_query(str(query_id), raise_on_error=True)
-
-                while status == ClickHouseQueryStatus.RUNNING:
-                    await asyncio.sleep(10)
+                try:
                     status = await check_query(str(query_id), raise_on_error=True)
+                    while status == ClickHouseQueryStatus.RUNNING:
+                        await asyncio.sleep(10)
+                        status = await check_query(str(query_id), raise_on_error=True)
+                except ClickHouseQueryNotFound:
+                    logger.exception(
+                        f"Query not found in query log after {num_attempts} attempts",
+                        query_id=str(query_id),
+                    )
+                    try:
+                        await client.acancel_query(str(query_id))
+                    except Exception as cancel_error:
+                        logger.warning("Failed to cancel query", query_id=str(query_id), error=str(cancel_error))
+                    raise
 
             except Exception as e:
                 logger.exception(
