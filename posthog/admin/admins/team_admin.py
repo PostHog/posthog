@@ -45,6 +45,7 @@ class TeamAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
         "internal_properties",
+        "export_individual_replay",
         "remote_config_cache_actions",
     ]
 
@@ -61,6 +62,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "organization",
                     "project",
                     "internal_properties",
+                    "export_individual_replay",
                     "remote_config_cache_actions",
                 ],
             },
@@ -175,6 +177,16 @@ class TeamAdmin(admin.ModelAdmin):
         if team_is_allowed_to_bypass_throttle(team.id):
             props.append("API_QUERIES_RATE_LIMIT_BYPASS")
         return format_html("<span>{}</span>", ", ".join(props) or "-")
+
+    @admin.display(description="Export individual session replay data")
+    def export_individual_replay(self, team: Team):
+        return format_html(
+            "<span>Prepares an export of an individual session so that you can test locally</span>"
+            "<p>with great power comes great responsibility</p>"
+            '<label for="session_id_input">Enter the session id:</label>'
+            '<input type="text" id="session_id_input" name="session_id_input" />'
+            '<p style="margin-top: 12px"><button>generate export</button></p>'
+        )
 
     @admin.display(description="Remote config cache actions")
     def remote_config_cache_actions(self, team: Team):
