@@ -38,9 +38,13 @@ impl FileSelectionArgs {
     pub fn validate(&self) -> Result<()> {
         if self.directory.is_empty() {
             bail!("No --directory provided")
-        } else {
-            Ok(())
         }
+        for dir in &self.directory {
+            if !dir.exists() {
+                bail!("{dir:?} does not exist");
+            }
+        }
+        Ok(())
     }
 }
 

@@ -47,6 +47,7 @@ pub fn upload_cmd(args: &Args) -> Result<()> {
         warn!("`--project` and `--version` are deprecated and do nothing. Set project and version during `inject` instead.");
     }
 
+    args.file_selection.validate()?;
     context().capture_command_invoked("sourcemap_upload");
     upload(args)
 }
