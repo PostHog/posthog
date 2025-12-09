@@ -26,6 +26,17 @@
      GROUP BY day)
   '''
 # ---
+# name: TestQueryTransformation.test_nested_select
+  '''
+  sql
+    (SELECT sum(unique_persons)
+     FROM
+       (SELECT uniqExactMerge(persons_uniq_exact_state) AS unique_persons
+        FROM daily_unique_persons_pageviews
+        WHERE and(greaterOrEquals(day, toDate('2024-01-01')), less(day, toDate('2024-02-01')))
+        GROUP BY day))
+  '''
+# ---
 # name: TestQueryTransformation.test_preserves_alias
   '''
   sql

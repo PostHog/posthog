@@ -139,9 +139,25 @@ def _extract_datetime_constant(expr: ast.Expr, context: HogQLContext) -> Optiona
     return None
 
 
+def _is_timestamp_or_start_of_day_timestamp(expr: ast.Expr, context: HogQLContext) -> bool:
+    """Check if an expression is either a timestamp field or toStartOfDay(timestamp)."""
+    # Direct timestamp field
+    if _is_timestamp_field(expr, context):
+        return True
+
+    # toStartOfDay(timestamp) or toStartOfInterval(timestamp, toIntervalDay(1))
+    if isinstance(expr, ast.Call):
+        return _is_to_start_of_day_timestamp(expr, context)
+
+    return False
+
+
 def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext) -> Optional[tuple[datetime, datetime]]:
     """
     Extract start and end timestamps from WHERE conditions.
+    Handles both:
+      - timestamp >= '2025-01-01'
+      - toStartOfDay(timestamp) >= '2025-01-01'
     Returns (start, end) as datetime objects, or None if not found.
     """
     start_dt = None
@@ -160,23 +176,36 @@ def _extract_timestamp_range(where_exprs: list[ast.Expr], context: HogQLContext)
         if not isinstance(compare_expr, ast.CompareOperation):
             continue
 
-        # Check if this is a timestamp comparison
-        if _is_timestamp_field(compare_expr.left, context):
+        # Check if this is a timestamp comparison (either raw timestamp or toStartOfDay(timestamp))
+        if _is_timestamp_or_start_of_day_timestamp(compare_expr.left, context):
             if compare_expr.op in [CompareOperationOp.GtEq, CompareOperationOp.Gt]:
                 start_dt = _extract_datetime_constant(compare_expr.right, context)
             elif compare_expr.op in [CompareOperationOp.Lt, CompareOperationOp.LtEq]:
                 end_dt = _extract_datetime_constant(compare_expr.right, context)
 
-        elif _is_timestamp_field(compare_expr.right, context):
+        elif _is_timestamp_or_start_of_day_timestamp(compare_expr.right, context):
             if compare_expr.op in [CompareOperationOp.LtEq, CompareOperationOp.Lt]:
                 start_dt = _extract_datetime_constant(compare_expr.left, context)
             elif compare_expr.op in [CompareOperationOp.GtEq, CompareOperationOp.Gt]:
                 end_dt = _extract_datetime_constant(compare_expr.left, context)
 
-    if start_dt and end_dt:
-        return (start_dt, end_dt)
+    # Require at least one bound (start or end)
+    if not start_dt and not end_dt:
+        return None
 
-    return None
+    # If we only have start, use a far future end (1 year from start)
+    if start_dt and not end_dt:
+        from datetime import timedelta
+
+        end_dt = start_dt + timedelta(days=365)
+
+    # If we only have end, use epoch as start (or a reasonable past date)
+    if end_dt and not start_dt:
+        from datetime import timedelta
+
+        start_dt = end_dt - timedelta(days=365)
+
+    return (start_dt, end_dt)
 
 
 def _flatten_and(node: Optional[ast.Expr]) -> list[ast.Expr]:
@@ -277,17 +306,6 @@ def _run_daily_unique_persons_pageviews(start, end):
     return {"ready": True, "task_ids": [], "errors": []}
 
 
-class ExprTransformer(CloningVisitor):
-    """
-    Transforms an individual select statement's fields to be using ClickHouse
-    merging an aggregate function state.
-    """
-
-    def __init__(self, context: HogQLContext) -> None:
-        super().__init__()
-        self.context = context
-
-
 class Transformer(CloningVisitor):
     """Transform queries to use daily_unique_persons_pageviews table."""
 
@@ -297,12 +315,12 @@ class Transformer(CloningVisitor):
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # First, recursively transform any nested select queries (e.g., subqueries, CTEs)
+        transformed_node = super().visit_select_query(node)
 
         # Check if this query matches the pattern
-        if not _is_daily_unique_persons_pageviews_query(node, self.context):
-            return node
+        if not _is_daily_unique_persons_pageviews_query(transformed_node, self.context):
+            return transformed_node
 
-        transformed_node = super().visit_select_query(node)
         # Extract date range
         where_exprs = _flatten_and(transformed_node.where)
         timestamp_range = _extract_timestamp_range(where_exprs, self.context)

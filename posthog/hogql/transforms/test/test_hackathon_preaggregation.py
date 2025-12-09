@@ -228,6 +228,33 @@ class TestQueryPatternDetection(BaseTest):
         context = HogQLContext(team_id=self.team.pk, team=self.team)
         assert _is_daily_unique_persons_pageviews_query(node, context)
 
+    def test_with_toStartOfDay_in_where_clause(self):
+        """Test query with toStartOfDay(timestamp) in WHERE instead of raw timestamp."""
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND toStartOfDay(timestamp) > '2025-01-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
+    def test_with_single_bound_date_range(self):
+        """Test query with only a start date (no end date)."""
+        query = """
+            SELECT uniqExact(person_id)
+            FROM events
+            WHERE event = '$pageview'
+              AND timestamp >= '2024-01-01'
+            GROUP BY toStartOfDay(timestamp)
+        """
+        node = parse_select(query)
+        context = HogQLContext(team_id=self.team.pk, team=self.team)
+        # Should match and infer end date
+        assert _is_daily_unique_persons_pageviews_query(node, context)
+
     @parameterized.expand(
         [
             (
