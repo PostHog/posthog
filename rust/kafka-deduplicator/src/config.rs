@@ -179,9 +179,6 @@ pub struct Config {
 
     #[envconfig(from = "OTEL_LOG_LEVEL", default = "info")]
     pub otel_log_level: tracing::Level,
-
-    #[envconfig(default = "false")]
-    pub enable_pprof: bool,
 }
 
 impl Config {
