@@ -102,7 +102,11 @@ async def get_session_data_from_db(session_id: str, team_id: int, local_reads_pr
         # Raise any unexpected errors
         raise
     session_events_columns, session_events = add_context_and_filter_events(
-        session_events_columns=session_events_columns, session_events=session_events, session_id=session_id
+        session_events_columns=session_events_columns,
+        session_events=session_events,
+        session_id=session_id,
+        session_start_time=session_metadata["start_time"],
+        session_end_time=session_metadata["end_time"],
     )
 
     # TODO Get web analytics data on URLs to better understand what the user was doing

@@ -94,8 +94,8 @@ jobs:
               id: deployer
               uses: getsentry/action-github-app-token@d4b5da6c5e37703f8c3b3e43abb5705b46e159cc # v3
               with:
-                  app_id: ${{ secrets.DEPLOYER_APP_ID }}
-                  private_key: ${{ secrets.DEPLOYER_APP_PRIVATE_KEY }}
+                  app_id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private_key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
 
             - name: get PR labels
               id: labels
@@ -430,6 +430,32 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            - name: Check for changes that affect ducklake temporal worker
+              id: check_changes_ducklake_temporal_worker
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/ducklake|^posthog/ducklake|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
+            - name: Trigger DuckLake Temporal Worker Cloud deployment
+              if: steps.check_changes_ducklake_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-ducklake",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
@@ -498,13 +524,7 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
-            - name: Check for changes that affect dagster code locations
-              id: check_changes_dagster_code_location
-              run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^dags/' && echo true) || echo false)" >> $GITHUB_OUTPUT
-
             - name: Trigger Dagster Code Location Reload
-              if: steps.check_changes_dagster_code_location.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3
               with:
                   token: ${{ steps.deployer.outputs.token }}

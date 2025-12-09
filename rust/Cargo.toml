@@ -52,6 +52,11 @@ unit_bindings = "deny"
 # See https://rust-lang.github.io/rust-clippy/, we might want to add more
 enum_glob_use = "deny"
 
+# this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
+# I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
+[patch.crates-io]
+js-source-scopes = { git = "https://github.com/getsentry/js-source-scopes", rev = "abea51a0e74840a8d1ec96a61ff36b488994f68c" }
+
 [workspace.dependencies]
 anyhow = "1.0"
 assert-json-diff = "2.0.2"
@@ -62,6 +67,7 @@ base64 = "0.22.0"
 bytes = "1"
 chrono = { version = "0.4.38", features = ["default", "serde"] }
 chrono-tz = "0.10.1"
+dashmap = "6.1"
 envconfig = "0.10.0"
 eyre = "0.6.9"
 flate2 = "1.0"

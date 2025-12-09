@@ -1,4 +1,8 @@
+import json
+import shlex
+import base64
 import datetime as dt
+from typing import Literal
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -22,6 +26,23 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+
+
+def parse_search_tokens(search_term: str) -> list[tuple[Literal["positive", "negative"], str]]:
+    try:
+        tokens = shlex.split(search_term)
+    except ValueError:
+        tokens = search_term.split()
+
+    results: list[tuple[Literal["positive", "negative"], str]] = []
+    for token in tokens:
+        if token.startswith("!"):
+            value = token.lstrip("!")
+            if value:
+                results.append(("negative", value))
+        else:
+            results.append(("positive", token))
+    return results
 
 
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
@@ -145,6 +166,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             parse_order_expr("team_id"),
             parse_order_expr(f"time_bucket {order_dir}"),
             parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
         ]
         final_query = parse_select(
             """
@@ -168,7 +190,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             placeholders={"query": query},
         )
         assert isinstance(final_query, ast.SelectQuery)
-        final_query.order_by = [parse_order_expr(f"timestamp {order_dir}")]
+        final_query.order_by = [
+            parse_order_expr(f"timestamp {order_dir}"),
+            parse_order_expr(f"uuid {order_dir}"),
+        ]
         return final_query
 
     def where(self):
@@ -199,29 +224,30 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             )
 
         if self.query.searchTerm:
-            # negative search match if first character of search string is !
-            if self.query.searchTerm.startswith("!") and len(self.query.searchTerm) > 1:
-                exprs.append(
-                    parse_expr(
-                        "body NOT LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm[1:]}%")},
+            # NOTE: each token adds a separate LIKE '%value%' condition which will be expensive for the logs table
+            # Future optimisation: consider ClickHouse multiSearchAny or better ngram index usage if performance becomes an issue with many tokens.
+            for token_type, value in parse_search_tokens(self.query.searchTerm):
+                if token_type == "negative":
+                    exprs.append(
+                        parse_expr(
+                            "body NOT LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
+                        )
                     )
-                )
-            else:
-                exprs.append(
-                    parse_expr(
-                        "body LIKE {searchTerm}",
-                        placeholders={"searchTerm": ast.Constant(value=f"%{self.query.searchTerm}%")},
+                else:
+                    exprs.append(
+                        parse_expr(
+                            "body LIKE {searchTerm}",
+                            placeholders={"searchTerm": ast.Constant(value=f"%{value}%")},
+                        )
                     )
-                )
-                # ip addresses are particularly bad at full text searches with our ngram 3 index
-                # match them separately against a materialized column of ip addresses
-                exprs.append(
-                    parse_expr(
-                        "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
-                        placeholders={"searchTerm": ast.Constant(value=f"{self.query.searchTerm}")},
+                    # ip addresses are particularly bad at full text searches with our ngram 3 index
+                    exprs.append(
+                        parse_expr(
+                            "indexHint(hasAll(mat_body_ipv4_matches, extractIPv4Substrings({searchTerm})))",
+                            placeholders={"searchTerm": ast.Constant(value=f"{value}")},
+                        )
                     )
-                )
 
         if self.query.filterGroup:
             exprs.append(property_to_expr(self.query.filterGroup, team=self.team))
@@ -231,6 +257,39 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
                     placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                )
+            )
+
+        if self.query.after:
+            try:
+                cursor = json.loads(base64.b64decode(self.query.after).decode("utf-8"))
+                cursor_ts = dt.datetime.fromisoformat(cursor["timestamp"])
+                cursor_uuid = cursor["uuid"]
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                raise ValueError(f"Invalid cursor format: {e}")
+            # For ASC (earliest first): get rows where (timestamp, uuid) > cursor
+            # For DESC (latest first, default): get rows where (timestamp, uuid) < cursor
+            op = ">" if self.query.orderBy == "earliest" else "<"
+            ts_op = ">=" if self.query.orderBy == "earliest" else "<="
+            # The logs table is partitioned by timestamp, not (timestamp, uuid).
+            # ClickHouse only prunes partitions when the WHERE clause directly matches
+            # the partition key. A tuple comparison like (timestamp, uuid) < (x, y)
+            # won't trigger pruning even though it logically implies timestamp <= x.
+            # So we add an explicit scalar bound to guarantee partition pruning fires.
+            exprs.append(
+                parse_expr(
+                    f"timestamp {ts_op} {{cursor_ts}}",
+                    placeholders={"cursor_ts": ast.Constant(value=cursor_ts)},
+                )
+            )
+            # Tuple comparison handles the exact cursor position (same timestamp, different uuid)
+            exprs.append(
+                parse_expr(
+                    f"(timestamp, uuid) {op} ({{cursor_ts}}, {{cursor_uuid}})",
+                    placeholders={
+                        "cursor_ts": ast.Constant(value=cursor_ts),
+                        "cursor_uuid": ast.Constant(value=cursor_uuid),
+                    },
                 )
             )
 

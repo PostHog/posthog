@@ -5,7 +5,6 @@ import { windowValues } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { IconGear } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
 import api from 'lib/api'
@@ -63,7 +62,6 @@ import {
     BaseMathType,
     Breadcrumb,
     ChartDisplayType,
-    EventDefinitionType,
     FilterLogicalOperator,
     InsightLogicProps,
     InsightType,
@@ -100,7 +98,6 @@ import {
     TileVisualizationOption,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-    WebAnalyticsStatusCheck,
     WebAnalyticsTile,
     WebVitalsPercentile,
     eventPropertiesToPathClean,
@@ -110,7 +107,6 @@ import {
     sessionPropertiesToPathClean,
 } from './common'
 import { getDashboardItemId, getNewInsightUrlFactory } from './insightsUtils'
-import { marketingAnalyticsTilesLogic } from './tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 import type { webAnalyticsLogicType } from './webAnalyticsLogicType'
 
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
@@ -129,8 +125,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             ['isDev'],
             authorizedUrlListLogic({ type: AuthorizedUrlListType.WEB_ANALYTICS, actionId: null, experimentId: null }),
             ['authorizedUrls'],
-            marketingAnalyticsTilesLogic,
-            ['tiles as marketingTiles'],
         ],
     })),
     actions({
@@ -183,66 +177,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         resetTileVisibility: () => true,
     }),
     loaders(({ values }) => ({
-        // load the status check query here and pass the response into the component, so the response
-        // is accessible in this logic
-        statusCheck: {
-            __default: null as WebAnalyticsStatusCheck | null,
-            loadStatusCheck: async (): Promise<WebAnalyticsStatusCheck> => {
-                const [webVitalsResult, pageviewResult, pageleaveResult, pageleaveScroll] = await Promise.allSettled([
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$web_vitals',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageview',
-                    }),
-                    api.eventDefinitions.list({
-                        event_type: EventDefinitionType.Event,
-                        search: '$pageleave',
-                    }),
-                    api.propertyDefinitions.list({
-                        event_names: ['$pageleave'],
-                        properties: ['$prev_pageview_max_content_percentage'],
-                    }),
-                ])
-
-                // no need to worry about pagination here, event names beginning with $ are reserved, and we're not
-                // going to add enough reserved event names that match this search term to cause problems
-                const webVitalsEntry =
-                    webVitalsResult.status === 'fulfilled'
-                        ? webVitalsResult.value.results.find((r) => r.name === '$web_vitals')
-                        : undefined
-
-                const pageviewEntry =
-                    pageviewResult.status === 'fulfilled'
-                        ? pageviewResult.value.results.find((r) => r.name === '$pageview')
-                        : undefined
-
-                const pageleaveEntry =
-                    pageleaveResult.status === 'fulfilled'
-                        ? pageleaveResult.value.results.find((r) => r.name === '$pageleave')
-                        : undefined
-
-                const pageleaveScrollEntry =
-                    pageleaveScroll.status === 'fulfilled'
-                        ? pageleaveScroll.value.results.find((r) => r.name === '$prev_pageview_max_content_percentage')
-                        : undefined
-
-                const isSendingWebVitals = !!webVitalsEntry && !isDefinitionStale(webVitalsEntry)
-                const isSendingPageViews = !!pageviewEntry && !isDefinitionStale(pageviewEntry)
-                const isSendingPageLeaves = !!pageleaveEntry && !isDefinitionStale(pageleaveEntry)
-                const isSendingPageLeavesScroll = !!pageleaveScrollEntry && !isDefinitionStale(pageleaveScrollEntry)
-
-                return {
-                    isSendingWebVitals,
-                    isSendingPageViews,
-                    isSendingPageLeaves,
-                    isSendingPageLeavesScroll,
-                    hasAuthorizedUrls: !!values.currentTeam?.app_urls && values.currentTeam.app_urls.length > 0,
-                }
-            },
-        },
         shouldShowGeoIPQueries: {
             _default: null as boolean | null,
             loadShouldShowGeoIPQueries: async (): Promise<boolean> => {
@@ -920,10 +854,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 s.filters,
                 s.featureFlags,
                 s.isGreaterThanMd,
-                s.currentTeam,
                 s.tileVisualizations,
                 s.preAggregatedEnabled,
-                s.marketingTiles,
                 s.hiddenTiles,
             ],
             (
@@ -942,10 +874,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 },
                 featureFlags,
                 isGreaterThanMd,
-                currentTeam,
                 tileVisualizations,
                 preAggregatedEnabled,
-                marketingTiles,
                 hiddenTiles
             ): WebAnalyticsTile[] => {
                 const dateRange = { date_from: dateFrom, date_to: dateTo }
@@ -996,27 +926,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                           custom_name: 'Total conversions',
                       }
                     : undefined
-
-                // the queries don't currently include revenue when the conversion goal is an action
-                const includeRevenue = !(conversionGoal && 'actionId' in conversionGoal)
-
-                const revenueEventsSeries: EventsNode[] =
-                    includeRevenue && currentTeam?.revenue_analytics_config
-                        ? (currentTeam.revenue_analytics_config.events.map((e) => ({
-                              name: e.eventName,
-                              event: e.eventName,
-                              custom_name: e.eventName,
-                              math: PropertyMathType.Sum,
-                              kind: NodeKind.EventsNode,
-                              math_property: e.revenueProperty,
-                              math_property_revenue_currency: e.revenueCurrencyProperty,
-                          })) as EventsNode[])
-                        : []
-
-                const conversionRevenueSeries =
-                    conversionGoal && 'customEventName' in conversionGoal && includeRevenue
-                        ? revenueEventsSeries.filter((e) => 'event' in e && e.event === conversionGoal.customEventName)
-                        : []
 
                 const createInsightProps = (tile: TileId, tab?: string): InsightLogicProps => {
                     return {
@@ -1078,6 +987,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         'visitors',
                         'views',
                         source?.includeBounceRate ? 'bounce_rate' : null,
+                        source?.includeAvgTimeOnPage ? 'avg_time_on_page' : null,
                         'cross_sell',
                     ].filter(isNotNil)
 
@@ -1090,7 +1000,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         title,
                         linkText,
                         insightProps: createInsightProps(tileId, tabId),
-                        canOpenModal: true,
                         ...tab,
                     }
 
@@ -1241,10 +1150,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     ]
                 }
 
-                if (productTab === ProductTab.MARKETING) {
-                    return marketingTiles as unknown as WebAnalyticsTile[]
-                }
-
                 const allTiles: (WebAnalyticsTile | null)[] = [
                     {
                         kind: 'query',
@@ -1261,7 +1166,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                             compareFilter,
                             filterTestAccounts,
                             conversionGoal,
-                            includeRevenue,
                         },
                         insightProps: createInsightProps(TileId.OVERVIEW),
                         canOpenInsight: !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_OPEN_AS_INSIGHT],
@@ -1290,25 +1194,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                           sessionsSeries,
                                       ])
                                     : null,
-                                !conversionGoal && revenueEventsSeries?.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.REVENUE_EVENTS,
-                                          <span>
-                                              Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Revenue',
-                                          revenueEventsSeries,
-                                          {
-                                              display:
-                                                  revenueEventsSeries.length > 1
-                                                      ? ChartDisplayType.ActionsAreaGraph
-                                                      : ChartDisplayType.ActionsLineGraph,
-                                          },
-                                          {
-                                              compareFilter: revenueEventsSeries.length > 1 ? undefined : compareFilter,
-                                          }
-                                      )
-                                    : null,
                                 conversionGoal && uniqueConversionsSeries
                                     ? createGraphsTrendsTab(
                                           GraphsTab.UNIQUE_CONVERSIONS,
@@ -1335,16 +1220,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               formula: 'A / B',
                                               aggregationAxisFormat: 'percentage_scaled',
                                           }
-                                      )
-                                    : null,
-                                conversionGoal && conversionRevenueSeries.length
-                                    ? createGraphsTrendsTab(
-                                          GraphsTab.CONVERSION_REVENUE,
-                                          <span>
-                                              Conversion Revenue&nbsp;<LemonTag type="warning">BETA</LemonTag>
-                                          </span>,
-                                          'Conversion Revenue',
-                                          conversionRevenueSeries
                                       )
                                     : null,
                             ] as (TabsTileTab | null)[]
@@ -1383,6 +1258,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeScrollDepth: false, // TODO needs some perf work before it can be enabled
                                               includeBounceRate: true,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -1426,6 +1303,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                               includeBounceRate: true,
                                               includeScrollDepth: false,
                                               doPathCleaning: isPathCleaningEnabled,
+                                              includeAvgTimeOnPage:
+                                                  !!featureFlags[FEATURE_FLAGS.AVERAGE_PAGE_VIEW_COLUMN],
                                           },
                                           {
                                               docs: {
@@ -2126,7 +2005,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                               },
                           }
                         : null,
-                    !conversionGoal && featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_FRUSTRATING_PAGES_TILE]
+                    !conversionGoal
                         ? {
                               kind: 'query',
                               title: 'Frustrating Pages',
@@ -2205,7 +2084,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
 
     // start the loaders after mounting the logic
     afterMount(({ actions }) => {
-        actions.loadStatusCheck()
         actions.loadShouldShowGeoIPQueries()
     }),
 
@@ -2232,6 +2110,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 deviceTypeFilter,
                 tileVisualizations,
             } = values
+
+            // These tabs don't support any filters, so we can just return the base path to keep the url clean
+            if (productTab === ProductTab.HEALTH) {
+                return '/web/health'
+            }
 
             // Make sure we're storing the raw filters only, or else we'll have issues with the domain/device type filters
             // spreading from their individual dropdowns to the global filters list
@@ -2280,9 +2163,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 urlParams.delete('compare_filter')
             }
 
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
             if (productTab === ProductTab.WEB_VITALS) {
                 urlParams.set('percentile', webVitalsPercentile)
             }
@@ -2299,13 +2179,12 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             }
 
             let basePath = '/web'
-            if (pageReportsEnabled && productTab === ProductTab.PAGE_REPORTS) {
+            if (productTab === ProductTab.PAGE_REPORTS) {
                 basePath = '/web/page-reports'
             } else if (productTab === ProductTab.WEB_VITALS) {
                 basePath = '/web/web-vitals'
-            } else if (productTab === ProductTab.MARKETING) {
-                basePath = '/web/marketing'
             }
+
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
@@ -2356,16 +2235,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 tile_visualizations,
             }: Record<string, any>
         ): void => {
-            const { featureFlags } = featureFlagLogic.values
-            const pageReportsEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS]
-
-            // If trying to access page reports but the feature flag is not enabled, redirect to analytics
-            if (productTab === ProductTab.PAGE_REPORTS && !pageReportsEnabled) {
-                productTab = ProductTab.ANALYTICS
-            }
-
             if (
-                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.MARKETING].includes(
+                ![ProductTab.ANALYTICS, ProductTab.WEB_VITALS, ProductTab.PAGE_REPORTS, ProductTab.HEALTH].includes(
                     productTab
                 )
             ) {

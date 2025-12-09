@@ -1,67 +1,20 @@
 @layer base {
-    .SessionRecordingPlayer {
+    .SessionRecordingPlayerWrapper {
         position: relative;
         display: flex;
         flex-direction: row;
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background-color: var(--color-bg-surface-primary);
-        border: 1px solid var(--color-border-primary);
-        border-radius: var(--radius);
 
-        &--no-border {
-            border: none;
-            border-radius: 0;
-        }
-
-        .SessionRecordingPlayer__body {
-            position: relative;
-            z-index: 0;
-            min-width: 1px;
-            height: 100%;
-            overflow: hidden;
-            background-color: var(--color-bg-surface-primary);
-        }
-
-        .SessionRecordingPlayer__main {
-            flex: 1;
-        }
-
-        &--fullscreen {
-            position: fixed;
-            inset: 0;
-            z-index: var(--z-modal);
-            overflow-y: auto;
-            background-color: var(--color-bg-surface-primary);
-            border: none;
-            border-radius: 0;
-
-            .SessionRecordingPlayer__body {
-                height: 100%;
-                margin: 0;
-                border-radius: 0;
-            }
-        }
-
-        .SessionRecordingPlayer__main,
         .SessionRecordingPlayer__sidebar {
+            position: relative;
             display: flex;
             flex-direction: column;
-            overflow: hidden;
-        }
-
-        .LemonModal & {
-            .SessionRecordingPlayer__body {
-                height: calc(90vh - 15rem);
-            }
-        }
-
-        .SessionRecordingPlayer__sidebar {
-            position: relative;
             flex-shrink: 0;
             min-width: 20rem;
             max-width: 95%;
+            overflow: hidden;
 
             &--collapsed {
                 min-width: 0;
@@ -85,26 +38,91 @@
         }
     }
 
-    .PlayerControlSeekIcon {
+    .SessionRecordingPlayer {
         position: relative;
         display: flex;
+        flex: 1;
+        flex-direction: row;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background-color: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius);
 
-        .PlayerControlSeekIcon__seconds {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 6px;
-            font-weight: bold;
-            text-align: center;
+        &--no-border {
+            border: none;
+            border-radius: 0;
         }
 
-        .PlayerControlSeekIcon__icon {
-            font-size: 1.3rem;
+        .SessionRecordingPlayer__body {
+            position: relative;
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: var(--color-bg-surface-primary);
+            border: 1px solid var(--color-border-primary);
+            border-radius: var(--radius);
 
-            &--forward {
-                transform: rotateY(180deg);
+            .SessionRecordingPlayer__main {
+                display: flex;
+                flex: 1;
+                flex-direction: column;
+                overflow: hidden;
+            }
+
+            &--fullscreen {
+                position: fixed;
+                inset: 0;
+                z-index: var(--z-modal);
+                overflow-y: auto;
+                background-color: var(--color-bg-surface-primary);
+                border: none;
+                border-radius: 0;
+
+                .SessionRecordingPlayer__body {
+                    height: 100%;
+                    margin: 0;
+                    border-radius: 0;
+                }
+
+                .LemonModal & {
+                    .SessionRecordingPlayer__body {
+                        height: calc(90vh - 15rem);
+                    }
+                }
+            }
+
+            .PlayerControlSeekIcon {
+                position: relative;
+                display: flex;
+
+                .PlayerControlSeekIcon__seconds {
+                    position: absolute;
+                    inset: 0;
+                    display: flex;
+
+                    .PlayerControlSeekIcon__seconds {
+                        position: absolute;
+                        inset: 0;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 6px;
+                        font-weight: bold;
+                        text-align: center;
+                    }
+
+                    .PlayerControlSeekIcon__icon {
+                        font-size: 1.3rem;
+
+                        &--forward {
+                            transform: rotateY(180deg);
+                        }
+                    }
+                }
             }
         }
     }

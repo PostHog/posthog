@@ -4,12 +4,15 @@ use std::time::Duration;
 
 use crate::kafka::batch_context::BatchConsumerContext;
 use crate::kafka::batch_message::{Batch, BatchError, KafkaMessage};
-use crate::kafka::metrics_consts::{BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED};
+use crate::kafka::metrics_consts::{
+    BATCH_CONSUMER_BATCH_SIZE, BATCH_CONSUMER_KAFKA_ERROR, BATCH_CONSUMER_MESSAGES_RECEIVED,
+};
 use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
 use anyhow::anyhow;
 use anyhow::{Context, Result};
+use axum::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
@@ -17,9 +20,14 @@ use rdkafka::error::{KafkaError, KafkaResult, RDKafkaErrorCode};
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
 use serde::Deserialize;
-use tokio::sync::{mpsc::UnboundedSender, oneshot::Receiver};
+use tokio::sync::oneshot::Receiver;
 use tokio::time::sleep;
 use tracing::{error, info, warn};
+
+#[async_trait]
+pub trait BatchConsumerProcessor<T>: Send + Sync {
+    async fn process_batch(&self, messages: Vec<KafkaMessage<T>>) -> Result<()>;
+}
 
 pub struct BatchConsumer<T> {
     consumer: StreamConsumer<BatchConsumerContext>,
@@ -34,7 +42,7 @@ pub struct BatchConsumer<T> {
     batch_timeout: Duration,
 
     // where we send batches after consuming them
-    sender: UnboundedSender<Batch<T>>,
+    processor: Arc<dyn BatchConsumerProcessor<T>>,
 
     // shutdown signal from parent process which
     // we assume will be wrapping start_consumption
@@ -50,7 +58,7 @@ where
     pub fn new(
         config: &ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
-        sender: UnboundedSender<Batch<T>>,
+        processor: Arc<dyn BatchConsumerProcessor<T>>,
         shutdown_rx: Receiver<()>,
         topic: &str,
         batch_size: usize,
@@ -76,7 +84,7 @@ where
             commit_interval,
             batch_size,
             batch_timeout,
-            sender,
+            processor,
             shutdown_rx,
         })
     }
@@ -89,8 +97,6 @@ where
         let batch_size = self.batch_size;
         let mut commit_interval = tokio::time::interval(self.commit_interval);
 
-        // consume the clients and channels needed to operate the loop
-        let sender = self.sender;
         let consumer = self.consumer;
         let mut stream = consumer.stream();
 
@@ -112,14 +118,18 @@ where
                             if batch.is_empty() {
                                 continue;
                             }
+                            let message_count = batch.message_count();
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "success")
-                            .increment(batch.message_count() as u64);
+                            .increment(message_count as u64);
                             metrics::counter!(BATCH_CONSUMER_MESSAGES_RECEIVED, "status" => "error")
                             .increment(batch.error_count() as u64);
+                            metrics::histogram!(BATCH_CONSUMER_BATCH_SIZE)
+                            .record(message_count as f64);
 
-                            if let Err(e) = sender.send(batch) {
+                            let (messages, _errors) = batch.unpack();
+                            if let Err(e) = self.processor.process_batch(messages).await {
                                 // TODO: stat this
-                                error!("Error sending Batch for processing: {e}");
+                                error!("Error processing batch: {e}");
                             }
                         }
 
@@ -144,8 +154,6 @@ where
         }
         info!("Batch consumer loop shutting down...");
 
-        // Drop the sender to signal no more messages
-        drop(sender);
         info!("Graceful shutdown completed");
 
         Ok(())

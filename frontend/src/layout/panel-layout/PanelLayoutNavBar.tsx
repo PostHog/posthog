@@ -188,28 +188,13 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
               ]
             : []),
         {
-            identifier: 'Products',
-            label: 'All apps',
-            icon: <IconApps />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Products')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open products', 'Close products'],
-        },
-        {
-            identifier: 'Project',
-            label: 'Project',
-            icon: <IconFolderOpen className="stroke-[1.2]" />,
-            onClick: (e?: React.KeyboardEvent) => {
-                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
-                    handlePanelTriggerClick('Project')
-                }
-            },
-            showChevron: true,
-            collapsedTooltip: ['Open project tree', 'Close project tree'],
+            identifier: 'Activity',
+            label: 'Activity',
+            icon: <IconClock />,
+            to: urls.activity(),
+            onClick: () => handleStaticNavbarItemClick(urls.activity(), true),
+            collapsedTooltip: 'Activity',
+            documentationUrl: 'https://posthog.com/docs/data/events',
         },
         {
             identifier: 'Database',
@@ -251,6 +236,18 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             documentationUrl: 'https://posthog.com/docs/data/persons',
         },
         {
+            identifier: 'Project',
+            label: 'Project',
+            icon: <IconFolderOpen className="stroke-[1.2]" />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Project')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open project tree', 'Close project tree'],
+        },
+        {
             identifier: 'Shortcuts',
             label: 'Shortcuts',
             icon: <IconShortcut />,
@@ -263,13 +260,16 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
             collapsedTooltip: ['Open shortcuts', 'Close shortcuts'],
         },
         {
-            identifier: 'Activity',
-            label: 'Activity',
-            icon: <IconClock />,
-            to: urls.activity(),
-            onClick: () => handleStaticNavbarItemClick(urls.activity(), true),
-            collapsedTooltip: 'Activity',
-            documentationUrl: 'https://posthog.com/docs/data/events',
+            identifier: 'Products',
+            label: 'All apps',
+            icon: <IconApps />,
+            onClick: (e?: React.KeyboardEvent) => {
+                if (!e || e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowRight') {
+                    handlePanelTriggerClick('Products')
+                }
+            },
+            showChevron: true,
+            collapsedTooltip: ['Open products', 'Close products'],
         },
     ].filter(Boolean)
 
