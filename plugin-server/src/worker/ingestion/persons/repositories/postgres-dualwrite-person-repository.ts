@@ -388,6 +388,10 @@ export class PostgresDualWritePersonRepository implements PersonRepository {
         return isMerged
     }
 
+    addPersonlessDistinctIdsBatch(_entries: { teamId: number; distinctId: string }[]): Promise<Map<string, boolean>> {
+        throw new Error('addPersonlessDistinctIdsBatch is not implemented for dual-write repository')
+    }
+
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         return await this.primaryRepo.personPropertiesSize(personId, teamId)
     }

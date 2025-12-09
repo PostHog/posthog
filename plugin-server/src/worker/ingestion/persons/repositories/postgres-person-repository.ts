@@ -750,6 +750,48 @@ export class PostgresPersonRepository
         return result.rows[0].inserted
     }
 
+    async addPersonlessDistinctIdsBatch(
+        entries: { teamId: number; distinctId: string }[]
+    ): Promise<Map<string, boolean>> {
+        if (entries.length === 0) {
+            return new Map()
+        }
+
+        // Deduplicate entries to avoid PostgreSQL "ON CONFLICT DO UPDATE command cannot affect row a second time" error
+        const seen = new Set<string>()
+        const uniqueEntries: { teamId: number; distinctId: string }[] = []
+        for (const entry of entries) {
+            const key = `${entry.teamId}|${entry.distinctId}`
+            if (!seen.has(key)) {
+                seen.add(key)
+                uniqueEntries.push(entry)
+            }
+        }
+
+        const teamIds = uniqueEntries.map((e) => e.teamId)
+        const distinctIds = uniqueEntries.map((e) => e.distinctId)
+
+        const result = await this.postgres.query(
+            PostgresUse.PERSONS_WRITE,
+            `
+                INSERT INTO posthog_personlessdistinctid (team_id, distinct_id, is_merged, created_at)
+                SELECT team_id, distinct_id, false, now()
+                FROM UNNEST($1::integer[], $2::text[]) AS batch(team_id, distinct_id)
+                ON CONFLICT (team_id, distinct_id) DO UPDATE
+                SET is_merged = posthog_personlessdistinctid.is_merged
+                RETURNING team_id, distinct_id, is_merged
+            `,
+            [teamIds, distinctIds],
+            'addPersonlessDistinctIdsBatch'
+        )
+
+        const resultMap = new Map<string, boolean>()
+        for (const row of result.rows) {
+            resultMap.set(`${row.team_id}|${row.distinct_id}`, row.is_merged)
+        }
+        return resultMap
+    }
+
     async personPropertiesSize(personId: string, teamId: number): Promise<number> {
         const queryString = `
             SELECT COALESCE(pg_column_size(properties)::bigint, 0::bigint) AS total_props_bytes

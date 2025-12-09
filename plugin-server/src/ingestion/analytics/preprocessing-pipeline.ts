@@ -11,6 +11,7 @@ import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-build
 import { PipelineConfig } from '../pipelines/result-handling-pipeline'
 import { createPostTeamPreprocessingSubpipeline } from './post-team-preprocessing-subpipeline'
 import { createPreTeamPreprocessingSubpipeline } from './pre-team-preprocessing-subpipeline'
+import { processPersonlessDistinctIdsBatchStep } from '~/worker/ingestion/event-pipeline/processPersonlessDistinctIdsBatchStep'
 
 export interface PreprocessingPipelineConfig {
     hub: Hub
@@ -103,6 +104,13 @@ export function createPreprocessingPipeline<
                             .pipeBatch(createApplyCookielessProcessingStep(hub.cookielessManager))
                             // Prefetch must run after cookieless, as cookieless changes distinct IDs
                             .pipeBatch(prefetchPersonsStep(personsStore, hub.PERSONS_PREFETCH_ENABLED))
+                            // Batch insert personless distinct IDs after prefetch (uses prefetch cache)
+                            .pipeBatch(
+                                processPersonlessDistinctIdsBatchStep(
+                                    personsStore,
+                                    hub.PERSONS_PREFETCH_ENABLED
+                                )
+                            )
                     )
                     .handleIngestionWarnings(kafkaProducer)
             )

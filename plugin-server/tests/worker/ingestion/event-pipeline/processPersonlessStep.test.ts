@@ -113,25 +113,27 @@ describe('processPersonlessStep()', () => {
             }
         })
 
-        it('inserts into posthog_personlessdistinctid table on first encounter', async () => {
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+        it('checks batch result for personless distinct ID when no person exists', async () => {
+            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(addPersonlessDistinctIdSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
+            // The batch step is responsible for the INSERT, processPersonlessStep just checks the result
+            expect(getPersonlessBatchResultSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
         })
 
-        it('uses LRU cache to skip DB insert on subsequent calls', async () => {
-            // First call - should insert
-            await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
+        it('returns fake person when batch result indicates no merge', async () => {
+            // Mock batch result returning false (not merged)
+            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(false)
 
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+            const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
-            // Second call - should use cache
-            await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
-
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+            expect(result.type).toBe(PipelineResultType.OK)
+            if (isOkResult(result)) {
+                const person = result.value
+                expect(person.created_at.toISO()).toBe('1970-01-01T00:00:05.000Z') // Fake person
+            }
         })
     })
 
@@ -217,10 +219,8 @@ describe('processPersonlessStep()', () => {
             // Mock fetchForChecking to return null initially (simulating no person found)
             jest.spyOn(personsStore, 'fetchForChecking').mockResolvedValueOnce(null)
 
-            // Mock addPersonlessDistinctId to return true (indicating merge happened)
-            const addPersonlessDistinctIdSpy = jest
-                .spyOn(personsStore, 'addPersonlessDistinctId')
-                .mockResolvedValue(true)
+            // Mock getPersonlessBatchResult to return true (indicating merge happened via batch step)
+            jest.spyOn(personsStore, 'getPersonlessBatchResult').mockReturnValue(true)
 
             // Mock fetchForUpdate to return the actual person
             const fetchForUpdateSpy = jest.spyOn(personsStore, 'fetchForUpdate').mockResolvedValue(person)
@@ -228,7 +228,6 @@ describe('processPersonlessStep()', () => {
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, false)
 
             expect(result.type).toBe(PipelineResultType.OK)
-            expect(addPersonlessDistinctIdSpy).toHaveBeenCalled()
             expect(fetchForUpdateSpy).toHaveBeenCalledWith(teamId, pluginEvent.distinct_id)
         })
     })
@@ -236,7 +235,7 @@ describe('processPersonlessStep()', () => {
     describe('forceDisablePersonProcessing', () => {
         it('skips all DB operations and returns fake person immediately when true', async () => {
             const fetchForCheckingSpy = jest.spyOn(personsStore, 'fetchForChecking')
-            const addPersonlessDistinctIdSpy = jest.spyOn(personsStore, 'addPersonlessDistinctId')
+            const getPersonlessBatchResultSpy = jest.spyOn(personsStore, 'getPersonlessBatchResult')
 
             const result = await processPersonlessStep(pluginEvent, team, timestamp, personsStore, true)
 
@@ -250,7 +249,7 @@ describe('processPersonlessStep()', () => {
 
             // Verify no database operations were performed
             expect(fetchForCheckingSpy).not.toHaveBeenCalled()
-            expect(addPersonlessDistinctIdSpy).not.toHaveBeenCalled()
+            expect(getPersonlessBatchResultSpy).not.toHaveBeenCalled()
         })
 
         it('performs normal processing when false', async () => {
