@@ -178,6 +178,7 @@ event_property_group_definitions = {
             lambda key: not key.startswith("$") and key not in ignore_custom_properties,
             column_type_name="group",
         ),
+        # Please make sure that changing the ai property group won't affect the performance of the LLM Analytics Usage Report task.
         "ai": PropertyGroupDefinition(
             "key LIKE '$ai_%' AND key != '$ai_input' AND key != '$ai_output_choices'",
             lambda key: key.startswith("$ai_") and key != "$ai_input" and key != "$ai_output_choices",
