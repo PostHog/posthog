@@ -178,8 +178,11 @@ class TestAgentToolkit(BaseTest):
             patch("ee.hogai.chat_agent.mode_manager.has_create_form_tool_feature_flag", return_value=create_form_flag),
             patch("ee.hogai.chat_agent.mode_manager.has_phai_tasks_feature_flag", return_value=tasks_flag),
         ):
-            toolkit = ChatAgentToolkit(team=self.team, user=self.user)
-            tool_names = [tool.name for tool in toolkit.tools]
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            toolkit = ChatAgentToolkit(team=self.team, user=self.user, context_manager=context_manager)
+            tool_names = [tool.model_fields["name"].default for tool in toolkit.tools]
 
             for expected in expected_tools:
                 self.assertIn(expected, tool_names)
