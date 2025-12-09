@@ -5,10 +5,56 @@ from django.db.models import QuerySet
 
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-from posthog.models.utils import RootTeamMixin, UUIDTModel, sane_repr
+from posthog.models.utils import RootTeamMixin, UUIDModel, UUIDTModel, sane_repr
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+class ProductArea(FileSystemSyncMixin, RootTeamMixin, UUIDModel):
+    class Meta:
+        db_table = "posthog_productarea"
+        managed = True
+
+    team = models.ForeignKey(
+        "posthog.Team",
+        on_delete=models.CASCADE,
+        related_name="product_areas",
+        related_query_name="product_area",
+    )
+    name = models.CharField(max_length=200)
+    created_at = models.DateTimeField(auto_now_add=True)
+    role = models.ForeignKey(
+        "ee.Role",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="product_areas",
+    )
+
+    def __str__(self) -> str:
+        return self.name
+
+    __repr__ = sane_repr("id", "name", "team_id")
+
+    @classmethod
+    def get_file_system_unfiled(cls, team: "Team") -> QuerySet["ProductArea"]:
+        base_qs = cls.objects.filter(team=team)
+        return cls._filter_unfiled_queryset(base_qs, team, type="product_area", ref_field="id")
+
+    def get_file_system_representation(self) -> FileSystemRepresentation:
+        return FileSystemRepresentation(
+            base_folder=self._get_assigned_folder("Unfiled/Product Areas"),
+            type="product_area",  # sync with APIScopeObject in scopes.py
+            ref=str(self.id),
+            name=self.name or "Untitled",
+            href=f"/product_areas/{self.id}",
+            meta={
+                "created_at": str(self.created_at),
+                "created_by": None,
+            },
+            should_delete=False,
+        )
 
 
 class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):

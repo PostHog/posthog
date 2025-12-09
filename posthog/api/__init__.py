@@ -240,6 +240,12 @@ project_features_router = projects_router.register(
     "project_early_access_feature",
     ["project_id"],
 )
+projects_router.register(
+    r"product_areas",
+    early_access_feature.ProductAreaViewSet,
+    "project_product_areas",
+    ["project_id"],
+)
 
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])

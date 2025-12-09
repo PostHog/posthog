@@ -151,6 +151,7 @@ import {
     PluginConfigTypeNew,
     PluginConfigWithPluginInfoNew,
     PluginLogEntry,
+    ProductAreaType,
     ProjectType,
     PropertyDefinition,
     PropertyDefinitionType,
@@ -1009,6 +1010,15 @@ export class ApiRequest {
 
     public earlyAccessFeature(id: EarlyAccessFeatureType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.earlyAccessFeatures(teamId).addPathComponent(id)
+    }
+
+    // # Product Areas
+    public productAreas(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('product_areas')
+    }
+
+    public productArea(id: ProductAreaType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.productAreas(teamId).addPathComponent(id)
     }
 
     // # User interviews
@@ -3721,6 +3731,24 @@ const api = {
         },
         async list(): Promise<PaginatedResponse<EarlyAccessFeatureType>> {
             return await new ApiRequest().earlyAccessFeatures().get()
+        },
+    },
+
+    productAreas: {
+        async list(): Promise<PaginatedResponse<ProductAreaType>> {
+            return await new ApiRequest().productAreas().get()
+        },
+        async get(id: ProductAreaType['id']): Promise<ProductAreaType> {
+            return await new ApiRequest().productArea(id).get()
+        },
+        async create(data: Partial<ProductAreaType>): Promise<ProductAreaType> {
+            return await new ApiRequest().productAreas().create({ data })
+        },
+        async update(id: ProductAreaType['id'], data: Partial<ProductAreaType>): Promise<ProductAreaType> {
+            return await new ApiRequest().productArea(id).update({ data })
+        },
+        async delete(id: ProductAreaType['id']): Promise<void> {
+            await new ApiRequest().productArea(id).delete()
         },
     },
 

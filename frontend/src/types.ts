@@ -3631,6 +3631,13 @@ export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 
     feature_flag_id: number | undefined
 }
 
+export interface ProductAreaType {
+    id: string
+    name: string
+    role_id: string | null
+    created_at: string
+}
+
 export interface UserBlastRadiusType {
     users_affected: number
     total_users: number

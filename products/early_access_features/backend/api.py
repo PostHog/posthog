@@ -18,12 +18,42 @@ from posthog.exceptions import generate_exception_response
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.team.team import Team
 from posthog.models.utils import uuid7
+from posthog.settings import EE_AVAILABLE
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.utils_cors import cors_response
 
-from .models import EarlyAccessFeature
+from ee.models.rbac.role import Role
+
+from .models import EarlyAccessFeature, ProductArea
 
 logger = structlog.get_logger(__name__)
+
+
+class ProductAreaSerializer(serializers.ModelSerializer):
+    role_id = serializers.UUIDField(required=False, allow_null=True)
+
+    class Meta:
+        model = ProductArea
+        fields = ["id", "name", "role_id", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_role_id(self, value):
+        if value is not None:
+            if not EE_AVAILABLE:
+                raise serializers.ValidationError("Roles are not available without an enterprise license.")
+            if not Role.objects.filter(id=value).exists():
+                raise serializers.ValidationError("Role does not exist.")
+        return value
+
+    def create(self, validated_data):
+        validated_data["team_id"] = self.context["team_id"]
+        return super().create(validated_data)
+
+
+class ProductAreaViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "product_area"
+    queryset = ProductArea.objects.all()
+    serializer_class = ProductAreaSerializer
 
 
 class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
