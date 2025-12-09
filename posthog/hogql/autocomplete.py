@@ -304,7 +304,7 @@ def append_table_field_to_response(
         insert_text=lambda key: f"`{key}`" if any(n in key for n in HOGQL_CHARACTERS_TO_BE_WRAPPED) else key,
     )
 
-    if language == HogLanguage.HOG_QL or language == HogLanguage.HOG_QL_EXPR:
+    if language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_EXPR, HogLanguage.HOG_QL_POSTGRES):
         available_functions = ALL_EXPOSED_FUNCTION_NAMES
     else:
         available_functions = ALL_HOG_FUNCTIONS
@@ -420,7 +420,7 @@ def get_hogql_autocomplete(
             query_end = query.endPosition + length_to_add
             select_ast: Optional[ast.AST] = None
 
-            if query.language == HogLanguage.HOG_QL:
+            if query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
                 with timings.measure("parse_select"):
                     select_ast = parse_select(query_to_try, timings=timings)
                     root_node: ast.AST = select_ast

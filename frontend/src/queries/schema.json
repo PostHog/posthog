@@ -15779,7 +15779,7 @@
             "type": "object"
         },
         "HogLanguage": {
-            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogTemplate", "liquid"],
+            "enum": ["hog", "hogJson", "hogQL", "hogQLExpr", "hogQLPostgres", "hogTemplate", "liquid"],
             "type": "string"
         },
         "HogQLASTQuery": {

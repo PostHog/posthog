@@ -631,6 +631,7 @@ export enum HogLanguage {
     hogJson = 'hogJson',
     hogQL = 'hogQL',
     hogQLExpr = 'hogQLExpr',
+    hogQLPostgres = 'hogQLPostgres',
     hogTemplate = 'hogTemplate',
     liquid = 'liquid',
 }

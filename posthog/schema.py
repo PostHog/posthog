@@ -1765,6 +1765,7 @@ class HogLanguage(StrEnum):
     HOG_JSON = "hogJson"
     HOG_QL = "hogQL"
     HOG_QL_EXPR = "hogQLExpr"
+    HOG_QL_POSTGRES = "hogQLPostgres"
     HOG_TEMPLATE = "hogTemplate"
     LIQUID = "liquid"
 

@@ -61,7 +61,7 @@ def get_hogql_metadata(
                 process_expr_on_table(node, context=context, source_query=source_query)
             else:
                 process_expr_on_table(node, context=context)
-        elif query.language == HogLanguage.HOG_QL:
+        elif query.language in (HogLanguage.HOG_QL, HogLanguage.HOG_QL_POSTGRES):
             if not hogql_ast:
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
@@ -75,21 +75,28 @@ def get_hogql_metadata(
             hogql_table_names = get_table_names(hogql_ast)
             response.table_names = hogql_table_names
 
-            if not clickhouse_sql or not clickhouse_prepared_ast:
-                clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+            if query.language == HogLanguage.HOG_QL:
+                if not clickhouse_sql or not clickhouse_prepared_ast:
+                    clickhouse_sql, clickhouse_prepared_ast = prepare_and_print_ast(
+                        clone_expr(hogql_ast),
+                        context=context,
+                        dialect="clickhouse",
+                    )
+
+                if clickhouse_prepared_ast:
+                    ch_table_names = get_table_names(clickhouse_prepared_ast)
+                    response.ch_table_names = ch_table_names
+
+                if context.errors:
+                    response.isUsingIndices = QueryIndexUsage.UNDECISIVE
+                else:
+                    response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
+            else:
+                prepare_and_print_ast(
                     clone_expr(hogql_ast),
                     context=context,
-                    dialect="clickhouse",
+                    dialect="postgres",
                 )
-
-            if clickhouse_prepared_ast:
-                ch_table_names = get_table_names(clickhouse_prepared_ast)
-                response.ch_table_names = ch_table_names
-
-            if context.errors:
-                response.isUsingIndices = QueryIndexUsage.UNDECISIVE
-            else:
-                response.isUsingIndices = execute_explain_get_index_use(clickhouse_sql, context)
         else:
             raise ValueError(f"Unsupported language: {query.language}")
         response.warnings = context.warnings
