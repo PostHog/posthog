@@ -11,7 +11,7 @@ import { HogFlow } from '../hogflows/types'
 const RICH_LOG_REGEX = /(\[[a-zA-Z0-9_-]+:.*\])/
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
-const PERSON_REGREX = /\[Person:([a-zA-Z0-9_-]+)\|(.*)\]/
+const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*)\]/
 const ACTOR_REGEX = /\[Actor:(.*)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
@@ -31,6 +31,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
 
             elements.push(
                 <Link
+                    key={part}
                     className="rounded p-1 -m-1 bg-border text-bg-primary"
                     to={urls.workflow(workflow.id, 'workflow') + `?node=${actionId}&mode=logs`}
                 >
@@ -41,12 +42,12 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
             continue
         }
 
-        const matchesPersonRegex = PERSON_REGREX.exec(part)
+        const matchesPersonRegex = PERSON_REGEX.exec(part)
         if (matchesPersonRegex) {
             const personId = matchesPersonRegex[1]
             const personName = matchesPersonRegex[2]
 
-            elements.push(<PersonDisplay person={{ id: personId }} displayName={personName} withIcon />)
+            elements.push(<PersonDisplay key={part} person={{ id: personId }} displayName={personName} withIcon />)
             continue
         }
 
@@ -56,6 +57,7 @@ export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JS
 
             elements.push(
                 <ProfilePicture
+                    key={part}
                     user={{
                         email: actorEmail,
                     }}
