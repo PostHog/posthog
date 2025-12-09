@@ -160,6 +160,7 @@ def query_events_list(
             query_type="events_list",
             workload=Workload.OFFLINE,
             team_id=team.pk,
+            settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
         ), bound_to_same_day
     else:
         return insight_query_with_columns(
@@ -174,4 +175,5 @@ def query_events_list(
             query_type="events_list",
             workload=Workload.OFFLINE,
             team_id=team.pk,
+            settings={"max_threads": settings.CLICKHOUSE_EVENT_LIST_MAX_THREADS},
         ), bound_to_same_day
