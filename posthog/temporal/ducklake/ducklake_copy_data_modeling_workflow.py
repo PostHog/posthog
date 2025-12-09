@@ -2,7 +2,6 @@ import re
 import json
 import datetime as dt
 import dataclasses
-from typing import Any
 
 from django.conf import settings
 
@@ -55,8 +54,6 @@ class DuckLakeCopyModelMetadata:
     table_name: str
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
     partition_column: str | None = None
-    partition_column_type: str | None = None
-    non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
@@ -138,14 +135,16 @@ async def prepare_data_modeling_ducklake_metadata_activity(
     model_list: list[DuckLakeCopyModelMetadata] = []
 
     for model in inputs.models:
-        saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("team").get)(
-            id=model.saved_query_id
-        )
+        # Django: only for semantic naming (not stored in Delta)
+        saved_query = await database_sync_to_async(
+            DataWarehouseSavedQuery.objects.only("id", "name", "normalized_name").get
+        )(id=model.saved_query_id)
 
         normalized_name = saved_query.normalized_name or saved_query.name
-        saved_query_columns = saved_query.columns or await database_sync_to_async(saved_query.get_columns)()
-        partition_column, partition_column_type = _detect_partition_column(saved_query_columns, model.table_uri)
-        non_nullable_columns = _detect_non_nullable_columns(saved_query_columns)
+
+        # Get partition column name from Delta metadata
+        partition_column = _detect_partition_column_name(model.table_uri)
+
         model_list.append(
             DuckLakeCopyModelMetadata(
                 model_label=model.model_label,
@@ -160,8 +159,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 table_name=_sanitize_ducklake_identifier(model.model_label or normalized_name, default_prefix="model"),
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
-                partition_column_type=partition_column_type,
-                non_nullable_columns=non_nullable_columns,
             )
         )
 
@@ -327,8 +324,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             partition_result = _run_partition_verification(conn, ducklake_table, inputs)
             if partition_result:
                 results.append(partition_result)
-
-            results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
 
@@ -519,22 +514,8 @@ def _sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
     return cleaned[:63]
 
 
-def _detect_partition_column(columns: dict[str, Any], table_uri: str) -> tuple[str | None, str | None]:
-    partition_column = _detect_partition_column_from_delta(columns, table_uri)
-    if partition_column:
-        metadata = columns.get(partition_column)
-        column_type = _extract_column_type(metadata)
-        return partition_column, column_type or None
-
-    LOGGER.warning(
-        "Unable to detect partition column from Delta metadata - skipping partition verification.",
-        table_uri=table_uri,
-    )
-    # TODO: Emit a metric for detection failures to track missing partition coverage.
-    return None, None
-
-
-def _detect_partition_column_from_delta(columns: dict[str, Any], table_uri: str) -> str | None:
+def _detect_partition_column_name(table_uri: str) -> str | None:
+    """Detect partition column name from Delta metadata."""
     if not table_uri:
         return None
 
@@ -542,15 +523,8 @@ def _detect_partition_column_from_delta(columns: dict[str, Any], table_uri: str)
     if not partition_columns:
         return None
 
-    normalized_mapping = {name.lower(): name for name in columns.keys()}
-    for candidate in partition_columns:
-        normalized = normalized_mapping.get(candidate.lower())
-        if normalized:
-            return normalized
-        if candidate:
-            return candidate
-
-    return None
+    # Return the first partition column
+    return partition_columns[0] if partition_columns else None
 
 
 def _fetch_delta_partition_columns(table_uri: str) -> list[str]:
@@ -591,23 +565,13 @@ def _get_delta_storage_options() -> dict[str, str]:
     return {key: value for key, value in options.items() if value}
 
 
-def _detect_non_nullable_columns(columns: dict[str, Any]) -> list[str]:
-    result: list[str] = []
-    for name, metadata in columns.items():
-        column_type = _extract_column_type(metadata)
-        if not column_type.lower().startswith("nullable("):
-            result.append(name)
-    return result
-
-
-def _extract_column_type(metadata: Any) -> str:
-    if isinstance(metadata, dict):
-        value = metadata.get("type")
-        if isinstance(value, str):
-            return value
-    if isinstance(metadata, str):
-        return metadata
-    return ""
+def _get_column_type_from_schema(schema: list[tuple[str, str]], column_name: str) -> str | None:
+    """Get a column's type from a schema list, case-insensitive."""
+    normalized_name = column_name.lower()
+    for name, col_type in schema:
+        if name.lower() == normalized_name:
+            return col_type
+    return None
 
 
 def _is_datetime_column_type(column_type: str | None) -> bool:
@@ -660,7 +624,18 @@ def _run_partition_verification(
     if not partition_column:
         return None
 
-    bucket_expr = _build_partition_bucket_expression(partition_column, inputs.model.partition_column_type)
+    # Fetch partition column type from Delta schema at verification time
+    source_schema = _fetch_delta_schema(conn, inputs.model.source_table_uri)
+    partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
+    if partition_column_type is None:
+        return DuckLakeCopyVerificationResult(
+            name="model.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=f"Partition column '{partition_column}' not found in Delta schema",
+        )
+
+    bucket_expr = _build_partition_bucket_expression(partition_column, partition_column_type)
     sql = f"""
         WITH source AS (
             SELECT {bucket_expr} AS bucket, count(*) AS cnt
@@ -719,56 +694,6 @@ def _build_partition_bucket_expression(column_name: str, column_type: str | None
     if _is_datetime_column_type(column_type):
         return f"date_trunc('day', {column_expr})"
     return column_expr
-
-
-def _run_non_nullable_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyActivityInputs,
-) -> list[DuckLakeCopyVerificationResult]:
-    results: list[DuckLakeCopyVerificationResult] = []
-    if not inputs.model.non_nullable_columns:
-        return results
-
-    source_uri = inputs.model.source_table_uri
-    for column in inputs.model.non_nullable_columns:
-        column_expr = _quote_identifier(column)
-        source_sql = f"SELECT COUNT(*) FROM delta_scan(?) WHERE {column_expr} IS NULL"
-        ducklake_sql = f"SELECT COUNT(*) FROM {ducklake_table} WHERE {column_expr} IS NULL"
-        try:
-            source_row = conn.execute(source_sql, [source_uri]).fetchone()
-            ducklake_row = conn.execute(ducklake_sql).fetchone()
-            if source_row is None or ducklake_row is None:
-                raise ValueError(f"Null ratio query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyVerificationResult(
-                    name=f"model.null_ratio.{column}",
-                    passed=False,
-                    description=f"Ensure null ratio matches for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_nulls = float(source_row[0] or 0)
-        ducklake_nulls = float(ducklake_row[0] or 0)
-        passed = ducklake_nulls == source_nulls
-        results.append(
-            DuckLakeCopyVerificationResult(
-                name=f"model.null_ratio.{column}",
-                passed=passed,
-                description=f"Ensure null ratio matches for {column}.",
-                expected_value=source_nulls,
-                observed_value=ducklake_nulls,
-                tolerance=0.0,
-                error=None
-                if passed
-                else f"{column} null mismatch (source={int(source_nulls)}, ducklake={int(ducklake_nulls)})",
-            )
-        )
-
-    return results
 
 
 def _diff_schema(source_schema: list[tuple[str, str]], ducklake_schema: list[tuple[str, str]]) -> list[str]:
