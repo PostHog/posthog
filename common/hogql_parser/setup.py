@@ -18,7 +18,8 @@ module = Extension(
         "HogQLParserVisitor.cpp",
         "error.cpp",
         "string.cpp",
-        "parser.cpp",
+        "json_builder.cpp",
+        "parser_python.cpp",
     ],
     include_dirs=[
         f"{homebrew_location}/include/",

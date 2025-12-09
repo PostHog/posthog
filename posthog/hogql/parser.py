@@ -20,6 +20,7 @@ from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.errors import BaseHogQLError, NotImplementedError, SyntaxError
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
+from posthog.hogql.json_ast import deserialize_ast
 from posthog.hogql.parse_string import parse_string_literal_ctx, parse_string_literal_text, parse_string_text_ctx
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
@@ -54,11 +55,11 @@ RULE_TO_PARSE_FUNCTION: dict[
         "program": safe_lambda(lambda string: HogQLParseTreeConverter().visit(get_parser(string).program())),
     },
     "cpp": {
-        "expr": lambda string, start: _parse_expr_cpp(string, is_internal=start is None),
-        "order_expr": lambda string: _parse_order_expr_cpp(string),
-        "select": lambda string: _parse_select_cpp(string),
-        "full_template_string": lambda string: _parse_full_template_string_cpp(string),
-        "program": lambda string: _parse_program_cpp(string),
+        "expr": lambda string, start: deserialize_ast(_parse_expr_cpp(string, is_internal=start is None)),
+        "order_expr": lambda string: deserialize_ast(_parse_order_expr_cpp(string)),
+        "select": lambda string: deserialize_ast(_parse_select_cpp(string)),
+        "full_template_string": lambda string: deserialize_ast(_parse_full_template_string_cpp(string)),
+        "program": lambda string: deserialize_ast(_parse_program_cpp(string)),
     },
 }
 
