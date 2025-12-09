@@ -1,4 +1,10 @@
+from uuid import uuid4
+
+from django.conf import settings
+
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -32,6 +38,14 @@ class GenerateSessionsInput(BaseModel):
 
 class RegenerateSessionInput(BaseModel):
     session_id: str
+
+
+class PersonaOutput(BaseModel):
+    name: str
+    archetype: str
+    background: str
+    traits: list[str]
+    plan: str
 
 
 def serialize_session(session: Session) -> dict:
@@ -199,11 +213,11 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
         logger.info("generating_sessions", round_id=str(round.id), session_count=round.session_count)
 
         try:
-            # Generate personas using OpenAI
-            sessions = []
+            generated_personas: list[dict] = []
             for i in range(round.session_count):
-                persona = self._generate_persona(study, i)
-                session = Session.objects.create(
+                persona = self._generate_persona_sync(study, self.request.user, i, existing_personas=generated_personas)
+                generated_personas.append(persona)
+                Session.objects.create(
                     team=self.team,
                     round=round,
                     name=persona["name"],
@@ -213,13 +227,12 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
                     plan=persona["plan"],
                     status=Session.Status.PENDING,
                 )
-                sessions.append(session)
 
             # Update round status to ready
             round.status = Round.Status.READY
             round.save(update_fields=["status"])
 
-            logger.info("sessions_generated", round_id=str(round.id), session_count=len(sessions))
+            logger.info("sessions_generated", round_id=str(round.id), session_count=len(generated_personas))
             return Response(
                 {"round": serialize_round(round, include_sessions=True)},
                 status=status.HTTP_200_OK,
@@ -233,32 +246,57 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-    def _generate_persona(self, study: Study, index: int) -> dict:
-        """Generate a single persona using OpenAI. For now, returns mock data."""
-        # TODO: Replace with actual OpenAI call
-        # This is a placeholder that generates diverse mock personas
-        archetypes = [
-            ("Skeptical Developer", "Senior software engineer who hates marketing speak and values technical depth"),
-            ("First-time Founder", "Non-technical founder evaluating tools for their new startup"),
-            ("Enterprise Buyer", "IT director at a Fortune 500 company with strict security requirements"),
-            ("Impatient Power User", "Heavy user of competing products who knows exactly what they want"),
-            ("Curious Explorer", "New to the space, browsing to understand what's possible"),
-            ("Price-Conscious SMB", "Small business owner watching every dollar spent"),
-            ("Mobile-First User", "Primarily browses on phone, easily frustrated by desktop-first designs"),
-            ("Accessibility Advocate", "Uses screen reader, notices every accessibility issue"),
-        ]
+    def _generate_persona_sync(
+        self, study: Study, user, index: int, existing_personas: list[dict] | None = None
+    ) -> dict:
+        """Generate a single persona using OpenAI."""
+        existing_context = ""
+        if existing_personas:
+            existing_names = ", ".join(p["name"] for p in existing_personas)
+            existing_archetypes = ", ".join(p["archetype"] for p in existing_personas)
+            existing_context = f"""
+Already generated personas (avoid duplicating these):
+- Names used: {existing_names}
+- Archetypes used: {existing_archetypes}
+"""
 
-        archetype_name, archetype_desc = archetypes[index % len(archetypes)]
-        first_names = ["Sarah", "Marcus", "Priya", "James", "Elena", "Chen", "Fatima", "Alex"]
-        last_names = ["Chen", "Johnson", "Patel", "Wilson", "Rodriguez", "Wei", "Hassan", "Thompson"]
+        client = OpenAI(
+            posthog_client=posthoganalytics.default_client,
+            base_url=settings.OPENAI_BASE_URL,
+        )
 
-        return {
-            "name": f"{first_names[index % len(first_names)]} {last_names[index % len(last_names)]}",
-            "archetype": archetype_name,
-            "background": f"{archetype_desc}. Matches the target audience: {study.audience_description}",
-            "traits": ["detail-oriented", "time-constrained", "value-driven"],
-            "plan": f"1. Navigate to {study.target_url}\n2. Evaluate: {study.research_goal}\n3. Form opinion and document experience",
-        }
+        response = client.responses.parse(
+            model="gpt-4.1-mini",
+            posthog_distinct_id=user.distinct_id,
+            posthog_trace_id=str(uuid4()),
+            input=[
+                {
+                    "role": "system",
+                    "content": """You are an expert UX researcher creating synthetic user personas for website testing.
+Generate a realistic, diverse persona that would naturally be part of the target audience.
+The persona should have:
+- A believable full name
+- A specific archetype (e.g., "Skeptical Developer", "First-time Founder", "Enterprise Buyer")
+- Background that explains their context and how they fit the audience
+- 3-5 personality traits that will influence how they browse
+- A brief plan for how they'll navigate the site given the research goal""",
+                },
+                {
+                    "role": "user",
+                    "content": f"""Generate persona #{index + 1} for this study:
+
+Target Audience: {study.audience_description}
+Research Goal: {study.research_goal}
+Target URL: {study.target_url}
+{existing_context}
+
+Generate a unique persona that fits this audience and would provide useful testing insights.""",
+                },
+            ],
+            text_format=PersonaOutput,
+        )
+
+        return response.output_parsed.model_dump()
 
     @action(detail=False, methods=["POST"], required_scopes=["synthetic_users:write"])
     def regenerate_session(self, request: Request, *args, **kwargs) -> Response:
@@ -286,7 +324,9 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
         logger.info("regenerating_session", session_id=str(session.id))
 
         try:
-            persona = self._generate_persona(session.round.study, session_index + 100)  # offset for variety
+            persona = self._generate_persona_sync(
+                session.round.study, self.request.user, session_index + 100
+            )  # offset for variety
             session.name = persona["name"]
             session.archetype = persona["archetype"]
             session.background = persona["background"]
@@ -341,5 +381,48 @@ class SyntheticUsersViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets
 
         return Response(
             {"round": serialize_round(round, include_sessions=True)},
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["POST"], required_scopes=["synthetic_users:write"])
+    def start_session(self, request: Request, *args, **kwargs) -> Response:
+        """Start executing a single session."""
+        session_id = request.data.get("session_id")
+        if not session_id:
+            return Response({"error": "No session_id provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            session = Session.objects.select_related("round").get(id=session_id, team=self.team)
+        except Session.DoesNotExist:
+            return Response({"error": "Session not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        round = session.round
+        if round.status not in [Round.Status.READY, Round.Status.RUNNING]:
+            return Response(
+                {"error": f"Round must be in ready or running status to start sessions (current: {round.status})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if session.status != Session.Status.PENDING:
+            return Response(
+                {"error": f"Session must be in pending status to start (current: {session.status})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        logger.info("starting_session", session_id=str(session.id))
+
+        # If round is ready, transition it to running
+        if round.status == Round.Status.READY:
+            round.status = Round.Status.RUNNING
+            round.save(update_fields=["status"])
+
+        # Update session status to navigating
+        session.status = Session.Status.NAVIGATING
+        session.save(update_fields=["status"])
+
+        # TODO: Kick off actual navigation task (Celery job, etc.)
+
+        return Response(
+            {"session": serialize_session(session)},
             status=status.HTTP_200_OK,
         )

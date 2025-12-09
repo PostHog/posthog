@@ -1,16 +1,21 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { teamLogic } from 'scenes/teamLogic'
 
 import type { syntheticUsersSceneLogicType } from './syntheticUsersSceneLogicType'
 import { Study, StudyFormValues } from './types'
 
 export const syntheticUsersSceneLogic = kea<syntheticUsersSceneLogicType>([
     path(['products', 'synthetic-users', 'frontend', 'syntheticUsersSceneLogic']),
+
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
 
     actions({
         setShowCreateStudyModal: (show: boolean) => ({ show }),
@@ -67,7 +72,7 @@ export const syntheticUsersSceneLogic = kea<syntheticUsersSceneLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         createStudySuccess: () => {
             lemonToast.success('Study created')
             actions.resetStudyForm()
@@ -84,7 +89,7 @@ export const syntheticUsersSceneLogic = kea<syntheticUsersSceneLogicType>([
                     'Brutally honest tech reviewers who have no patience for bad UX, slow load times, or confusing navigation',
                 research_goal:
                     'Tear apart this website. Find every UX sin, confusing element, and frustration point. Be ruthless but constructive.',
-                target_url: '',
+                target_url: values.currentTeam?.app_urls?.[0] ?? '',
             })
             actions.setShowCreateStudyModal(true)
         },

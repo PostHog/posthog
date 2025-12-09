@@ -88,6 +88,15 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
                 },
             },
         ],
+        startedSession: [
+            null as Session | null,
+            {
+                startSession: async (sessionId: string) => {
+                    const response = await api.syntheticUsers.startSession(sessionId)
+                    return response.session
+                },
+            },
+        ],
     })),
 
     forms(({ actions }) => ({
@@ -144,6 +153,13 @@ export const studyDetailsSceneLogic = kea<studyDetailsSceneLogicType>([
         },
         regenerateSessionFailure: ({ error }) => {
             lemonToast.error(`Failed to regenerate persona: ${error}`)
+        },
+        startSessionSuccess: () => {
+            lemonToast.success('Session started')
+            actions.loadStudy()
+        },
+        startSessionFailure: ({ error }) => {
+            lemonToast.error(`Failed to start session: ${error}`)
         },
     })),
 

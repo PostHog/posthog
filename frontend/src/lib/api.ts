@@ -4989,6 +4989,12 @@ const api = {
                 .withAction('start_round')
                 .create({ data: { round_id: roundId } })
         },
+        async startSession(sessionId: string): Promise<{ session: any }> {
+            return await new ApiRequest()
+                .syntheticUsers()
+                .withAction('start_session')
+                .create({ data: { session_id: sessionId } })
+        },
     },
 }
 

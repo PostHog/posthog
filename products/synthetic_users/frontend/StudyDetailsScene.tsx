@@ -346,9 +346,15 @@ function OverviewTab({ study }: { study: Study }): JSX.Element {
 }
 
 function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void }): JSX.Element {
-    const { selectedRoundId, generatedRoundLoading, startedRoundLoading, regeneratedSessionLoading } =
-        useValues(studyDetailsSceneLogic)
-    const { setSelectedRoundId, generateSessions, startRound, regenerateSession } = useActions(studyDetailsSceneLogic)
+    const {
+        selectedRoundId,
+        generatedRoundLoading,
+        startedRoundLoading,
+        regeneratedSessionLoading,
+        startedSessionLoading,
+    } = useValues(studyDetailsSceneLogic)
+    const { setSelectedRoundId, generateSessions, startRound, regenerateSession, startSession } =
+        useActions(studyDetailsSceneLogic)
     const [selectedSession, setSelectedSession] = useState<Session | null>(null)
 
     // Get selected round from study data (keeps it in sync after reloads)
@@ -624,17 +630,32 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                                     width: 0,
                                     render: (_, session) =>
                                         canRegenerate ? (
-                                            <LemonButton
-                                                type="secondary"
-                                                icon={<IconRefresh />}
-                                                size="small"
-                                                loading={regeneratedSessionLoading}
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    regenerateSession(session.id)
-                                                }}
-                                                tooltip="Regenerate persona"
-                                            />
+                                            <div className="flex gap-1">
+                                                <LemonButton
+                                                    type="secondary"
+                                                    icon={<IconRefresh />}
+                                                    size="small"
+                                                    loading={regeneratedSessionLoading}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation()
+                                                        regenerateSession(session.id)
+                                                    }}
+                                                    tooltip="Regenerate persona"
+                                                />
+                                                {isReady && session.status === 'pending' && (
+                                                    <LemonButton
+                                                        type="primary"
+                                                        icon={<IconPlay />}
+                                                        size="small"
+                                                        loading={startedSessionLoading}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            startSession(session.id)
+                                                        }}
+                                                        tooltip="Start this session"
+                                                    />
+                                                )}
+                                            </div>
                                         ) : session.session_replay_url ? (
                                             <LemonButton
                                                 type="tertiary"
@@ -644,6 +665,18 @@ function RoundsTab({ study, onNewRound }: { study: Study; onNewRound: () => void
                                                 targetBlank
                                                 onClick={(e) => e.stopPropagation()}
                                                 tooltip="View session replay"
+                                            />
+                                        ) : session.status === 'pending' ? (
+                                            <LemonButton
+                                                type="primary"
+                                                icon={<IconPlay />}
+                                                size="small"
+                                                loading={startedSessionLoading}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    startSession(session.id)
+                                                }}
+                                                tooltip="Start this session"
                                             />
                                         ) : null,
                                 },
