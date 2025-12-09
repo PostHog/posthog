@@ -19,7 +19,7 @@ use capture::server::serve;
 
 common_alloc::used!();
 
-const GRACEFUL_SHUTDOWN_INTERVAL_MS: u64 = 3;
+const GRACEFUL_SHUTDOWN_INTERVAL_SECS: u64 = 3;
 const GRACEFUL_SHUTDOWN_INTERVAL_POLL_MS: u64 = 500;
 
 async fn shutdown() {
@@ -42,7 +42,7 @@ async fn shutdown() {
 
     loop {
         tokio::select! {
-            _ = tokio::time::sleep_until(start + Duration::from_secs(GRACEFUL_SHUTDOWN_INTERVAL_MS)) => {
+            _ = tokio::time::sleep_until(start + Duration::from_secs(GRACEFUL_SHUTDOWN_INTERVAL_SECS)) => {
                 tracing::info!("Graceful shutdown timeout reached (3s), shutting down now");
                 break;
             }
