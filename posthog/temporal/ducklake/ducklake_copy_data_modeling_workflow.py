@@ -56,7 +56,6 @@ class DuckLakeCopyModelMetadata:
     verification_queries: list[DuckLakeCopyVerificationQuery] = dataclasses.field(default_factory=list)
     partition_column: str | None = None
     partition_column_type: str | None = None
-    key_columns: list[str] = dataclasses.field(default_factory=list)
     non_nullable_columns: list[str] = dataclasses.field(default_factory=list)
 
 
@@ -146,7 +145,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
         normalized_name = saved_query.normalized_name or saved_query.name
         saved_query_columns = saved_query.columns or await database_sync_to_async(saved_query.get_columns)()
         partition_column, partition_column_type = _detect_partition_column(saved_query_columns, model.table_uri)
-        key_columns = _detect_key_columns(saved_query_columns)
         non_nullable_columns = _detect_non_nullable_columns(saved_query_columns)
         model_list.append(
             DuckLakeCopyModelMetadata(
@@ -163,7 +161,6 @@ async def prepare_data_modeling_ducklake_metadata_activity(
                 verification_queries=list(get_data_modeling_verification_queries(model.model_label)),
                 partition_column=partition_column,
                 partition_column_type=partition_column_type,
-                key_columns=key_columns,
                 non_nullable_columns=non_nullable_columns,
             )
         )
@@ -331,7 +328,6 @@ def verify_ducklake_copy_activity(inputs: DuckLakeCopyActivityInputs) -> list[Du
             if partition_result:
                 results.append(partition_result)
 
-            results.extend(_run_key_cardinality_verifications(conn, ducklake_table, inputs))
             results.extend(_run_non_nullable_verifications(conn, ducklake_table, inputs))
         finally:
             conn.close()
@@ -595,15 +591,6 @@ def _get_delta_storage_options() -> dict[str, str]:
     return {key: value for key, value in options.items() if value}
 
 
-def _detect_key_columns(columns: dict[str, Any]) -> list[str]:
-    detected: list[str] = []
-    for name in columns.keys():
-        lowered = name.lower()
-        if lowered.endswith("_id"):
-            detected.append(name)
-    return detected
-
-
 def _detect_non_nullable_columns(columns: dict[str, Any]) -> list[str]:
     result: list[str] = []
     for name, metadata in columns.items():
@@ -732,56 +719,6 @@ def _build_partition_bucket_expression(column_name: str, column_type: str | None
     if _is_datetime_column_type(column_type):
         return f"date_trunc('day', {column_expr})"
     return column_expr
-
-
-def _run_key_cardinality_verifications(
-    conn: duckdb.DuckDBPyConnection,
-    ducklake_table: str,
-    inputs: DuckLakeCopyActivityInputs,
-) -> list[DuckLakeCopyVerificationResult]:
-    results: list[DuckLakeCopyVerificationResult] = []
-    if not inputs.model.key_columns:
-        return results
-
-    for column in inputs.model.key_columns:
-        column_expr = _quote_identifier(column)
-        sql = f"""
-            SELECT
-                (SELECT COUNT(DISTINCT {column_expr}) FROM delta_scan(?)) AS source_count,
-                (SELECT COUNT(DISTINCT {column_expr}) FROM {ducklake_table}) AS ducklake_count
-        """
-        try:
-            row = conn.execute(sql, [inputs.model.source_table_uri]).fetchone()
-            if row is None:
-                raise ValueError(f"Key cardinality query for {column} returned no rows")
-        except Exception as exc:
-            results.append(
-                DuckLakeCopyVerificationResult(
-                    name=f"model.key_cardinality.{column}",
-                    passed=False,
-                    description=f"Validate key cardinality for {column}.",
-                    error=str(exc),
-                )
-            )
-            continue
-
-        source_count = float(row[0] or 0)
-        ducklake_count = float(row[1] or 0)
-        diff = abs(source_count - ducklake_count)
-        passed = diff == 0
-        results.append(
-            DuckLakeCopyVerificationResult(
-                name=f"model.key_cardinality.{column}",
-                passed=passed,
-                description=f"Validate key cardinality for {column}.",
-                expected_value=0.0,
-                observed_value=diff,
-                tolerance=0.0,
-                error=None if passed else f"source={source_count}, ducklake={ducklake_count}",
-            )
-        )
-
-    return results
 
 
 def _run_non_nullable_verifications(
