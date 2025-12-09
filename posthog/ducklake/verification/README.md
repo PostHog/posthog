@@ -26,8 +26,8 @@ Both workflows follow the same pattern:
 ### Data Imports specifics
 
 - Metadata derived from `ExternalDataSchema` and its associated `DataWarehouseTable.columns`
-- Partition column detected from schema's `partitioning_keys` config or the standard `_ph_partition_key` column
-- Key columns also consider `incremental_field` and `partitioning_keys` from the schema config
+- Partition column detected from Delta table metadata
+- Key columns also consider `incremental_field` from the schema config
 
 ## Built-in checks
 
