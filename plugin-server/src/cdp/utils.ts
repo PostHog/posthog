@@ -40,7 +40,8 @@ export const getPersonDisplayName = (team: Team, distinctId: string, properties:
 export function convertToHogFunctionInvocationGlobals(
     event: RawClickHouseEvent,
     team: Team,
-    siteUrl: string
+    siteUrl: string,
+    partition?: number
 ): HogFunctionInvocationGlobals {
     const properties = event.properties ? parseJSON(event.properties) : {}
     const projectUrl = `${siteUrl}/project/${team.id}`
@@ -88,6 +89,7 @@ export function convertToHogFunctionInvocationGlobals(
             url: `${projectUrl}/events/${encodeURIComponent(event.uuid)}/${encodeURIComponent(eventTimestamp)}`,
         },
         person,
+        kafkaPartition: partition,
     }
 
     return context

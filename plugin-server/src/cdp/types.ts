@@ -93,6 +93,7 @@ export type HogFunctionInvocationGlobals = {
     }
     person?: CyclotronPerson
     groups?: Record<string, GroupType>
+    kafkaPartition?: number
 
     // Unique to sources - will be modified later
     request?: {

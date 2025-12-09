@@ -401,7 +401,14 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         return
                     }
 
-                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
+                    events.push(
+                        convertToHogFunctionInvocationGlobals(
+                            clickHouseEvent,
+                            team,
+                            this.hub.SITE_URL,
+                            message.partition
+                        )
+                    )
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()

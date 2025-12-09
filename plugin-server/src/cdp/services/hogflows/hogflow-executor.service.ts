@@ -64,6 +64,7 @@ export function createHogFlowInvocation(
             event: globals.event,
             actionStepCount: 0,
             variables: mergedVariables,
+            kafkaPartition: globals.kafkaPartition,
         },
         teamId: hogFlow.team_id,
         functionId: hogFlow.id, // TODO: Include version?

@@ -55,10 +55,22 @@ export const workflowE2eLagMsSummary = new Summary({
     percentiles: [0.5, 0.9, 0.95, 0.99],
 })
 
-export const legacyPluginE2eLagMsSummary = new Summary({
+export const hogFunctionE2eLagMsSummary = new Summary({
     name: 'legacy_plugin_e2e_lag_ms',
     help: 'Time difference in ms between event capture time and legacy plugin finishing time',
     percentiles: [0.5, 0.9, 0.95, 0.99],
+})
+
+export const hogFunctionE2eLagMsGauge = new Gauge({
+    name: 'workflow_e2e_lag_ms_by_partition',
+    help: 'Time difference in ms between event capture time and workflow finishing time, per partition',
+    labelNames: ['partition'],
+})
+
+export const legacyPluginE2eLagMsGauge = new Gauge({
+    name: 'legacy_plugin_e2e_lag_ms_by_partition',
+    help: 'Time difference in ms between event capture time and legacy plugin finishing time, per partition',
+    labelNames: ['partition'],
 })
 
 export const cookielessRedisErrorCounter = new Counter({
