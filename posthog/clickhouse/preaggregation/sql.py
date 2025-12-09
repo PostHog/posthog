@@ -30,10 +30,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     breakdown_value Array(String),
 
     -- Aggregate state column (uniqExact for precision)
-    uniq_exact_state AggregateFunction(uniqExact, UUID),
-
-    _timestamp DateTime64(6, 'UTC') DEFAULT now64(6, 'UTC'),
-    _offset UInt64
+    uniq_exact_state AggregateFunction(uniqExact, UUID)
 ) ENGINE = {engine}
 """
 

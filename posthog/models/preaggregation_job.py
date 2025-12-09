@@ -18,7 +18,6 @@ class PreaggregationJob(CreatedMetaFields, UUIDModel):
 
     # Normalized query representation for matching
     query_hash = models.CharField(max_length=64)  # SHA256 hash for quick lookup
-    query_definition = models.JSONField()  # Full normalized query definition
 
     # Status tracking
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)

@@ -26,7 +26,6 @@ class Migration(migrations.Migration):
                 ("time_range_start", models.DateTimeField()),
                 ("time_range_end", models.DateTimeField()),
                 ("query_hash", models.CharField(max_length=64)),
-                ("query_definition", models.JSONField()),
                 (
                     "status",
                     models.CharField(
