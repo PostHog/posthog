@@ -8,6 +8,8 @@ export async function createEventStep(
     processPerson: boolean
 ): Promise<RawKafkaEvent> {
     const historicalMigration = runner.headers?.historical_migration ?? false
-    const now = runner.headers?.now
-    return Promise.resolve(runner.eventsProcessor.createEvent(event, person, processPerson, historicalMigration, now))
+    const captured_at = runner.headers?.now
+    return Promise.resolve(
+        runner.eventsProcessor.createEvent(event, person, processPerson, historicalMigration, captured_at)
+    )
 }
