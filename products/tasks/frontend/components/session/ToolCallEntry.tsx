@@ -1,6 +1,7 @@
+import { useState } from 'react'
+
 import { IconChevronRight, IconTerminal } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
-import { useState } from 'react'
 
 import { ToolStatus } from '../../lib/parse-logs'
 
@@ -53,9 +54,7 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
                     {HeaderContent}
                 </button>
             ) : (
-                <div className="flex items-center gap-2 w-full text-left rounded">
-                    {HeaderContent}
-                </div>
+                <div className="flex items-center gap-2 w-full text-left rounded">{HeaderContent}</div>
             )}
 
             {isOpen && hasContent && (

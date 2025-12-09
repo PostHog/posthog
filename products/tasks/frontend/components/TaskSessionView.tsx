@@ -1,13 +1,14 @@
+import { useEffect, useMemo, useState } from 'react'
+
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
-import { useEffect, useMemo, useState } from 'react'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { LogEntry, parseLogs } from '../lib/parse-logs'
 import { TaskRun } from '../types'
-import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { TaskRunStatusBadge } from './TaskRunStatusBadge'
+import { ConsoleLogEntry } from './session/ConsoleLogEntry'
 import { ToolCallEntry } from './session/ToolCallEntry'
 
 const HEDGEHOG_STATUSES = [
@@ -56,7 +57,13 @@ interface TaskSessionViewProps {
 function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
     switch (entry.type) {
         case 'console':
-            return <ConsoleLogEntry level={entry.level || 'info'} message={entry.message || ''} timestamp={entry.timestamp} />
+            return (
+                <ConsoleLogEntry
+                    level={entry.level || 'info'}
+                    message={entry.message || ''}
+                    timestamp={entry.timestamp}
+                />
+            )
         case 'tool':
             return (
                 <ToolCallEntry
@@ -72,7 +79,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
                 <div className="py-2 flex flex-col items-end">
                     <div className="flex items-center gap-2 mb-1">
                         <span className="text-xs font-medium">User</span>
-                        {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                        {entry.timestamp && (
+                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        )}
                     </div>
                     <div className="border-r-2 border-muted pr-3 max-w-[90%] text-right">
                         <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
@@ -83,7 +92,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
             return (
                 <div className="py-2">
                     <div className="flex items-center gap-2 mb-1">
-                        {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                        {entry.timestamp && (
+                            <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                        )}
                         <span className="text-xs font-medium">Agent</span>
                     </div>
                     <div className="border-l-2 border-primary pl-3 max-w-[90%]">
@@ -94,7 +105,9 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
         case 'system':
             return (
                 <div className="flex items-center gap-2 py-1">
-                    {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                    {entry.timestamp && (
+                        <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>
+                    )}
                     <span className="text-xs text-muted italic">{entry.message}</span>
                 </div>
             )

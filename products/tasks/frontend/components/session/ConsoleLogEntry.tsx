@@ -20,7 +20,9 @@ export function ConsoleLogEntry({ level, message, timestamp }: ConsoleLogEntryPr
 
     return (
         <div className="flex items-start gap-2 py-2">
-            {timestamp && <span className="text-xs text-muted shrink-0">{new Date(timestamp).toLocaleTimeString()}</span>}
+            {timestamp && (
+                <span className="text-xs text-muted shrink-0">{new Date(timestamp).toLocaleTimeString()}</span>
+            )}
             <LemonTag type={config.type} size="small" className="shrink-0 uppercase">
                 {level}
             </LemonTag>
