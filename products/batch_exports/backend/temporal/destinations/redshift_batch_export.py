@@ -115,8 +115,6 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UndefinedFunction",
     # Unretryable error raised by S3 client when using `copy_into_redshift_activity_from_stage`.
     "ClientError",
-    # Invalid filter used.
-    "InvalidFilterError",
 )
 
 
