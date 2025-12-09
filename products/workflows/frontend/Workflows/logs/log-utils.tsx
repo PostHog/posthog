@@ -12,7 +12,7 @@ const RICH_LOG_REGEX = /(\[[a-zA-Z0-9_-]+:.*\])/
 
 const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
 const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
-const ACTOR_REGEX = /\[Actor:(.*)\]/
+const ACTOR_REGEX = /\[Actor:(.*?)\]/
 
 export const renderWorkflowLogMessage = (workflow: HogFlow, message: string): JSX.Element => {
     // Modifies the rendered log message to auto-detect action or person parts and replace them with a link
