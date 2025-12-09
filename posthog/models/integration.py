@@ -2071,18 +2071,13 @@ class ShopifyIntegration:
         )
         if not access_res.ok:
             if access_res.status_code == 404:
-            if access_res.status_code == 404:
-                raise ValueError(
-                    f"Shopify store '{shop}' not found. Please verify the store name is correct."
-                )
+                raise ValueError(f"Shopify store '{shop}' not found. Please verify the store name is correct.")
             elif "application is not installed" in access_res.text:
                 raise ValueError(
-                    f"The PostHog app is not installed on the Shopify store '{shop}'. Please install the app first."
+                    f"The PostHog data warehouse app is not installed on the Shopify store '{shop}'. Please install the app first."
                 )
             else:
-                raise ValueError(
-                    f"Could not connect to Shopify store '{shop}': {access_res.text}"
-                )
+                raise ValueError(f"Could not connect to Shopify store '{shop}': {access_res.status_code}")
 
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
@@ -2115,5 +2110,5 @@ class ShopifyIntegration:
         )
         if not access_res.ok:
             raise ValueError(
-                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.text}"
+                f"Failed to get access token for Shopify integration: shop={self.shop} team={self.integration.team_id} error={access_res.status_code}"
             )

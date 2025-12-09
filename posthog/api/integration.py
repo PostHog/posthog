@@ -9,7 +9,6 @@ from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 
-import requests
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -164,14 +163,11 @@ class IntegrationSerializer(serializers.ModelSerializer):
             shop = config.get("shop")
             if not shop:
                 raise ValidationError("Shop name must be provided")
-            try:
-                instance = ShopifyIntegration.integration_from_shop(
-                    team_id=team_id,
-                    shop=shop,
-                    created_by=request.user,
-                )
-            except requests.HTTPError as e:
-                raise ValidationError(str(e))
+            instance = ShopifyIntegration.integration_from_shop(
+                team_id=team_id,
+                shop=shop,
+                created_by=request.user,
+            )
             return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
