@@ -1,5 +1,7 @@
 pub mod ai_endpoint;
+pub mod ai_s3;
 pub mod api;
+pub mod s3_client;
 pub mod config;
 pub mod events;
 pub mod limiters;
