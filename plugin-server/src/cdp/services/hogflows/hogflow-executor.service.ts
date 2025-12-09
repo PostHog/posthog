@@ -204,7 +204,7 @@ export class HogFlowExecutorService {
                 logs.push({
                     level: 'info',
                     timestamp: DateTime.now(),
-                    message: `Workflow is aborting due to [Action:${lastExecutedAction.id}] error handling setting being set to abort on error`,
+                    message: `Workflow is aborting due to ${actionIdForLogging(lastExecutedAction)} error handling setting being set to abort on error`,
                 })
             }
         }
@@ -428,7 +428,7 @@ export class HogFlowExecutorService {
                         result,
                         currentAction,
                         'info',
-                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to on_error setting`
+                        `Continuing to next action ${actionIdForLogging(nextAction)} despite error due to error handling setting being set to continue on error`
                     )
 
                     /**
