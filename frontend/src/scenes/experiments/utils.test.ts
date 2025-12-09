@@ -644,8 +644,6 @@ describe('checkFeatureFlagEligibility', () => {
         experiment_set: null,
         features: null,
         surveys: null,
-        rollback_conditions: [],
-        performed_rollback: false,
         can_edit: true,
         tags: [],
         ensure_experience_continuity: null,

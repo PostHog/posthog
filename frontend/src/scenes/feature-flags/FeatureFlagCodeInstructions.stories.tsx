@@ -27,8 +27,6 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     experiment_set: [],
     is_simple_flag: false,
     ensure_experience_continuity: false,
-    rollback_conditions: [],
-    performed_rollback: false,
     can_edit: true,
     user_access_level: AccessControlLevel.Editor,
     tags: [],

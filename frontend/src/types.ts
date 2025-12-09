@@ -3492,13 +3492,10 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set: number[] | null
     features: EarlyAccessFeatureType[] | null
     surveys: Survey[] | null
-    rollback_conditions: FeatureFlagRollbackConditions[]
-    performed_rollback: boolean
     can_edit: boolean
     tags: string[]
     evaluation_tags: string[]
     usage_dashboard?: number
-    analytics_dashboards?: number[] | null
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
@@ -3531,13 +3528,6 @@ export type OrganizationFeatureFlags = {
     team_id: TeamType['id']
     active: FeatureFlagType['active']
 }[]
-
-export interface FeatureFlagRollbackConditions {
-    threshold: number
-    threshold_type: string
-    threshold_metric?: FilterType
-    operator?: string
-}
 
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
@@ -4570,11 +4560,6 @@ export interface MediaUploadResponse {
     id: string
     image_location: string
     name: string
-}
-
-export enum RolloutConditionType {
-    Insight = 'insight',
-    Sentry = 'sentry',
 }
 
 export enum Resource {
