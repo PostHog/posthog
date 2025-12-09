@@ -12,6 +12,7 @@ from posthog.batch_exports.service import BackfillDetails
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
 from products.batch_exports.backend.temporal.spmc import (
+    InvalidFilterError,
     Producer,
     RecordBatchQueue,
     compose_filters_clause,
@@ -359,3 +360,26 @@ def test_compose_filters_clause(
     result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
     assert result_clause == expected_clause
     assert result_values == expected_values
+
+
+@pytest.mark.parametrize(
+    "filters",
+    (
+        [
+            {"key": "event in (select * from events)", "type": "hogql", "value": None},
+        ],
+        [
+            {"key": "event =", "type": "hogql", "value": None},
+        ],
+    ),
+    ids=[
+        "hogql0",
+        "hogql1",
+    ],
+)
+def test_compose_filters_clause_raises(
+    filters: list[dict[str, typing.Any]],
+    ateam,
+):
+    with pytest.raises(InvalidFilterError):
+        result_clause, result_values = compose_filters_clause(filters, team_id=ateam.id)
