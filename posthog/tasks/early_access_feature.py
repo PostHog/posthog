@@ -1,4 +1,5 @@
 import structlog
+import posthoganalytics
 from celery import shared_task
 
 from posthog.hogql import ast
@@ -6,7 +7,6 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.cloud_utils import is_cloud
-from posthog.ph_client import get_client
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 
@@ -21,14 +21,11 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     instance = EarlyAccessFeature.objects.get(id=feature_id)
 
     team_id = instance.team.id
-
     send_events_for_change = team_id == POSTHOG_TEAM_ID if is_cloud() else True
-
     if not send_events_for_change:
         return
 
     feature_flag = instance.feature_flag
-
     if not feature_flag:
         return
 
@@ -41,14 +38,12 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             argMax(pdi.distinct_id, created_at) as distinct_id
         FROM persons
         WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
-        AND team_id = {team_id}
         AND notEmpty(JSONExtractString(properties, 'email'))
         GROUP BY JSONExtractString(properties, 'email')
         LIMIT {limit}
         """,
         placeholders={
             "enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}"),
-            "team_id": ast.Constant(value=instance.team.id),
             "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
         },
         team=instance.team,
@@ -56,16 +51,10 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     )
 
     enrolled_persons = response.results
-
-    posthog_client = get_client()
-
-    if not posthog_client:
-        return
-
     for _id, email, distinct_id in enrolled_persons:
-        posthog_client.capture(
-            distinct_id,
+        posthoganalytics.capture(
             "user moved feature preview stage",
+            distinct_id=distinct_id,
             properties={
                 "from": from_stage,
                 "to": to_stage,
@@ -76,4 +65,4 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
             },
         )
 
-    posthog_client.shutdown()
+    posthoganalytics.flush()
