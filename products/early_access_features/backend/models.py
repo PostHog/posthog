@@ -46,6 +46,22 @@ class EarlyAccessFeature(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
     documentation_url = models.URLField(max_length=800, blank=True)
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    contributors = models.ManyToManyField(
+        "posthog.User",
+        blank=True,
+        null=True,
+        related_name="features",
+    )
+    release_on = models.DateTimeField(null=True)
+    is_public = models.BooleanField(default=False)
+    parent = models.ForeignKey(
+        "self",
+        blank=True,
+        null=True,
+        on_delete=models.SET_NULL,
+        related_name="children",
+        related_query_name="child",
+    )
 
     def __str__(self) -> str:
         return self.name
