@@ -57,9 +57,7 @@ The task will be created but not executed immediately. Use the run_task tool to 
     """.strip()
     args_schema: type[BaseModel] = CreateTaskArgs
 
-    async def _arun_impl(
-        self, title: str, description: str, repository: str
-    ) -> tuple[str, dict[str, Any]]:
+    async def _arun_impl(self, title: str, description: str, repository: str) -> tuple[str, dict[str, Any]]:
         from posthog.models.integration import Integration
 
         @sync_to_async
@@ -254,7 +252,11 @@ Use this tool when the user wants to:
                 task_run = task.latest_run
 
             if not task_run:
-                return {"error": "no_runs" if not run_id else "run_not_found", "task_title": task.title, "run_id": run_id}
+                return {
+                    "error": "no_runs" if not run_id else "run_not_found",
+                    "task_title": task.title,
+                    "run_id": run_id,
+                }
 
             return {
                 "task_id": str(task.id),
@@ -392,7 +394,9 @@ Use this tool when the user wants to:
                 lines.append(f"  Status: {run.get_status_display()} | Stage: {run.stage or 'N/A'}")
                 lines.append(f"  Created: {run.created_at.isoformat()}")
                 if run.error_message:
-                    lines.append(f"  Error: {run.error_message[:100]}...")
+                    truncated = run.error_message[:100]
+                    suffix = "..." if len(run.error_message) > 100 else ""
+                    lines.append(f"  Error: {truncated}{suffix}")
 
                 run_list.append(
                     {
