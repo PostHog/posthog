@@ -4,7 +4,7 @@ pub mod custom;
 pub mod dart;
 pub mod go;
 pub mod hermes;
-pub mod ios;
+pub mod apple;
 pub mod java;
 pub mod js;
 pub mod node;

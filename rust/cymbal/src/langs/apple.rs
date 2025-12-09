@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct RawIOSFrame {
+pub struct RawAppleFrame {
     pub instruction_addr: Option<String>,
     pub symbol_addr: Option<String>,
     pub image_addr: Option<String>,
@@ -22,7 +22,7 @@ pub struct RawIOSFrame {
     pub meta: CommonFrameMetadata,
 }
 
-impl RawIOSFrame {
+impl RawAppleFrame {
     pub fn frame_id(&self) -> String {
         let mut hasher = Sha512::new();
 
@@ -47,8 +47,8 @@ impl RawIOSFrame {
 
 }
 
-impl From<&RawIOSFrame> for Frame {
-    fn from(raw: &RawIOSFrame) -> Self {
+impl From<&RawAppleFrame> for Frame {
+    fn from(raw: &RawAppleFrame) -> Self {
         let mut f = Frame {
             frame_id: FrameId::placeholder(),
             mangled_name: raw.function.clone().unwrap_or_default(),
@@ -57,7 +57,7 @@ impl From<&RawIOSFrame> for Frame {
             source: raw.filename.clone(),
             in_app: raw.meta.in_app,
             resolved_name: raw.function.clone(), 
-            lang: "ios".to_string(),
+            lang: "apple".to_string(),
             resolved: raw.function.is_some(),
             resolve_failure: None,
             junk_drawer: None,
