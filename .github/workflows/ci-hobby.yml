@@ -41,7 +41,7 @@ jobs:
             - name: Setup DO Hobby Instance
               run: python3 bin/hobby-ci.py create "$GITHUB_HEAD_REF" "${{ github.run_id }}-${{ github.run_attempt }}" "${{ github.sha }}" "${{ github.event.pull_request.number || 'unknown' }}"
               env:
-                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Run smoke tests on DO
               id: test
               timeout-minutes: 30
@@ -51,12 +51,12 @@ jobs:
                   echo "TEST_EXIT_CODE=$?" >> $GITHUB_ENV
                   exit 0
               env:
-                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Fetch logs after test
               if: always()
               run: python3 bin/hobby-ci.py fetch-logs || echo "Could not fetch logs"
               env:
-                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Show droplet info
               if: always()
               run: cat /tmp/droplet_info.txt 2>/dev/null || echo "No droplet info available"
@@ -74,7 +74,7 @@ jobs:
               if: always()
               run: python3 bin/hobby-ci.py destroy
               env:
-                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITALOCEAN_TOKEN }}
+                  DIGITALOCEAN_TOKEN: ${{ secrets.DIGITAL_OCEAN_HOBBY_TOKEN }}
             - name: Check test result
               if: always()
               run: |
