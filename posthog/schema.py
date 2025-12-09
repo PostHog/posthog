@@ -1770,11 +1770,6 @@ class HogLanguage(StrEnum):
     LIQUID = "liquid"
 
 
-class ConnectionId(StrEnum):
-    CLICKHOUSE = "clickhouse"
-    POSTGRES = "postgres"
-
-
 class BounceRatePageViewMode(StrEnum):
     COUNT_PAGEVIEWS = "count_pageviews"
     UNIQ_URLS = "uniq_urls"
@@ -13252,8 +13247,6 @@ class HogQLASTQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connectionId: str | None = Field(default=None, description="Optional connection identifier")
-    db: str | None = Field(default=None, description="Optional database target")
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLASTQuery"] = "HogQLASTQuery"
@@ -13275,8 +13268,6 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connectionId: ConnectionId | None = Field(default=None, description="Optional connection identifier")
-    db: str | None = Field(default=None, description="Optional database target")
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
@@ -16118,8 +16109,6 @@ class HogQLMetadata(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connectionId: str | None = Field(default=None, description="Optional connection identifier")
-    db: str | None = Field(default=None, description="Optional database target")
     debug: bool | None = Field(default=None, description="Enable more verbose output, usually run from the /debug page")
     filters: HogQLFilters | None = Field(default=None, description="Extra filters applied to query via {filters}")
     globals: dict[str, Any] | None = Field(default=None, description="Extra globals for the query")

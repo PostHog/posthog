@@ -430,13 +430,8 @@ export interface HogQLVariable {
 
 export interface HogQLQuery extends DataNode<HogQLQueryResponse> {
     kind: NodeKind.HogQLQuery
-    /** Optional database target */
-    db?: string
-    /** Optional connection identifier */
-    connectionId?: string
     query: string
     filters?: HogQLFilters
-    connectionId?: 'clickhouse' | 'postgres'
     /** Variables to be substituted into the query */
     variables?: Record<string, HogQLVariable>
     /** Constant values that can be referenced with the {placeholder} syntax in the query */
@@ -649,10 +644,6 @@ export interface HogQLMetadata extends DataNode<HogQLMetadataResponse> {
     language: HogLanguage
     /** Query to validate */
     query: string
-    /** Optional database target */
-    db?: string
-    /** Optional connection identifier */
-    connectionId?: string
     /** Query within which "expr" and "template" are validated. Defaults to "select * from events" */
     sourceQuery?: AnyDataNode
     /** Extra globals for the query */

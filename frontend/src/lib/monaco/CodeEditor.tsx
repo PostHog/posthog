@@ -41,7 +41,6 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
     onError?: (error: string | null) => void
     /** The original value to compare against - renders it in diff mode */
     originalValue?: string
-    connectionId?: HogQLMetadata['connectionId']
 }
 let codeEditorIndex = 0
 
@@ -139,7 +138,6 @@ export function CodeEditor({
     onMetadata,
     onMetadataLoading,
     originalValue,
-    connectionId,
     ...editorProps
 }: CodeEditorProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
@@ -162,7 +160,6 @@ export function CodeEditor({
         onMetadata,
         onMetadataLoading,
         metadataFilters: sourceQuery?.kind === NodeKind.HogQLQuery ? sourceQuery.filters : undefined,
-        connectionId,
     })
     useMountedLogic(builtCodeEditorLogic)
 

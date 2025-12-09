@@ -15793,14 +15793,6 @@
         "HogQLASTQuery": {
             "additionalProperties": false,
             "properties": {
-                "connectionId": {
-                    "description": "Optional connection identifier",
-                    "type": "string"
-                },
-                "db": {
-                    "description": "Optional database target",
-                    "type": "string"
-                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
@@ -15962,14 +15954,6 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
-                "connectionId": {
-                    "description": "Optional connection identifier",
-                    "type": "string"
-                },
-                "db": {
-                    "description": "Optional database target",
-                    "type": "string"
-                },
                 "debug": {
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
@@ -16111,15 +16095,6 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
-                "connectionId": {
-                    "description": "Optional connection identifier",
-                    "enum": ["clickhouse", "postgres"],
-                    "type": "string"
-                },
-                "db": {
-                    "description": "Optional database target",
-                    "type": "string"
-                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"

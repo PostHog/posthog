@@ -141,7 +141,6 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                             sourceQuery={props.query}
                             className="border rounded-b overflow-hidden h-full"
                             language={language}
-                            connectionId={props.query.connectionId}
                             value={queryInput}
                             onChange={(v) => {
                                 setQueryInput(v ?? '')
