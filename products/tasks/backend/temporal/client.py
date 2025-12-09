@@ -11,15 +11,17 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
 
+from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
+
 logger = logging.getLogger(__name__)
 
 
 async def _execute_task_processing_workflow(
-    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None
+    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None, create_pr: bool = True
 ) -> str:
     workflow_id = f"task-processing-{task_id}-{run_id}"
     workflow_name = "process-task"
-    workflow_input = run_id
+    workflow_input = ProcessTaskInput(run_id=run_id, create_pr=create_pr)
 
     logger.info(f"Starting workflow {workflow_name} ({workflow_id}) for task {task_id}, run {run_id}")
 
@@ -39,7 +41,9 @@ async def _execute_task_processing_workflow(
     return result
 
 
-def execute_task_processing_workflow(task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None) -> None:
+def execute_task_processing_workflow(
+    task_id: str, run_id: str, team_id: int, user_id: Optional[int] = None, create_pr: bool = True
+) -> None:
     """
     Execute the task processing workflow synchronously.
     This is a fire-and-forget operation - it starts the workflow
@@ -86,7 +90,7 @@ def execute_task_processing_workflow(task_id: str, run_id: str, team_id: int, us
                     return
 
                 logger.info(f"Triggering workflow for task {task_id}, run {run_id}")
-                asyncio.run(_execute_task_processing_workflow(task_id, run_id, team_id, user_id))
+                asyncio.run(_execute_task_processing_workflow(task_id, run_id, team_id, user_id, create_pr))
                 logger.info(f"Workflow completed for task {task_id}, run {run_id}")
             except Exception as e:
                 logger.exception(f"Workflow execution failed for task {task_id}: {e}")
