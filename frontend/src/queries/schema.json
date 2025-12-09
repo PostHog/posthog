@@ -27869,6 +27869,9 @@
                 "name": {
                     "$ref": "#/definitions/ExternalDataSourceType"
                 },
+                "permissionsCaption": {
+                    "type": "string"
+                },
                 "suggestedTables": {
                     "default": [],
                     "description": "Tables to suggest enabling, with optional tooltip explaining why",
