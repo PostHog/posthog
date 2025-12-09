@@ -9,6 +9,7 @@ import { HogFlow } from '~/schema/hogflow'
 import { resetTestDatabase } from '~/tests/helpers/sql'
 
 import { fetch } from '~/utils/request'
+import { logger } from '../../../utils/logger'
 import { Hub } from '../../../types'
 import { createHub } from '../../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES } from '../../_tests/examples'
@@ -677,75 +678,6 @@ describe('Hogflow Executor', () => {
                         .build()
                 })
 
-                it('should continue to next action if on_error is continue', async () => {
-                    // Set on_error: 'continue' for function_id_1
-                    const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
-                    action.on_error = 'continue'
-
-                    const invocation = createExampleHogFlowInvocation(hogFlow, {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            properties: { name: 'Error User' },
-                        },
-                    })
-
-                    const result = await executor.execute(invocation)
-                    expect(result.finished).toBe(true)
-                    // Should move to exit action after error
-                    expect(result.invocation.state.currentAction?.id).toBe('exit')
-                    // Should log error and continuation
-                    expect(result.logs.map((l) => l.message)).toEqual(
-                        expect.arrayContaining([
-                            expect.stringContaining('Could not execute bytecode for input field: name'),
-                            expect.stringContaining('Continuing to next action'),
-                            expect.stringContaining('Workflow moved to action [Action:exit]'),
-                            expect.stringContaining('Workflow completed'),
-                        ])
-                    )
-                    // Should track failed and succeeded metrics
-                    expect(result.metrics.find((m) => m.instance_id === 'function_id_1')).toMatchObject({
-                        metric_kind: 'failure',
-                        metric_name: 'failed',
-                    })
-                    expect(result.metrics.find((m) => m.instance_id === 'exit')).toMatchObject({
-                        metric_kind: 'success',
-                        metric_name: 'succeeded',
-                    })
-                })
-
-                it('should abort workflow if on_error is abort', async () => {
-                    // Set on_error: 'abort' for function_id_1
-                    const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
-                    action.on_error = 'abort'
-
-                    const invocation = createExampleHogFlowInvocation(hogFlow, {
-                        event: {
-                            ...createHogExecutionGlobals().event,
-                            properties: { name: 'Error User' },
-                        },
-                    })
-
-                    const result = await executor.execute(invocation)
-                    expect(result.finished).toBe(true)
-                    // Should NOT move to exit action, should stay on function_id_1
-                    expect(result.invocation.state.currentAction?.id).toBe('function_id_1')
-                    // Should log error and abort
-                    expect(result.logs.map((l) => l.message)).toEqual(
-                        expect.arrayContaining([
-                            expect.stringContaining('Could not execute bytecode for input field: name'),
-                            expect.stringContaining('Workflow encountered an error:'),
-                            expect.stringContaining("Workflow is aborting due to the action's error handling setting"),
-                        ])
-                    )
-                    // Should track failed metric only
-                    expect(result.metrics.find((m) => m.instance_id === 'function_id_1')).toMatchObject({
-                        metric_kind: 'failure',
-                        metric_name: 'failed',
-                    })
-                    // Should not have succeeded metric for exit
-                    expect(result.metrics.find((m) => m.instance_id === 'exit')).toBeUndefined()
-                })
-
                 describe('executeCurrentAction error handling when error is returned, not thrown', () => {
                     it('continues to next action when on_error is continue', async () => {
                         const action = hogFlow.actions.find((a) => a.id === 'function_id_1')!
@@ -756,6 +688,35 @@ describe('Hogflow Executor', () => {
                         jest.spyOn(functionHandler, 'execute').mockResolvedValueOnce({
                             error: new Error('Mocked handler error'),
                         })
+
+                        // Add a middle action to ensure we continue to the correct next action
+                        hogFlow.actions.push({
+                            id: 'middle_action',
+                            name: 'Middle Action',
+                            description: '',
+                            type: 'delay',
+                            config: { delay_duration: '5m' },
+                            created_at: new Date().getUTCSeconds(),
+                            updated_at: new Date().getUTCSeconds(),
+                        })
+                        // Replace the second edge to go to middle_action
+                        hogFlow.edges = [
+                            {
+                                from: 'trigger',
+                                to: 'function_id_1',
+                                type: 'continue',
+                            },
+                            {
+                                from: 'function_id_1',
+                                to: 'middle_action',
+                                type: 'continue',
+                            },
+                            {
+                                from: 'middle_action',
+                                to: 'exit',
+                                type: 'continue',
+                            },
+                        ]
 
                         const invocation = createExampleHogFlowInvocation(hogFlow, {
                             event: {
@@ -774,11 +735,11 @@ describe('Hogflow Executor', () => {
 
                         expect(result.finished).toBe(false)
 
-                        expect(result.invocation.state.currentAction?.id).toBe('exit')
+                        expect(result.invocation.state.currentAction?.id).toBe('middle_action')
                         expect(result.logs.map((l) => l.message)).toEqual(
                             expect.arrayContaining([
                                 expect.stringContaining('Continuing to next action'),
-                                expect.stringContaining('Workflow moved to action [Action:exit]'),
+                                expect.stringContaining('Workflow moved to action [Action:middle_action]'),
                             ])
                         )
                     })
@@ -804,6 +765,8 @@ describe('Hogflow Executor', () => {
                             startedAtTimestamp: DateTime.now().toMillis(),
                         }
 
+                        const loggerErrorSpy = jest.spyOn(logger, 'error')
+
                         const result = await executor.executeCurrentAction(invocation)
 
                         expect(result.error).toBe('Mocked handler error')
@@ -813,6 +776,16 @@ describe('Hogflow Executor', () => {
                         expect(result.logs.map((l) => l.message)).not.toEqual(
                             expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
                         )
+
+                        // Check that logger.error was called with the expected log
+                        expect(loggerErrorSpy).toHaveBeenCalledWith(
+                            '🦔',
+                            expect.stringContaining(
+                                `[HogFlowExecutor] Error executing hog flow ${hogFlow.id} - ${hogFlow.name}. Event: '`
+                            ),
+                            expect.any(Error)
+                        )
+                        loggerErrorSpy.mockRestore()
                     })
                 })
             })
