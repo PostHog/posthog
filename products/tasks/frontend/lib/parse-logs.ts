@@ -9,6 +9,7 @@ export interface LogEntry {
     level?: LogLevel
     message?: string
     toolName?: string
+    toolCallId?: string
     toolStatus?: ToolStatus
     toolArgs?: Record<string, unknown>
     toolResult?: unknown
@@ -29,6 +30,21 @@ function normalizeLevel(level?: string): LogLevel {
     return 'info'
 }
 
+function normalizeToolStatus(status?: string | null): ToolStatus {
+    switch (status) {
+        case 'pending':
+            return 'pending'
+        case 'in_progress':
+            return 'running'
+        case 'completed':
+            return 'completed'
+        case 'failed':
+            return 'error'
+        default:
+            return 'pending'
+    }
+}
+
 interface ACPNotification {
     type: 'notification'
     timestamp: string
@@ -38,6 +54,20 @@ interface ACPNotification {
         id?: number
         params?: Record<string, unknown>
         result?: Record<string, unknown>
+    }
+}
+
+interface SessionUpdateParams {
+    sessionId?: string
+    update?: {
+        sessionUpdate?: string
+        content?: { type: string; text?: string }
+        toolCallId?: string
+        title?: string
+        status?: string
+        rawInput?: Record<string, unknown>
+        rawOutput?: unknown
+        _meta?: { claudeCode?: { toolName?: string; toolResponse?: unknown } }
     }
 }
 
@@ -51,7 +81,7 @@ function isACPNotification(parsed: unknown): parsed is ACPNotification {
     )
 }
 
-function parseACPNotification(parsed: ACPNotification, id: string): LogEntry | null {
+function parseACPNotification(parsed: ACPNotification, id: string, toolMap: Map<string, LogEntry>): LogEntry | null {
     const { notification, timestamp } = parsed
     const method = notification.method
 
@@ -66,12 +96,70 @@ function parseACPNotification(parsed: ACPNotification, id: string): LogEntry | n
         }
     }
 
-    if (method === 'session/new' || method === 'initialize') {
-        return {
-            id,
-            type: 'system',
-            timestamp,
-            message: method === 'initialize' ? 'Initializing agent...' : 'Starting session...',
+    if (method === 'session/update') {
+        const params = notification.params as SessionUpdateParams | undefined
+        const update = params?.update
+        if (!update?.sessionUpdate) {
+            return null
+        }
+
+        switch (update.sessionUpdate) {
+            case 'user_message_chunk':
+                if (update.content?.type === 'text' && update.content.text) {
+                    return {
+                        id,
+                        type: 'user',
+                        timestamp,
+                        message: update.content.text,
+                    }
+                }
+                return null
+
+            case 'agent_message_chunk':
+                if (update.content?.type === 'text' && update.content.text) {
+                    return {
+                        id,
+                        type: 'agent',
+                        timestamp,
+                        message: update.content.text,
+                    }
+                }
+                return null
+
+            case 'tool_call': {
+                const toolCallId = update.toolCallId || id
+                const entry: LogEntry = {
+                    id,
+                    type: 'tool',
+                    timestamp,
+                    toolName: update._meta?.claudeCode?.toolName || update.title || 'Unknown Tool',
+                    toolCallId,
+                    toolStatus: normalizeToolStatus(update.status),
+                    toolArgs: update.rawInput,
+                }
+                toolMap.set(toolCallId, entry)
+                return entry
+            }
+
+            case 'tool_call_update': {
+                const toolCallId = update.toolCallId
+                if (toolCallId) {
+                    const existing = toolMap.get(toolCallId)
+                    if (existing) {
+                        existing.toolStatus = normalizeToolStatus(update.status)
+                        if (update._meta?.claudeCode?.toolResponse !== undefined) {
+                            existing.toolResult = update._meta.claudeCode.toolResponse
+                        } else if (update.rawOutput !== undefined) {
+                            existing.toolResult = update.rawOutput
+                        }
+                        return null
+                    }
+                }
+                return null
+            }
+
+            default:
+                return null
         }
     }
 
@@ -79,17 +167,25 @@ function parseACPNotification(parsed: ACPNotification, id: string): LogEntry | n
         return null
     }
 
+    if (notification.id !== undefined && method) {
+        return null
+    }
+
+    if (method?.startsWith('__posthog/') || method?.startsWith('_posthog/')) {
+        return null
+    }
+
     return null
 }
 
-export function parseLogLine(line: string, index: number): LogEntry | null {
+function parseLogLine(line: string, index: number, toolMap: Map<string, LogEntry>): LogEntry | null {
     const id = `log-${index}`
 
     try {
         const parsed = JSON.parse(line)
 
         if (isACPNotification(parsed)) {
-            return parseACPNotification(parsed, id)
+            return parseACPNotification(parsed, id, toolMap)
         }
 
         if (parsed.toolName || parsed.tool_name || parsed.tool) {
@@ -142,7 +238,11 @@ export function parseLogLine(line: string, index: number): LogEntry | null {
             }
         }
 
-        return null
+        return {
+            id,
+            type: 'raw',
+            raw: line,
+        }
     } catch {
         return {
             id,
@@ -157,9 +257,17 @@ export function parseLogs(logs: string): LogEntry[] {
         return []
     }
 
-    return logs
-        .split('\n')
-        .filter((line) => line.trim())
-        .map((line, index) => parseLogLine(line, index))
-        .filter((entry): entry is LogEntry => entry !== null)
+    const toolMap = new Map<string, LogEntry>()
+    const entries: LogEntry[] = []
+
+    const lines = logs.split('\n').filter((line) => line.trim())
+
+    for (let i = 0; i < lines.length; i++) {
+        const entry = parseLogLine(lines[i], i, toolMap)
+        if (entry !== null) {
+            entries.push(entry)
+        }
+    }
+
+    return entries
 }

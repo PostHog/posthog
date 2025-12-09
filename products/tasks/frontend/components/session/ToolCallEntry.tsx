@@ -30,10 +30,11 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
             <button
                 type="button"
                 onClick={() => hasContent && setIsOpen(!isOpen)}
-                className={`flex items-center gap-2 w-full text-left rounded px-2 py-1 ${
+                className={`flex items-center gap-2 w-full text-left rounded py-1 ${
                     hasContent ? 'hover:bg-bg-light cursor-pointer' : 'cursor-default'
                 }`}
             >
+                {timestamp && <span className="text-xs text-muted">{new Date(timestamp).toLocaleTimeString()}</span>}
                 {hasContent && (
                     <IconChevronRight
                         className={`text-muted transition-transform ${isOpen ? 'rotate-90' : ''}`}
@@ -45,11 +46,10 @@ export function ToolCallEntry({ toolName, status, args, result, timestamp }: Too
                 <LemonTag type={config.type} size="small">
                     {config.label}
                 </LemonTag>
-                {timestamp && <span className="text-xs text-muted ml-auto">{new Date(timestamp).toLocaleTimeString()}</span>}
             </button>
 
             {isOpen && hasContent && (
-                <div className="ml-6 mt-1 rounded bg-bg-light p-2 overflow-hidden">
+                <div className="ml-5 mt-1 rounded bg-bg-light p-2 overflow-hidden">
                     {args && (
                         <div className="mb-2">
                             <div className="text-xs font-medium text-muted mb-1">Arguments</div>

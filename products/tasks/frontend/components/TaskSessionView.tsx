@@ -30,26 +30,33 @@ function LogEntryRenderer({ entry }: { entry: LogEntry }): JSX.Element | null {
             )
         case 'user':
             return (
-                <div className="bg-accent-highlight rounded-lg px-3 py-2 mt-4 max-w-[80%]">
-                    <div className="text-xs text-muted mb-1">User</div>
-                    <div className="text-sm">{entry.message}</div>
+                <div className="py-2">
+                    <div className="flex items-center gap-2 mb-1">
+                        {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                        <span className="text-xs text-muted">User</span>
+                    </div>
+                    <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
                 </div>
             )
         case 'agent':
             return (
                 <div className="py-2">
-                    <div className="text-xs text-muted mb-1">Agent</div>
+                    <div className="flex items-center gap-2 mb-1">
+                        {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                        <span className="text-xs text-muted">Agent</span>
+                    </div>
                     <div className="text-sm whitespace-pre-wrap">{entry.message}</div>
                 </div>
             )
         case 'system':
             return (
-                <div className="py-1 text-xs text-muted italic">
-                    {entry.message}
+                <div className="flex items-center gap-2 py-1">
+                    {entry.timestamp && <span className="text-xs text-muted">{new Date(entry.timestamp).toLocaleTimeString()}</span>}
+                    <span className="text-xs text-muted italic">{entry.message}</span>
                 </div>
             )
         case 'raw':
-            return <div className="py-0.5 text-xs font-mono text-muted">{entry.raw}</div>
+            return <div className="py-0.5 text-xs font-mono text-muted break-all">{entry.raw}</div>
         default:
             return null
     }
