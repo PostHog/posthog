@@ -49,6 +49,9 @@ services:
                         path /public/webhooks
                         path /public/webhooks/
                         path /public/webhooks/*
+                        path /public/short_links
+                        path /public/short_links/
+                        path /public/short_links/*
                         path /public/m/
                         path /public/m/*
                     }

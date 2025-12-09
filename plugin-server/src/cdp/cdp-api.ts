@@ -124,6 +124,7 @@ export class CdpApi {
         router.get('/api/messaging/validate_preferences_token/:token', asyncHandler(this.validatePreferencesToken()))
         router.post('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
         router.get('/public/webhooks/:webhook_id', asyncHandler(this.handleWebhook()))
+        router.get('/public/short_links/:short_id', asyncHandler(this.handleShortLink()))
         router.get('/public/m/pixel', asyncHandler(this.getEmailTrackingPixel()))
         router.post('/public/m/ses_webhook', express.text(), asyncHandler(this.postSesWebhook()))
         router.get('/public/m/redirect', asyncHandler(this.getEmailTrackingRedirect()))
@@ -465,6 +466,43 @@ export class CdpApi {
             res.status(500).json({ error: [e.message] })
         }
     }
+
+    private handleShortLink =
+        () =>
+        async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+            const { short_id } = req.params
+
+            try {
+                const result = await this.cdpSourceWebhooksConsumer.processWebhook(short_id, req)
+
+                if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
+                    // TODO: Better validation here before we directly use the result
+                    const httpResponse = result.execResult.httpResponse as HogFunctionWebhookResult
+                    if (typeof httpResponse.body === 'object' && 'redirect_url' in httpResponse.body) {
+                        return res.redirect(httpResponse.body.redirect_url)
+                    }
+                }
+
+                if (result.error) {
+                    return res.status(500).json({
+                        status: 'Unhandled error',
+                    })
+                }
+                if (!result.finished) {
+                    return res.status(201).json({
+                        status: 'queued',
+                    })
+                }
+                return res.status(200).json({
+                    status: 'ok',
+                })
+            } catch (error) {
+                if (error instanceof SourceWebhookError) {
+                    return res.status(error.status).json({ error: error.message })
+                }
+                return res.status(500).json({ error: 'Internal error' })
+            }
+        }
 
     private handleWebhook =
         () =>
